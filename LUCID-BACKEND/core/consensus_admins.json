@@ -1,0 +1,43 @@
+{
+  "consensus_admins": [
+    {
+      "github_username": "GareBear99",
+      "role": "founder",
+      "permissions": [
+        "full_access",
+        "validate_users",
+        "moderate_consensus",
+        "bypass_rate_limits",
+        "system_admin",
+        "grant_admin",
+        "revoke_admin"
+      ],
+      "validated_by": "consensus",
+      "validated_at": "2025-01-23T00:00:00Z",
+      "notes": "LuciferAI Project Founder"
+    }
+  ],
+  "admin_permissions": {
+    "founder": [
+      "full_access",
+      "validate_users",
+      "moderate_consensus",
+      "bypass_rate_limits",
+      "system_admin",
+      "grant_admin",
+      "revoke_admin",
+      "view_all_ids",
+      "system_diagnostics"
+    ],
+    "admin": [
+      "validate_users",
+      "moderate_consensus",
+      "bypass_rate_limits",
+      "view_all_ids"
+    ],
+    "moderator": [
+      "moderate_consensus",
+      "view_reported_content"
+    ]
+  }
+}

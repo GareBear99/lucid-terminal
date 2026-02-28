@@ -1,0 +1,22 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.lucid.terminal
+productName: Lucid Terminal
+npmRebuild: false
+files:
+  - filter:
+      - dist/**/*
+      - dist-electron/**/*
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+electronVersion: 28.3.3

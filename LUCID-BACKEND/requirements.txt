@@ -1,0 +1,30 @@
+# LuciferAI Local - Core Dependencies
+# Install with: pip install -r requirements.txt
+
+# Terminal & UI
+rich>=13.7.0
+colorama>=0.4.6
+prompt_toolkit>=3.0.43
+
+# File operations
+watchdog>=4.0.0
+pathspec>=0.12.1
+
+# Code analysis
+ast-grep-py>=0.15.0
+pygments>=2.17.2
+
+# Utils
+psutil>=5.9.8
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+
+# Later: AI models (test without these first)
+# mistralai>=0.1.0
+# openai>=1.12.0
+
+# API Server
+fastapi>=0.109.0
+uvicorn>=0.27.0
+python-multipart>=0.0.9
+

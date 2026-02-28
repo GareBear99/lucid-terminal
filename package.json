@@ -1,0 +1,80 @@
+{
+  "name": "lucid-terminal",
+  "version": "1.0.0",
+  "description": "AI-Powered Terminal Application",
+  "main": "dist-electron/main.js",
+  "author": "Lucid Terminal",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && electron-builder",
+    "build:win": "tsc && vite build && electron-builder --win",
+    "preview": "vite preview",
+    "electron:dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test:verify": "node test-lucid.js",
+    "test:workflow": "node test-workflow-cli.js",
+    "workflow:check": "node test-workflow-cli.js"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "electron-store": "^8.1.0",
+    "lucide-react": "^0.312.0",
+    "minimatch": "^10.2.4",
+    "node-pty": "^1.1.0",
+    "openai": "^4.28.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.34",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12",
+    "vite-plugin-electron": "^0.28.0",
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.lucid.terminal",
+    "productName": "Lucid Terminal",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

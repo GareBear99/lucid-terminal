@@ -1,0 +1,15 @@
+
+> lucid-terminal@1.0.0 typecheck
+> tsc --noEmit
+
+src/App.tsx(41,38): error TS6133: 'id' is declared but its value is never read.
+src/App.tsx(41,42): error TS6133: 'data' is declared but its value is never read.
+src/components/Layout/Sidebar.tsx(11,3): error TS6133: 'Plus' is declared but its value is never read.
+src/components/Layout/Sidebar.tsx(15,3): error TS6133: 'Trash2' is declared but its value is never read.
+src/components/Layout/Sidebar.tsx(70,9): error TS6133: 'handleDelete' is declared but its value is never read.
+src/components/Layout/StatusBar.tsx(1,25): error TS6133: 'GitBranch' is declared but its value is never read.
+src/components/Settings/SettingsPanel.tsx(15,17): error TS6133: 'ThemeColors' is declared but its value is never read.
+src/components/Settings/SettingsPanel.tsx(457,31): error TS2352: Conversion of type 'ThemeColors' to type 'Record<string, string>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'ThemeColors'.
+src/stores/aiStore.ts(2,42): error TS6305: Output file 'H:/AI TERMINAL/lucid-terminal/dist-electron/electron/preload.d.ts' has not been built from source file 'H:/AI TERMINAL/lucid-terminal/electron/preload.ts'.
+src/stores/terminalStore.ts(18,61): error TS6133: 'get' is declared but its value is never read.

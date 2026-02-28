@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+Luci_Environments/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# Temp files
+*.log
+*.tmp
+.temp/
+temp/
+.luc/
+output.txt
+
+# Backup files
+*.bak
+*.bak2
+*.bak3
+*.current_backup
+
+# LuciferAI local data
+.luciferai/
+
+# Model files (large binaries)
+models/*.gguf
+models/custom_models/*.gguf
+
+# Image assets (optional - remove if you want to include)
+*.webp
+
+# Session/history files
+.luciferai_history
+bin/llamafile
+
+# Patent and legal documents (NEVER commit these)
+PATENT_STRATEGY.md
+USPTO_FILING_PACKAGE.md
+*PATENT*.md
+*USPTO*.md

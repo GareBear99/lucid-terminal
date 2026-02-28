@@ -1,0 +1,62 @@
+Relic Name,Type,Effect Summary,Level Stats,Drop Info,Notes
+=== BASE RELICS (TIER I) ===,,,,,
+Fury Shard,Stat,"+10% ATK, +Speed","Lv1 +5% ATK, +2% SPD
+Lv2 +10% ATK, +4% SPD
+Lv3 +15% ATK, +6% SPD","Drops from any boss
+Normal 2% / Insane 4%",Synergy: Infernal Host (Fire boost)
+Soul Bloom,Trigger,Heals on kill,"Lv1 +5% HP
+Lv2 +10% HP
+Lv3 +15% HP","Drops from any boss
+Normal 2% / Insane 4%",Synergy: Gaia’s Spite (Earth regen)
+Infernal Treads,Elemental,Fire trail while moving,"Lv1 +5% burn dmg
+Lv2 +10% burn dmg
+Lv3 +15% burn dmg","Drops from any boss
+Normal 2% / Insane 4%",Synergy: Zap Tap + Infernal Host
+,,,,,
+=== DIVINE RELICS (TIER II) ===,,,,,
+Zap Tap,Reactive,Electrifies attackers,"Lv1 +10% dmg
+Lv2 +20%
+Lv3 +30%
+Lv4 +40%
+Lv5 +50% + chain +2",Drops from Industrial Castle zap posts (5%),"Synergy: Frostbane (freeze+zap), Cataclysm (+ATK after freeze)"
+Infernal Host,Elemental,Ignites enemies on hit,"Lv1 +5% burn
+Lv2 +10%
+Lv3 +15%
+Lv4 +20%
+Lv5 +25% + chain on death",Drops from Fire Demon boss (3% / 8%),"Synergy: Frostbane (Steam), Zap Tap (Dual Burn)"
+Gaia’s Spite,Elemental,Spikes erupt on hit,"Lv1 +5% dmg
+Lv2 +10%
+Lv3 +15%
+Lv4 +20%
+Lv5 +25% + stun chance",Drops from Cyclops boss (0.9% / 6%),Synergy: Zap Tap (Conductive Quakes)
+,,,,,
+=== APOSTLE RELICS (TIER III) ===,,,,,
+Blight of Necromancer,Summon,Summons skeleton army (scales with magic),"Lv1–10: Unlocks defense, relic slots, and skill logic (juggle/shield)
+Lv10 adds 10% chance to spawn stat clone + 7% weapon clone",Unlocks via Necromancer character after Industrial Castle (Insane),"RXP gained by skeletons, 15% spill to player"
+Crown of Frostbane,Elemental,Summons Frostbane Blizzard,"Lv1–10: Freeze radius, slow, and Frost Aura +10% DEF, +20% slow resist shared with allies",Drops from Ice King boss (0.05% / 9%),"Synergy: Zap Tap (+0.5s freeze), Cataclysm (+10% ATK after freeze)"
+Heart of Cataclysm,Rage,Converts mana → Rage (toggle),"Lv1–10: Continuous buff scaling, Rage drains faster with higher power; RXP mirrors XP during activation",Earned by defeating Volcano Dragon w/out dying,"Synergy: Infernal Host (+burn sustain), allies gain yellow-red glow"
+,,,,,
+=== WEAPON-RELIC HYBRID ===,,,,,
+Stormcall Staff,Weapon-Relic,Spawns storm clouds that strike lightning,"Lv1–5: +Mana regen, +cloud spawn rate
+Clouds: 3 strikes, vertical zap + rain dmg, may spawn Blizzard clouds",Buyable after collecting all Apostle relics,"Synergy: Blight (skeletons), Frostbane (ice), Cataclysm (rage)"
+,,,,,
+=== ASCENDED / MYTHIC RELICS (TIER V) ===,,,,,
+Aetherion,Ascended Mythic Relic,Forged from all max-level relics + Stormcall Staff,"Combines all elemental powers, evolves via AXP Prestige ranks",Forged in the Forge of Aether (requires all relics maxed),Final endgame relic; consumes all materials; grants Mythic Revelation
+,,,,,
+=== PETS & FOLLOWERS ===,,,,,
+Glitch Pet,Aether-Class Pet,Chains random elemental every 6s,"Mirrors player’s magic (0.5× STR boost)
+Allows dual pet orbs",Found in Aetherion Chamber after forging Aetherion,"Synergy: Aetherion, Zap Tap, Frostbane"
+Volt Sprite,Elemental Pet,Chain lightning every 4s,"+5% Magic, +5% Attack Speed","Buyable (12,000g, Staff Shop)",Synergy: Zap Tap
+Emberling,Elemental Pet,Ignites nearby enemies,"+10% burn duration, +10% Rage regen","Buyable (12,000g, Staff Shop)","Synergy: Infernal Host, Cataclysm"
+Cryofin,Elemental Pet,Fires ice shard every 5s,"+5% DEF, +10% Freeze duration","Buyable (12,000g, Staff Shop)",Synergy: Crown of Frostbane
+Terracub,Elemental Pet,Creates quake every 6s,"+5% HP, +10% Knockback resist","Buyable (12,000g, Staff Shop)",Synergy: Gaia’s Spite
+Mire Wisp,Elemental Pet,"Drains 0.5% HP every 5s, heals player","+5% Lifesteal, +10% XP gain","Buyable (12,000g, Staff Shop)",Synergy: Blight of Necromancer
+Rage Imp,Elemental Pet,Strikes enemies every 2s,"+10% Rage gain, +10% Attack Speed","Buyable (12,000g, Staff Shop)",Synergy: Heart of Cataclysm
+,,,,,
+=== FORGE / PIT / PRESTIGE SYSTEMS ===,,,,,
+Forge of Aether,System,Combines Base + Divine + Apostle + Staff → Transcendent Relic,"Requires relics at max level
+Costs Prestige Crystals gained from relic prestiges",Accessible after obtaining all Apostle relics,Unlocks Transcendent crafting
+Pit of 100 Trials,Challenge,Endless arena with 100 floors,"Shops every 10 floors (buffs, potions, followers)
+Rewards every 25 floors",Access via purple pipe beside Forge (50 coins entry),Requires 3 Base relics to activate first time
+Prestige Crystal,Currency,Earned by prestiging relics or completing Pit floors,"Used to craft Transcendent relics, enhance Aetherion, or purchase buffs",Granted automatically on relic prestige,Meta-progression currency
+,,,,,

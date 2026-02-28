@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist/
+build/
+out/
+*.js
+*.js.map
+*.d.ts
+!electron/**/*.js
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# FixNet data
+fixnet/
+.fixnet/
+*.fixnet
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary
+tmp/
+temp/
+*.tmp

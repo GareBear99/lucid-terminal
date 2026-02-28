@@ -1,0 +1,6 @@
+
+> lucid-terminal@1.0.0 typecheck
+> tsc --noEmit
+
+src/components/Layout/Sidebar.tsx(38,5): error TS6133: 'deleteItem' is declared but its value is never read.
+src/components/Layout/StatusBar.tsx(1,25): error TS6133: 'GitBranch' is declared but its value is never read.

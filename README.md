@@ -14,6 +14,18 @@
 
 ---
 
+## 📸 Screenshots
+
+### Main Interface
+![Lucid Terminal UI](docs/images/lucid-terminal-ui.jpg)
+*Lucid Terminal with 72% offline status, dual terminal tabs, and integrated file explorer*
+
+### Command Reference
+![Command Reference](docs/images/command-reference.jpg)
+*Complete command reference with 45+ commands across 12 categories*
+
+---
+
 ## ✨ Key Features
 
 ### 🎯 LuciferAI Plugin Integration

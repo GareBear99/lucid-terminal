@@ -1,6 +1,6 @@
 # 🔥 Lucid Terminal - Agentic Development Environment
 
-> **AI-Powered Terminal • 72% Offline Success • LuciferAI Integration • Warp AI UX • Privacy-First**
+> **AI-Native Terminal • 72% Offline Success • LuciferAI Built-In • Enterprise-Grade • Privacy-First**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
@@ -8,9 +8,21 @@
 [![Open Source](https://img.shields.io/badge/Open%20Source-❤️-green.svg)]()
 [![Node.js](https://img.shields.io/badge/Node.js-16+-brightgreen)](https://nodejs.org/)
 
-**Lucid Terminal** is a next-generation terminal application featuring deep AI integration with the **LuciferAI plugin system**. Experience **Warp AI-style UX** with **72% offline success rate**, **5-tier model routing**, and **intelligent fix quality grading**. Built for developers who demand both power and privacy.
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/rustyspoon)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/rustyspoon)
+[![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?style=flat&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/GareBear99)
 
-*"Forged in Code, Powered by Intelligence."*
+**Lucid Terminal** is a modern, AI-native terminal application built from the ground up with intelligence at its core. Unlike traditional terminals with AI bolted on, Lucid integrates **[LuciferAI](https://github.com/GareBear99/LuciferAI_Local)** as its native execution engine, bringing professional-grade AI assistance directly into your development workflow.
+
+### What Makes Lucid Different?
+
+**Not a Fork, Not a Wrapper** - Lucid Terminal is original TypeScript/Electron architecture that implements LuciferAI's proven offline-first principles as a native plugin system. While inspired by modern terminal UX patterns, every line is purpose-built for AI integration.
+
+**LuciferAI as the Default Engine** - LuciferAI isn't an add-on; it's the core execution layer. The terminal is designed around its 5-tier model system, FixNet consensus engine, and quality grading algorithms. Think of Lucid as the professional GUI frontend to LuciferAI's powerful backend.
+
+**Enterprise-Grade Architecture** - Built with TypeScript, Electron, and React for production reliability. DARPA-level documentation, security-first design, and comprehensive testing make this ready for serious development work.
+
+*"Professional AI Development, Zero Compromise."*
 
 ---
 
@@ -313,9 +325,16 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-Inspired by:
-- **[LuciferAI_Local](https://github.com/GareBear99/LuciferAI_Local)** - FixNet system and offline-first architecture
-- **[Warp](https://www.warp.dev/)** - Modern terminal UX and segmented display
+**Built on LuciferAI's Foundation**:
+
+Lucid Terminal implements the core AI principles and algorithms from **[LuciferAI_Local](https://github.com/GareBear99/LuciferAI_Local)**, including:
+- FixNet consensus system and quality grading
+- 5-tier model routing with intelligent fallback
+- Offline-first architecture (72% success without LLM)
+- Step-by-step validation and auto-fix patterns
+- Relevance scoring formula: `similarity*0.40 + successRate*0.30 + recency*0.20 + usage*0.10`
+
+Lucid Terminal brings these proven algorithms into a modern Electron-based GUI with professional TypeScript architecture, file explorer integration, and real-time visual feedback. While LuciferAI_Local excels as a CLI tool, Lucid targets developers who want the same intelligence in a full-featured terminal application.
 
 ---
 

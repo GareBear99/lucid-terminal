@@ -44,3 +44,15 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Build artifacts that exceed GitHub limits
+*.dmg
+*.zip
+*.app/
+Electron Framework
+dist/mac/
+dist/mac-arm64/
+release/
+out/mac/
+out/mac-arm64/
+LUCID-BACKEND/Lucid Terminal.app/

@@ -9,11 +9,12 @@ import { TokenStats } from '../tracking/tokenTracker';
 export interface ModelConfig {
   name: string;
   tier: number;
-  provider: 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'local';
+  provider: 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'llamafile' | 'local';
   endpoint?: string;
   apiKey?: string;
   maxTokens?: number;
   temperature?: number;
+  llamafilePath?: string; // Path to llamafile binary for this model
 }
 
 export interface GenerationRequest {
@@ -47,6 +48,8 @@ export class ModelBackend {
     
     try {
       switch (this.config.provider) {
+        case 'llamafile':
+          return await this._generateLlamafile(request);
         case 'ollama':
           return await this._generateOllama(request);
         case 'lmstudio':
@@ -61,6 +64,76 @@ export class ModelBackend {
     } catch (error: any) {
       throw new Error(`Model generation failed: ${error.message}`);
     }
+  }
+  
+  /**
+   * Generate using llamafile (local binary)
+   */
+  private async _generateLlamafile(request: GenerationRequest): Promise<GenerationResponse> {
+    // Llamafile uses OpenAI-compatible API on local port
+    const endpoint = this.config.endpoint || 'http://localhost:8080';
+    
+    // Build messages array
+    const messages: any[] = [];
+    
+    if (request.systemPrompt) {
+      messages.push({
+        role: 'system',
+        content: request.systemPrompt
+      });
+    }
+    
+    if (request.conversationHistory) {
+      messages.push(...request.conversationHistory);
+    }
+    
+    messages.push({
+      role: 'user',
+      content: request.prompt
+    });
+    
+    // Call llamafile OpenAI-compatible API
+    const response = await fetch(`${endpoint}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages,
+        stream: false,
+        temperature: request.temperature || this.config.temperature || 0.7,
+        max_tokens: request.maxTokens || this.config.maxTokens || 2048,
+        stop: request.stopSequences
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Llamafile API error: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const choice = data.choices?.[0];
+    
+    if (!choice) {
+      throw new Error('No response from llamafile');
+    }
+    
+    // Extract token stats
+    const promptTokens = data.usage?.prompt_tokens || this._estimateTokens(request.prompt);
+    const generatedTokens = data.usage?.completion_tokens || this._estimateTokens(choice.message.content);
+    
+    return {
+      text: choice.message.content,
+      tokenStats: {
+        prompt_tokens: promptTokens,
+        generated_tokens: generatedTokens,
+        total_tokens: promptTokens + generatedTokens,
+        prompt_chars: request.prompt.length,
+        generated_chars: choice.message.content.length,
+        prompt_words: this._countWords(request.prompt),
+        generated_words: this._countWords(choice.message.content)
+      },
+      model: this.config.name,
+      finishReason: choice.finish_reason || 'stop'
+    };
   }
   
   /**

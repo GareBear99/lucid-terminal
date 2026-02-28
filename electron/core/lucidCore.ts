@@ -18,6 +18,7 @@ import { WorkflowOrchestrator, WorkflowContext, WorkflowResult } from './workflo
 import { ModelBackendManager } from './llm/modelBackend';
 import { ModelTierRegistry } from './models/modelTiers';
 import { CommandDisplay, CommandBlock } from './display/commandDisplay';
+import { LlamafileManager } from './llm/llamafileManager';
 
 export interface LucidConfig {
   userHomeDir?: string;
@@ -34,6 +35,7 @@ export class LucidCore {
   private toolRegistry: ToolRegistry;
   private workflow: WorkflowOrchestrator;
   private backendManager: ModelBackendManager;
+  private llamafileManager: LlamafileManager;
   private context: WorkflowContext;
   
   private constructor(
@@ -44,6 +46,7 @@ export class LucidCore {
     toolRegistry: ToolRegistry,
     workflow: WorkflowOrchestrator,
     backendManager: ModelBackendManager,
+    llamafileManager: LlamafileManager,
     context: WorkflowContext
   ) {
     this.intentParser = intentParser;
@@ -53,6 +56,7 @@ export class LucidCore {
     this.toolRegistry = toolRegistry;
     this.workflow = workflow;
     this.backendManager = backendManager;
+    this.llamafileManager = llamafileManager;
     this.context = context;
   }
   
@@ -63,52 +67,65 @@ export class LucidCore {
     const userHomeDir = config.userHomeDir || os.homedir();
     const lucidDir = path.join(userHomeDir, '.lucid');
     
+    console.log('[LucidCore] Initializing...');
+    
+    // Initialize llamafile manager (like LuciferAI_Local)
+    const llamafileManager = new LlamafileManager(lucidDir);
+    try {
+      await llamafileManager.initialize();
+      console.log('[LucidCore] ✅ Llamafile manager initialized');
+    } catch (error: any) {
+      console.warn('[LucidCore] ⚠️ Llamafile initialization failed:', error.message);
+      console.warn('[LucidCore] Terminal will work with limited LLM capabilities');
+    }
+    
     // Initialize components
     const modelRegistry = new ModelTierRegistry();
     const tokenTracker = new TokenTracker(lucidDir);
     const backendManager = new ModelBackendManager();
     
-    // Register model backends (Ollama defaults)
+    // Register model backends (llamafile - local binaries)
+    // These use llamafile binaries like LuciferAI_Local
     backendManager.register('tinyllama', {
       name: 'tinyllama',
       tier: 0,
-      provider: 'ollama',
-      endpoint: 'http://localhost:11434'
+      provider: 'llamafile',
+      endpoint: 'http://localhost:8080' // llamafile default port
     });
     
     backendManager.register('phi-2', {
       name: 'phi-2',
       tier: 1,
-      provider: 'ollama',
-      endpoint: 'http://localhost:11434'
+      provider: 'llamafile',
+      endpoint: 'http://localhost:8081'
     });
     
     backendManager.register('mistral', {
       name: 'mistral',
       tier: 2,
-      provider: 'ollama',
-      endpoint: 'http://localhost:11434'
+      provider: 'llamafile',
+      endpoint: 'http://localhost:8082'
     });
     
     backendManager.register('llama3.1:8b', {
       name: 'llama3.1:8b',
       tier: 2,
-      provider: 'ollama',
-      endpoint: 'http://localhost:11434'
+      provider: 'llamafile',
+      endpoint: 'http://localhost:8083'
     });
     
     backendManager.register('deepseek-coder:33b', {
       name: 'deepseek-coder:33b',
       tier: 3,
-      provider: 'ollama',
-      endpoint: 'http://localhost:11434'
+      provider: 'llamafile',
+      endpoint: 'http://localhost:8084'
     });
     
     backendManager.register('llama3.1:70b', {
       name: 'llama3.1:70b',
       tier: 4,
-      provider: 'ollama',
-      endpoint: 'http://localhost:11434'
+      provider: 'llamafile',
+      endpoint: 'http://localhost:8085'
     });
     
     // Initialize bypass router
@@ -145,6 +162,8 @@ export class LucidCore {
       context
     );
     
+    console.log('[LucidCore] ✅ Initialization complete');
+    
     return new LucidCore(
       intentParser,
       bypassRouter,
@@ -153,6 +172,7 @@ export class LucidCore {
       toolRegistry,
       workflow,
       backendManager,
+      llamafileManager,
       context
     );
   }

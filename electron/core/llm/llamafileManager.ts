@@ -101,7 +101,38 @@ export class LlamafileManager {
     // 3. Validate installed binaries
     await this._validateInstalledBinaries();
     
+    // 4. Auto-start Tier 0 model (like LuciferAI_Local)
+    await this._autoStartBaseModel();
+    
     console.log('[LlamafileManager] ✅ Initialization complete');
+  }
+  
+  /**
+   * Auto-start Tier 0 model if available (like TinyLlama)
+   * This ensures we have at least one model ready immediately
+   */
+  private async _autoStartBaseModel(): Promise<void> {
+    // Find first Tier 0 model that's installed and validated
+    const tier0Models = Array.from(this.models.values())
+      .filter(m => m.tier === 0 && m.installed && m.validated)
+      .sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
+    
+    if (tier0Models.length === 0) {
+      console.log('[LlamafileManager] No Tier 0 models available for auto-start');
+      console.log('[LlamafileManager] Terminal will work in standalone mode');
+      return;
+    }
+    
+    const baseModel = tier0Models[0];
+    console.log(`[LlamafileManager] Auto-starting base model: ${baseModel.name}`);
+    
+    try {
+      await this.startServer(baseModel.name, 8080); // Default port
+      console.log('[LlamafileManager] ✅ Base model server ready');
+    } catch (error: any) {
+      console.warn(`[LlamafileManager] ⚠️ Could not auto-start ${baseModel.name}:`, error.message);
+      console.warn('[LlamafileManager] You can start models manually with /model command');
+    }
   }
   
   /**

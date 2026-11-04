@@ -338,6 +338,74 @@ button {
   background-color: var(--accent);
 }
 
+/* Top-left TitleBar dot — background-loading swirl + spin charge.
+   Shown only while background work is active (loadingStore.isLoading).
+   The ring is a conic gradient masked to a 2px band, rotating 720deg per
+   loop with an ease curve so each loop reads as spinning up; the charge
+   arc on the dot itself fills, holds, then drains (reloads) on the same
+   1.6s cycle. Pure CSS, no JS timers. */
+.titlebar-swirl-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, var(--accent), #a855f7, #6366f1, #38bdf8, var(--accent));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  animation: titlebar-swirl 1.6s cubic-bezier(0.2, 0.65, 0.3, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes titlebar-swirl {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(720deg); }
+}
+
+.titlebar-charge-arc {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.titlebar-charge-arc circle {
+  /* r = 6.5 → circumference 2π×6.5 ≈ 40.84 */
+  stroke-dasharray: 40.84;
+  stroke-dashoffset: 40.84;
+  animation: titlebar-charge 1.6s ease-in-out infinite;
+}
+
+@keyframes titlebar-charge {
+  0% { stroke-dashoffset: 40.84; }
+  60% { stroke-dashoffset: 0; }
+  78% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 40.84; }
+}
+
+/* Sentinel face — blood drip from the fangs.
+   While LuciferAI is running a task (an AI-chat generation in flight),
+   tiny faint blood pixels fall from the fang tips. One keyframe: the
+   pixel falls BLOOD_FALL_DISTANCE (12 SVG units) and fades to nothing,
+   so it reads as falling off the face. The per-pixel duration is set
+   inline (900–1400ms, random) — the keyframe only fixes the path. */
+@keyframes sentinel-blood-drip {
+  0% { transform: translateY(0); opacity: 0.45; }
+  100% { transform: translateY(12px); opacity: 0; }
+}
+
+/* Sentinel face — horn wiggle on task complete.
+   Each horn rotates a few degrees toward the centre of the face and
+   back, ~450ms total. --wiggle-dir is 1 for the left horn (+6deg,
+   clockwise, tip moves right/inward) and -1 for the right horn.
+   The 65% overshoot (-2deg) gives it a wiggle instead of a plain tilt. */
+@keyframes sentinel-horn-wiggle {
+  0% { transform: rotate(0deg); }
+  35% { transform: rotate(calc(var(--wiggle-dir, 1) * 6deg)); }
+  65% { transform: rotate(calc(var(--wiggle-dir, 1) * -2deg)); }
+  100% { transform: rotate(0deg); }
+}
+
 /* Loading spinner */
 .spinner {
   @apply inline-block w-4 h-4 border-2 rounded-full animate-spin;

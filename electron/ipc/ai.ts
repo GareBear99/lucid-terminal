@@ -4,6 +4,7 @@ import { IpcMain, BrowserWindow } from 'electron';
 import { chat, cancelStream, hasApiKey, ChatMessage } from '../services/openai';
 import { chatLocal, checkLocalBackendHealth } from '../services/local_ai'; // Import local service
 import { historyManager } from '../services/historyManager';
+import { isAnyModelAvailable } from './lucidWorkflow';
 
 export function setupAIHandlers(ipcMain: IpcMain): void {
   // Get main window reference for sending stream events
@@ -14,16 +15,43 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
       // Check if local backend is running
       const isLocalUrlAvailable = await checkLocalBackendHealth();
 
-      if (isLocalUrlAvailable) {
+      // The wrapper can be up with no model loaded — sending to it returns
+      // a raw Python error, so only use it when a model is actually
+      // available.
+      const modelAvailable = isLocalUrlAvailable && (await isAnyModelAvailable());
+
+      if (modelAvailable) {
         console.log('Using Local LuciferAI Backend');
-        // Local backend currently only supports non-streaming responses in this iteration
-        // logic could be expanded to support streaming if the backend does
         const response = await chatLocal(messages, contextDirectory);
+        // The local backend answers whole-reply (no stream), but the UI
+        // only ever receives a reply through the stream events —
+        // AIChat discards this handler's return value, so returning
+        // without emitting left every local reply lost and the chat
+        // stuck on 'loading' (A-12). Deliver the reply as one stream
+        // chunk plus stream-end, exactly like the OpenAI path below:
+        // the UI accumulates it, completes the stream, and adds it to
+        // the generation's origin chat with its timestamp. Gated on
+        // `stream` like the OpenAI branch, so a non-streaming caller
+        // still just gets the return value.
+        if (stream && !sender.isDestroyed()) {
+          sender.send('ai:stream', response);
+          sender.send('ai:streamEnd');
+        }
         return response;
       }
 
-      // Fallback to OpenAI if local backend is down (or remove this if you want strictly local)
-      console.log('Local backend not available, falling back to OpenAI');
+      // No local model: fall back to OpenAI when a key is configured,
+      // otherwise report cleanly instead of sending to a model-less backend.
+      if (!hasApiKey()) {
+        const message = 'No model loaded — AI chat is unavailable. Install a model or add a license key.';
+        if (!sender.isDestroyed()) {
+          sender.send('ai:streamError', message);
+        }
+        return message;
+      }
+
+      // Fallback to OpenAI if local backend is down or has no model
+      console.log('Local backend has no model available, falling back to OpenAI');
 
       if (stream) {
         const response = await chat(

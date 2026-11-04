@@ -9,10 +9,10 @@
 
 ## Executive Summary
 
-Lucid Terminal is an AI-native development environment implementing LuciferAI's offline-first intelligence architecture within a modern Electron-based terminal application. The system achieves 72% functionality without external LLM calls through local template matching, quality-graded fix consensus, and intelligent fallback routing across 5 model tiers.
+Lucid Terminal is an AI-native development environment implementing LuciferAI's offline-first intelligence architecture within a modern Electron-based terminal application. The system handles deterministic commands and cached fixes without external LLM calls through local template matching, quality-graded fix consensus, and intelligent fallback routing across 5 model tiers.
 
 **Key Technical Achievements**:
-- 72% offline success rate (0% for competitors)
+- Offline success rate computed live from real FixNet lookups (no fixed percentage is claimed; see `fixnet stats`)
 - 11-grade quality system with automatic filtering
 - 5-tier model routing with < 100ms selection time
 - Real-time validation with auto-fix retry
@@ -95,7 +95,7 @@ User Input → IntentParser → WorkflowOrchestrator
         │                        │
         ▼                        ▼
    Template Match            LLM Required
-   (72% cases)              (28% cases)
+   (offline first)          (when needed)
         │                        │
         ▼                        ▼
    ScriptExecutor ←──────── OllamaClient
@@ -425,7 +425,7 @@ npm run build        # Electron build (platform-specific)
 - **Tier**: Model capability level (0=nano, 4=expert)
 - **Bypass Router**: Component selecting optimal model tier
 - **Quality Grade**: A+ to F- rating for fix relevance
-- **Offline Success**: Operations completed without LLM (72%)
+- **Offline Success**: Operations completed without LLM (rate measured live from real lookups; no fixed percentage claimed)
 
 ## Appendix B: References
 

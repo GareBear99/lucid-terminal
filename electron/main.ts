@@ -5,6 +5,8 @@ import { setupTerminalHandlers } from './ipc/terminal';
 import { setupAIHandlers } from './ipc/ai';
 import { setupSettingsHandlers } from './ipc/settings';
 import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
+import { setupSystemHandlers } from './ipc/system';
+import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { apiKeyStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
@@ -77,6 +79,13 @@ app.whenReady().then(() => {
   setupAIHandlers(ipcMain);
   setupSettingsHandlers(ipcMain);
   setupLucidWorkflowHandlers(ipcMain);
+  setupSystemHandlers(ipcMain);
+  setupDaemonHandlers(ipcMain);
+
+  // Start the file-watcher daemon when the setting says so (and watch
+  // paths exist). The watcher is a background Python process; it stops
+  // with the app (see will-quit below).
+  maybeAutoStartDaemon();
 
   // License Key Handlers
   ipcMain.handle('settings:setLicenseKey', (_, key) => {
@@ -135,6 +144,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  stopDaemonSync(); // Stop the file-watcher daemon (sync: will-quit cannot await)
   stopBackend(); // CLEANUP
 });
 

@@ -403,7 +403,7 @@ def display_banner(mode: str = "Rule-Based", user_id: str = "Unknown"):
         print(c("   📦 llamafile not installed", "yellow"))
         print(c("      Type: ./setup_bundled_models.sh", "dim"))
     
-    # Show bundled models from .luciferai/models/
+    # Show bundled models from models/ (canonical layout)
     if models['bundled_models']:
         print(c("\n   📦 Bundled Models:", "cyan"))
         

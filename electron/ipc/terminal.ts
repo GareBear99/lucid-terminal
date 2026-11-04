@@ -7,6 +7,7 @@ import {
   destroyTerminal,
   getTerminalCwd,
 } from '../services/simpleTerminal';
+import { runCommand } from '../core/tools/commandTools';
 
 export function setupTerminalHandlers(ipcMain: IpcMain): void {
   // Create a new terminal instance
@@ -48,5 +49,19 @@ export function setupTerminalHandlers(ipcMain: IpcMain): void {
   // Get current working directory
   ipcMain.handle('terminal:getCwd', async (_, id: string): Promise<string> => {
     return getTerminalCwd(id);
+  });
+
+  // Execute a one-shot shell command and return its output.
+  // Reuses the command tools' runCommand (30s timeout, 10MB buffer,
+  // refuses risky commands such as `sudo`, `rm -rf /`, `curl | bash`).
+  // No new privilege: the renderer already has unrestricted PTY shell
+  // access via terminal:create/write.
+  ipcMain.handle('terminal:executeCommand', async (_, command: string) => {
+    const result = await runCommand(command);
+    return {
+      success: result.success,
+      output: result.output,
+      error: result.error,
+    };
   });
 }

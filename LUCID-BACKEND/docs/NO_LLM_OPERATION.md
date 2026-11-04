@@ -14,7 +14,7 @@ LuciferAI is a **dual-mode AI assistant** that functions as both:
 1. **Full AI Mode** - Complete LLM-powered natural language processing
 2. **Zero-LLM Mode** - Comprehensive command-line tool with 50+ built-in operations
 
-**Key Innovation:** Unlike competitors (Copilot, Cursor, Codeium) that fail without cloud/API access, LuciferAI maintains **72% of core functionality** without any LLM, making it operational in:
+**Key Innovation:** Unlike competitors (Copilot, Cursor, Codeium) that fail without cloud/API access, LuciferAI's deterministic command layer keeps working without any LLM, making it operational in:
 - Air-gapped environments
 - Offline deployments
 - Low-resource systems (2GB RAM)
@@ -71,10 +71,10 @@ LuciferAI is a **dual-mode AI assistant** that functions as both:
 
 | Mode | LLM Required | Functionality | Use Case |
 |------|--------------|---------------|----------|
-| **Full AI** | ✅ Yes | 100% features | Development, code generation |
-| **Hybrid** | ⚠️ Optional | 85% features | Intermittent connectivity |
-| **Zero-LLM** | ❌ No | 72% features | Air-gapped, offline, emergency |
-| **Emergency** | ❌ No | 45% features | System recovery, diagnostics |
+| **Full AI** | ✅ Yes | all features | Development, code generation |
+| **Hybrid** | ⚠️ Optional | most features | Intermittent connectivity |
+| **Zero-LLM** | ❌ No | deterministic commands | Air-gapped, offline, emergency |
+| **Emergency** | ❌ No | recovery + diagnostics | System recovery, diagnostics |
 
 ---
 
@@ -647,9 +647,9 @@ FixNet check: 94% of users add timeout parameter
 
 | Feature | LuciferAI | GitHub Copilot | Cursor | Codeium |
 |---------|-----------|----------------|--------|---------|
-| **Works Offline** | ✅ 72% features | ❌ No | ❌ No | ❌ No |
+| **Works Offline** | ✅ Yes (deterministic commands) | ❌ No | ❌ No | ❌ No |
 | **Zero-LLM Mode** | ✅ Yes | ❌ No | ❌ No | ❌ No |
-| **Fix Database** | ✅ 10K+ fixes | ❌ No | ❌ No | ❌ No |
+| **Fix Database** | ✅ Local fix dictionary | ❌ No | ❌ No | ❌ No |
 | **Consensus Validation** | ✅ 51% threshold | ❌ No | ❌ No | ❌ No |
 | **5-Tier Fallback** | ✅ Yes | ❌ No | ❌ No | ❌ No |
 | **Air-Gap Capable** | ✅ Yes | ❌ No | ❌ No | ❌ No |

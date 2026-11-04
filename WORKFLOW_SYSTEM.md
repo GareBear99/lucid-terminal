@@ -14,7 +14,7 @@ User Input
 [Workflow Orchestrator] ← Routes based on intent type
     ↓
 ┌─────────────────────────────────────────┐
-│  Direct Command (72% - No LLM)          │
+│  Direct Command (No LLM)                │
 │  → Execute tool                         │
 │  → Display result                       │
 │  → If error → FixNet                    │
@@ -303,7 +303,7 @@ backendManager.register('gpt-4', {
 const stats = await core.getFixNetStats();
 // {
 //   total_fixes: 150,
-//   offline_success_rate: 0.72,
+//   offline_success_rate: 0, // computed from real lookups; 0 with none yet
 //   avg_search_time_ms: 18,
 //   total_scripts: 45,
 //   consensus_validated: 108
@@ -391,7 +391,7 @@ electron/core/
 
 - Direct commands: <100ms
 - FixNet search: <20ms
-- Offline operations: 72%
+- Offline operations: measured live from real lookups (no fixed percentage)
 - Tier 0 (tinyllama): <2s response
 - Tier 2 (mistral): <5s response
 - Full system initialization: <500ms
@@ -399,10 +399,10 @@ electron/core/
 ## Key Differences from Other Systems
 
 **vs. Warp AI**:
-- ✅ FixNet learns from every fix (72% offline)
+- ✅ FixNet learns from every fix (offline-first)
 - ✅ Bypass routing tries lowest tier first (efficient)
 - ✅ All scripts stored for reuse
-- ✅ Works 72% of the time without any LLM
+- ✅ Works without any LLM for deterministic commands and cached fixes
 
 **vs. Traditional Terminals**:
 - ✅ AI assistant style conversation

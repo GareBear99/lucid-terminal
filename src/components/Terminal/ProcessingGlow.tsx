@@ -1,8 +1,7 @@
 /**
  * ProcessingGlow Component
  * 
- * Animated rainbow glow effect for command input bubble while processing.
- * Similar to Siri's iPhone screen edge animation.
+ * Animated rainbow swirl glow effect for command input bubble while processing.
  * 
  * Customizable via settings with color wheel slider.
  */
@@ -43,7 +42,7 @@ export function ProcessingGlow({ isProcessing, customColor }: ProcessingGlowProp
   // Generate gradient based on color mode
   const getGradient = () => {
     if (glowColor === 'rainbow') {
-      // Classic Siri rainbow gradient
+      // Rainbow swirl gradient
       return `conic-gradient(
         from ${rotation}deg,
         #ff0080 0deg,
@@ -166,7 +165,7 @@ export function ProcessingGlowSettings({ onSave }: ProcessingGlowSettingsProps) 
   };
   
   const presetColors = [
-    { id: 'rainbow', name: 'Rainbow (Siri)', preview: 'linear-gradient(90deg, #ff0080, #ff8c00, #40e0d0, #00ff00)' },
+    { id: 'rainbow', name: 'Rainbow Swirl', preview: 'linear-gradient(90deg, #ff0080, #ff8c00, #40e0d0, #00ff00)' },
     { id: 'blue', name: 'Blue', preview: 'linear-gradient(90deg, #00d4ff, #0099ff)' },
     { id: 'purple', name: 'Purple', preview: 'linear-gradient(90deg, #a855f7, #6366f1)' },
     { id: 'green', name: 'Green', preview: 'linear-gradient(90deg, #10b981, #14b8a6)' },

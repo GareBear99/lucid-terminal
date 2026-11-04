@@ -5,12 +5,17 @@ All notable changes to Lucid Terminal will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Removed the unmeasured "72% offline success" claims from the docs and UI. The figure was never measured: the old code hardcoded a 72% fallback and the docs asserted it as fact. FixNet's offline success rate is now computed live from real lookup outcomes (0% with no lookups yet) — see `fixnet stats`.
+
 ## [1.0.0] - 2026-02-28
 
 ### Added - Initial Release
 
 #### Core Systems
-- **LuciferAI Plugin Integration** - Complete plugin system with 72% offline success rate
+- **LuciferAI Plugin Integration** - Complete plugin system with offline-first FixNet
 - **5-Tier Model System** - Automatic routing from Tier 0 (nano) to Tier 4 (expert)
 - **FixNet Quality Grading** - 11-grade system (A+ to F-) with intelligent filtering
 - **Warp AI-Style Display** - Segmented display with exact file references
@@ -78,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Performance
 - **< 1 second** - Startup time (after first launch)
-- **72%** - Offline success rate
+- **Offline-first** - Deterministic commands and cached fixes run without an LLM
 - **5-tier fallback** - High recovery success rate
 - **Real-time** - UI updates with subscriber pattern
 
@@ -109,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is the initial release of Lucid Terminal, bringing together the best of LuciferAI's offline-first architecture and Warp's modern terminal UX. The system is production-ready with all core features implemented and tested.
 
 **Key Achievements**:
-- ✅ Feature parity with LuciferAI_Local (72% offline success)
+- ✅ Feature parity with LuciferAI_Local (offline-first FixNet)
 - ✅ Enhanced with Warp AI-style segmented display
 - ✅ Complete 5-phase workflow orchestration
 - ✅ 45+ commands across 12 categories

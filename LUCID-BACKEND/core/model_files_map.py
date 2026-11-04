@@ -48,6 +48,7 @@ MODEL_FILES = {
     # ═══════════════════════════════════════════════════════════════
     'mistral-7b': 'mistral-7b-instruct-v0.2.Q4_K_M.gguf',
     'mistral-7b-instruct': 'mistral-7b-instruct-v0.2.Q4_K_M.gguf',
+    'mistral-7b-instruct-v0.3': 'Mistral-7B-Instruct-v0.3-Q4_K_M.gguf',
     'mixtral': 'mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf',
     'mixtral-8x7b': 'mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf',
     'llama3': 'llama-3-8b-instruct-Q4_K_M.gguf',
@@ -127,6 +128,7 @@ MODEL_URLS = {
     # TIER 2: Advanced
     # ═══════════════════════════════════════════════════════════════
     'mistral-7b': 'https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf',
+    'mistral-7b-instruct-v0.3': 'https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf',
     'mixtral': 'https://huggingface.co/TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF/resolve/main/mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf',
     'llama3': 'https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf',
     'llama3.1': 'https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf',
@@ -181,6 +183,7 @@ MODEL_SIZES = {
     
     # TIER 2
     'mistral-7b': 4100,  # ~4.1GB
+    'mistral-7b-instruct-v0.3': 4100,  # ~4.1GB
     'mixtral': 26000,  # ~26GB
     'llama3': 4700,  # ~4.7GB
     'llama3.1': 4700,  # ~4.7GB
@@ -231,6 +234,7 @@ MODEL_ALIASES = {
     'starling-7b': 'starling',
     'mistral': 'mistral-7b',
     'mistral-7b-instruct': 'mistral-7b',
+    'mistral-v0.3': 'mistral-7b-instruct-v0.3',
     'mixtral-8x7b': 'mixtral',
     'llama-3': 'llama3',
     'llama3-8b': 'llama3',

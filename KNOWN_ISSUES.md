@@ -14,7 +14,7 @@
 **Symptoms**:
 - Terminal hangs with "⏳ Connecting to LuciferAI plugin..."
 - No LLM functionality works
-- 0% offline capability (should be 72%)
+- 0% offline capability (no measured target exists; the old "72%" figure was an unmeasured docs assertion, not a measurement)
 - Cannot process AI commands
 
 **Root Cause**: 

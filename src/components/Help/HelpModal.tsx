@@ -1,15 +1,28 @@
 import { useState, useEffect } from 'react';
 import { X, Search, ChevronRight } from 'lucide-react';
-import { helpCategories, HelpCategory, HelpCommand } from '../../data/helpData';
+import { helpCategories, HelpCategory, HelpCommand, getCategoryById } from '../../data/helpData';
 
 interface HelpModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * Open straight onto a category (e.g. the "?" in the startup model
+   * disclaimer opens 'tiers'). When not given, the modal opens as
+   * before — category grid, or wherever it was left.
+   */
+  initialCategoryId?: string | null;
 }
 
-export function HelpModal({ isOpen, onClose }: HelpModalProps) {
+export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory | null>(null);
+
+  // Land on the requested category when opened with one.
+  useEffect(() => {
+    if (!isOpen || !initialCategoryId) return;
+    const category = getCategoryById(initialCategoryId);
+    if (category) setSelectedCategory(category);
+  }, [isOpen, initialCategoryId]);
 
   // Handle ESC key to close
   useEffect(() => {

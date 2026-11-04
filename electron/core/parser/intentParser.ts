@@ -203,6 +203,7 @@ const DIRECT_COMMANDS = [
   'mkdir', 'touch', 'rm', 'cp', 'mv', 'find', 'grep',
   'ps', 'kill', 'run', 'info', 'memory', 'version',
   'llm list', 'llm enable', 'llm disable',
+  'fixnet stats', 'fixnet search',
   'install', 'environments', 'activate',
   'github link', 'github status', 'github projects'
 ];
@@ -426,15 +427,30 @@ export function parseIntent(input: string): ParsedIntent {
   text = removePoliteness(text);
   
   // Step 3: Normalize with synonyms
-  const normalized = normalizeText(text);
+  let normalized = normalizeText(text);
+
+  // A literal direct command must survive synonym normalization:
+  // 'fixnet search <query>' would otherwise become 'fixnet find <query>'
+  // (SYNONYM_MAP rewrites 'search' -> 'find'), miss DIRECT_COMMANDS, and
+  // be misclassified as a fix request because 'fixnet' contains 'fix'.
+  if (isDirectCommand(text)) {
+    normalized = text.toLowerCase().trim();
+  }
   const lower = normalized.toLowerCase();
   
   // Step 4: Determine intent type
   let type: ParsedIntent['type'] = 'unknown';
   let confidence = 0;
-  
-  // Check for fix requests (72% fallback system)
-  if (lower.includes('fix') || lower.includes('repair') || lower.includes('debug') || lower.includes('error') || lower.includes('autofix')) {
+
+  // Direct commands first: an exact known command (e.g. 'fixnet stats')
+  // must win over keyword heuristics below — 'fixnet' contains 'fix',
+  // which would otherwise misclassify it as a fix request.
+  if (isDirectCommand(normalized)) {
+    type = 'direct_command';
+    confidence = 1.0;
+  }
+  // Check for fix requests (FixNet fallback system)
+  else if (lower.includes('fix') || lower.includes('repair') || lower.includes('debug') || lower.includes('error') || lower.includes('autofix')) {
     type = 'fix_request';
     confidence = 0.95;
   }
@@ -447,11 +463,6 @@ export function parseIntent(input: string): ParsedIntent {
       type = 'action';
       confidence = 0.8;
     }
-  }
-  // Direct commands
-  else if (isDirectCommand(normalized)) {
-    type = 'direct_command';
-    confidence = 1.0;
   }
   // Questions
   else if (isQuestion(text)) {

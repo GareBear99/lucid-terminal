@@ -88,12 +88,14 @@ class AutoFixer:
                 except Exception as e:
                     return False, f"Could not write file: {e}"
             else:
-                # Still has errors, but save anyway with basic fixes
-                try:
-                    filepath.write_text(fixed_content)
-                    return False, f"Partial fix applied, {len(syntax_errors)} errors remain"
-                except Exception as e:
-                    return False, f"Could not write file: {e}"
+                # Still has errors: do NOT write the file back. A failed fix
+                # must never overwrite the original (the old code saved
+                # anyway and reported "Partial fix applied").
+                remaining = self._check_syntax(fixed_content)
+                return False, (
+                    f"Fix incomplete, {len(remaining)} error(s) remain; "
+                    "file left unchanged"
+                )
     
     def _basic_fixes(self, content: str) -> str:
         """Apply basic text-level fixes."""
@@ -147,8 +149,11 @@ class AutoFixer:
             line = re.sub(r'\\\\"', '"', line)
             lines[line_idx] = line
         
-        elif "invalid syntax" in error_msg.lower():
-            # Try to fix missing colons
+        elif "invalid syntax" in error_msg.lower() or "expected ':'" in error_msg:
+            # Try to fix missing colons. On Python 3.10+ a missing colon
+            # reports "expected ':'", NOT "invalid syntax" — the old gate
+            # ("invalid syntax" only) meant this repair never fired for the
+            # exact case it targets.
             if line.strip().startswith(('if ', 'elif ', 'else', 'for ', 'while ', 'def ', 'class ', 'try', 'except', 'finally', 'with ')):
                 if not line.rstrip().endswith(':'):
                     lines[line_idx] = line.rstrip() + ':'

@@ -10,7 +10,7 @@ The complete workflow system that makes Lucid Terminal work like an AI assistant
 **File**: `electron/core/workflow/workflowOrchestrator.ts`
 
 The brain of the system. Routes user input to appropriate handlers:
-- ✅ Direct commands (72% - no LLM)
+- ✅ Direct commands (no LLM)
 - ✅ Fix requests (FixNet-first)
 - ✅ Script building (LLM + FixNet storage)
 - ✅ Conversational queries (AI assistant style)
@@ -115,7 +115,7 @@ const result = await core.processCommand('build a Python script to sort numbers'
 
 ### Key Features
 
-1. **72% Offline**: Direct commands and cached fixes work without LLM
+1. **Offline-first**: Direct commands and cached fixes work without LLM
 2. **Smart Routing**: Starts with lowest tier, bypasses up as needed
 3. **Learning System**: Every fix and script stored in FixNet
 4. **Conversational**: Works like ChatGPT but in terminal
@@ -210,6 +210,6 @@ The workflow system is **complete and ready for integration**. It provides:
 6. **Multi-provider LLM support**
 7. **Conversational interface** like AI assistants
 
-The system now works identically to how you (Claude) work - it can hold conversations, generate code, fix errors, and learn from every interaction while maintaining 72% offline functionality through FixNet.
+The system now works identically to how you (Claude) work - it can hold conversations, generate code, fix errors, and learn from every interaction while maintaining offline functionality through FixNet.
 
 Ready to connect to Electron UI and test with real models!

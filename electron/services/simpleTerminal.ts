@@ -108,7 +108,10 @@ export function createTerminal(
       }
     });
 
-    console.log(`[SimpleTerminal] ✅ Terminal ${id} created successfully`);
+    // NOTE: spawn() does not throw for a missing shell — ENOENT arrives
+    // async via the 'error' handler above. Do not log success here; the
+    // renderer reports readiness on first shell output, and failure on
+    // an early non-zero exit.
   } catch (error) {
     console.error(`[SimpleTerminal] Failed to create terminal ${id}:`, error);
     throw error;

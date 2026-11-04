@@ -18,6 +18,8 @@ pygments>=2.17.2
 psutil>=5.9.8
 pyyaml>=6.0.1
 python-dotenv>=1.0.0
+tqdm>=4.66.0
+requests>=2.31.0
 
 # Later: AI models (test without these first)
 # mistralai>=0.1.0

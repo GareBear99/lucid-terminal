@@ -38,19 +38,41 @@ class LlamafileAgent:
             model_name: Model name (e.g., 'tinyllama', 'mistral', 'llama3.2')
                        If provided, auto-detects path from model_files_map
         """
-        # Get project root - use internal .luciferai directory
-        project_root = Path(__file__).parent.parent
-        luciferai_dir = project_root / '.luciferai'
-        
+        # Canonical layout (core/lucifer_paths.py — single source of truth):
+        #   binary: <project>/.luciferai/bin/llamafile
+        #   models: <project>/models/*.gguf
+        try:
+            from core.lucifer_paths import llamafile_path as _canonical_llamafile_path
+            from core.lucifer_paths import models_dir as _canonical_models_dir
+        except ImportError:  # core/ already on sys.path
+            from lucifer_paths import llamafile_path as _canonical_llamafile_path
+            from lucifer_paths import models_dir as _canonical_models_dir
+        self._models_dir = _canonical_models_dir()
+
         # Default paths
-        self.llamafile_path = llamafile_path or (luciferai_dir / 'bin' / 'llamafile')
+        self.llamafile_path = Path(llamafile_path) if llamafile_path else _canonical_llamafile_path()
         
-        # Determine model path
+        # Determine model path. A requested model that is not installed is a
+        # hard error now — the old code silently served TinyLlama while still
+        # claiming to be the requested model.
         if model_name and not model_path:
             # Auto-detect from model name using model_files_map
-            model_path = self._get_model_path_from_name(model_name)
-        
-        self.model_path = model_path or (luciferai_dir / 'models' / 'tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf')
+            resolved = self._get_model_path_from_name(model_name)
+            if resolved is None:
+                raise FileNotFoundError(
+                    f"Model '{model_name}' is not installed in {self._models_dir}. "
+                    f"Run ./setup_bundled_models.sh or 'luci install {model_name}'. "
+                    "Refusing to silently fall back to a different model."
+                )
+            model_path = resolved
+
+        self.model_path = Path(model_path) if model_path else (
+            self._models_dir / 'tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf')
+        if model_path and not self.model_path.exists():
+            raise FileNotFoundError(
+                f"Model file not found: {self.model_path}. "
+                "Refusing to silently fall back to a different model."
+            )
         self.model_name = model_name or self._detect_model_name_from_path()
         
         # Check if llamafile and model exist
@@ -98,6 +120,11 @@ class LlamafileAgent:
     def _get_model_path_from_name(self, model_name: str) -> Optional[Path]:
         """Get model file path from model name using model_files_map.
         
+        Looks in the canonical models dir (core/lucifer_paths.py). If the
+        exact mapped filename is absent, falls back to any GGUF of the SAME
+        model (e.g. a v0.3 file when the map lists v0.2) — never to a
+        different model. Returns None if no file of this model exists.
+
         Args:
             model_name: Model name (e.g., 'tinyllama', 'mistral')
         
@@ -106,20 +133,26 @@ class LlamafileAgent:
         """
         try:
             from core.model_files_map import get_model_file, get_canonical_name
-            
-            canonical_name = get_canonical_name(model_name)
-            model_file = get_model_file(canonical_name)
-            
-            if model_file:
-                project_root = Path(__file__).parent.parent
-                models_dir = project_root / '.luciferai' / 'models'
-                model_path = models_dir / model_file
-                
-                if model_path.exists():
-                    return model_path
         except ImportError:
-            pass
+            from model_files_map import get_model_file, get_canonical_name
         
+        canonical_name = get_canonical_name(model_name)
+        model_file = get_model_file(canonical_name)
+
+        if model_file:
+            exact = self._models_dir / model_file
+            if exact.exists():
+                return exact
+
+        # Same-model variant fallback: any GGUF whose name contains the
+        # canonical model name (e.g. Mistral-7B-Instruct-v0.3-*.gguf).
+        candidates = sorted(self._models_dir.glob(f"*{canonical_name}*.gguf"))
+        if candidates:
+            return candidates[0]
+        candidates = sorted(self._models_dir.glob(f"*{model_name}*.gguf"))
+        if candidates:
+            return candidates[0]
+
         return None
     
     def _detect_model_name_from_path(self) -> str:
@@ -180,6 +213,98 @@ class LlamafileAgent:
         
         return "\n".join(context_lines)
     
+    # Generation stream detection (Gary's rule, as in LuciferAI's own
+    # streaming backend in llm_backend.py — which the multi-model paths had
+    # switched off): a generation is ALIVE while tokens flow. It only times
+    # out when the token stream stalls. Wall-clock timeouts made the default
+    # request impossible (24s timeout vs ~33s needed at ~6 tok/s + load).
+    FIRST_TOKEN_TIMEOUT = 180.0   # model load + prefill before first token
+    STALL_TIMEOUT = 120.0         # no token for this long = stalled
+    ABSOLUTE_TIMEOUT = 1800.0     # hard ceiling for any one generation
+
+    def _run_llamafile_streaming(self, cmd):
+        """Run llamafile, reading stdout as a token stream.
+
+        Returns a SimpleNamespace(stdout, stderr, returncode, first_token_s).
+        Raises TimeoutError('first-token' | 'stall' | 'absolute') after
+        killing the process. The process is always reaped.
+        """
+        import codecs
+        import queue
+        import threading
+        import time
+        from types import SimpleNamespace
+
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        _EOF = object()
+        chunks = queue.Queue()
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+        def _reader():
+            try:
+                while True:
+                    data = process.stdout.read(64)
+                    if not data:
+                        break
+                    chunks.put(data)
+            except Exception:
+                pass
+            finally:
+                chunks.put(_EOF)
+
+        threading.Thread(target=_reader, daemon=True).start()
+        start = time.monotonic()
+        last_activity = start
+        first_token_at = None
+        out_parts = []
+
+        try:
+            while True:
+                try:
+                    item = chunks.get(timeout=0.5)
+                except queue.Empty:
+                    item = None
+                now = time.monotonic()
+                if item is _EOF:
+                    break
+                if item is not None:
+                    text = decoder.decode(item)
+                    if text:
+                        if first_token_at is None:
+                            first_token_at = now
+                        out_parts.append(text)
+                        last_activity = now
+                if first_token_at is None:
+                    if now - start > self.FIRST_TOKEN_TIMEOUT:
+                        raise TimeoutError(
+                            f"no first token within {self.FIRST_TOKEN_TIMEOUT:.0f}s "
+                            "(model load + prefill)")
+                elif now - last_activity > self.STALL_TIMEOUT:
+                    raise TimeoutError(
+                        f"generation stalled — no tokens for {now - last_activity:.0f}s")
+                if now - start > self.ABSOLUTE_TIMEOUT:
+                    raise TimeoutError(
+                        f"absolute ceiling of {self.ABSOLUTE_TIMEOUT:.0f}s exceeded")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+
+        try:
+            stderr = process.stderr.read().decode("utf-8", "replace") if process.stderr else ""
+        except Exception:
+            stderr = ""
+        return SimpleNamespace(
+            stdout="".join(out_parts),
+            stderr=stderr,
+            returncode=process.returncode if process.returncode is not None else -1,
+            first_token_s=(first_token_at - start) if first_token_at is not None else None,
+        )
+
     def query(self, prompt: str, temperature: float = 0.3, max_tokens: int = 200) -> str:
         """
         Query TinyLlama via llamafile.
@@ -230,13 +355,17 @@ class LlamafileAgent:
         else:
             full_prompt = f"{self.system_prompt}\n\nUser: {prompt}\nAssistant:"
         
-        # Determine timeout based on model
+        # Generation stream detection (Gary's rule): no wall-clock timeout.
+        # The generation is alive while tokens flow; it only times out when
+        # the token stream stalls (see _run_llamafile_streaming). The old
+        # 24s TinyLlama timeout made the default 200-token request
+        # impossible (~33s at ~6 tok/s + load).
         is_mistral = 'mistral' in str(self.model_path).lower()
-        timeout = 120 if is_mistral else 24  # TinyLlama: 24s (20% faster than 30s)
         model_name = 'Mistral' if is_mistral else 'TinyLlama'
         
         import sys
-        print(f"🔄 Processing with {model_name}... (max {timeout}s)")
+        print(f"🔄 Processing with {model_name}... (stream-stall timeout {self.STALL_TIMEOUT:.0f}s, "
+              f"first token {self.FIRST_TOKEN_TIMEOUT:.0f}s, ceiling {self.ABSOLUTE_TIMEOUT:.0f}s)")
         print(f"📝 Request: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
         sys.stdout.flush()  # Force output immediately
         
@@ -263,17 +392,13 @@ class LlamafileAgent:
                 '--no-display-prompt'       # Clean output
             ]
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
-            
+            result = self._run_llamafile_streaming(cmd)
+
             if result.returncode == 0:
                 response = result.stdout.strip()
                 if response:
-                    print(f"✅ Response received ({len(response)} chars) - Completed with {model_name}")
+                    ft = f", first token {result.first_token_s:.1f}s" if result.first_token_s is not None else ""
+                    print(f"✅ Response received ({len(response)} chars){ft} - Completed with {model_name}")
                 else:
                     print(f"⚠️  Empty response from llamafile")
                     if result.stderr:
@@ -318,8 +443,8 @@ class LlamafileAgent:
                 print(error_msg)
                 return error_msg
                 
-        except subprocess.TimeoutExpired:
-            timeout_msg = f"⚠️  Request timed out after {timeout}s. {model_name} may need more time for complex queries."
+        except TimeoutError as e:
+            timeout_msg = f"⚠️  Generation timed out: {e}"
             print(timeout_msg)
             return timeout_msg
         except KeyboardInterrupt:
@@ -336,53 +461,31 @@ class LlamafileAgent:
         """Generate upgrade message based on installed models."""
         from pathlib import Path
         
-        # Check for bundled llamafile models
-        project_root = Path(__file__).parent.parent
-        models_dir = project_root / '.luciferai' / 'models'
-        
-        mistral_installed = (models_dir / 'mistral-7b-instruct-v0.2.Q4_K_M.gguf').exists()
-        
-        # Check for Ollama models (if Ollama is available)
-        ollama_models = []
-        try:
-            import subprocess
-            result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=2)
-            if result.returncode == 0:
-                for line in result.stdout.split('\n')[1:]:  # Skip header
-                    if line.strip():
-                        model_name = line.split()[0]
-                        ollama_models.append(model_name)
-        except:
-            pass
-        
+        # Check for locally installed llamafile models (canonical models dir).
+        # No Ollama: LuciferAI runs on local llamafile only.
+        local_models = sorted(p.stem for p in self._models_dir.glob('*.gguf'))
+        mistral_installed = any('mistral' in m.lower() for m in local_models)
+
         # Build upgrade message
         msg = "⚠️  TinyLlama (Tier 0) has very limited capabilities and cannot handle this request reliably.\n\n"
         
-        if mistral_installed or ollama_models:
-            msg += "Available models:\n"
+        if local_models:
+            msg += "Available models (local llamafile):\n"
             
-            if mistral_installed:
-                msg += "  • llm enable mistral  (Mistral 7B - Tier 2, bundled, ✅ installed)\n"
-            
-            for model in ollama_models:
-                if 'llama' in model.lower():
-                    msg += f"  • llm enable {model}  (✅ installed via Ollama)\n"
-                elif 'mistral' in model.lower():
-                    msg += f"  • llm enable {model}  (✅ installed via Ollama)\n"
-                elif 'deepseek' in model.lower():
-                    msg += f"  • llm enable {model}  (✅ installed via Ollama)\n"
+            for model in local_models:
+                msg += f"  • llm enable {model}  (✅ installed)\n"
             
             msg += "\n"
         
         msg += "Install more models:\n"
         
-        if not any('llama3.2' in m or 'llama-3.2' in m for m in ollama_models):
+        if not any('llama3.2' in m or 'llama-3.2' in m for m in local_models):
             msg += "  • luci install llama3.2  (Tier 1, ❌ not installed)\n"
         
-        if not mistral_installed and not any('mistral' in m.lower() for m in ollama_models):
+        if not mistral_installed:
             msg += "  • luci install mistral   (Tier 2 - recommended, ❌ not installed)\n"
         
-        if not any('deepseek' in m.lower() for m in ollama_models):
+        if not any('deepseek' in m.lower() for m in local_models):
             msg += "  • luci install deepseek  (Tier 3 - best, ❌ not installed)"
         
         return msg
@@ -501,10 +604,10 @@ class LlamafileAgent:
             "  • 200-message conversation memory\n"
             "  • Tier 0 model (works on all systems)\n"
             "  • No internet required\n\n"
-            "For advanced features, install Ollama:\n"
-            "  luci install ollama\n"
+            "For advanced features, install a bigger local model:\n"
             "  luci install llama3.2  (Tier 1)\n"
             "  luci install mistral   (Tier 2)\n"
+            "  (Local llamafile only — no Ollama, no cloud.)\n"
         )
 
 

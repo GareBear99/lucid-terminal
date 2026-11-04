@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   FolderOpen,
   Terminal,
   Settings,
   FileCode,
+  FileText,
   ChevronRight,
   ChevronDown,
   File,
@@ -11,8 +12,14 @@ import {
   RefreshCw,
   FolderPlus,
   FilePlus,
+  X,
 } from 'lucide-react';
 import { useFileStore } from '../../stores/fileStore';
+import { useTerminalStore } from '../../stores/terminalStore';
+import { useHistoryStore, EMPTY_BLOCKS, jumpToBlock } from '../../stores/historyStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { enabledToolbarPlugins } from '../../data/toolbarPlugins';
+import { ConversationHistory } from '../Sidebar/ConversationHistory';
 import { View, FileEntry } from '../../types';
 
 interface SidebarProps {
@@ -20,14 +27,21 @@ interface SidebarProps {
   onWidthChange: (width: number) => void;
   currentView: View;
   onViewChange: (view: View) => void;
+  /** Whether the AI chat panel is open (the AI Chat button's active state). */
+  showAI: boolean;
+  /** Toggle the AI chat panel (the AI Chat toolbar button's action). */
+  onToggleAI: () => void;
 }
 
-function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarProps) {
+function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI }: SidebarProps) {
   const {
     currentDir,
     entries,
     expandedDirs,
     selectedPath,
+    error,
+    isLoading,
+    clearError,
     setCurrentDir,
     toggleDir,
     selectPath,
@@ -36,6 +50,67 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarPro
     createFile,
     createFolder,
   } = useFileStore();
+
+  // Sidebar panel: the file Explorer or the chats (History). The chats
+  // used to live inside the Terminal view; they are a main-sidebar
+  // panel now, on the paper button under the Explorer button. Default
+  // is the chats — the History was visible by default before the move.
+  type SidebarPanel = 'explorer' | 'history';
+  const [activePanel, setActivePanel] = useState<SidebarPanel>('history');
+  // Expanded chats width in px (w-80 = 320, the History's standard
+  // width). The collapsed tick rail stays w-12 regardless; the resize
+  // handle adjusts this while the chats panel is active.
+  const [historyWidth, setHistoryWidth] = useState(320);
+
+  // The active tab's blocks — what the chats panel shows. Only the
+  // active tab's blocks, never all tabs flattened together.
+  const activeTabId = useTerminalStore((s) => s.activeTabId);
+  const historyBlocks = useHistoryStore((s) =>
+    activeTabId ? s.blocksByTab[activeTabId] ?? EMPTY_BLOCKS : EMPTY_BLOCKS
+  );
+
+  // Toolbar plugins — the plugins section above Settings. One button
+  // per plugin toggled on in Settings; the section grows taller per
+  // plugin. The Synth button moved here from its old spot after
+  // Editor: it is the LuciferAI plugin's shell, so it belongs with
+  // the plugins, not the core view buttons.
+  const toolbarPlugins = useSettingsStore((s) => s.settings.toolbarPlugins);
+  const enabledPlugins = enabledToolbarPlugins(toolbarPlugins);
+
+  // Cmd+B / Ctrl+B toggles the chats panel. This was the History
+  // toggle inside the Terminal; the panel lives here now, so the
+  // shortcut lives here too (one listener, not one per terminal tab).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault();
+        setActivePanel((prev) => (prev === 'history' ? 'explorer' : 'history'));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Jump to a block in the terminal. The block elements only exist
+  // while the Terminal view is mounted — if the user is in the Synth,
+  // Settings or Editor view, switch to the terminal first and jump
+  // once it has rendered.
+  const handleJumpToBlock = (blockId: string) => {
+    if (currentView !== 'terminal') {
+      onViewChange('terminal');
+      setTimeout(() => jumpToBlock(blockId), 100);
+    } else {
+      jumpToBlock(blockId);
+    }
+  };
+
+  // Clear only the active tab's history.
+  const handleClearHistory = () => {
+    if (!activeTabId) return;
+    if (confirm('Clear all command history? This cannot be undone.')) {
+      useHistoryStore.getState().clearBlocks(activeTabId);
+    }
+  };
 
   const [newItemName, setNewItemName] = useState('');
   const [isCreatingFile, setIsCreatingFile] = useState(false);
@@ -73,13 +148,17 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarPro
           className={`flex items-center gap-1 py-1 px-2 cursor-pointer hover:bg-[var(--bg-tertiary)] rounded text-sm ${selectedPath === item.path ? 'bg-[var(--bg-tertiary)]' : ''
             }`}
           style={{ paddingLeft: `${8 + level * 16}px` }}
-          onClick={() => {
+          onClick={async () => {
             selectPath(item.path);
             if (item.isDirectory) {
               toggleDir(item.path);
             } else {
-              openFile(item.path);
-              onViewChange('editor');
+              // Only switch to the editor when the file actually opened —
+              // a failed open shows the error instead of an empty editor.
+              const opened = await openFile(item.path);
+              if (opened) {
+                onViewChange('editor');
+              }
             }
           }}
           onContextMenu={(e) => {
@@ -139,7 +218,67 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarPro
           <FileCode size={20} />
         </button>
 
+
+        {/* Sidebar panels: Explorer (file tree) and, directly under
+            it, the chats (paper). These switch the sidebar panel, not
+            the main view — Terminal / Editor / Synth above switch the
+            view. */}
+        <button
+          onClick={() => setActivePanel('explorer')}
+          className={`p-2 rounded-md transition-colors ${activePanel === 'explorer'
+            ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+            }`}
+          title="Explorer"
+          aria-label="Explorer"
+        >
+          <FolderOpen size={20} />
+        </button>
+
+        <button
+          onClick={() => setActivePanel('history')}
+          className={`p-2 rounded-md transition-colors ${activePanel === 'history'
+            ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+            }`}
+          title="Chats"
+          aria-label="Chats"
+        >
+          <FileText size={20} />
+        </button>
+
         <div className="flex-1" />
+
+        {/* Toolbar plugins — one button per plugin toggled on in
+            Settings. The section sits above Settings and grows taller
+            per plugin (the flex-1 spacer above shrinks as it grows).
+            The separation line divides it from Settings. */}
+        {enabledPlugins.length > 0 && (
+          <>
+            <div className="flex flex-col items-center gap-1">
+              {enabledPlugins.map((plugin) => {
+                const Icon = plugin.icon;
+                const isActive = plugin.action === 'synth' ? currentView === 'synth' : showAI;
+                const onClick = plugin.action === 'synth' ? () => onViewChange('synth') : onToggleAI;
+                return (
+                  <button
+                    key={plugin.id}
+                    onClick={onClick}
+                    className={`p-2 rounded-md transition-colors ${isActive
+                      ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                      }`}
+                    title={plugin.name}
+                    aria-label={plugin.name}
+                  >
+                    <Icon size={20} />
+                  </button>
+                );
+              })}
+            </div>
+            <div className="w-8 border-t border-[var(--border)] my-1" aria-hidden="true" />
+          </>
+        )}
 
         <button
           onClick={() => onViewChange('settings')}
@@ -153,7 +292,9 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarPro
         </button>
       </div>
 
-      {/* File Explorer Panel */}
+      {/* Sidebar panel — Explorer or chats. One at a time; the icon
+          bar's Explorer / paper buttons switch between them. */}
+      {activePanel === 'explorer' ? (
       <div
         className="h-full bg-[var(--bg-primary)] border-r border-[var(--border)] flex flex-col"
         style={{ width: width - 48 }}
@@ -213,6 +354,22 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarPro
 
         {/* File Tree */}
         <div className="flex-1 overflow-y-auto py-1">
+          {/* File access error — inline, so a denied/failed folder reads
+              as blocked instead of empty or stale. */}
+          {error && (
+            <div className="mx-2 mb-2 rounded-md border border-red-500/40 bg-red-500/15 p-2">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs text-red-300 break-words">{error}</p>
+                <button
+                  onClick={clearError}
+                  className="shrink-0 rounded p-0.5 text-red-300 hover:bg-white/10"
+                  title="Dismiss"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          )}
           {currentDir ? (
             <>
               {/* Current Directory */}
@@ -220,7 +377,11 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarPro
                 <FolderOpen size={12} />
                 <span className="truncate">{currentDir}</span>
               </div>
-              {renderFileTree(entries)}
+              {entries.length === 0 && !error && !isLoading ? (
+                <p className="px-3 py-2 text-xs text-[var(--text-muted)]">Folder is empty</p>
+              ) : (
+                renderFileTree(entries)
+              )}
             </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center p-4">
@@ -236,19 +397,34 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange }: SidebarPro
           )}
         </div>
       </div>
+      ) : (
+        <ConversationHistory
+          blocks={historyBlocks}
+          onJumpToBlock={handleJumpToBlock}
+          onClearHistory={handleClearHistory}
+          width={historyWidth}
+        />
+      )}
 
-      {/* Resize Handle */}
+      {/* Resize Handle — resizes whichever panel is active: the
+          Explorer (the sidebar width, 200–400) or the chats (the
+          history width, 240–480; default 320 = w-80). The collapsed
+          tick rail is fixed w-12. */}
       <div
         className="w-1 resize-handle"
         onMouseDown={(e) => {
           e.preventDefault();
           const startX = e.clientX;
-          const startWidth = width;
+          const isHistory = activePanel === 'history';
+          const startWidth = isHistory ? historyWidth : width;
 
           const onMouseMove = (e: MouseEvent) => {
             const delta = e.clientX - startX;
-            const newWidth = Math.max(200, Math.min(400, startWidth + delta));
-            onWidthChange(newWidth);
+            if (isHistory) {
+              setHistoryWidth(Math.max(240, Math.min(480, startWidth + delta)));
+            } else {
+              onWidthChange(Math.max(200, Math.min(400, startWidth + delta)));
+            }
           };
 
           const onMouseUp = () => {

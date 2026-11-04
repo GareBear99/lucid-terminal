@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useTerminalStore } from '../../stores/terminalStore';
+import { useToastStore } from '../../stores/toastStore';
+import { useLoadingStore } from '../../stores/loadingStore';
+import { useAIStore } from '../../stores/aiStore';
+import { useHistoryStore, EMPTY_BLOCKS, BlocksUpdater } from '../../stores/historyStore';
+import { usePromptPaceStore } from '../../stores/promptPaceStore';
+import { useGazeStore, ATTENTION_DURATION_MS } from '../../stores/gazeStore';
+import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { TerminalBlock } from '../../types';
 import { Block } from './Block';
 import { InputArea } from './InputArea';
@@ -8,26 +16,65 @@ import { HelpPanel } from '../Help/HelpPanel';
 import { PlanningPanel } from '../Planning/PlanningPanel';
 import { ValidationStepFactory } from './ValidationIndicator';
 import { parseTokenStatsFromResponse } from './TokenDisplay';
-import { ConversationHistory } from '../Sidebar/ConversationHistory';
 import { FixNetStatus } from '../FixNet/FixNetStatus';
+import { SentinelFace } from '../Synth/SentinelFace';
+import { Heartbeat } from './Heartbeat';
 
 interface TerminalProps {
   tabId: string;
   onOpenHelp?: () => void;
+  /** Open the Synth view (the Sentinel's home). */
+  onOpenSynth?: () => void;
 }
 
-function Terminal({ tabId, onOpenHelp }: TerminalProps) {
+function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
   const { currentTheme } = useSettingsStore();
-  const [blocks, setBlocks] = useState<TerminalBlock[]>([]);
+  const { createTab, closeTab, createErrors, clearCreateError } = useTerminalStore();
+  // Command blocks live in the history store, keyed by this tab — the
+  // chats (Conversation History) render in the main Sidebar, outside
+  // this component, so local state can't reach them. This wrapper keeps
+  // the exact setState signature, so every existing setBlocks call site
+  // below works unchanged; the store is the single source of truth.
+  const blocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS);
+  const setBlocks = useCallback(
+    (updater: BlocksUpdater) =>
+      useHistoryStore.getState().setBlocks(tabId, updater),
+    [tabId]
+  );
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isProcessing, setIsProcessing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // The prompt input wrapper (InputArea). The send arrow is a button next
+  // to the editor, so after it submits we return keyboard focus here —
+  // Enter keeps focus in the editor naturally, a mouse click would
+  // otherwise leave focus on the button.
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+  // Last keystroke in the prompt (ms epoch). The idle heartbeat
+  // pauses while the user is typing — the original's smart pausing.
+  const lastKeystrokeAt = useRef(0);
 
   // LuciferAI Plugin State - Dynamic and Optional
   const [luciferAIAvailable, setLuciferAIAvailable] = useState(false);
   const [luciferAIChecking, setLuciferAIChecking] = useState(true);
+  // Whether at least one LLM model is actually loaded. The plugin wrapper
+  // can be up while no model is — the dot must not claim "connected" then.
+  const [modelAvailable, setModelAvailable] = useState(false);
+  const [modelNames, setModelNames] = useState<string[]>([]);
+  // Busy signals for the idle heartbeat: it shows only while the
+  // plugin is active AND idle. A terminal command, an AI-chat
+  // generation, or a plugin task all count as busy.
+  const aiChatLoading = useAIStore((s) => s.isLoading);
+  const luciferTaskActive = useLoadingStore((s) => s.active['lucifer-task'] > 0);
+  const heartbeatBusy = isProcessing || aiChatLoading || luciferTaskActive;
+
+  // Terminal failed to start (shell would not spawn). Set when the shell
+  // exits non-zero shortly after this tab was created.
+  const [terminalFailed, setTerminalFailed] = useState<{ code: number; message: string } | null>(null);
+  const terminalCreatedAt = useRef(Date.now());
+  const terminalReadyLogged = useRef(false);
+  const lastTerminalData = useRef('');
   
   // Help panel state
   const [showHelpPanel, setShowHelpPanel] = useState(false);
@@ -35,68 +82,102 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
   // Planning panel state
   const [showPlanningPanel, setShowPlanningPanel] = useState(false);
   
-  // Conversation history sidebar state
-  const [showHistorySidebar, setShowHistorySidebar] = useState(true);
-  
-  // Keyboard shortcut for toggling history (Cmd+B / Ctrl+B)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
-        e.preventDefault();
-        setShowHistorySidebar(prev => !prev);
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  // The chats live in the main Sidebar now (paper button, under the
+  // Explorer) — Cmd+B toggles that panel from the Sidebar, not here.
 
-  // Initialize LuciferAI Plugin (optional, non-blocking)
+  // Initialize LuciferAI Plugin (optional, non-blocking).
+  // "Available" means the wrapper loaded AND at least one model is up.
+  // The wrapper alone (stdio agent with no model) must not read as
+  // "connected" — that is the state that produced raw Python errors.
   useEffect(() => {
     const initLuciferAI = async () => {
+      // Probing the plugin/model status is real background loading — the
+      // top-left dot swirls while it runs.
+      useLoadingStore.getState().start('lucifer-check');
       try {
         console.log('[Plugin] Checking LuciferAI availability...');
         
         // Attempt to initialize LuciferAI backend
         const result = await window.lucidAPI.lucid.init();
         
-        if (result.success) {
-          console.log('[Plugin] ✅ LuciferAI plugin loaded and ready');
-          setLuciferAIAvailable(true);
-        } else {
+        if (!result.success) {
           console.log('[Plugin] ⚠️  LuciferAI plugin unavailable:', result.error);
           setLuciferAIAvailable(false);
+          setModelAvailable(false);
+          setModelNames([]);
+          return;
+        }
+        
+        // The wrapper being up is not enough — check for a real model.
+        const statuses = await window.lucidAPI.lucid.getModelStatuses();
+        const available = Object.entries(statuses || {})
+          .filter(([, up]) => up)
+          .map(([name]) => name);
+        setLuciferAIAvailable(true);
+        setModelAvailable(available.length > 0);
+        setModelNames(available);
+        if (available.length > 0) {
+          console.log(`[Plugin] ✅ LuciferAI connected — model(s) ready: ${available.join(', ')}`);
+        } else {
+          console.log('[Plugin] ⚠️  LuciferAI plugin loaded but no model is available — AI features unavailable');
         }
       } catch (error) {
         console.log('[Plugin] ⚠️  LuciferAI backend not running - terminal works in standalone mode');
         setLuciferAIAvailable(false);
+        setModelAvailable(false);
+        setModelNames([]);
       } finally {
         setLuciferAIChecking(false);
+        useLoadingStore.getState().finish('lucifer-check');
       }
     };
     
     // Try to connect to plugin
     initLuciferAI();
     
-    // Optional: Retry connection every 30s if not available
+    // Retry every 30s while the plugin is down or no model is loaded, so a
+    // model installed later is picked up without a restart.
     const retryInterval = setInterval(() => {
-      if (!luciferAIAvailable) {
+      if (!luciferAIAvailable || !modelAvailable) {
         console.log('[Plugin] Retrying LuciferAI connection...');
         initLuciferAI();
       }
     }, 30000);
     
     return () => clearInterval(retryInterval);
-  }, [luciferAIAvailable]);
+  }, [luciferAIAvailable, modelAvailable]);
 
   // Initialize first block or listen to PTY
   useEffect(() => {
     // Handler for incoming data from PTY
     const handleData = (id: string, data: string) => {
       if (id !== tabId) return;
+      lastTerminalData.current = data.slice(-500);
+
+      // First data from the shell proves it actually spawned — only now is
+      // the terminal genuinely ready (App.tsx must not claim readiness
+      // before this).
+      if (!terminalReadyLogged.current) {
+        terminalReadyLogged.current = true;
+        console.log('[INIT] ✅ Terminal ready!');
+      }
 
       setBlocks(prev => {
-        if (prev.length === 0) return prev; // Should have at least one block if active
+        // No blocks yet: the shell's first output (including a spawn error
+        // such as "Error: spawn ... ENOENT") used to be dropped here, so a
+        // dead shell looked like an empty, working terminal. Keep it as a
+        // block so the error is visible.
+        if (prev.length === 0) {
+          return [{
+            id: `terminal-${Date.now()}`,
+            command: 'Terminal error',
+            output: data,
+            timestamp: Date.now(),
+            isComplete: true,
+            isCollapsed: false,
+            isProcessing: false,
+          }];
+        }
 
         const lastBlock = prev[prev.length - 1];
         if (lastBlock.isComplete) return prev; // Data arrived after completion? (Race condition)
@@ -111,12 +192,27 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
       });
     };
 
-    const cleanup = window.lucidAPI.terminal.onData(handleData);
+    // A shell that exits non-zero shortly after the tab was created never
+    // spawned (bad SHELL, missing binary). Surface it instead of leaving a
+    // normal-looking but dead terminal.
+    const handleExit = (id: string, code: number) => {
+      if (id !== tabId || code === 0) return;
+      if (Date.now() - terminalCreatedAt.current > 10000) return;
+      const message = (lastTerminalData.current || '').trim()
+        || `Shell exited with code ${code}`;
+      console.log(`[INIT] ❌ Terminal failed to start (exit code ${code}): ${message}`);
+      setTerminalFailed({ code, message });
+      useToastStore.getState().error(`Terminal failed to start: ${message}`);
+    };
+
+    const cleanupData = window.lucidAPI.terminal.onData(handleData);
+    const cleanupExit = window.lucidAPI.terminal.onExit(handleExit);
 
     // No initial block needed - terminal is ready for input immediately
 
     return () => {
-      cleanup();
+      cleanupData();
+      cleanupExit();
     };
   }, [tabId]);
 
@@ -125,8 +221,41 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [blocks, input]);
 
+  // Run a command through the LuciferAI plugin (LucidCore.processCommand
+  // → workflow orchestrator → plugin backend). While it runs, the
+  // 'lucifer-task' loading key is active — the Sentinel face's fangs
+  // drip for plugin work. Plain shell commands never touch this helper
+  // (they write straight to the PTY), so the drip does not fire for
+  // them. The finally guarantees the key clears even if the plugin
+  // call throws — a leaked count would leave the fangs dripping
+  // forever.
+  const runPluginCommand = async (cmd: string) => {
+    useLoadingStore.getState().start('lucifer-task');
+    try {
+      return await window.lucidAPI.lucid.command(cmd);
+    } finally {
+      useLoadingStore.getState().finish('lucifer-task');
+    }
+  };
+
   const handleSubmit = async (command: string) => {
     if (!command.trim()) return;
+
+    // A submitted prompt feeds the Sentinel face's horns — the prompting
+    // pace grows them, and the pace decays when prompting slows.
+    usePromptPaceStore.getState().recordPrompt();
+
+    // The Sentinel face's eyes follow your actions — on submit they
+    // look at the prompt input for a beat, then drift back to
+    // wandering once the attention expires.
+    const wrapRect = inputWrapRef.current?.getBoundingClientRect();
+    if (wrapRect) {
+      useGazeStore.getState().setAttention(
+        wrapRect.left + wrapRect.width / 2,
+        wrapRect.top + wrapRect.height / 2,
+        ATTENTION_DURATION_MS,
+      );
+    }
 
     console.log('[Command Router] Processing:', command);
 
@@ -203,8 +332,12 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
       return [...completed, newBlock];
     });
 
-    // 8. Set processing state and clear input
+    // 8. Set processing state and clear input. The command key is the
+    // background-loading signal for the top-left dot — it is finished in
+    // the finally below, so it can never stick on (several branches below
+    // never clear isProcessing themselves).
     setIsProcessing(true);
+    useLoadingStore.getState().start('command');
     setInput('');
 
     // 8. Route based on command type
@@ -251,7 +384,7 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
           } else {
             // Other fixnet commands - route to Python backend
             if (luciferAIAvailable) {
-              const result = await window.lucidAPI.lucid.command(command);
+              const result = await runPluginCommand(command);
               setBlocks(prev => {
                 const updated = [...prev];
                 const lastBlock = updated[updated.length - 1];
@@ -316,7 +449,7 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
           } else {
             // Other LLM commands - route to Python backend
             if (luciferAIAvailable) {
-              const result = await window.lucidAPI.lucid.command(command);
+              const result = await runPluginCommand(command);
               setBlocks(prev => {
                 const updated = [...prev];
                 const lastBlock = updated[updated.length - 1];
@@ -404,7 +537,7 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
             // LuciferAI plugin is available - use it
             console.log('[Plugin] Routing to LuciferAI:', parsed.type);
             try {
-              const result = await window.lucidAPI.lucid.command(command);
+              const result = await runPluginCommand(command);
               const tokens = parseTokenStatsFromResponse(result);
               
               if (result.success) {
@@ -519,6 +652,15 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
         }
         return updated;
       });
+    } finally {
+      // Always clear: the fixnet / llm / workflow cases and the failure
+      // branches never clear isProcessing themselves, which used to leave
+      // the processing glow stuck on after a command finished.
+      setIsProcessing(false);
+      useLoadingStore.getState().finish('command');
+      // A command completing wiggles the Sentinel face's horns inward
+      // once — a little celebration that the task is done.
+      useHornWiggleStore.getState().wiggle();
     }
   };
 
@@ -549,45 +691,47 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
     ));
   };
 
-  const handleJumpToBlock = (blockId: string) => {
-    // Find the block element and scroll to it
-    const blockElement = document.getElementById(`block-${blockId}`);
-    if (blockElement) {
-      blockElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // Highlight briefly
-      blockElement.style.transition = 'background-color 0.3s';
-      blockElement.style.backgroundColor = 'rgba(88, 166, 255, 0.1)';
-      setTimeout(() => {
-        blockElement.style.backgroundColor = '';
-      }, 1000);
-    }
-  };
-
-  const handleClearHistory = () => {
-    if (confirm('Clear all command history? This cannot be undone.')) {
-      setBlocks([]);
-    }
-  };
 
   return (
     <>
       <div className="h-full w-full flex overflow-hidden">
-        {/* Conversation History Sidebar */}
-        {showHistorySidebar && (
-          <ConversationHistory
-            blocks={blocks}
-            onJumpToBlock={handleJumpToBlock}
-            onClearHistory={handleClearHistory}
-          />
-        )}
-
-        {/* Terminal Content */}
+        {/* Terminal Content (the chats live in the main Sidebar now) */}
         <div
           className="flex-1 flex flex-col overflow-hidden"
           style={{ backgroundColor: currentTheme.colors.terminal.background }}
         >
           {/* FixNet Status Bar */}
           <FixNetStatus />
+          
+          {/* Terminal failed to start (shell would not spawn). Covers both
+              the async spawn error (onExit) and a synchronous spawn throw
+              (bad cwd), which the store records as a create error. */}
+          {(terminalFailed || createErrors[tabId]) && (
+            <div className="mx-4 mt-4 rounded-lg border border-red-500/40 bg-red-500/15 p-3">
+              <p className="text-sm font-semibold text-red-300">Terminal failed to start</p>
+              <p className="mt-1 font-mono text-xs text-red-200/80 whitespace-pre-wrap">{terminalFailed ? terminalFailed.message : createErrors[tabId]}</p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => {
+                    closeTab(tabId);
+                    createTab();
+                  }}
+                  className="btn btn-primary text-sm py-1 px-3"
+                >
+                  New Terminal
+                </button>
+                <button
+                  onClick={() => {
+                    setTerminalFailed(null);
+                    clearCreateError(tabId);
+                  }}
+                  className="btn text-sm py-1 px-3"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
           
           {/* Blocks List */}
           <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
@@ -603,20 +747,33 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
             <div ref={bottomRef} />
           </div>
 
+          {/* Idle heartbeat — the original "🩸 Idle • Awaiting Commands..."
+              animation, restored above the prompt. Shows only while the
+              LuciferAI plugin is active and idle; a task gives way to the
+              busy state (blood drip / loading swirl / generation). */}
+          <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} lastKeystrokeAt={lastKeystrokeAt} />
+
           {/* Input Area - Glass Effect */}
-          <div className="input-container backdrop-blur-xl border-t border-[var(--border)] pb-safe" 
+          <div className="input-container backdrop-blur-xl border-t border-[var(--border)] pb-safe"
+               onKeyDown={() => { lastKeystrokeAt.current = Date.now(); }}
                style={{
                  background: 'rgba(22, 27, 34, 0.85)',
                  boxShadow: '0 -4px 24px rgba(0, 0, 0, 0.2)',
                }}>
             <div className="flex items-center gap-3 px-4 py-3">
-              {/* LuciferAI Plugin Status Indicator */}
+              {/* LuciferAI Plugin Status Indicator.
+                  Honest states: the wrapper being up is NOT "connected" —
+                  only a loaded model is. A wrapper with no model says so. */}
               {luciferAIChecking ? (
                 <span className="text-xs text-yellow-500 animate-pulse" title="Connecting to LuciferAI plugin...">
                   ⏳
                 </span>
+              ) : modelAvailable ? (
+                <span className="text-xs text-green-500" title={`LuciferAI connected — model(s) ready: ${modelNames.join(', ')}`}>
+                  🩸
+                </span>
               ) : luciferAIAvailable ? (
-                <span className="text-xs text-green-500" title="LuciferAI plugin connected">
+                <span className="text-xs text-amber-500" title="LuciferAI plugin loaded — no model loaded">
                   🩸
                 </span>
               ) : (
@@ -625,14 +782,31 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
                 </span>
               )}
               
-              <span className="text-[var(--accent)] font-bold text-lg leading-none select-none" 
-                    style={{ textShadow: '0 0 8px rgba(88, 166, 255, 0.5)' }}>
+              {/* Send arrow — this used to be a decorative span, so clicking it
+                  did nothing and the prompt could only be sent with Enter.
+                  It now submits exactly like Enter: the current prompt text,
+                  read from the same `input` state both editor modes sync to,
+                  so it works whether Monaco loaded or the plain-textarea
+                  fallback is active. Disabled while the prompt is empty. */}
+              <button
+                type="button"
+                onClick={() => {
+                  handleSubmit(input);
+                  // Return keyboard focus to the prompt so the next command
+                  // can be typed without clicking back into the editor.
+                  inputWrapRef.current?.querySelector('textarea')?.focus();
+                }}
+                disabled={!input.trim()}
+                title="Send (Enter)"
+                aria-label="Send command"
+                className="shrink-0 rounded px-1 text-[var(--accent)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                style={{ textShadow: '0 0 8px rgba(88, 166, 255, 0.5)' }}>
                 ➜
-              </span>
+              </button>
               <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">
                 ~
               </span>
-              <div className="flex-1 rounded-lg overflow-hidden" 
+              <div ref={inputWrapRef} data-glow-anchor="prompt-input" className="flex-1 rounded-lg overflow-hidden" 
                    style={{
                      background: 'rgba(33, 38, 45, 0.5)',
                      border: '1px solid rgba(48, 54, 61, 0.6)',
@@ -646,6 +820,19 @@ function Terminal({ tabId, onOpenHelp }: TerminalProps) {
                   isProcessing={isProcessing}
                 />
               </div>
+
+              {/* Sentinel face — press to open the Synth view, the Sentinel's home */}
+              {onOpenSynth && (
+                <button
+                  type="button"
+                  onClick={onOpenSynth}
+                  title="Open the Synth — the Sentinel's home. The horns grow the more you prompt."
+                  aria-label="Open Synth view"
+                  className="shrink-0 rounded-full p-0.5 hover:bg-white/10 transition-colors"
+                >
+                  <SentinelFace size={32} />
+                </button>
+              )}
             </div>
           </div>
         </div>

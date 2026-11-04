@@ -44,7 +44,7 @@ async validateSyntax(code: string, language: string): Promise<boolean> {
 - Storage: User home directory (`~/.lucid/fixnet/`)
 
 **No External Data Transmission**:
-- 72% offline operation (no network calls)
+- Offline-first operation (deterministic commands and cached fixes make no network calls; no fixed percentage is claimed)
 - Ollama API is local-only (localhost:11434)
 - No telemetry, analytics, or crash reporting
 - User data never leaves the machine

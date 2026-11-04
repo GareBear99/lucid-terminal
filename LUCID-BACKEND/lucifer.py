@@ -150,14 +150,24 @@ def print_banner():
 # AUTO-INSTALL: Check and install TinyLlama + llamafile on startup
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LUCIFER_HOME = Path.home() / ".luciferai"
-MODELS_DIR = LUCIFER_HOME / "models"
-BIN_DIR = LUCIFER_HOME / "bin"
+LUCIFER_HOME = Path.home() / ".luciferai"  # user state only (history, llm_state) — NOT models
+# Canonical model layout (see core/lucifer_paths.py — the single source of truth):
+#   binary: <project>/.luciferai/bin/llamafile
+#   models: <project>/models/*.gguf
+try:
+    from core.lucifer_paths import llamafile_path as _canonical_llamafile_path
+    from core.lucifer_paths import models_dir as _canonical_models_dir
+except ImportError:  # core/ already on sys.path (run as a script)
+    from lucifer_paths import llamafile_path as _canonical_llamafile_path
+    from lucifer_paths import models_dir as _canonical_models_dir
+MODELS_DIR = _canonical_models_dir()
+BIN_DIR = _canonical_llamafile_path().parent
 
-# Model URLs
-TINYLLAMA_URL = "https://huggingface.co/jartine/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/TinyLlama-1.1B-Chat-v1.0.Q4_K_M.llamafile"
-TINYLLAMA_FILE = "tinyllama-1.1b-chat.llamafile"
-LLAMAFILE_URL = "https://github.com/Mozilla-Ocho/llamafile/releases/download/0.8.13/llamafile-0.8.13"
+# Model URLs — GGUF file + llamafile binary (NOT a self-contained .llamafile:
+# nothing in the runtime executes .llamafile model files, that was a dead end).
+TINYLLAMA_URL = "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+TINYLLAMA_FILE = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+LLAMAFILE_URL = "https://github.com/Mozilla-Ocho/llamafile/releases/download/0.10.6/llamafile-0.10.6"
 LLAMAFILE_FILE = "llamafile"
 
 
@@ -187,9 +197,15 @@ def download_with_progress(url: str, dest: Path, description: str) -> bool:
 
 
 def assemble_llamafile_from_parts() -> bool:
-    """Assemble llamafile from split parts if needed."""
+    """Assemble llamafile from split parts if needed.
+
+    Vendored parts live in <project>/bin/; the assembled binary goes to the
+    canonical location <project>/.luciferai/bin/llamafile (see
+    core/lucifer_paths.py). The old behaviour assembled it into
+    <project>/bin/, a directory no component ever looked in.
+    """
     project_bin = Path(__file__).parent / "bin"
-    llamafile_path = project_bin / "llamafile"
+    llamafile_path = _canonical_llamafile_path()
     part_aa = project_bin / "llamafile.part.aa"
     
     # If llamafile exists, we're good
@@ -203,13 +219,14 @@ def assemble_llamafile_from_parts() -> bool:
     print(f"{BLUE}🔧 Assembling llamafile from parts...{RESET}")
     try:
         import glob
+        llamafile_path.parent.mkdir(parents=True, exist_ok=True)
         parts = sorted(glob.glob(str(project_bin / "llamafile.part.*")))
         with open(llamafile_path, 'wb') as outfile:
             for part in parts:
                 with open(part, 'rb') as infile:
                     outfile.write(infile.read())
         os.chmod(llamafile_path, 0o755)
-        print(f"{GREEN}✅ llamafile assembled{RESET}")
+        print(f"{GREEN}✅ llamafile assembled → {llamafile_path}{RESET}")
         return True
     except Exception as e:
         print(f"{RED}❌ Failed to assemble llamafile: {e}{RESET}")
@@ -218,25 +235,20 @@ def assemble_llamafile_from_parts() -> bool:
 
 def check_and_install_models() -> bool:
     """
-    Check if TinyLlama and llamafile are installed.
-    If not, prompt user to install them.
-    Returns True if models are available (or user declined), False on error.
+    Check if TinyLlama and llamafile are installed in the canonical layout
+    (see core/lucifer_paths.py). Returns True if both are present, False
+    otherwise — the caller continues without a model, but no longer claims
+    success when nothing is installed.
     """
     # First try to assemble llamafile from parts (if cloned from repo)
     assemble_llamafile_from_parts()
     
-    llamafile_path = BIN_DIR / LLAMAFILE_FILE
+    binary = _canonical_llamafile_path()
     tinyllama_path = MODELS_DIR / TINYLLAMA_FILE
     
-    # Also check project models directory
-    project_models = Path(__file__).parent / "models"
-    project_tinyllama = list(project_models.glob("*tinyllama*")) if project_models.exists() else []
-    
-    # Also check project bin directory for assembled llamafile
-    project_llamafile = Path(__file__).parent / "bin" / "llamafile"
-    llamafile_exists = llamafile_path.exists() or project_llamafile.exists()
-    tinyllama_exists = tinyllama_path.exists() or len(project_tinyllama) > 0
-    
+    llamafile_exists = binary.exists()
+    tinyllama_exists = tinyllama_path.exists()
+
     # If both exist, we're good
     if llamafile_exists and tinyllama_exists:
         return True
@@ -250,13 +262,13 @@ def check_and_install_models() -> bool:
         print(f"   {RED}●{RESET} llamafile binary: {RED}Not installed{RESET}")
         missing.append("llamafile")
     else:
-        print(f"   {GREEN}●{RESET} llamafile binary: {GREEN}Installed{RESET}")
+        print(f"   {GREEN}●{RESET} llamafile binary: {GREEN}Installed{RESET} ({binary})")
     
     if not tinyllama_exists:
         print(f"   {RED}●{RESET} TinyLlama model:  {RED}Not installed{RESET} (670MB)")
         missing.append("TinyLlama")
     else:
-        print(f"   {GREEN}●{RESET} TinyLlama model:  {GREEN}Installed{RESET}")
+        print(f"   {GREEN}●{RESET} TinyLlama model:  {GREEN}Installed{RESET} ({tinyllama_path})")
     
     if not missing:
         return True
@@ -264,18 +276,14 @@ def check_and_install_models() -> bool:
     print(f"\n{GOLD}💡 Recommendation: Install TinyLlama for AI-powered features{RESET}")
     print(f"{DIM}Without it, LuciferAI works but with limited LLM capabilities.{RESET}")
     print()
-    print(f"{CYAN}📦 To install TinyLlama (670MB):{RESET}")
-    print(f"{DIM}   Run the setup script:{RESET}")
+    print(f"{CYAN}📦 To install (binary + model, canonical layout):{RESET}")
     print(f"   {GOLD}./setup_bundled_models.sh{RESET}")
     print()
-    print(f"{DIM}   Or install manually:{RESET}")
-    print(f"   {GOLD}python3 -c \"from lucifer import download_with_progress; from pathlib import Path; download_with_progress('{TINYLLAMA_URL}', Path.home() / '.luciferai/models/tinyllama-1.1b-chat.llamafile', 'TinyLlama')\"{RESET}")
-    print()
-    print(f"{CYAN}🚀 Continuing without TinyLlama...{RESET}")
+    print(f"{CYAN}🚀 Continuing without a model...{RESET}")
     print(f"{DIM}   LuciferAI will use rule-based command parsing.{RESET}")
     print()
     
-    return True
+    return False
 
 
 def main():

@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Minus, Square, X, Maximize2, Monitor } from 'lucide-react';
 import { AccountButton } from '../Account/AccountButton';
+import { useLoadingStore } from '../../stores/loadingStore';
 
 function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
+  // True while any background work is in progress (a command running,
+  // a model installing, the LuciferAI status being probed) — the dot
+  // swirls for exactly as long as that work lasts.
+  const isLoading = useLoadingStore((s) => s.isLoading);
 
   useEffect(() => {
     // Check initial state
@@ -20,7 +25,31 @@ function TitleBar() {
     >
       {/* App Title */}
       <div className="flex items-center gap-2 px-4">
-        <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500" />
+        {/* Top-left status dot. At rest it is exactly the static
+            accent-to-purple gradient it always was. While background work
+            is in progress a conic-gradient ring swirls around it (spinning
+            up) and a charge arc on the dot itself fills, holds, then
+            reloads — looping until the work finishes. */}
+        <div
+          data-glow-anchor="titlebar-dot"
+          className="relative w-4 h-4 shrink-0"
+          title={isLoading ? 'Loading in the background…' : undefined}
+        >
+          {isLoading && <div className="titlebar-swirl-ring" aria-hidden="true" />}
+          <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500" />
+          {isLoading && (
+            <svg className="titlebar-charge-arc" viewBox="0 0 16 16" aria-hidden="true">
+              <defs>
+                <linearGradient id="titlebar-charge-grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" style={{ stopColor: 'var(--accent)' }} />
+                  <stop offset="55%" style={{ stopColor: '#a855f7' }} />
+                  <stop offset="100%" style={{ stopColor: '#60a5fa' }} />
+                </linearGradient>
+              </defs>
+              <circle cx="8" cy="8" r="6.5" fill="none" stroke="url(#titlebar-charge-grad)" strokeWidth="1.75" strokeLinecap="round" />
+            </svg>
+          )}
+        </div>
         <span className="text-sm font-semibold text-[var(--text-primary)]">
           Lucid Terminal
         </span>

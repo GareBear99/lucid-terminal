@@ -98,10 +98,17 @@ export function findClosestCommands(
     });
   }
   
-  // Sort by distance (ascending) then similarity (descending)
+  // Sort by distance (ascending), then command length (ascending),
+  // then similarity (descending). Length before similarity matters:
+  // similarity = 1 - distance/maxLen rewards longer candidates, so
+  // without the length tiebreak an alias such as 'list' would beat its
+  // own canonical command 'ls' on input 'lst' (both distance 1).
   matches.sort((a, b) => {
     if (a.distance !== b.distance) {
       return a.distance - b.distance;
+    }
+    if (a.command.length !== b.command.length) {
+      return a.command.length - b.command.length;
     }
     return b.similarity - a.similarity;
   });

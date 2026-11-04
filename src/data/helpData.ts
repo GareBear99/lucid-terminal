@@ -3,6 +3,8 @@
  * Organized, searchable, and visually hierarchical
  */
 
+import { MODEL_TIERS } from './tiers';
+
 export interface HelpCommand {
   name: string;
   syntax: string;
@@ -122,7 +124,7 @@ export const helpCategories: HelpCategory[] = [
     color: '#d29922',
     stats: {
       label: 'Offline Coverage',
-      value: '72%'
+      value: 'unmeasured'
     },
     commands: [
       {
@@ -415,6 +417,24 @@ export const helpCategories: HelpCategory[] = [
     ]
   },
   {
+    id: 'tiers',
+    title: 'Model Tiers',
+    description: 'Six tiers, 0–5. Tier 0 needs no model at all; Tiers 1–4 are local models of increasing size; Tier 5 is an external API instead of a local model. Note: Settings › Models groups models by size and numbers those groups differently (there, TinyLlama is Tier 0).',
+    icon: '🎚️',
+    color: '#bc8cff',
+    stats: {
+      label: 'Tiers',
+      value: '0–5'
+    },
+    commands: MODEL_TIERS.map((t) => ({
+      name: `Tier ${t.tier} — ${t.name}`,
+      syntax: `tier ${t.tier}`,
+      description: t.line,
+      examples: t.tier === 5 ? [] : [`install tier ${t.tier}`],
+      tags: ['tier', 'models', `tier-${t.tier}`],
+    })),
+  },
+  {
     id: 'system',
     title: 'System Information',
     description: 'System stats and information',
@@ -566,7 +586,7 @@ export function getCategoryById(id: string): HelpCategory | undefined {
  * System statistics
  */
 export const systemStats = {
-  offlineCoverage: '72%',
+  offlineCoverage: 'unmeasured',
   totalTemplates: 17,
   modelTiers: 6,
   features: [

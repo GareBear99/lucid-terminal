@@ -182,7 +182,7 @@ Terminal now operates in two modes:
 - `src/components/FixNet/FixNetStatus.tsx` (138 lines)
 
 **Features**:
-- Offline percentage indicator (72% default)
+- Offline percentage indicator (live value from LucidCore.getFixNetStats(); 0% until the first real lookup)
 - Fixes saved count
 - Scripts saved count
 - Last sync timestamp with relative time
@@ -319,10 +319,13 @@ async getFixNetStats(): Promise<any> {
     fixes_count: stats.dictionary.total_fixes || 0,
     scripts_count: stats.dictionary.total_scripts || 0,
     last_sync: null,
-    offline_percentage: Math.round((stats.performance.offline_success_rate || 0.72) * 100)
+    offline_percentage: Math.round((stats.performance.offline_success_rate ?? 0) * 100)
   };
 }
 ```
+// NOTE: an earlier version of this snippet used `|| 0.72` here — a hardcoded
+// fallback that invented a 72% rate when no measurement existed. That fallback
+// was removed; the rate is now computed from real lookups and is 0 with none.
 
 **Files**: 
 - `electron/core/lucidCore.ts`

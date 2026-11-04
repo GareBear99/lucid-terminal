@@ -50,7 +50,7 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
                 🩸 LuciferAI Command Reference
               </h2>
               <p className="text-xs text-[var(--text-muted)]">
-                {systemStats.offlineCoverage} offline • {systemStats.totalTemplates} templates • {systemStats.modelTiers} model tiers
+                Offline coverage: {systemStats.offlineCoverage} • {systemStats.totalTemplates} templates • {systemStats.modelTiers} model tiers
               </p>
             </div>
           </div>

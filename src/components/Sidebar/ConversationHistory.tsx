@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Clock, Terminal as TerminalIcon, Trash2, Search } from 'lucide-react';
 import { TerminalBlock } from '../../types';
 
@@ -6,6 +6,14 @@ interface ConversationHistoryProps {
   blocks: TerminalBlock[];
   onJumpToBlock: (blockId: string) => void;
   onClearHistory?: () => void;
+  /**
+   * Expanded panel width in px. When unset the panel keeps its w-80
+   * (320px) width. The collapsed tick rail is always w-12 regardless —
+   * the width only applies to the expanded list. The Sidebar passes its
+   * (resizable) history width so the resize handle works for this panel
+   * too; the default is exactly w-80.
+   */
+  width?: number;
 }
 
 interface HistoryItem {
@@ -16,7 +24,7 @@ interface HistoryItem {
   type: 'shell' | 'llm' | 'fixnet' | 'system';
 }
 
-export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory }: ConversationHistoryProps) {
+export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, width }: ConversationHistoryProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
@@ -97,37 +105,57 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory }: C
   };
 
   if (isCollapsed) {
+    // Skinny rail: the chats track as ticks down the rail (newest first,
+    // mirroring the expanded list), like ChatGPT's old collapsed sidebar.
+    // Clicking a tick jumps to that block without expanding — the ticks
+    // ARE the navigation in this state. The chevron above expands.
+    const tickItems = [...historyItems].reverse();
     return (
-      <div className="h-full w-12 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-4">
+      <div className="h-full w-12 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-3">
         <button
           onClick={() => setIsCollapsed(false)}
-          className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+          className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
           title="Show conversation history"
         >
           <ChevronRight size={20} className="text-[var(--text-muted)]" />
         </button>
-        <div className="mt-4 flex flex-col gap-2">
-          {historyItems.slice(-5).reverse().map(item => (
+        {/* Tick track — one tick per chat, newest at the top */}
+        <div
+          className="mt-3 flex-1 w-full overflow-y-auto custom-scrollbar flex flex-col items-center gap-[3px] py-1"
+          title={`${historyItems.length} chat${historyItems.length !== 1 ? 's' : ''}`}
+        >
+          {tickItems.map(item => (
             <button
               key={item.id}
-              onClick={() => {
-                setIsCollapsed(false);
-                handleItemClick(item);
-              }}
-              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors text-xs"
-              style={{ color: getTypeColor(item.type) }}
+              onClick={() => handleItemClick(item)}
               title={item.command}
-            >
-              {getTypeIcon(item.type)}
-            </button>
+              aria-label={item.command}
+              className={`shrink-0 rounded-full transition-all ${
+                selectedId === item.id
+                  ? 'w-8 h-[4px] opacity-100'
+                  : 'w-5 h-[3px] opacity-60 hover:opacity-100 hover:w-7'
+              }`}
+              style={{ backgroundColor: getTypeColor(item.type) }}
+            />
           ))}
         </div>
+        {historyItems.length > 0 && (
+          <span
+            className="shrink-0 mt-2 text-[10px] font-mono text-[var(--text-muted)]"
+            title={`${historyItems.length} chat${historyItems.length !== 1 ? 's' : ''}`}
+          >
+            {historyItems.length}
+          </span>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="h-full w-80 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col">
+    <div
+      className={`h-full bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col ${width === undefined ? 'w-80' : ''}`}
+      style={width !== undefined ? { width } : undefined}
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
         <div className="flex items-center gap-2">
@@ -197,7 +225,7 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory }: C
           </div>
         ) : (
           <div className="py-2">
-            {filteredItems.reverse().map((item, index) => (
+            {filteredItems.reverse().map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleItemClick(item)}

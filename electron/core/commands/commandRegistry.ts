@@ -115,7 +115,7 @@ export class CommandRegistry {
     });
     
     // ========================================
-    // FIXNET COMMANDS (3 commands - 72% offline)
+    // FIXNET COMMANDS (3 commands - offline-first)
     // Offline-first error fixing with local templates
     // ========================================
     
@@ -687,10 +687,13 @@ export class CommandRegistry {
     }
     
     // Show category overview
+    // The FixNet offline share is computed from the registered commands
+    // (share of FixNet commands flagged offline) — never a hardcoded rate.
     const categories = this.getCategories();
+    const fixnetOffline = categories.find(c => c.name === 'FixNet Commands')?.offlinePercent;
     const lines = [
       `🔥 LuciferAI Command Reference`,
-      `${Math.round((categories.find(c => c.name === 'FixNet Commands')?.offlinePercent || 72))}% offline • 17 templates • 8 model tiers`,
+      `${fixnetOffline !== undefined ? `${fixnetOffline}% of FixNet commands offline • ` : ''}17 templates • 8 model tiers`,
       ``,
       ``
     ];

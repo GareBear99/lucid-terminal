@@ -1,5 +1,19 @@
 import { create } from 'zustand';
 import { FileEntry } from '../types';
+import { useToastStore } from './toastStore';
+
+/**
+ * Clean an error for display. IPC errors wrap the underlying Node error
+ * ("Failed to read directory: Error: ENOENT: ..."); drop the redundant
+ * "Error: " markers so the UI reads cleanly.
+ */
+function errorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw
+    .replace(/Error:\s*/g, '')
+    .replace(/^Error invoking remote method '[^']+':\s*/, '')
+    .trim();
+}
 
 interface OpenFile {
   path: string;
@@ -23,11 +37,12 @@ interface FileState {
   removeRecentWorkspace: (path: string) => void;
 
   // Actions
+  clearError: () => void;
   setCurrentDir: (dir: string) => Promise<void>;
   refreshDir: () => Promise<void>;
   toggleDir: (path: string) => void;
   selectPath: (path: string) => void;
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string) => Promise<boolean>;
   closeFile: (path: string) => void;
   setActiveFile: (path: string) => void;
   updateFileContent: (path: string, content: string) => void;
@@ -49,6 +64,10 @@ export const useFileStore = create<FileState>((set, get) => ({
   isLoading: false,
   error: null,
   recentWorkspaces: JSON.parse(localStorage.getItem('recentWorkspaces') || '[]'),
+
+  clearError: () => {
+    set({ error: null });
+  },
 
   setCurrentDir: async (dir) => {
     console.log('💾 FileStore: setCurrentDir called with:', dir);
@@ -73,7 +92,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       console.log('✅ FileStore: setCurrentDir completed successfully');
     } catch (error) {
       console.error('❌ FileStore: setCurrentDir failed:', error);
-      set({ error: String(error), isLoading: false });
+      const message = errorMessage(error);
+      set({ error: message, isLoading: false });
+      useToastStore.getState().error(`Could not open folder: ${message}`);
     }
   },
 
@@ -107,7 +128,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     const existing = openFiles.find((f) => f.path === path);
     if (existing) {
       set({ activeFilePath: path });
-      return;
+      return true;
     }
 
     try {
@@ -126,8 +147,12 @@ export const useFileStore = create<FileState>((set, get) => ({
         openFiles: [...state.openFiles, newFile],
         activeFilePath: path,
       }));
+      return true;
     } catch (error) {
-      set({ error: String(error) });
+      const message = errorMessage(error);
+      set({ error: message });
+      useToastStore.getState().error(`Could not open file: ${message}`);
+      return false;
     }
   },
 
@@ -179,7 +204,9 @@ export const useFileStore = create<FileState>((set, get) => ({
         ),
       }));
     } catch (error) {
-      set({ error: String(error) });
+      const message = errorMessage(error);
+      set({ error: message });
+      useToastStore.getState().error(`Could not save file: ${message}`);
     }
   },
 
@@ -197,7 +224,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       await get().refreshDir();
       await get().openFile(path);
     } catch (error) {
-      set({ error: String(error) });
+      const message = errorMessage(error);
+      set({ error: message });
+      useToastStore.getState().error(message);
     }
   },
 
@@ -206,7 +235,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       await window.lucidAPI.fs.createDir(path);
       await get().refreshDir();
     } catch (error) {
-      set({ error: String(error) });
+      const message = errorMessage(error);
+      set({ error: message });
+      useToastStore.getState().error(message);
     }
   },
 
@@ -217,7 +248,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       get().closeFile(path);
       await get().refreshDir();
     } catch (error) {
-      set({ error: String(error) });
+      const message = errorMessage(error);
+      set({ error: message });
+      useToastStore.getState().error(message);
     }
   },
 
@@ -235,7 +268,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       }));
       await get().refreshDir();
     } catch (error) {
-      set({ error: String(error) });
+      const message = errorMessage(error);
+      set({ error: message });
+      useToastStore.getState().error(message);
     }
   },
 

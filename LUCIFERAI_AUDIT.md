@@ -13,7 +13,7 @@ LuciferAI implements a **5-tier, multi-model AI system** with:
 - **FixNet self-healing** with community consensus
 - **Tool-based agency** (file, command, process operations)
 - **Task orchestration** with step-by-step execution
-- **72% functionality WITHOUT LLM** (deterministic operations)
+- **Functionality WITHOUT LLM** (deterministic operations; no fixed percentage — the old "72%" was unmeasured)
 
 ---
 
@@ -946,7 +946,7 @@ function isRisky(command: string): boolean {
 
 ## 🏆 Success Metrics
 
-- ✅ 72% functionality WITHOUT LLM
+- ✅ Functionality WITHOUT LLM (deterministic operations)
 - ✅ 94% FixNet consensus accuracy
 - ✅ 5-tier model routing
 - ✅ Tool-based agency (8+ tools)

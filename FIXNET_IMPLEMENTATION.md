@@ -20,7 +20,7 @@
    - Standard library templates (fs, path, os, json, etc.)
    - Regex pattern matching
    - Dictionary keyword search
-   - 72% offline functionality (no LLM)
+   - Offline functionality (no LLM for deterministic commands and cached fixes; success rate measured live)
    - <100ms total execution time
 
 4. **fixnetRouter.ts** (343 lines) - Main orchestrator
@@ -407,7 +407,7 @@ describe('FixNet System', () => {
 
 ## 🎯 Success Metrics
 
-- ✅ 72% of fixes execute offline without LLM (<100ms)
+- ✅ Fixes execute offline without LLM when a template matches (<100ms)
 - ✅ Main menu shows active LLMs with enable/disable status
 - ✅ Bypass routing displays which models were skipped
 - ✅ Consensus validation ensures fix quality (51%+ success rate)

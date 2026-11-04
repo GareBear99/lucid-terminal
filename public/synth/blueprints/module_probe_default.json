@@ -1,0 +1,11 @@
+{
+  "moduleType": "probe",
+  "id": "SYNTHESIS_PROBE_PLANNER_DEFAULT",
+  "style": "iteration4",
+  "config": {
+    "label": "SYNTHESIS PROBE",
+    "plannerGlow": 1.0,
+    "roamSpeed": 0.018,
+    "proposalHoldTicks": 96
+  }
+}

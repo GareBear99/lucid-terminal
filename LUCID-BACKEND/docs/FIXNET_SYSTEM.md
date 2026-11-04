@@ -80,7 +80,7 @@ FixNet is LuciferAI's collaborative fix learning system that enables users to:
 FixNet operations have different LLM requirements based on complexity:
 
 ### Tier 0: No LLM Required ⚡
-**Operations:** (72% of functionality)
+**Operations:** (fix application, dictionary lookup, keyword search — the deterministic FixNet operations)
 - Fix application (rule-based)
 - Dictionary lookup
 - Keyword search
@@ -508,7 +508,7 @@ github.com/YourOrg/LuciferAI-FixNet
 ## FAQ
 
 **Q: Do I need an LLM to use FixNet?**
-A: No! 72% of functionality works without LLM (fix application, search, consensus). LLM only needed for advanced validation and fix generation.
+A: No! The deterministic FixNet operations work without an LLM (fix application, search, consensus). LLM only needed for advanced validation and fix generation.
 
 **Q: Is my code safe?**
 A: Yes. All code is encrypted client-side with AES-256-GCM. Only metadata is public. Your encryption key never leaves your machine.

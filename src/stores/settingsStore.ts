@@ -10,10 +10,19 @@ interface SettingsState {
   // Actions
 
   isLocalBackendAvailable: boolean;
+  // At least one LLM model is actually loaded. The wrapper can be up with
+  // no model — that must not read as "backend available" (see
+  // checkBackendStatus).
+  isLocalModelAvailable: boolean;
+
+  // Settings storage fell back to in-memory (read-only app data dir).
+  storageDegraded: boolean;
+  storageDegradedReason: string | null;
 
   // Actions
   loadSettings: () => Promise<void>;
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => Promise<void>;
+  updateSettings: (updates: Partial<Settings>) => Promise<void>;
   setTheme: (themeId: string) => Promise<void>;
   setCustomTheme: (theme: Theme) => Promise<void>;
 
@@ -46,6 +55,22 @@ const defaultSettings: Settings = {
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
   terminalPolicy: 'ask',
+  showValidationSteps: true,
+  autoCollapseValidation: true,
+  showTokenStats: true,
+  showTokenEfficiency: true,
+  daemonEnabled: false,
+  daemonAutoFix: false,
+  daemonCommitTracking: false,
+  daemonLogRetention: 30,
+  daemonLogVerbosity: 'normal',
+  daemonWatchPaths: [],
+  processingGlowColor: 'rainbow',
+  processingGlowCustomColor: '#0099ff',
+  processingGlowIntensity: 0.8,
+  processingGlowSpeed: 3,
+  gazeSensitivity: 50,
+  toolbarPlugins: {},
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -53,6 +78,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currentTheme: themes[0],
   hasLicenseKey: false,
   isLocalBackendAvailable: false,
+  isLocalModelAvailable: false,
+  storageDegraded: false,
+  storageDegradedReason: null,
   balance: null,
   isLoading: true,
 
@@ -63,6 +91,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
       // Check local backend status
       await get().checkBackendStatus();
+
+      // Check whether settings storage is writable. A read-only app data
+      // dir falls back to an in-memory store (see secureStorage.ts) — the
+      // app still runs, but changes will not persist.
+      try {
+        const storageStatus = await window.lucidAPI.settings.getStorageStatus();
+        set({ storageDegraded: storageStatus.degraded, storageDegradedReason: storageStatus.reason });
+      } catch {
+        // Preload without the status call — assume writable.
+      }
 
       const settings: Settings = {
         ...defaultSettings,
@@ -105,6 +143,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
     } catch (error) {
       console.error(`Failed to update setting ${key}:`, error);
+    }
+  },
+
+  updateSettings: async (updates) => {
+    try {
+      await Promise.all(
+        (Object.entries(updates) as [keyof Settings, Settings[keyof Settings]][]).map(
+          ([key, value]) => window.lucidAPI.settings.set(key, value)
+        )
+      );
+      set((state) => ({
+        settings: { ...state.settings, ...updates },
+      }));
+    } catch (error) {
+      console.error('Failed to update settings:', error);
     }
   },
 
@@ -159,11 +212,27 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   checkBackendStatus: async () => {
     try {
       const isAvailable = await window.lucidAPI.ai.checkLocalBackend();
-      console.log('Local AI Backend Status:', isAvailable);
-      set({ isLocalBackendAvailable: isAvailable });
+      // The wrapper being up is not enough — a loaded model is what makes
+      // the backend usable. Report the two separately so the UI never
+      // claims "connected" when no model is loaded.
+      let modelAvailable = false;
+      try {
+        const statuses = await window.lucidAPI.lucid.getModelStatuses();
+        modelAvailable = Object.values(statuses || {}).some(Boolean);
+      } catch {
+        modelAvailable = false;
+      }
+      console.log(
+        `Local AI Backend Status: ${isAvailable
+          ? modelAvailable
+            ? 'model(s) available'
+            : 'wrapper up, no model loaded'
+          : 'down'}`
+      );
+      set({ isLocalBackendAvailable: isAvailable, isLocalModelAvailable: modelAvailable });
     } catch (error) {
       console.error('Failed to check local backend:', error);
-      set({ isLocalBackendAvailable: false });
+      set({ isLocalBackendAvailable: false, isLocalModelAvailable: false });
     }
   },
 

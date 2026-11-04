@@ -1,7 +1,7 @@
 # FixNet System: DARPA-Grade Audit & Enhancement Plan
 
 ## Executive Summary
-This document provides a comprehensive security, reliability, and integrity audit of the FixNet offline error-fixing system. FixNet aims for 72% offline coverage with local template matching, consensus-based trust, and GitHub-backed persistence.
+This document provides a comprehensive security, reliability, and integrity audit of the FixNet offline error-fixing system. FixNet aims for high offline coverage with local template matching, consensus-based trust, and GitHub-backed persistence. (No fixed coverage percentage is claimed — the offline success rate is measured live from real lookups.)
 
 **Audit Date**: February 28, 2026  
 **System Version**: 1.0 (Initial Implementation)  
@@ -399,7 +399,7 @@ private _logAction(action: string, fix_hash: string, success: boolean): void {
    - Memory usage (target: <100MB for 10k fixes)
 
 3. **Business Metrics**
-   - Offline coverage percentage (target: 72%)
+   - Offline coverage percentage (measured live from real lookups; no fixed target)
    - Fix success rate (target: >85%)
    - User trust in consensus scores
 

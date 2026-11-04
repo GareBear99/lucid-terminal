@@ -144,21 +144,29 @@ class LuciferWatcher:
         """Check if a file has changed and auto-fix if needed."""
         try:
             mtime = os.path.getmtime(file_path)
-            
-            # File changed?
-            if file_path not in self.file_timestamps or self.file_timestamps[file_path] != mtime:
+
+            # Capture the previous mtime BEFORE recording the new one.
+            # (The old code stored the new mtime first and then read it back
+            # as "old_mtime", so old_mtime == mtime always and the change
+            # branch below could never fire.)
+            old_mtime = self.file_timestamps.get(file_path)
+
+            if old_mtime is None:
+                # First sighting: record the baseline and do not process
+                # (avoid running on startup).
                 self.file_timestamps[file_path] = mtime
-                
-                # Only process if not the first time (avoid running on startup)
-                old_mtime = self.file_timestamps.get(file_path)
-                if old_mtime is not None and old_mtime != mtime:
-                    print(c(f"\n{Emojis.MAGNIFIER} Change detected: {os.path.basename(file_path)}", "cyan"))
-                    
-                    if self.mode == "autofix":
-                        self._auto_fix_file(file_path)
-                    else:
-                        self._suggest_fix_file(file_path)
-        
+                return
+
+            # File changed?
+            if old_mtime != mtime:
+                self.file_timestamps[file_path] = mtime
+                print(c(f"\n{Emojis.MAGNIFIER} Change detected: {os.path.basename(file_path)}", "cyan"))
+
+                if self.mode == "autofix":
+                    self._auto_fix_file(file_path)
+                else:
+                    self._suggest_fix_file(file_path)
+
         except Exception:
             pass  # File might be deleted or moved
     
@@ -335,26 +343,54 @@ class LuciferWatcher:
             return False
 
 
-# Test if run directly
+# Run as a long-lived background daemon:
+#   python3 core/lucifer_watcher.py --paths <dir...> --mode watch [--user-id ID]
+# The Electron app manages this process (see electron/ipc/daemon.ts): it
+# starts it with --mode watch by default and stops it on quit. Autofix mode
+# is only entered when --mode autofix is passed explicitly — the Electron
+# default is watch (suggest-only) until Gary decides autofix vs suggest.
 if __name__ == "__main__":
+    import argparse
     import hashlib
+    import signal
     import uuid
-    
-    # Generate test user ID
-    device_id = str(uuid.UUID(int=uuid.getnode()))
-    username = os.getenv("USER", "unknown")
-    user_id = hashlib.sha256(f"{device_id}-{username}".encode()).hexdigest()[:16].upper()
-    
-    watcher = LuciferWatcher(user_id)
-    
-    print("\n" + c("="*60, "purple"))
-    print(c(f"{Emojis.GHOST} LuciferWatcher Test", "purple"))
-    print(c("="*60, "purple") + "\n")
-    
-    # Test commands
-    watcher.add_path(".")
-    watcher.list_paths()
-    
-    print(c("\nTo use:", "yellow"))
-    print("  watcher.start()  # Start watching")
-    print("  watcher.stop()   # Stop watching")
+
+    _parser = argparse.ArgumentParser(description="LuciferWatcher — file watcher daemon")
+    _parser.add_argument("--paths", nargs="*", default=[],
+                         help="Files or directories to watch")
+    _parser.add_argument("--mode", choices=["watch", "autofix"], default="watch",
+                         help="watch = suggest fixes only (default); autofix = apply fixes")
+    _parser.add_argument("--user-id", default=None,
+                         help="User id for the fix dictionary (default: device hash)")
+    _args = _parser.parse_args()
+
+    if _args.user_id:
+        _user_id = _args.user_id
+    else:
+        _device_id = str(uuid.UUID(int=uuid.getnode()))
+        _username = os.getenv("USER", "unknown")
+        _user_id = hashlib.sha256(f"{_device_id}-{_username}".encode()).hexdigest()[:16].upper()
+
+    _watcher = LuciferWatcher(_user_id)
+
+    for _p in _args.paths:
+        _watcher.add_path(_p)
+
+    if not _watcher.watch_paths:
+        print(c(f"{Emojis.CROSS} No paths to watch. Pass --paths <dir...>", "red"))
+        sys.exit(1)
+
+    _watcher.start(mode=_args.mode)
+
+    # Stay alive while the watcher thread runs; stop cleanly on SIGTERM/SIGINT.
+    def _shutdown(_signum, _frame):
+        _watcher.stop()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    try:
+        while _watcher.running:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        _watcher.stop()

@@ -1,6 +1,13 @@
-import { useRef, useEffect } from 'react';
-import Editor from '@monaco-editor/react';
+import { useRef, useEffect, useState } from 'react';
+import Editor, { loader } from '@monaco-editor/react';
 import { ProcessingGlow } from './ProcessingGlow';
+import { useToastStore } from '../../stores/toastStore';
+
+// How long to wait for Monaco (loaded from cdn.jsdelivr.net) before giving
+// up and rendering a plain textarea. Without this the prompt sits on
+// "Loading..." forever when the CDN is unreachable, and the user cannot type
+// a command at all.
+const MONACO_LOAD_TIMEOUT_MS = 8000;
 
 // Monaco types
 declare global {
@@ -21,6 +28,35 @@ interface InputAreaProps {
 
 export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
+
+  // Monaco fallback: the editor loads from a CDN, so when the network (or
+  // the CDN) is down it never mounts and the prompt is stuck on "Loading..."
+  // with no way to type. Fall back to a plain textarea so the terminal
+  // stays usable.
+  const [monacoFailed, setMonacoFailed] = useState(false);
+  const fallbackToastShown = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fallBack = () => {
+      if (cancelled || editorRef.current) return;
+      setMonacoFailed(true);
+      if (!fallbackToastShown.current) {
+        fallbackToastShown.current = true;
+        useToastStore.getState().warning(
+          'Monaco editor failed to load — using plain input. Commands still work.'
+        );
+      }
+    };
+    // Fast path: the loader promise rejects when the CDN script fails.
+    loader.init().catch(fallBack);
+    // Slow path: the CDN request can hang instead of failing outright.
+    const timer = setTimeout(fallBack, MONACO_LOAD_TIMEOUT_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
 
     // Sync external input state with editor
     useEffect(() => {
@@ -95,11 +131,42 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         editor.focus();
     };
 
+    // Plain-textarea fallback: same behaviour as the editor — Enter submits,
+    // Up/Down walk command history.
+    const handleFallbackKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            const value = input.trim();
+            if (value) {
+                onSubmit(value);
+            }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            onHistoryUp();
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            onHistoryDown();
+        }
+    };
+
     return (
         <div className="w-full h-auto min-h-[40px] flex items-center relative">
-            {/* Siri-style processing glow */}
+            {/* Rainbow swirl processing glow */}
             <ProcessingGlow isProcessing={isProcessing} />
             
+            {monacoFailed ? (
+                <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleFallbackKeyDown}
+                    rows={1}
+                    autoFocus
+                    placeholder="Type a command… (plain input — Monaco unavailable)"
+                    title="Monaco editor unavailable — using plain input"
+                    className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-hidden"
+                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace" }}
+                />
+            ) : (
             <Editor
                 height="40px"
                 language="shell"
@@ -146,6 +213,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     fontLigatures: false,
                 }}
             />
+            )}
         </div>
     );
 }

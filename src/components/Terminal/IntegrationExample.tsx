@@ -76,24 +76,11 @@ export function TerminalWithNotifications() {
   };
   
   // Handle image upload
+  // NOTE: Image analysis is not available — no vision model or backend
+  // exists in the app, so there is no vision API to call. The upload
+  // is rejected honestly instead of silently doing nothing.
   const handleImageUpload = async (file: File) => {
-    try {
-      // Convert to base64
-      const base64 = await fileToBase64(file);
-      
-      // Send to LLM vision API
-      const response = await window.lucidAPI.llm.vision({
-        image: base64,
-        prompt: 'Analyze this image'
-      });
-      
-      if (response.success) {
-        success('Image analyzed successfully');
-      }
-      
-    } catch (err) {
-      errorHandler.current.handleError(err as Error, 'Image analysis');
-    }
+    error(`Image analysis is not available — no vision model is installed (cannot analyze "${file.name}").`);
   };
   
   // Handle image limit exceeded - insert path
@@ -151,16 +138,6 @@ export function TerminalWithNotifications() {
       </div>
     </div>
   );
-}
-
-// Helper function
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 /**

@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
+import { useToastStore } from './stores/toastStore';
+import { ErrorNotification } from './components/Terminal/ErrorNotification';
 import { useTerminalStore } from './stores/terminalStore';
 import { useFileStore } from './stores/fileStore';
 import TitleBar from './components/Layout/TitleBar';
@@ -10,14 +12,17 @@ import TerminalTabs from './components/Terminal/TerminalTabs';
 import AIChat from './components/AI/AIChat';
 import CodeEditor from './components/Editor/CodeEditor';
 import SettingsPanel from './components/Settings/SettingsPanel';
+import { SynthView } from './components/Synth/SynthView';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
+import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
 import { View } from './types';
 
 function App() {
-  const { loadSettings, isLoading } = useSettingsStore();
+  const { loadSettings, isLoading, storageDegraded } = useSettingsStore();
+  const { notifications, removeNotification } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
   const { openFiles, currentDir, setCurrentDir } = useFileStore();
 
@@ -26,6 +31,15 @@ function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [aiPanelWidth, setAiPanelWidth] = useState(500);
+  const [storageBannerDismissed, setStorageBannerDismissed] = useState(false);
+  // Startup model check: null while the check has not resolved yet.
+  // Dismissing the banner hides it for this session only — it comes
+  // back on the next launch while no model is installed.
+  const [modelCheck, setModelCheck] = useState<{ installed: boolean } | null>(null);
+  const [modelBannerDismissed, setModelBannerDismissed] = useState(false);
+  // Help category to land on when the modal opens (the "?" in the model
+  // banner opens 'tiers'); null means "open as before".
+  const [helpInitialCategory, setHelpInitialCategory] = useState<string | null>(null);
   // showLucidTest removed - workflow test will be accessible via menu
 
   // Debug logging
@@ -35,6 +49,20 @@ function App() {
 
   // Track initialization to prevent duplicate tabs in React Strict Mode
   const hasInitialized = useRef(false);
+
+  // Startup model check: is any model file installed? Plain
+  // filesystem scan in the main process — it only sets state, so
+  // the app opens whether it succeeds or not. A failed check is
+  // "unknown" (no banner), never "missing" (banner on a guess).
+  const checkModels = async () => {
+    try {
+      const result = await window.lucidAPI.lucid.checkModelsInstalled();
+      setModelCheck({ installed: result.installed });
+    } catch (error) {
+      console.log('[INIT] Model check unavailable:', error);
+      setModelCheck(null);
+    }
+  };
 
   // Setup help modal keyboard shortcuts (Cmd+/ and F1)
   useEffect(() => {
@@ -50,12 +78,15 @@ function App() {
     async function init() {
       console.log('[INIT] Loading settings...');
       await loadSettings();
+      void checkModels();
       
       // Create terminal immediately (doesn't need currentDir)
       if (tabs.length === 0) {
         console.log('[INIT] Creating terminal...');
         await createTab(); // Will use home dir by default
-        console.log('[INIT] ✅ Terminal ready!');
+        // Readiness is logged by the Terminal itself on first shell
+        // output — the shell may still fail to spawn after this.
+        console.log('[INIT] Terminal created — waiting for shell...');
       }
       
       // Load file explorer in background (non-blocking)
@@ -104,6 +135,35 @@ function App() {
       {/* Title Bar */}
       <TitleBar />
 
+      {/* No local model installed — command passes and AI chat need one.
+          Session-only dismiss: it comes back on the next launch while no
+          model is installed. */}
+      {modelCheck && !modelCheck.installed && !modelBannerDismissed && (
+        <ModelMissingBanner
+          onDismiss={() => setModelBannerDismissed(true)}
+          onInstalled={() => void checkModels()}
+          onShowTiers={() => {
+            setHelpInitialCategory('tiers');
+            setShowHelp(true);
+          }}
+        />
+      )}
+
+      {/* Read-only app data — settings fell back to memory and will not
+          persist. The app still runs; this is a warning, not a failure. */}
+      {storageDegraded && !storageBannerDismissed && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2 bg-yellow-500/15 border-b border-yellow-500/40 text-yellow-200 text-xs">
+          <span>⚠️ Settings could not be saved — the app data folder is read-only. Changes won't persist.</span>
+          <button
+            onClick={() => setStorageBannerDismissed(true)}
+            className="shrink-0 rounded px-2 py-0.5 hover:bg-white/10"
+            title="Dismiss"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* PHASE 1: No more welcome screen - always show terminal */}
@@ -114,11 +174,15 @@ function App() {
               onWidthChange={setSidebarWidth}
               currentView={currentView}
               onViewChange={setCurrentView}
+              showAI={showAI}
+              onToggleAI={() => setShowAI(!showAI)}
             />
 
             {/* Main Panel */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              {currentView === 'settings' ? (
+              {currentView === 'synth' ? (
+                <SynthView />
+              ) : currentView === 'settings' ? (
                 <SettingsPanel onClose={() => setCurrentView('terminal')} />
               ) : currentView === 'editor' && openFiles.length > 0 ? (
                 <CodeEditor />
@@ -136,7 +200,7 @@ function App() {
                           key={tab.id}
                           className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                         >
-                          <Terminal tabId={tab.id} onOpenHelp={() => setShowHelp(true)} />
+                          <Terminal tabId={tab.id} onOpenHelp={() => setShowHelp(true)} onOpenSynth={() => setCurrentView('synth')} />
                         </div>
                       ))}
                       {tabs.length === 0 && (
@@ -205,7 +269,17 @@ function App() {
       />
 
       {/* Help Modal */}
-      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
+      <HelpModal
+        isOpen={showHelp}
+        initialCategoryId={helpInitialCategory}
+        onClose={() => {
+          setShowHelp(false);
+          setHelpInitialCategory(null);
+        }}
+      />
+
+      {/* Error toasts (file, terminal, backend, Monaco fallback) */}
+      <ErrorNotification notifications={notifications} onDismiss={removeNotification} />
     </div>
   );
 }

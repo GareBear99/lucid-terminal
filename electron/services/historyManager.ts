@@ -9,6 +9,9 @@ export interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /** Next ritual tick to assign in this chat (see ChatMessage in the
+   *  renderer types). Persisted in sessions.json with the session. */
+  nextTick?: number;
 }
 
 const DATA_FILE = 'sessions.json';

@@ -1,0 +1,37 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # --ignore-scripts: node-pty's native build has no Linux prebuild
+      # and fails in CI (same reason local installs use it). Neither the
+      # vitest suite nor the tool-integration script needs node-pty or
+      # the Electron binary.
+      # NOTE: `npm install`, not `npm ci`: package-lock.json is
+      # gitignored in this repo, so a fresh checkout has no lockfile
+      # for `npm ci` to use.
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Run unit tests (vitest)
+        run: npm test
+
+      - name: Run tool integration tests
+        run: npm run test:tools
+
+      - name: Typecheck
+        run: npm run typecheck

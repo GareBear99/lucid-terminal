@@ -270,7 +270,8 @@ export const ValidationStepFactory = {
       id: 'detect',
       label: 'Detect error',
       status: 'success',
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      message: `Error detected in: ${scriptName}`
     },
     {
       id: 'search',

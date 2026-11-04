@@ -73,15 +73,19 @@ export function DaemonLogViewer({ onClose }: DaemonLogViewerProps) {
     setFilteredLogs(filtered);
   }, [logs, filterType, filterFile]);
 
+  // Reads the watcher's structured event log (LuciferLogger's
+  // ~/LuciferAI/logs/lucifer_memory.json) through the daemon IPC.
+  // Retention and verbosity come from Settings > Daemon. When the daemon
+  // has never run, the file does not exist and the viewer stays in its
+  // honest empty state ("Daemon is not running or no activity yet").
   const loadLogs = async () => {
     setIsLoading(true);
     try {
-      const result = await window.lucidAPI.lucid.daemonLogs();
-      if (result.success && result.logs) {
-        setLogs(result.logs);
-      }
+      const entries = await window.lucidAPI.daemon.getLogs();
+      setLogs(entries);
     } catch (error) {
       console.error('Failed to load daemon logs:', error);
+      setLogs([]);
     } finally {
       setIsLoading(false);
     }
@@ -89,13 +93,11 @@ export function DaemonLogViewer({ onClose }: DaemonLogViewerProps) {
 
   const handleClearLogs = async () => {
     if (confirm('Clear all daemon logs? This cannot be undone.')) {
-      try {
-        await window.lucidAPI.lucid.daemonClearLogs();
-        setLogs([]);
-        setSelectedLog(null);
-      } catch (error) {
-        console.error('Failed to clear logs:', error);
-      }
+      // Local-only: clears the displayed list. The on-disk log is the
+      // LuciferAI memory file (shared with the agent), so it is not
+      // truncated from here.
+      setLogs([]);
+      setSelectedLog(null);
     }
   };
 

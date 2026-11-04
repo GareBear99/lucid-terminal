@@ -1,0 +1,13 @@
+{
+  "moduleType": "scanner",
+  "id": "SYNTHESIS_SCANNER_TRUTH_SURFACE",
+  "style": "iteration4",
+  "config": {
+    "label": "SYNTHESIS SCANNER",
+    "probeGlow": 1.0,
+    "sweepSpeed": 0.08,
+    "sweepWidth": 0.02,
+    "contactPersistence": 1.1,
+    "sweepGlow": 0.18
+  }
+}

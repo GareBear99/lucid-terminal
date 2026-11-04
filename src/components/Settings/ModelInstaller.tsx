@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Download, Check, Loader, HardDrive, Trash2 } from 'lucide-react';
+import { Download, Loader, HardDrive, Trash2 } from 'lucide-react';
+import { useToastStore } from '../../stores/toastStore';
 
 interface Model {
   name: string;
@@ -105,22 +106,41 @@ const [tiers, setTiers] = useState<ModelTier[]>([
     loadStorageInfo();
   }, []);
 
+  // A model file counts as installed for this row when its file name
+  // (without extension) is the model name or starts with it, e.g.
+  // "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" installs "tinyllama".
+  const fileMatchesModel = (fileName: string, modelName: string): boolean => {
+    const base = fileName.replace(/\.(gguf|llamafile)$/i, '').toLowerCase();
+    const name = modelName.toLowerCase().replace(/:/g, '-');
+    return base === name || base.startsWith(name + '-') || base.startsWith(name);
+  };
+
   const loadInstalledModels = async () => {
     try {
-      const result = await window.lucidAPI.lucid.llmList();
-      if (result.success && result.models) {
-        setTiers(prev => prev.map(tier => ({
-          ...tier,
-          models: tier.models.map(model => {
-            const installedModel = result.models.find((m: any) => m.name === model.name);
-            return {
-              ...model,
-              installed: !!installedModel,
-              enabled: installedModel?.enabled || false
-            };
-          })
-        })));
+      // Installed = a model FILE on disk (see modelFiles.ts). The old code
+      // read llmList(), whose entries are the registered backends — every
+      // registered model read as "installed" whether a file existed or not.
+      const installed = await window.lucidAPI.lucid.checkModelsInstalled();
+      const installedFiles = installed.files || [];
+      let enabledByName = new Map<string, boolean>();
+      try {
+        const result = await window.lucidAPI.lucid.llmList();
+        if (result.success && result.models) {
+          for (const m of result.models as any[]) {
+            enabledByName.set(m.name, !!m.enabled);
+          }
+        }
+      } catch {
+        // Enabled state is best-effort; installed state is what matters.
       }
+      setTiers(prev => prev.map(tier => ({
+        ...tier,
+        models: tier.models.map(model => ({
+          ...model,
+          installed: installedFiles.some(f => fileMatchesModel(f.name, model.name)),
+          enabled: enabledByName.get(model.name) || false,
+        }))
+      })));
     } catch (error) {
       console.error('Failed to load models:', error);
     }
@@ -145,16 +165,25 @@ const [tiers, setTiers] = useState<ModelTier[]>([
     });
 
     try {
-      await window.lucidAPI.lucid.installModel(modelName);
+      // Read the result: the old code marked the model installed no
+      // matter what the backend returned — including "Tool not found".
+      const result = await window.lucidAPI.lucid.installModel(modelName);
       setTiers(prev => {
         const newTiers = [...prev];
         newTiers[tierIndex].models[modelIndex].downloading = false;
-        newTiers[tierIndex].models[modelIndex].installed = true;
+        // Installed only when the backend proves the file is on disk.
+        newTiers[tierIndex].models[modelIndex].installed = result.success === true;
         return newTiers;
       });
+      if (result.success) {
+        useToastStore.getState().success(`Installed ${modelName}.`);
+      } else {
+        useToastStore.getState().error(`Install failed: ${result.error || 'unknown error'}`);
+      }
       await loadStorageInfo();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to install model:', error);
+      useToastStore.getState().error(`Install failed: ${error?.message ?? String(error)}`);
       setTiers(prev => {
         const newTiers = [...prev];
         newTiers[tierIndex].models[modelIndex].downloading = false;
@@ -165,16 +194,21 @@ const [tiers, setTiers] = useState<ModelTier[]>([
 
   const uninstallModel = async (modelName: string, tierIndex: number, modelIndex: number) => {
     try {
-      await window.lucidAPI.lucid.uninstallModel(modelName);
-      setTiers(prev => {
-        const newTiers = [...prev];
-        newTiers[tierIndex].models[modelIndex].installed = false;
-        newTiers[tierIndex].models[modelIndex].enabled = false;
-        return newTiers;
-      });
-      await loadStorageInfo();
-    } catch (error) {
+      const result = await window.lucidAPI.lucid.uninstallModel(modelName);
+      if (result.success) {
+        setTiers(prev => {
+          const newTiers = [...prev];
+          newTiers[tierIndex].models[modelIndex].installed = false;
+          newTiers[tierIndex].models[modelIndex].enabled = false;
+          return newTiers;
+        });
+        await loadStorageInfo();
+      } else {
+        useToastStore.getState().error(`Uninstall failed: ${result.error || 'unknown error'}`);
+      }
+    } catch (error: any) {
       console.error('Failed to uninstall model:', error);
+      useToastStore.getState().error(`Uninstall failed: ${error?.message ?? String(error)}`);
     }
   };
 
@@ -194,11 +228,15 @@ const [tiers, setTiers] = useState<ModelTier[]>([
   const installCoreModels = async () => {
     setInstallingCore(true);
     try {
-      await window.lucidAPI.lucid.installCoreModels();
+      const result = await window.lucidAPI.lucid.installCoreModels();
+      if (!result.success) {
+        useToastStore.getState().error(`Install core models failed: ${result.error || 'unknown error'}`);
+      }
       await loadInstalledModels();
       await loadStorageInfo();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to install core models:', error);
+      useToastStore.getState().error(`Install core models failed: ${error?.message ?? String(error)}`);
     } finally {
       setInstallingCore(false);
     }

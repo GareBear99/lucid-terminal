@@ -406,9 +406,7 @@ Requires Mistral or DeepSeek model enabled.
 ## Quick Stats
 
 **Total Commands:** 80+  
-**Work Offline:** 72% (58+ commands)  
-**No LLM Required:** 80% (64+ commands)  
-**Average Response Time:** 15-50ms (without LLM)
+**Work Offline:** deterministic commands work offline without any LLM
 
 **Most Used Commands:**
 1. `help` - Show all commands

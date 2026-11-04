@@ -219,7 +219,7 @@ export class CommandDisplay {
 ║                                                           ║
 ║   🚀  Lucid Terminal  -  AI-Powered Development Env      ║
 ║                                                           ║
-║   • FixNet: 72% operations work offline                  ║
+║   • FixNet: offline fixes, no LLM needed                 ║
 ║   • Smart bypass routing: Tier 0-5 models                ║
 ║   • Every fix and script stored for reuse                ║
 ║                                                           ║
@@ -258,7 +258,7 @@ ${cyan}▶ Direct Commands${reset} ${dim}(no LLM needed - instant execution)${re
   ${white}help${reset}                   ${dim}Show this help${reset}
   ${white}exit${reset}                   ${dim}Exit terminal${reset}
 
-${yellow}▶ FixNet Commands${reset} ${dim}(72% offline - no internet needed)${reset}
+${yellow}▶ FixNet Commands${reset} ${dim}(offline - no internet needed)${reset}
   ${white}fix${reset} <error>            ${dim}Auto-fix error with offline templates${reset}
   ${white}fixnet stats${reset}           ${dim}Show FixNet statistics${reset}
   ${white}fixnet search${reset} <query>  ${dim}Search offline fix dictionary${reset}
@@ -290,7 +290,7 @@ ${magenta}▶ Natural Language Mode${reset}
   ${dim}Just ask questions naturally! The system will:${reset}
   ${dim}• Parse your intent without LLM (fast)${reset}
   ${dim}• Route to appropriate model tier (0-5)${reset}
-  ${dim}• Use offline fixes when possible (72%)${reset}
+  ${dim}• Use offline fixes when possible${reset}
   ${dim}• Fall back to AI only when needed${reset}
   
   ${dim}Examples:${reset}
@@ -300,7 +300,7 @@ ${magenta}▶ Natural Language Mode${reset}
 
 ${red}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${reset}
 ${dim}🩸 Powered by LuciferAI • Enhanced AI Workflow System${reset}
-${dim}⚡ 72% operations work offline • 6-tier model routing${reset}
+${dim}⚡ Offline fixes available • 6-tier model routing${reset}
 ${dim}🔧 FixNet: 17 offline templates synced • Fuzzy matching enabled${reset}
     `.trim();
   }

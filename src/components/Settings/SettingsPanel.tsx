@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   X,
   Palette,
@@ -18,6 +18,8 @@ import { themes, createDefaultCustomTheme } from '../../themes/themes';
 import { Theme } from '../../types';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
+import { TOOLBAR_PLUGINS } from '../../data/toolbarPlugins';
+import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -45,6 +47,105 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
     settings.customTheme || createDefaultCustomTheme()
   );
   const [showCustomThemeEditor, setShowCustomThemeEditor] = useState(false);
+
+  // File-watcher daemon state (Daemon tab). Loaded when the tab opens.
+  const [watchPaths, setWatchPaths] = useState<string[]>([]);
+  const [daemonStatus, setDaemonStatus] = useState<{ running: boolean; mode: 'watch' | 'autofix' | null; pids: string[] } | null>(null);
+  const [daemonBusy, setDaemonBusy] = useState(false);
+  const [daemonError, setDaemonError] = useState<string | null>(null);
+  const [showDaemonLogs, setShowDaemonLogs] = useState(false);
+
+  const refreshDaemon = async () => {
+    if (!window.lucidAPI.daemon) return;
+    try {
+      const [paths, status] = await Promise.all([
+        window.lucidAPI.daemon.getPaths(),
+        window.lucidAPI.daemon.status(),
+      ]);
+      setWatchPaths(paths);
+      setDaemonStatus(status);
+    } catch (error) {
+      setDaemonError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'daemon') return;
+    refreshDaemon();
+    // Keep the status line and the Enable toggle truthful while the
+    // tab is open: the daemon can start/stop outside Settings
+    // (terminal `daemon` commands, auto-start), and the tab would
+    // otherwise show a stale state until it is reopened.
+    const timer = setInterval(refreshDaemon, 3000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const handleDaemonEnabledChange = async (enabled: boolean) => {
+    await updateSetting('daemonEnabled', enabled);
+    if (!window.lucidAPI.daemon) return;
+    setDaemonBusy(true);
+    setDaemonError(null);
+    try {
+      const result = enabled
+        ? await window.lucidAPI.daemon.start()
+        : await window.lucidAPI.daemon.stop();
+      if (!result.success && result.error) setDaemonError(result.error);
+    } catch (error) {
+      setDaemonError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDaemonBusy(false);
+      await refreshDaemon();
+    }
+  };
+
+  const handleDaemonAutoFixChange = async (autoFix: boolean) => {
+    await updateSetting('daemonAutoFix', autoFix);
+    // The mode only takes effect when the daemon (re)starts, so restart
+    // a running daemon to apply it. Default stays watch (suggest-only).
+    if (!window.lucidAPI.daemon) return;
+    const status = await window.lucidAPI.daemon.status();
+    if (status.running) {
+      setDaemonBusy(true);
+      try {
+        await window.lucidAPI.daemon.stop();
+        const result = await window.lucidAPI.daemon.start();
+        if (!result.success && result.error) setDaemonError(result.error);
+      } finally {
+        setDaemonBusy(false);
+        await refreshDaemon();
+      }
+    }
+  };
+
+  const handleAddWatchDirectory = async () => {
+    const dir = await window.lucidAPI.fs.selectDirectory();
+    if (!dir || !window.lucidAPI.daemon) return;
+    setDaemonBusy(true);
+    try {
+      const { paths } = await window.lucidAPI.daemon.addPath(dir);
+      setWatchPaths(paths);
+    } catch (error) {
+      setDaemonError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDaemonBusy(false);
+      await refreshDaemon();
+    }
+  };
+
+  const handleRemoveWatchDirectory = async (dir: string) => {
+    if (!window.lucidAPI.daemon) return;
+    setDaemonBusy(true);
+    try {
+      const { paths } = await window.lucidAPI.daemon.removePath(dir);
+      setWatchPaths(paths);
+    } catch (error) {
+      setDaemonError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDaemonBusy(false);
+      await refreshDaemon();
+    }
+  };
 
   const handleExport = async () => {
     const data = await exportSettings();
@@ -383,6 +484,58 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
               </section>
 
               <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Sentinel Face — Gaze Sensitivity</h3>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    className="flex-1"
+                    value={settings.gazeSensitivity ?? 50}
+                    onChange={(e) => updateSetting('gazeSensitivity', parseInt(e.target.value, 10))}
+                    min={0}
+                    max={100}
+                    step={5}
+                  />
+                  <span className="text-sm w-10">{settings.gazeSensitivity ?? 50}%</span>
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  How focused the Sentinel face&rsquo;s eyes are on the cursor. Low = the eyes stay wandering and only glance toward it; high = they track it closely and lock on quickly. Applies right away, no restart needed.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Toolbar plugins</h3>
+                <div className="space-y-3">
+                  {TOOLBAR_PLUGINS.map((plugin) => {
+                    const Icon = plugin.icon;
+                    const onToolbar = settings.toolbarPlugins?.[plugin.id] ?? plugin.defaultOnToolbar;
+                    return (
+                      <label key={plugin.id} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={onToolbar}
+                          onChange={(e) =>
+                            updateSetting('toolbarPlugins', {
+                              ...(settings.toolbarPlugins ?? {}),
+                              [plugin.id]: e.target.checked,
+                            })
+                          }
+                          className="rounded"
+                        />
+                        <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block text-sm">{plugin.name}</span>
+                          <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mt-2">
+                  Toggled-on plugins show as buttons in the icon bar, in the section above Settings. Applies right away, no restart needed.
+                </p>
+              </section>
+
+              <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Validation Display</h3>
                 <div className="space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -446,8 +599,12 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={settings.daemonEnabled !== false}
-                      onChange={(e) => updateSetting('daemonEnabled', e.target.checked)}
+                      // The toggle is the daemon switch: it reads on when the
+                      // setting says so OR the daemon is actually running
+                      // (e.g. started on launch or from the terminal).
+                      checked={settings.daemonEnabled !== false || daemonStatus?.running === true}
+                      onChange={(e) => handleDaemonEnabledChange(e.target.checked)}
+                      disabled={daemonBusy}
                       className="rounded"
                     />
                     <span className="text-sm">Enable file watcher daemon</span>
@@ -456,11 +613,15 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
                     <input
                       type="checkbox"
                       checked={settings.daemonAutoFix !== false}
-                      onChange={(e) => updateSetting('daemonAutoFix', e.target.checked)}
+                      onChange={(e) => handleDaemonAutoFixChange(e.target.checked)}
+                      disabled={daemonBusy}
                       className="rounded"
                     />
                     <span className="text-sm">Auto-fix errors on file change</span>
                   </label>
+                  <div className="text-xs text-[var(--text-muted)] pl-6">
+                    Off = suggest fixes only (watch mode). On applies fixes automatically.
+                  </div>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -470,6 +631,9 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
                     />
                     <span className="text-sm">GitHub-style commit tracking</span>
                   </label>
+                  <div className="text-xs text-[var(--text-muted)] pl-6">
+                    Not wired to anything yet — the watcher tracks no commits.
+                  </div>
                 </div>
               </section>
 
@@ -479,8 +643,24 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
                   <div className="text-xs text-[var(--text-muted)] mb-2">
                     Directories being monitored for changes
                   </div>
-                  {/* TODO: Add watched directories list */}
-                  <button className="btn btn-secondary text-xs">
+                  {watchPaths.length === 0 ? (
+                    <div className="text-xs text-[var(--text-muted)]">No directories watched yet.</div>
+                  ) : (
+                    watchPaths.map((dir) => (
+                      <div key={dir} className="flex items-center gap-2 text-sm">
+                        <span className="flex-1 truncate font-mono text-xs">{dir}</span>
+                        <button
+                          onClick={() => handleRemoveWatchDirectory(dir)}
+                          disabled={daemonBusy}
+                          className="btn-ghost p-1 rounded text-red-500 hover:bg-red-500/10"
+                          title="Stop watching this directory"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  <button onClick={handleAddWatchDirectory} disabled={daemonBusy} className="btn btn-secondary text-xs">
                     Add Directory to Watch
                   </button>
                 </div>
@@ -513,6 +693,25 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
                       <option value="debug">Debug</option>
                     </select>
                   </div>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Status</h3>
+                <div className="text-sm space-y-2">
+                  <div>
+                    {daemonStatus
+                      ? daemonStatus.running
+                        ? `Running in ${daemonStatus.mode ?? 'watch'} mode${daemonStatus.pids.length > 0 ? ` (PID ${daemonStatus.pids.join(', ')})` : ''}`
+                        : 'Not running'
+                      : 'Status unknown'}
+                  </div>
+                  {daemonError && (
+                    <div className="text-xs text-red-500">{daemonError}</div>
+                  )}
+                  <button onClick={() => setShowDaemonLogs(true)} className="btn btn-secondary text-xs">
+                    View Daemon Logs
+                  </button>
                 </div>
               </section>
             </div>
@@ -619,6 +818,8 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
           </div>
         </div>
       )}
+      {/* Daemon Log Viewer */}
+      {showDaemonLogs && <DaemonLogViewer onClose={() => setShowDaemonLogs(false)} />}
     </div>
   );
 }

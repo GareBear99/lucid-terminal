@@ -10,7 +10,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Image as ImageIcon, X, Loader2 } from 'lucide-react';
+import { Mic, Image as ImageIcon, X } from 'lucide-react';
 import { ImageUploadLimiter } from './ErrorNotification';
 
 interface MediaInputProps {
@@ -167,8 +167,6 @@ export function MediaInput({
     // The limit is per conversation, not per currently attached images
   };
   
-  // Show image count indicator
-  const remainingImages = imageLimiter.current.getRemainingCount();
   
   return (
     <div className="media-input-container">
@@ -263,7 +261,7 @@ interface DirectoryTrackerProps {
   onDirectoryChange: (newDir: string) => void;
 }
 
-export function DirectoryTracker({ currentDir, onDirectoryChange }: DirectoryTrackerProps) {
+export function DirectoryTracker({ currentDir }: DirectoryTrackerProps) {
   return (
     <div className="directory-tracker flex items-center gap-2 px-3 py-1 bg-[var(--bg-secondary)] border-b border-[var(--border)] text-xs font-mono">
       <span className="text-[var(--text-muted)]">pwd:</span>

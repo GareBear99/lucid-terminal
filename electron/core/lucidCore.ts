@@ -256,7 +256,7 @@ export class LucidCore {
       fixes_count: stats.dictionary.total_fixes || 0,
       scripts_count: stats.dictionary.total_scripts || 0,
       last_sync: null, // TODO: Implement sync tracking
-      offline_percentage: Math.round((stats.performance.offline_success_rate || 0.72) * 100)
+      offline_percentage: Math.round((stats.performance.offline_success_rate ?? 0) * 100)
     };
   }
   

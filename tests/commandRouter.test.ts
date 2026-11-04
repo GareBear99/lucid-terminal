@@ -13,6 +13,9 @@ import {
   getBestMatch,
 } from '../electron/core/fuzzyMatcher';
 import { getCommand, getAllCommandNames } from '../electron/core/helpGrammar';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 
 describe('Command Router - NO LLM Tests', () => {
   let router: CommandRouter;
@@ -71,10 +74,21 @@ describe('Command Router - NO LLM Tests', () => {
     });
     
     test('detects typo and suggests correction', () => {
-      const decision = router.route('hlp');
+      // 'hlep' is distance 2 from 'help', so parse()'s auto-correct
+      // (distance-1 only) leaves it alone and the router suggests.
+      const decision = router.route('hlep');
       expect(decision.type).toBe('typo_suggestion');
       expect(decision.suggestion).toBe('help');
       expect(decision.requiresConfirmation).toBe(true);
+    });
+
+    test('auto-corrects a distance-1 typo to a direct command', () => {
+      // 'hlp' is distance 1 from 'help': parse() auto-corrects it, so
+      // it routes directly as 'help' instead of suggesting.
+      const decision = router.route('hlp');
+      expect(decision.type).toBe('direct_command');
+      expect(decision.parsed.normalizedCommand).toBe('help');
+      expect(decision.confidence).toBe(1.0);
     });
     
     test('routes unknown command', () => {
@@ -131,6 +145,69 @@ describe('Command Router - NO LLM Tests', () => {
     });
   });
   
+  // ═══════════════════════════════════════════════════════════════════
+  // LAYER 3b: ls EXECUTION TESTS (regression)
+  //
+  // Regression: handleLs called parsed.flags.includes('-a'), but
+  // ParsedCommand.flags is a Record<string, string|boolean>, not an
+  // array — every `ls` invocation threw
+  // "parsed.flags.includes is not a function" and execute() returned
+  // success=false / exitCode 1. These tests EXECUTE `ls` through the
+  // real router + real file.list tool against a real temp directory.
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('ls Command Execution (regression)', () => {
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lucid-ls-test-'));
+      await fs.writeFile(path.join(tmpDir, 'visible.txt'), 'hello');
+      await fs.writeFile(path.join(tmpDir, '.hidden.txt'), 'secret');
+    });
+
+    afterEach(async () => {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+
+    test('executes ls on a directory and lists visible files', async () => {
+      const decision = router.route(`ls ${tmpDir}`);
+      const result = await router.execute(decision);
+
+      expect(result.success).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('visible.txt');
+      expect(result.output).not.toContain('.hidden.txt');
+    });
+
+    test('executes ls -a and shows hidden files', async () => {
+      const decision = router.route(`ls -a ${tmpDir}`);
+      const result = await router.execute(decision);
+
+      expect(result.success).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('visible.txt');
+      expect(result.output).toContain('.hidden.txt');
+    });
+
+    test('executes ls --all and shows hidden files', async () => {
+      const decision = router.route(`ls --all ${tmpDir}`);
+      const result = await router.execute(decision);
+
+      expect(result.success).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('.hidden.txt');
+    });
+
+    test('executes ls with no path argument (defaults to cwd)', async () => {
+      const decision = router.route('ls');
+      const result = await router.execute(decision);
+
+      expect(result.success).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toBeTruthy();
+    });
+  });
+
   // ═══════════════════════════════════════════════════════════════════
   // LAYER 4: FUZZY MATCHING TESTS
   // ═══════════════════════════════════════════════════════════════════

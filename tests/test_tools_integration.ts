@@ -201,22 +201,24 @@ async function main() {
     
     step(23, 'Testing router route and execute...');
     const routing = router.route('help');
-    if (routing.type === 'direct' && routing.confidence === 1.0) {
+    if (routing.type === 'direct_command' && routing.confidence === 1.0) {
       success('Router: help command routes correctly');
     } else {
       error('Router: help routing failed');
     }
     
     step(24, 'Testing router fuzzy matching...');
-    const fuzzyRouting = router.route('hlp'); // typo
-    if (fuzzyRouting.type === 'fuzzy_match' && fuzzyRouting.suggestion?.includes('help')) {
-      success('Router: Fuzzy matching works (hlp → help)');
+    // 'hlep' is distance 2 from 'help': parse()'s distance-1
+    // auto-correct leaves it alone, so the router suggests it.
+    const fuzzyRouting = router.route('hlep'); // typo
+    if (fuzzyRouting.type === 'typo_suggestion' && fuzzyRouting.suggestion?.includes('help')) {
+      success('Router: Fuzzy matching works (hlep → help)');
     } else {
       error('Router: Fuzzy matching failed');
     }
     
     step(25, 'Testing router execution...');
-    const execResult = await router.execute('help');
+    const execResult = await router.execute(router.route('help'));
     if (execResult.success) {
       success('Router: help execution works');
     } else {
@@ -224,7 +226,7 @@ async function main() {
     }
     
     step(26, 'Testing pwd through router...');
-    const pwdExec = await router.execute('pwd');
+    const pwdExec = await router.execute(router.route('pwd'));
     if (pwdExec.success && pwdExec.output) {
       success(`Router: pwd = ${pwdExec.output.substring(0, 40)}`);
     } else {

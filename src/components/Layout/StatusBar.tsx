@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { MessageSquare, Terminal, HelpCircle } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -11,6 +12,31 @@ interface StatusBarProps {
 function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
   const { tabs, activeTabId } = useTerminalStore();
   const { hasLicenseKey, currentTheme } = useSettingsStore();
+
+  // Network reachability, probed from the main process (short-timeout
+  // CDN check). This is actual reachability — not the FixNet offline %,
+  // which is the share of fixes from offline sources. Null = unchecked.
+  const [networkOnline, setNetworkOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const api = (window as any).lucidAPI?.system;
+        if (!api || typeof api.checkNetwork !== 'function') return;
+        const result = await api.checkNetwork();
+        if (!cancelled) setNetworkOnline(result.online);
+      } catch {
+        if (!cancelled) setNetworkOnline(false);
+      }
+    };
+    check();
+    const timer = setInterval(check, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -29,6 +55,23 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
 
       {/* Right Side */}
       <div className="flex items-center gap-3">
+        {/* Network Indicator */}
+        <div
+          className="flex items-center gap-1 text-[var(--text-muted)]"
+          title={
+            networkOnline === null
+              ? 'Checking network…'
+              : networkOnline
+                ? 'Network reachable'
+                : 'Network unreachable — Monaco, sync and downloads need network'
+          }
+        >
+          <div
+            className={`w-2 h-2 rounded-full ${networkOnline === null ? 'bg-gray-500' : networkOnline ? 'bg-green-500' : 'bg-red-500'}`}
+          />
+          <span>{networkOnline === null ? '…' : networkOnline ? 'Online' : 'Offline'}</span>
+        </div>
+
         {/* Theme Indicator */}
         <div className="flex items-center gap-1 text-[var(--text-muted)]">
           <div

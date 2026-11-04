@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return () => ipcRenderer.removeListener('terminal:exit', listener);
     },
     getCwd: (id: string) => ipcRenderer.invoke('terminal:getCwd', id),
+    executeCommand: (command: string) =>
+      ipcRenderer.invoke('terminal:executeCommand', command),
   },
 
   // AI operations
@@ -88,6 +90,11 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     clearSessions: () => ipcRenderer.invoke('ai:clearSessions'),
   },
 
+  // System operations
+  system: {
+    checkNetwork: () => ipcRenderer.invoke('system:checkNetwork'),
+  },
+
   // Settings operations
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
@@ -99,8 +106,20 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     hasLicenseKey: () => ipcRenderer.invoke('settings:hasLicenseKey'),
     deleteLicenseKey: () => ipcRenderer.invoke('settings:deleteLicenseKey'),
     getBalance: () => ipcRenderer.invoke('settings:getBalance'),
+    getStorageStatus: () => ipcRenderer.invoke('settings:getStorageStatus'),
     export: () => ipcRenderer.invoke('settings:export'),
     import: (data: string) => ipcRenderer.invoke('settings:import', data),
+  },
+
+  // File-watcher daemon (LuciferWatcher) operations
+  daemon: {
+    start: () => ipcRenderer.invoke('daemon:start'),
+    stop: () => ipcRenderer.invoke('daemon:stop'),
+    status: () => ipcRenderer.invoke('daemon:status'),
+    getPaths: () => ipcRenderer.invoke('daemon:getPaths'),
+    addPath: (dirPath: string) => ipcRenderer.invoke('daemon:addPath', dirPath),
+    removePath: (dirPath: string) => ipcRenderer.invoke('daemon:removePath', dirPath),
+    getLogs: () => ipcRenderer.invoke('daemon:getLogs'),
   },
 
   // Lucid Workflow operations
@@ -127,6 +146,18 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     uninstallModel: (modelName: string) => ipcRenderer.invoke('lucid:uninstallModel', modelName),
     installTier: (tier: number) => ipcRenderer.invoke('lucid:installTier', tier),
     installCoreModels: () => ipcRenderer.invoke('lucid:installCoreModels'),
+    getStorageInfo: () => ipcRenderer.invoke('lucid:getStorageInfo'),
+    // Is any model file installed? (startup disclaimer — scans
+    // ~/.lucid/models and LUCID-BACKEND/models; see modelFiles.ts)
+    checkModelsInstalled: () => ipcRenderer.invoke('lucid:checkModelsInstalled'),
+    // Install the bundled TinyLlama model. Progress lines arrive on the
+    // listener below while the download runs.
+    installTinyLlama: () => ipcRenderer.invoke('lucid:installTinyLlama'),
+    onInstallTinyLlamaProgress: (callback: (line: string) => void) => {
+      const listener = (_event: unknown, line: string) => callback(line);
+      ipcRenderer.on('lucid:installTinyLlama:progress', listener);
+      return () => ipcRenderer.removeListener('lucid:installTinyLlama:progress', listener);
+    },
     
     // Phase 2: FixNet Auto-Fix
     fixScript: (filepath: string) => ipcRenderer.invoke('lucid:fixScript', filepath),
@@ -185,6 +216,7 @@ export interface LucidAPI {
     onData: (callback: (id: string, data: string) => void) => void;
     onExit: (callback: (id: string, code: number) => void) => void;
     getCwd: (id: string) => Promise<string>;
+    executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
   };
   ai: {
     chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean) => Promise<string>;
@@ -200,6 +232,18 @@ export interface LucidAPI {
     deleteSession: (id: string) => Promise<void>;
     clearSessions: () => Promise<void>;
   };
+  system: {
+    checkNetwork: () => Promise<{ online: boolean }>;
+  };
+  daemon: {
+    start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; error?: string }>;
+    stop: () => Promise<{ success: boolean; error?: string }>;
+    status: () => Promise<{ running: boolean; pids: string[]; mode: 'watch' | 'autofix' | null; paths: string[] }>;
+    getPaths: () => Promise<string[]>;
+    addPath: (dirPath: string) => Promise<{ paths: string[]; restarted: boolean }>;
+    removePath: (dirPath: string) => Promise<{ paths: string[]; restarted: boolean }>;
+    getLogs: () => Promise<DaemonLogEntry[]>;
+  };
   settings: {
     get: <T>(key: string) => Promise<T>;
     set: (key: string, value: unknown) => Promise<void>;
@@ -207,6 +251,7 @@ export interface LucidAPI {
     setApiKey: (key: string) => Promise<void>;
     hasApiKey: () => Promise<boolean>;
     deleteApiKey: () => Promise<void>;
+    getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
     export: () => Promise<string>;
     import: (data: string) => Promise<void>;
   };
@@ -234,6 +279,10 @@ export interface LucidAPI {
     uninstallModel: (modelName: string) => Promise<{success: boolean; output?: string; error?: string}>;
     installTier: (tier: number) => Promise<{success: boolean; output?: string; error?: string}>;
     installCoreModels: () => Promise<{success: boolean; output?: string; error?: string}>;
+    getStorageInfo: () => Promise<{ success: boolean; storage: { used: string; available: string }; error?: string }>;
+    checkModelsInstalled: () => Promise<{ installed: boolean; files: { name: string; path: string; sizeBytes: number }[]; dirsChecked: string[]; errors: string[] }>;
+    installTinyLlama: () => Promise<{ success: boolean; modelPath?: string; output?: string; error?: string }>;
+    onInstallTinyLlamaProgress: (callback: (line: string) => void) => () => void;
     
     // Phase 2: FixNet Auto-Fix
     fixScript: (filepath: string) => Promise<{success: boolean; fixCount?: number; output?: string; error?: string}>;
@@ -275,6 +324,16 @@ export interface FileStats {
   created: number;
   modified: number;
   accessed: number;
+}
+
+export interface DaemonLogEntry {
+  id: string;
+  timestamp: number;
+  type: 'file_change' | 'auto_fix' | 'error' | 'success';
+  file: string;
+  directory: string;
+  action: string;
+  status: 'success' | 'failed' | 'pending';
 }
 
 export interface ChatMessage {

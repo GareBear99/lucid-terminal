@@ -7,7 +7,8 @@
 
 import { IntentParser, ParsedIntent } from '../parser/intentParser';
 import { BypassRouter, BypassRoute } from '../llm/bypassRouter';
-import { FixNetRouter, FixRequest, FixResponse } from '../fixnet/fixnetRouter';
+import { FixNetRouter, FixRequest, FixResponse, FixNetStats } from '../fixnet/fixnetRouter';
+import { CommandDisplay } from '../display/commandDisplay';
 import { TokenTracker, TokenStats } from '../tracking/tokenTracker';
 import { ToolRegistry } from '../tools/toolRegistry';
 import { ModelBackend, GenerationRequest } from '../llm/modelBackend';
@@ -161,15 +162,62 @@ export class WorkflowOrchestrator {
   }
   
   /**
-   * Handle direct commands (72% - no LLM)
+   * Handle direct commands (no LLM)
    */
   private async _handleDirectCommand(
     intent: ParsedIntent,
     startTime: number
   ): Promise<WorkflowResult> {
+    const command = (intent.normalized || '').trim().toLowerCase();
+
+    // 'help' — show the command reference. Local-only: no LLM, no tool call.
+    // (IntentParser leaves `action` unset for direct commands, so a bare
+    // toolRegistry lookup would fail with "Tool not found".)
+    if (command === 'help') {
+      return {
+        success: true,
+        output: CommandDisplay.formatHelp(),
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    // 'fixnet stats' — real stats from the local FixNet dictionary.
+    // Local-only: no LLM. (Previously misclassified as a fix_request
+    // because 'fixnet' contains 'fix', and sent to the model backends.)
+    if (command === 'fixnet stats') {
+      const stats = await this.fixnetRouter.getStats();
+      return {
+        success: true,
+        output: this._formatFixNetStats(stats),
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    // 'fixnet search <query>' — search the local FixNet dictionary.
+    // Local-only: no LLM. (Previously misrouted: the intent parser's
+    // synonym map rewrote 'search' -> 'find', so this never matched a
+    // direct command and fell through to the fix-request/LLM path.)
+    if (command === 'fixnet search' || command.startsWith('fixnet search ')) {
+      const query = command.slice('fixnet search'.length).trim();
+      if (!query) {
+        return {
+          success: false,
+          output: 'Usage: fixnet search <query>',
+          executionTimeMs: Date.now() - startTime
+        };
+      }
+      const results = await this.fixnetRouter.searchDictionary(query);
+      return {
+        success: true,
+        output: this._formatFixNetSearchResults(query, results),
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    const action = intent.action ?? '';
     // Execute tool directly
     const toolResult = await this.toolRegistry.executeTool(
-      intent.action,
+      action,
       intent.target
     );
     
@@ -177,7 +225,7 @@ export class WorkflowOrchestrator {
       // Command failed - check if we need to fix
       if (toolResult.error && this._looksLikeError(toolResult.error)) {
         return await this._tryFixAndRetry(
-          intent.action,
+          action,
           intent.target,
           toolResult.error,
           startTime
@@ -199,7 +247,7 @@ export class WorkflowOrchestrator {
     intent: ParsedIntent,
     startTime: number
   ): Promise<WorkflowResult> {
-    const error = intent.target;  // Error message or file with error
+    const error = intent.target ?? '';  // Error message or file with error
     
     // Show loading
     const loadId = this.display.addLoading('Searching FixNet...');
@@ -315,7 +363,7 @@ export class WorkflowOrchestrator {
       // Execute multi-step script building (LuciferAI-style)
       const executionResult = await this.scriptExecutor.executeScriptBuild({
         code: result.code,
-        filename: result.filename || 'script.py',
+        filename: 'script.py',
         directory: this.context.workingDirectory,
         language: this._detectLanguage(result.type),
         shouldTest: true,
@@ -635,6 +683,47 @@ export class WorkflowOrchestrator {
     };
   }
   
+  /**
+   * Format FixNet statistics as human-readable terminal output.
+   * Same fields as LucidCore.getFixNetStats() (fixes/scripts/offline %).
+   */
+  private _formatFixNetStats(stats: FixNetStats): string {
+    const rate = Math.round((stats.performance.offline_success_rate ?? 0) * 100);
+    const lines = [];
+    lines.push('🔧 FixNet Statistics');
+    lines.push('');
+    lines.push(`Fixes in dictionary: ${stats.dictionary.total_fixes}`);
+    lines.push(`Scripts stored: ${stats.dictionary.total_scripts}`);
+    lines.push(`Offline success rate: ${rate}%`);
+    return lines.join('\n');
+  }
+
+  /**
+   * Format FixNet dictionary search results as human-readable output.
+   * Each result carries the stored entry fields plus `match_score`.
+   */
+  private _formatFixNetSearchResults(query: string, results: any[]): string {
+    const lines = [];
+    lines.push(`🔧 FixNet Search: "${query}"`);
+    lines.push('');
+    if (results.length === 0) {
+      lines.push('No fixes found.');
+      return lines.join('\n');
+    }
+    lines.push(`Found ${results.length} fix${results.length === 1 ? '' : 'es'}:`);
+    results.forEach((result, index) => {
+      lines.push('');
+      lines.push(`${index + 1}. ${result.error_signature || '(no error signature)'}`);
+      if (typeof result.match_score === 'number') {
+        lines.push(`   Match score: ${result.match_score.toFixed(2)}`);
+      }
+      if (result.solution) {
+        lines.push(`   Solution: ${result.solution}`);
+      }
+    });
+    return lines.join('\n');
+  }
+
   /**
    * Format fix output
    */

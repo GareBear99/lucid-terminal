@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Optional, Callable
 from tqdm import tqdm
 
+try:
+    from core.lucifer_paths import models_dir as _canonical_models_dir
+except ImportError:  # core/ already on sys.path
+    from lucifer_paths import models_dir as _canonical_models_dir
+
 
 def download_gguf_model(
     url: str,
@@ -218,7 +223,7 @@ def download_model_by_name(
     
     Args:
         model_name: Model name (e.g., 'llama3.2', 'mistral')
-        output_dir: Optional output directory (defaults to .luciferai/models)
+        output_dir: Optional output directory (defaults to the canonical models/ dir)
         force: Force re-download even if file exists
         force_prompt: Prompt user before overwriting existing files
     
@@ -239,9 +244,8 @@ def download_model_by_name(
     
     # Determine output directory
     if output_dir is None:
-        project_root = Path(__file__).parent.parent
-        output_dir = project_root / '.luciferai' / 'models'
-    
+        output_dir = _canonical_models_dir()
+
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Get file path
@@ -354,15 +358,14 @@ def list_installed_models(models_dir: Optional[Path] = None) -> list:
     List all installed GGUF models.
     
     Args:
-        models_dir: Optional models directory (defaults to .luciferai/models)
+        models_dir: Optional models directory (defaults to the canonical models/ dir)
     
     Returns:
         List of (model_name, file_path, size_mb) tuples
     """
     if models_dir is None:
-        project_root = Path(__file__).parent.parent
-        models_dir = project_root / '.luciferai' / 'models'
-    
+        models_dir = _canonical_models_dir()
+
     if not models_dir.exists():
         return []
     
@@ -422,7 +425,7 @@ def uninstall_model(model_name: str, models_dir: Optional[Path] = None) -> bool:
     
     Args:
         model_name: Model name (e.g., 'llama3.2', 'mistral')
-        models_dir: Optional models directory (defaults to .luciferai/models)
+        models_dir: Optional models directory (defaults to the canonical models/ dir)
     
     Returns:
         True if successful, False otherwise
@@ -441,9 +444,8 @@ def uninstall_model(model_name: str, models_dir: Optional[Path] = None) -> bool:
     
     # Determine models directory
     if models_dir is None:
-        project_root = Path(__file__).parent.parent
-        models_dir = project_root / '.luciferai' / 'models'
-    
+        models_dir = _canonical_models_dir()
+
     # Get file path
     model_file = model_info['file']
     file_path = models_dir / model_file

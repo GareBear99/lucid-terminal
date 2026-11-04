@@ -654,39 +654,23 @@ class EnhancedLuciferAgent:
         return hashlib.sha256(combined.encode()).hexdigest()[:16].upper()
     
     def _check_ollama(self) -> bool:
-        """Check if Ollama OR llamafile/TinyLlama is available."""
-        # First check for Ollama
-        try:
-            import requests
-            response = requests.get("http://localhost:11434/api/tags", timeout=1)
-            if response.status_code == 200:
-                # Get available models
-                models = response.json().get('models', [])
-                model_names = [m['name'].split(':')[0] for m in models]
-                self.available_models = model_names
-                
-                # Prefer deepseek-coder > mistral > llama3.2 > any other
-                if 'deepseek-coder' in model_names:
-                    self.ollama_model = 'deepseek-coder'
-                elif 'mistral' in model_names:
-                    self.ollama_model = 'mistral'
-                elif 'llama3.2' in model_names:
-                    self.ollama_model = 'llama3.2'
-                elif model_names:
-                    self.ollama_model = model_names[0]
-                else:
-                    self.ollama_model = 'llama3.2'  # Default
-                
-                return True
-        except:
-            pass
-        
-        # Check for llamafile and all installed models in models/
+        """Check if a local model is available (llamafile first, Ollama only as fallback).
+
+        Gary's direction is no Ollama: local llamafile models are the
+        primary backend. Ollama is only consulted when no local GGUF is
+        installed at all.
+        """
+        # Check for llamafile and all installed models FIRST (canonical layout)
         from pathlib import Path
-        project_root = Path(__file__).parent.parent
-        llamafile_path = project_root / '.luciferai' / 'bin' / 'llamafile'
-        models_dir = project_root / 'models'
-        
+        try:
+            from core.lucifer_paths import llamafile_path as _canonical_llamafile_path
+            from core.lucifer_paths import models_dir as _canonical_models_dir
+        except ImportError:
+            from lucifer_paths import llamafile_path as _canonical_llamafile_path
+            from lucifer_paths import models_dir as _canonical_models_dir
+        llamafile_path = _canonical_llamafile_path()
+        models_dir = _canonical_models_dir()
+                
         # Import helpers for canonicalization
         from model_files_map import MODEL_FILES, get_canonical_name, get_model_file
         
@@ -702,7 +686,15 @@ class EnhancedLuciferAgent:
                 model_path = models_dir / model_file
                 if model_path.exists():
                     models_found_set.add(canonical)
-        
+            # Also pick up any GGUF in the dir that matches a known model
+            # name by glob (e.g. a v0.3 file when the map lists v0.2)
+            for gguf in models_dir.glob("*.gguf"):
+                stem = gguf.stem.lower()
+                for name in MODEL_FILES.keys():
+                    canonical = get_canonical_name(name)
+                    if canonical in stem:
+                        models_found_set.add(canonical)
+
         models_found = sorted(models_found_set)
         
         if models_found:
@@ -717,6 +709,32 @@ class EnhancedLuciferAgent:
                 self.ollama_model = sorted_models[0]
             return True
         
+        # Fallback: Ollama server, only when no local model is installed
+        try:
+            import requests
+            response = requests.get("http://localhost:11434/api/tags", timeout=1)
+            if response.status_code == 200:
+                # Get available models
+                models = response.json().get('models', [])
+                model_names = [m['name'].split(':')[0] for m in models]
+                self.available_models = model_names
+
+                # Prefer deepseek-coder > mistral > llama3.2 > any other
+                if 'deepseek-coder' in model_names:
+                    self.ollama_model = 'deepseek-coder'
+                elif 'mistral' in model_names:
+                    self.ollama_model = 'mistral'
+                elif 'llama3.2' in model_names:
+                    self.ollama_model = 'llama3.2'
+                elif model_names:
+                    self.ollama_model = model_names[0]
+                else:
+                    self.ollama_model = 'llama3.2'  # Default
+
+                return True
+        except:
+            pass
+
         return False
     
     def _check_multi_model_capability(self) -> bool:
@@ -811,14 +829,17 @@ class EnhancedLuciferAgent:
         # Get locked models if needed (excluding our own locks)
         locked_models = self.lock_manager.get_locked_models(exclude_own=True) if exclude_locked else []
         
-        # Priority order by tier: Tier 4 > Tier 3 > Tier 2 > Tier 1 > Tier 0
+        # Priority order by tier: Tier 4 > Tier 3 > Tier 2 > Tier 1 > Tier 0.
+        # The old code sorted ascending (lowest tier first) despite this
+        # docstring, so the smallest model always won and higher tiers were
+        # never auto-selected.
         from model_tiers import get_model_tier
         
-        # Sort available models by tier (lowest first) so we prefer smaller models by default
+        # Sort available models by tier (highest first)
         sorted_models = sorted(
             [m for m in self.available_models if self._is_llm_enabled(m)],
             key=lambda m: get_model_tier(m),
-            reverse=False
+            reverse=True
         )
         
         for model in sorted_models:
@@ -1694,11 +1715,11 @@ class EnhancedLuciferAgent:
         if user_lower in ['custom model info', 'custom models info', 'add custom model', 'custom model guide', 'custom models']:
             return self._handle_custom_model_info()
         
-        # Bundled models directory
+        # Bundled models directory (canonical models/ — see core/lucifer_paths.py)
         if 'bundled models' in user_lower or 'bundled model' in user_lower:
             # Path is already imported globally at top of file
             project_root = Path(__file__).parent.parent
-            models_dir = project_root / '.luciferai' / 'models'
+            models_dir = project_root / 'models'
             return self._handle_list_directory(str(models_dir))
         
         # Backup models directory commands
@@ -1970,7 +1991,14 @@ class EnhancedLuciferAgent:
                             if parsed['intent'] == 'watch' and parsed['file_candidates']:
                                 file_path = parsed['file_candidates'][0]['path']
                                 self.watcher.add_path(file_path)
-                                self.watcher.start(mode=parsed.get('action_type', 'watch'))
+                                # No-confirmation path: autofix is never
+                                # entered from an NLP inference alone (Gary
+                                # has not decided autofix vs suggest yet).
+                                # Only watch (suggest-only) runs here.
+                                _nlp_mode = parsed.get('action_type', 'watch')
+                                if _nlp_mode != 'watch':
+                                    _nlp_mode = 'watch'
+                                self.watcher.start(mode=_nlp_mode)
                                 return ""
                     else:
                         # Low confidence file search
@@ -2242,7 +2270,7 @@ Added to dictionary key: {dict_key[:50]}...
     def _generate_fix(self, filepath: str, error: str, error_type: str) -> Optional[str]:
         """
         Generate a fix for the error.
-        In production, this would use AI (Ollama/Mistral).
+        In production, this would use AI (llamafile/Mistral).
         For now, uses pattern matching.
         """
         # Extract key info from error
@@ -2251,8 +2279,13 @@ Added to dictionary key: {dict_key[:50]}...
             match = re.search(r"No module named ['\"]([^'\"]+)['\"]", error)
             if match:
                 module = match.group(1)
-                return f"from {module} import *"
-        
+                # Plain import, NOT "from X import *": the star-import fails
+                # identically when the module is not installed, and is wrong
+                # even when it is. (For a missing third-party module the real
+                # fix is pip install; the applier tests the import and
+                # reverts on failure, so this never pretends to succeed.)
+                return f"import {module}"
+
         elif "NameError" in error and "is not defined" in error:
             # Extract variable name
             match = re.search(r"name ['\"]([^'\"]+)['\"] is not defined", error)
@@ -2269,9 +2302,11 @@ Added to dictionary key: {dict_key[:50]}...
                 }
                 if var_name in common_imports:
                     return common_imports[var_name]
-                else:
-                    return f"# TODO: Import or define '{var_name}'"
-        
+                # Unknown name: no fix to offer. (The old code returned a
+                # "# TODO" comment, which _apply_fix_to_script rejects
+                # anyway — a comment is not a fix, so don't pretend it is.)
+                return None
+
         return None
     
     def _classify_error(self, error: str) -> str:
@@ -3631,7 +3666,7 @@ intelligent script fixing, and a rich badge/achievement system.
 
 {c('📦 Data Storage (All Local)', 'yellow')}
   • {c('~/.luciferai/data/', 'dim')}: User stats, badges, authentication
-  • {c('~/.luciferai/models/', 'dim')}: Downloaded GGUF model files
+  • {c('models/', 'dim')}: Downloaded GGUF model files
   • {c('~/.luciferai/templates/', 'dim')}: Script template library
   • {c('~/.luciferai/history/', 'dim')}: Command history and logs
 
@@ -5233,7 +5268,7 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
         print(c("     • Higher tier = better template/fix selection intelligence", "dim"))
         print(c("     • Tier 5 also benefits from ChatGPT's training on templates", "dim"))
         print()
-        print(c("💾 All models install to: ~/.luciferai/models/", "dim"))
+        print(c("💾 All models install to: models/ (in the LuciferAI folder)", "dim"))
         print(c("🔄 Auto-detection: llama3.1-70b > deepseek > mistral > gemma2 > tinyllama", "dim"))
         print(c("🔧 Backend: llamafile (Windows, macOS, Linux, Raspberry Pi)", "dim"))
         print()
@@ -5911,8 +5946,13 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
             self.watcher.list_paths()
             return ""
         
-        # daemon watch (suggest mode) or daemon start watch
+        # daemon watch [path] (suggest mode) — routes to LuciferWatcher.
+        # With a path, the path is added to the watch list first; without
+        # one, the watcher starts on its existing paths.
         elif 'watch' in user_lower and 'autofix' not in user_lower:
+            match = re.search(r'(?:daemon|watcher)\s+watch\s+(.+)', user_input, re.IGNORECASE)
+            if match:
+                self.watcher.add_path(match.group(1).strip())
             self.watcher.start(mode="watch")
             return ""
         
@@ -6675,32 +6715,6 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
         else:
             return c(f"{Emojis.CROSS} Unknown fan command", "red") + f"\n{c('Available: fan start | fan stop | fan status | fan logs', 'yellow')}"
     
-    def _handle_daemon_command(self, user_input: str) -> str:
-        """Handle daemon watch commands."""
-        from script_watcher_daemon import ScriptWatcherDaemon
-        
-        parts = user_input.split()
-        if len(parts) < 2:
-            return c(f"{Emojis.CROSS} Usage: daemon watch <script> | daemon status", "red")
-        
-        command = parts[1].lower()
-        daemon = ScriptWatcherDaemon()
-        
-        if command == 'watch':
-            if len(parts) < 3:
-                return c(f"{Emojis.CROSS} Usage: daemon watch <script_name>", "red")
-            
-            script_name = parts[2]
-            daemon.watch_script(script_name)
-            return ""  # daemon.watch_script() handles all output
-        
-        elif command == 'status':
-            daemon.status()
-            return ""  # daemon.status() handles all output
-        
-        else:
-            return c(f"{Emojis.CROSS} Unknown daemon command: {command}", "red") + f"\n{c('Available: daemon watch <script> | daemon status', 'yellow')}"
-    
     def _handle_browser(self) -> str:
         """Open consensus browser GUI."""
         print(c(f"{Emojis.MAGNIFIER} Opening consensus browser...", "cyan"))
@@ -7168,7 +7182,7 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
                         print(c('✅ llama-cpp-python installed successfully!', 'green'))
                         print()
                         print(c('Next steps:', 'yellow'))
-                        print(c('  1. Download GGUF models to ~/.luciferai/models/', 'dim'))
+                        print(c('  1. Download GGUF models to models/ (in the LuciferAI folder)', 'dim'))
                         print(c('  2. Get models from: https://huggingface.co/models?search=gguf', 'cyan'))
                         print(c('  3. Recommended: llama-3.2-3b-instruct-q4_k_m.gguf', 'dim'))
                         print()
@@ -7429,8 +7443,8 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
         import shutil
         import json
         
-        # Main models directory
-        main_dir = Path.home() / '.luciferai' / 'models'
+        # Main models directory (canonical models/ — see core/lucifer_paths.py)
+        main_dir = Path(__file__).parent.parent / 'models'
         main_dir.mkdir(parents=True, exist_ok=True)
         
         # Check free space on main directory drive
@@ -7575,7 +7589,7 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
                     if current_model:
                         print(c(f"🗑️  Cleaning up incomplete installation: {current_model}", "yellow"))
                         from pathlib import Path
-                        models_dir = Path.home() / '.luciferai' / 'models'
+                        models_dir = Path(__file__).parent.parent / 'models'
                         
                         if models_dir.exists():
                             removed_files = []
@@ -7849,7 +7863,7 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
                         
                         # Try to remove the incomplete model
                         from pathlib import Path
-                        models_dir = Path.home() / '.luciferai' / 'models'
+                        models_dir = Path(__file__).parent.parent / 'models'
                         
                         # Look for model files matching the name
                         if models_dir.exists():
@@ -8039,7 +8053,7 @@ Type {c('mainmenu', 'cyan')} for Quick Actions and installation status
                     if current_model:
                         print(c(f"🗑️  Cleaning up incomplete installation: {current_model}", "yellow"))
                         from pathlib import Path
-                        models_dir = Path.home() / '.luciferai' / 'models'
+                        models_dir = Path(__file__).parent.parent / 'models'
                         
                         if models_dir.exists():
                             removed_files = []
@@ -12374,7 +12388,7 @@ Keep it concise (2-3 sentences max)."""
         
         # Check if Mistral is already installed
         project_root = Path(__file__).parent.parent
-        mistral_path = project_root / '.luciferai' / 'models' / 'mistral-7b-instruct-v0.2.Q4_K_M.gguf'
+        mistral_path = project_root / 'models' / 'mistral-7b-instruct-v0.2.Q4_K_M.gguf'
         mistral_installed = mistral_path.exists() or 'mistral' in self.available_models
         mistral_enabled = self._is_llm_enabled('mistral')
         
@@ -12431,7 +12445,7 @@ Keep it concise (2-3 sentences max)."""
             print(c(f"  • Ambiguity resolution", "dim"))
             print()
             print(c(f"Download Mistral? (~4GB)", "cyan"))
-            print(c(f"  1. Mistral will be saved to: .luciferai/models/", "dim"))
+            print(c(f"  1. Mistral will be saved to: models/", "dim"))
             print(c(f"  2. Uses llamafile (works on all macOS versions)", "dim"))
             print(c(f"  3. Runs locally - no internet needed after download", "dim"))
             print()
@@ -12504,13 +12518,13 @@ Keep it concise (2-3 sentences max)."""
         return "\n".join(output)
     
     def _download_mistral_model(self) -> str:
-        """Download Mistral model to .luciferai/models/"""
+        """Download Mistral model to models/ (canonical layout)"""
         from pathlib import Path
         import urllib.request
         import os
         
         project_root = Path(__file__).parent.parent
-        models_dir = project_root / '.luciferai' / 'models'
+        models_dir = project_root / 'models'
         models_dir.mkdir(parents=True, exist_ok=True)
         
         mistral_url = "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
@@ -12577,8 +12591,8 @@ Keep it concise (2-3 sentences max)."""
         import threading
         
         project_root = Path(__file__).parent.parent
-        project_models_dir = project_root / '.luciferai' / 'models'
-        home_models_dir = Path.home() / '.luciferai' / 'models'
+        project_models_dir = project_root / 'models'
+        home_models_dir = Path(__file__).parent.parent / 'models'
         
         # Define all test cases
         all_tests = [
@@ -12713,8 +12727,8 @@ Keep it concise (2-3 sentences max)."""
         
         # Check which models are actually installed (project-local, home, + backup)
         project_root = Path(__file__).parent.parent
-        project_models_dir = project_root / '.luciferai' / 'models'
-        home_models_dir = Path.home() / '.luciferai' / 'models'
+        project_models_dir = project_root / 'models'
+        home_models_dir = Path(__file__).parent.parent / 'models'
         
         # Load backup directory from config
         backup_models_dir = None
@@ -13098,7 +13112,7 @@ Keep it concise (2-3 sentences max)."""
         from pathlib import Path
         
         # Check if model is installed in main or backup location
-        main_models_dir = Path.home() / '.luciferai' / 'models'
+        main_models_dir = Path(__file__).parent.parent / 'models'
         
         # Load backup directory from config
         backup_models_dir = None

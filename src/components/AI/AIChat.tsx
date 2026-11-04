@@ -3,7 +3,9 @@ import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, MessageSquare, Trash2, 
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useFileStore } from '../../stores/fileStore';
+import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { ChatMessage } from '../../types';
+import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
 
 interface AIChatProps {
   onClose: () => void;
@@ -11,12 +13,14 @@ interface AIChatProps {
 
 function AIChat({ onClose }: AIChatProps) {
 
-  const { hasLicenseKey, setLicenseKey, isLocalBackendAvailable } = useSettingsStore();
+  const { hasLicenseKey, setLicenseKey, isLocalBackendAvailable, isLocalModelAvailable } = useSettingsStore();
   const {
     sessions,
     currentSessionId,
     messages,
     streamingMessage,
+    streamStartedAt,
+    generatingSessionId,
     isLoading,
     contextDirectory,
     loadSessions,
@@ -95,8 +99,12 @@ function AIChat({ onClose }: AIChatProps) {
   }, [messages, streamingMessage]);
 
   const handleSend = async () => {
-    // Allow if has key OR local backend
-    if (!input.trim() || isLoading || (!hasLicenseKey && !isLocalBackendAvailable)) return;
+    // Allow if has key OR a loaded local model. A wrapper with no model
+    // must not receive the message — it answers with a raw Python error.
+    if (!input.trim() || isLoading || (!hasLicenseKey && !isLocalModelAvailable)) return;
+
+    // A submitted prompt feeds the Sentinel face's horns.
+    usePromptPaceStore.getState().recordPrompt();
 
     const userMessage: ChatMessage = {
       role: 'user',
@@ -156,73 +164,108 @@ function AIChat({ onClose }: AIChatProps) {
     navigator.clipboard.writeText(text);
   };
 
+  // ChatGPT-style bubbles: user messages are a bubble hugging the right
+  // edge (the "backwall"); assistant / system messages are a flat
+  // full-width row on the left with the Lucid avatar. Content, code blocks,
+  // copy buttons and timestamps are unchanged — this is layout only.
   const renderMessage = (message: ChatMessage, isStreaming = false) => {
     const content = isStreaming ? streamingMessage : message.content;
+    const layout = bubbleLayoutForRole(message.role);
+    const time = formatMessageTime(message.timestamp);
 
     const parts = content.split(/(```[\s\S]*?```)/g);
 
+    const body = (
+      <div className="ai-markdown text-sm text-[var(--text-primary)]">
+        {parts.map((part, i) => {
+          if (part.startsWith('```')) {
+            const match = part.match(/```(\w+)?\n?([\s\S]*?)```/);
+            if (match) {
+              const [, , code] = match;
+              return (
+                <div key={i} className="ai-code-block relative group my-2">
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => copyToClipboard(code.trim())}
+                      className="p-1 rounded bg-[var(--bg-secondary)] hover:bg-[var(--border)]"
+                      title="Copy"
+                    >
+                      <Copy size={12} />
+                    </button>
+                  </div>
+                  <pre className="p-3 bg-[var(--bg-secondary)] rounded-md overflow-x-auto">
+                    <code>{code.trim()}</code>
+                  </pre>
+                </div>
+              );
+            }
+          }
+          return (
+            <span key={i} className="whitespace-pre-wrap">
+              {part.split(/(\*\*.*?\*\*)/g).map((subPart, j) => {
+                if (subPart.startsWith('**') && subPart.endsWith('**')) {
+                  return <strong key={j} className="font-bold text-[var(--accent)]">{subPart.slice(2, -2)}</strong>;
+                }
+                return subPart;
+              })}
+            </span>
+          );
+        })}
+        {isStreaming && <span className="animate-pulse inline-block w-2 h-4 bg-[var(--accent)] ml-1 align-middle"></span>}
+      </div>
+    );
+
+    if (layout.isBubble) {
+      return (
+        <div className={layout.rowClass}>
+          <div className="flex flex-col items-end max-w-[75%]">
+            <div className={layout.bubbleClass}>{body}</div>
+            {time && (
+              <span className={`text-[10px] text-[var(--text-muted)] mt-1 pr-1 ${layout.timeAlignClass}`}>
+                {time}
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div
-        className={`flex gap-3 p-3 ${message.role === 'user' ? 'bg-[var(--bg-tertiary)]' : ''
-          }`}
-      >
-        <div
-          className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${message.role === 'user'
-            ? 'bg-[var(--accent)]'
-            : 'bg-gradient-to-br from-purple-500 to-pink-500'
-            }`}
-        >
-          {message.role === 'user' ? (
-            <span className="text-xs font-bold text-[var(--bg-primary)]">U</span>
-          ) : (
-            <Sparkles size={14} className="text-white" />
-          )}
+      <div className={layout.rowClass}>
+        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-purple-500 to-pink-500">
+          <Sparkles size={14} className="text-white" />
         </div>
         <div className="flex-1 overflow-hidden">
-          <div className="ai-markdown text-sm text-[var(--text-primary)]">
-            {parts.map((part, i) => {
-              if (part.startsWith('```')) {
-                const match = part.match(/```(\w+)?\n?([\s\S]*?)```/);
-                if (match) {
-                  const [, , code] = match;
-                  return (
-                    <div key={i} className="ai-code-block relative group my-2">
-                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => copyToClipboard(code.trim())}
-                          className="p-1 rounded bg-[var(--bg-secondary)] hover:bg-[var(--border)]"
-                          title="Copy"
-                        >
-                          <Copy size={12} />
-                        </button>
-                      </div>
-                      <pre className="p-3 bg-[var(--bg-secondary)] rounded-md overflow-x-auto">
-                        <code>{code.trim()}</code>
-                      </pre>
-                    </div>
-                  );
-                }
-              }
-              return (
-                <span key={i} className="whitespace-pre-wrap">
-                  {part.split(/(\*\*.*?\*\*)/g).map((subPart, j) => {
-                    if (subPart.startsWith('**') && subPart.endsWith('**')) {
-                      return <strong key={j} className="font-bold text-[var(--accent)]">{subPart.slice(2, -2)}</strong>;
-                    }
-                    return subPart;
-                  })}
-                </span>
-              );
-            })}
-            {isStreaming && <span className="animate-pulse inline-block w-2 h-4 bg-[var(--accent)] ml-1 align-middle"></span>}
-          </div>
+          {body}
+          {time && (
+            <div className={`text-[10px] text-[var(--text-muted)] mt-1 ${layout.timeAlignClass}`}>
+              {time}
+            </div>
+          )}
         </div>
       </div>
     );
   };
 
-  // License Key Screen
-  if (!hasLicenseKey && !isLocalBackendAvailable) {
+  // Left-side typing bubble while the assistant is working but has not
+  // streamed anything yet (first-token wait). Matches the assistant row.
+  const renderTypingIndicator = () => (
+    <div className="flex gap-3 px-4 py-3">
+      <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-purple-500 to-pink-500">
+        <Sparkles size={14} className="text-white" />
+      </div>
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-md bg-[var(--bg-secondary)] px-4 py-3">
+        <span className="w-2 h-2 rounded-full bg-[var(--text-muted)] animate-bounce" />
+        <span className="w-2 h-2 rounded-full bg-[var(--text-muted)] animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="w-2 h-2 rounded-full bg-[var(--text-muted)] animate-bounce" style={{ animationDelay: '300ms' }} />
+      </div>
+    </div>
+  );
+
+  // License Key / No Model Screen — shown when there is no key and no
+  // loaded local model. The message must say so plainly when the wrapper
+  // is up but no model is loaded.
+  if (!hasLicenseKey && !isLocalModelAvailable) {
     return (
       <div className="h-full flex flex-col bg-[var(--bg-primary)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -238,13 +281,25 @@ function AIChat({ onClose }: AIChatProps) {
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="max-w-sm text-center">
             <Key size={48} className="mx-auto mb-4 text-[var(--accent)]" />
-            <h3 className="text-lg font-semibold mb-2">Activate Lucid Terminal</h3>
+            <h3 className="text-lg font-semibold mb-2">{isLocalBackendAvailable ? 'No model loaded' : 'Activate Lucid Terminal'}</h3>
             <p className="text-[var(--text-secondary)] mb-6 text-sm">
-              Please enter your License Key to access AI features.
-              <br />
-              <span className="text-xs text-[var(--text-muted)] mt-2 block">
-                (Or verify local LuciferAI backend is running)
-              </span>
+              {isLocalBackendAvailable ? (
+                <>
+                  No model loaded — AI chat is unavailable.
+                  <br />
+                  <span className="text-xs text-[var(--text-muted)] mt-2 block">
+                    Install a model, or enter a license key to use AI chat instead.
+                  </span>
+                </>
+              ) : (
+                <>
+                  Please enter your License Key to access AI features.
+                  <br />
+                  <span className="text-xs text-[var(--text-muted)] mt-2 block">
+                    (Or verify local LuciferAI backend is running)
+                  </span>
+                </>
+              )}
             </p>
 
             <div className="space-y-3">
@@ -381,21 +436,29 @@ function AIChat({ onClose }: AIChatProps) {
             </div>
           ) : (
             <>
-              {messages.map((message) => (
-                <div key={message.id || Math.random()}>
+              {messages.map((message, index) => (
+                // Every message carries its own id (the store stamps any
+                // that arrive without one), so the key is stable across
+                // re-renders and re-orders — never Math.random(), which
+                // would remount bubbles and break timestamp continuity.
+                <div key={message.id ?? `msg-${index}`}>
                   {renderMessage(message)}
                 </div>
               ))}
-              {isLoading && streamingMessage && (
+              {isLoading && streamingMessage && generatingSessionId === currentSessionId && (
                 <div>
                   {renderMessage({
                     role: 'assistant',
                     content: streamingMessage,
                     id: 'streaming',
-                    timestamp: Date.now()
+                    // The stream's own start time, captured on the first
+                    // chunk — stable across renders, not the render time
+                    // (Date.now() here would tick on every re-render).
+                    timestamp: streamStartedAt ?? Date.now(),
                   }, true)}
                 </div>
               )}
+              {isLoading && !streamingMessage && generatingSessionId === currentSessionId && renderTypingIndicator()}
               <div ref={messagesEndRef} />
             </>
           )}

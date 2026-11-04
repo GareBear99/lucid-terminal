@@ -17,20 +17,26 @@ BLUE = "\033[34m"
 CYAN = "\033[36m"
 RESET = "\033[0m"
 
-LUCIFER_HOME = Path.home() / ".luciferai"
-# Models are in project root /models, not in .luciferai
+LUCIFER_HOME = Path.home() / ".luciferai"  # user *state* only (history, llm_state) — NOT models
+# Canonical model layout (core/lucifer_paths.py — single source of truth).
+try:
+    from core.lucifer_paths import llamafile_path as _canonical_llamafile_path
+    from core.lucifer_paths import models_dir as _canonical_models_dir
+except ImportError:  # core/ already on sys.path
+    from lucifer_paths import llamafile_path as _canonical_llamafile_path
+    from lucifer_paths import models_dir as _canonical_models_dir
 PROJECT_ROOT = Path(__file__).parent.parent
-MODELS_DIR = PROJECT_ROOT / "models"
+MODELS_DIR = _canonical_models_dir()
 
 
 class LLMBackend:
     """
     Unified interface for LLM operations.
-    
+
     Automatically detects and uses:
-    1. Ollama (preferred if available)
-    2. llama-cpp-python (fallback for older systems)
-    
+    1. Native llamafile (preferred — local only, no server, no Ollama)
+    2. Ollama (disabled in this build — see _check_ollama)
+
     All LLM functions work identically regardless of backend.
     """
     
@@ -59,34 +65,35 @@ class LLMBackend:
         self._detect_backend()
     
     def _detect_backend(self):
-        """Detect which LLM backend is available."""
-        # Force Native llamafile (subprocess - local only, no server)
-        # We explicitly skip Ollama as per user request
-        
+        """Detect which LLM backend is available.
+
+        Native llamafile only (local only, no server). Ollama is never
+        consulted in this build — Gary's direction is no Ollama, and the
+        vendored build disables it outright (see _check_ollama), which is
+        stricter than the upstream llamafile-first-with-Ollama-fallback.
+        """
+        # Native llamafile (subprocess - local only, no server)
         if self._check_native_llamafile():
             self.backend_type = "native-llamafile"
             self.backend = NativeLlamafileBackend(self.model, self.verbose)
             if self.verbose:
                 print(f"{GREEN}✅ Using native llamafile backend{RESET}")
             return
-            
-        # If native check failed, maybe try to set it up or warn
-        # For now, we fall back to None
-        
+
+        # No backend available
         self.backend_type = None
         self.backend = None
         if self.verbose:
-            print(f"{GOLD}⚠️  No native llamafile found. Please ensure 'bin/llamafile' exists.{RESET}")
+            print(f"{GOLD}⚠️  No native llamafile found. Please ensure '{_canonical_llamafile_path()}' exists.{RESET}")
 
     def _check_ollama(self) -> bool:
         """Check if Ollama is available and running."""
-        # Disabled
+        # Disabled in this build: LuciferAI runs on local llamafile only.
         return False
-    
+
     def _check_native_llamafile(self) -> bool:
-        """Check if native llamafile binary exists."""
-        llamafile_path = LUCIFER_HOME / 'bin' / 'llamafile'
-        return llamafile_path.exists()
+        """Check if native llamafile binary exists (canonical layout)."""
+        return _canonical_llamafile_path().exists()
     
     def is_available(self) -> bool:
         """Check if any LLM backend is available."""
@@ -389,31 +396,39 @@ class NativeLlamafileBackend:
     def __init__(self, model: str, verbose: bool = False):
         self.model = model
         self.verbose = verbose
-        self.llamafile_path = LUCIFER_HOME / 'bin' / 'llamafile'
+        self.llamafile_path = _canonical_llamafile_path()
         self.model_path = self._get_model_path()
-    
+
     def _get_model_path(self) -> Path:
-        """Get the model file path based on model name."""
+        """Get the model file path based on model name.
+
+        Exact mapped file first, then any GGUF of the SAME model (e.g. a
+        v0.3 file when the map lists v0.2). A missing model is a hard error —
+        the old code silently fell back to TinyLlama.
+        """
         from core.model_files_map import get_model_file, get_canonical_name
-        
-        try:
-            canonical_name = get_canonical_name(self.model)
-            model_file = get_model_file(canonical_name)
-            
-            if model_file:
-                model_path = MODELS_DIR / model_file
-                if model_path.exists():
-                    return model_path
-        except:
-            pass
-        
-        # Fallback: try to find any matching model
-        possible_paths = list(MODELS_DIR.glob(f"*{self.model}*.gguf"))
+
+        canonical_name = get_canonical_name(self.model)
+        model_file = get_model_file(canonical_name)
+
+        if model_file:
+            model_path = MODELS_DIR / model_file
+            if model_path.exists():
+                return model_path
+
+        # Same-model variant fallback: any GGUF of this model.
+        possible_paths = sorted(MODELS_DIR.glob(f"*{canonical_name}*.gguf"))
         if possible_paths:
             return possible_paths[0]
-        
-        # Final fallback to tinyllama
-        return MODELS_DIR / 'tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf'
+        possible_paths = sorted(MODELS_DIR.glob(f"*{self.model}*.gguf"))
+        if possible_paths:
+            return possible_paths[0]
+
+        raise FileNotFoundError(
+            f"Model '{self.model}' is not installed in {MODELS_DIR}. "
+            "Run ./setup_bundled_models.sh or 'luci install "
+            f"{self.model}'. Refusing to silently fall back to another model."
+        )
     
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Send chat request using native llamafile."""
@@ -429,31 +444,24 @@ class NativeLlamafileBackend:
         
         temperature = kwargs.get('temperature', 0.7)
         max_tokens = kwargs.get('max_tokens', 300)
-        stream = kwargs.get('stream', False)
-        
-        # Build llamafile command
-        # On macOS, llamafile APE format needs to be run through sh
-        import platform
-        if platform.system() == 'Darwin':  # macOS
-            cmd = [
-                'sh', str(self.llamafile_path),
-                '-m', str(self.model_path),
-                '-p', prompt,
-                '-n', str(max_tokens),
-                '--temp', str(temperature),
-                '-ngl', '0',  # CPU only for compatibility
-                '--silent-prompt'  # Don't echo the prompt
-            ]
-        else:
-            cmd = [
-                str(self.llamafile_path),
-                '-m', str(self.model_path),
-                '-p', prompt,
-                '-n', str(max_tokens),
-                '--temp', str(temperature),
-                '-ngl', '0',  # CPU only for compatibility
-                '--silent-prompt'  # Don't echo the prompt
-            ]
+        # Streaming ON by default: it is the generation detector (Gary's
+        # rule) — the stall timeout only works while tokens are being read
+        # as they arrive. The old default (False) switched the stream
+        # detection off in every path that did not ask for it explicitly.
+        stream = kwargs.get('stream', True)
+
+        # Build llamafile command. llamafile is an APE binary: it must run
+        # through sh on EVERY platform — direct exec fails with ENOEXEC /
+        # "Exec format error" where APE binfmt is not registered (Linux).
+        cmd = [
+            'sh', str(self.llamafile_path),
+            '-m', str(self.model_path),
+            '-p', prompt,
+            '-n', str(max_tokens),
+            '--temp', str(temperature),
+            '-ngl', '0',  # CPU only for compatibility
+            '--silent-prompt'  # Don't echo the prompt
+        ]
         
         try:
             if stream:
@@ -524,7 +532,9 @@ class NativeLlamafileBackend:
                         token_estimate = char_count // 4  # ~4 chars per token
                         
                         if stream_callback:
-                            full_output.append(char)
+                            # NOTE: do NOT append char here — the reader
+                            # thread already appended it to full_output.
+                            # Appending again duplicated every character.
                             current_text = ''.join(full_output)
                             if char_count % 5 == 0:
                                 stream_callback(current_text, char_count)
@@ -690,8 +700,8 @@ class NativeLlamafileBackend:
 def get_llm_backend(model: str = "llama3.2", verbose: bool = False) -> LLMBackend:
     """
     Get a unified LLM backend.
-    
-    Automatically detects and uses Ollama or llama-cpp-python.
+
+    Automatically detects and uses native llamafile (Ollama only as a fallback).
     """
     return LLMBackend(model, verbose)
 
@@ -727,4 +737,4 @@ if __name__ == "__main__":
             print(f"  • {model}")
     else:
         print(f"{RED}❌ No LLM backend available{RESET}")
-        print(f"{CYAN}Install Ollama or llama-cpp-python{RESET}")
+        print(f"{CYAN}Run ./setup_bundled_models.sh to install llamafile + TinyLlama{RESET}")

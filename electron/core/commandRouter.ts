@@ -148,7 +148,19 @@ export class CommandRouter {
       };
     }
     
-    // LAYER 2: Fuzzy match for typos
+    // LAYER 2: Check if it looks like a shell command.
+    // This MUST come before fuzzy matching: a known shell command such
+    // as `git` is within Levenshtein distance 2 of a registry command
+    // (`fix`), and must not be hijacked as a typo of it.
+    if (this.shellPassthrough && this._looksLikeShellCommand(parsed.command)) {
+      return {
+        type: 'passthrough_shell',
+        parsed,
+        confidence: 0.6,
+      };
+    }
+
+    // LAYER 3: Fuzzy match for typos
     const bestMatch = getBestMatch(parsed.command);
     if (bestMatch && bestMatch.distance <= 2) {
       return {
@@ -159,16 +171,7 @@ export class CommandRouter {
         requiresConfirmation: true,
       };
     }
-    
-    // LAYER 3: Check if it looks like a shell command
-    if (this.shellPassthrough && this._looksLikeShellCommand(parsed.command)) {
-      return {
-        type: 'passthrough_shell',
-        parsed,
-        confidence: 0.6,
-      };
-    }
-    
+
     // LAYER 4: Unknown command
     return {
       type: 'unknown',
@@ -417,7 +420,7 @@ export class CommandRouter {
     this.handlers.set('handleLs', async (parsed: ParsedCommand) => {
       const { executeTool } = await import('./tools/toolRegistry');
       const path = parsed.args[0] || '.';
-      const showHidden = parsed.flags.includes('-a');
+      const showHidden = parsed.flags['a'] === true || parsed.flags['all'] === true;
       const result = await executeTool('file.list', path, showHidden);
       return result.output || result.error || 'Error listing directory';
     });

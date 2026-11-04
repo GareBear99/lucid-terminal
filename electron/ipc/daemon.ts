@@ -1,0 +1,369 @@
+/**
+ * File-watcher daemon (LuciferWatcher) management.
+ *
+ * The watcher (LUCID-BACKEND/core/lucifer_watcher.py) needs a long-lived
+ * process, but the Python agent runs one-shot per call (stdio_agent.py).
+ * So Electron spawns the watcher as a background Python subprocess and
+ * manages it the way the agent manages the fan daemon (see
+ * _handle_fan_command in core/enhanced_agent.py): subprocess.Popen to
+ * start, `pgrep -f <script>` for status, `pkill -f <script>` to stop.
+ *
+ * Mode: watch (suggest-only) by default. Autofix runs ONLY when the
+ * `daemonAutoFix` setting is explicitly true — Gary has not decided
+ * autofix vs suggest yet, so the default must stay watch.
+ *
+ * `daemonCommitTracking` is NOT wired: nothing in the watcher tracks
+ * commits, so the toggle has no consumer yet.
+ */
+import { spawn, spawnSync, execFile, ChildProcess } from 'child_process';
+import { IpcMain, app } from 'electron';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { settings } from '../services/secureStorage';
+import {
+  mapWatcherEventsToLogs,
+  DaemonLogEntry,
+  DaemonVerbosity,
+  WatcherEvent,
+} from './daemonLogs';
+
+const WATCHER_SCRIPT = 'lucifer_watcher.py';
+const WATCHER_PATTERN = 'lucifer_watcher.py';
+
+export interface DaemonStatus {
+  running: boolean;
+  pids: string[];
+  mode: 'watch' | 'autofix' | null;
+  paths: string[];
+}
+
+export interface DaemonStartResult {
+  success: boolean;
+  alreadyRunning?: boolean;
+  pid?: number;
+  mode?: 'watch' | 'autofix';
+  paths?: string[];
+  error?: string;
+}
+
+let watcherProc: ChildProcess | null = null;
+let watcherMode: 'watch' | 'autofix' | null = null;
+
+function resolveBackendDir(): string | null {
+  const packaged = app.isPackaged
+    ? path.join(process.resourcesPath, 'LUCID-BACKEND')
+    : path.join(__dirname, '../LUCID-BACKEND');
+  try {
+    if (fs.existsSync(packaged) && fs.statSync(packaged).isDirectory()) {
+      return packaged;
+    }
+  } catch {
+    // Ignore — a missing backend means "no daemon".
+  }
+  return null;
+}
+
+function getWatcherScript(): string | null {
+  const backendDir = resolveBackendDir();
+  if (!backendDir) return null;
+  const script = path.join(backendDir, 'core', WATCHER_SCRIPT);
+  try {
+    if (fs.existsSync(script) && fs.statSync(script).isFile()) return script;
+  } catch {
+    // Ignore.
+  }
+  return null;
+}
+
+/** LuciferLogger's file — the watcher's structured event log. */
+function getMemoryLogPath(): string {
+  return path.join(os.homedir(), 'LuciferAI', 'logs', 'lucifer_memory.json');
+}
+
+/** Plain-text stdout/stderr of the watcher process (fan_terminal.log pattern). */
+function getStdoutLogPath(): string {
+  return path.join(os.homedir(), 'LuciferAI', 'logs', 'watcher.log');
+}
+
+function readDaemonSettings(): {
+  enabled: boolean;
+  autoFix: boolean;
+  paths: string[];
+  retention: number;
+  verbosity: DaemonVerbosity;
+} {
+  const paths = settings.get<string[]>('daemonWatchPaths');
+  const verbosity = settings.get<string>('daemonLogVerbosity');
+  return {
+    enabled: settings.get<boolean>('daemonEnabled') ?? false,
+    autoFix: settings.get<boolean>('daemonAutoFix') ?? false,
+    paths: Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : [],
+    retention: settings.get<number>('daemonLogRetention') ?? 30,
+    verbosity:
+      verbosity === 'minimal' ||
+      verbosity === 'normal' ||
+      verbosity === 'verbose' ||
+      verbosity === 'debug'
+        ? verbosity
+        : 'normal',
+  };
+}
+
+function isWatcherProcessAlive(): boolean {
+  return !!watcherProc && watcherProc.exitCode === null && !watcherProc.killed;
+}
+
+function execFileAsync(file: string, args: string[]): Promise<{ stdout: string; code: number }> {
+  return new Promise((resolve) => {
+    execFile(file, args, (error, stdout) => {
+      resolve({ stdout: stdout || '', code: error ? (error as { code?: number }).code ?? 1 : 0 });
+    });
+  });
+}
+
+/** PIDs of running watcher processes (fan-daemon `pgrep -f` pattern). */
+async function pgrepWatcher(): Promise<string[]> {
+  if (process.platform === 'win32') return [];
+  try {
+    const { stdout, code } = await execFileAsync('pgrep', ['-f', WATCHER_PATTERN]);
+    if (code !== 0 || !stdout.trim()) return [];
+    return stdout.trim().split('\n').map((s) => s.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function getDaemonStatus(): Promise<DaemonStatus> {
+  const pids = await pgrepWatcher();
+  const running = isWatcherProcessAlive() || pids.length > 0;
+  return {
+    running,
+    pids,
+    mode: running ? watcherMode : null,
+    paths: readDaemonSettings().paths,
+  };
+}
+
+export async function startDaemon(): Promise<DaemonStartResult> {
+  if (isWatcherProcessAlive()) {
+    const status = await getDaemonStatus();
+    return {
+      success: true,
+      alreadyRunning: true,
+      pid: watcherProc?.pid,
+      mode: status.mode ?? undefined,
+      paths: status.paths,
+    };
+  }
+
+  // Orphan cleanup: a watcher from a previous app session (or a stale
+  // process) would otherwise run alongside the new one. Kill it first so
+  // there is ever exactly one watcher.
+  const orphans = await pgrepWatcher();
+  if (orphans.length > 0 && process.platform !== 'win32') {
+    await execFileAsync('pkill', ['-f', WATCHER_PATTERN]);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  const { autoFix, paths } = readDaemonSettings();
+  if (paths.length === 0) {
+    return {
+      success: false,
+      error: 'No directories to watch. Add a directory in Settings › Daemon first.',
+    };
+  }
+
+  const script = getWatcherScript();
+  if (!script) {
+    return { success: false, error: 'Watcher script not found (LUCID-BACKEND/core/lucifer_watcher.py).' };
+  }
+
+  // Autofix only when the setting is explicitly on; default is watch
+  // (suggest-only) until Gary decides autofix vs suggest.
+  const mode: 'watch' | 'autofix' = autoFix ? 'autofix' : 'watch';
+  const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+
+  try {
+    const logsDir = path.join(os.homedir(), 'LuciferAI', 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    // Open the log file as an fd and hand the fd to spawn. (A WriteStream
+    // does NOT work here: createWriteStream opens asynchronously, so at
+    // spawn time its fd is null and Node rejects the stdio entry with
+    // "The argument 'stdio' is invalid". The child dups the fd at fork,
+    // so the parent's copy can be closed right after spawn returns.)
+    const logFd = fs.openSync(getStdoutLogPath(), 'a');
+
+    // -u: unbuffered stdout, so the watcher's prints reach watcher.log live.
+    // (Without it Python buffers stdout when redirected and the log stays
+    // empty until the buffer fills.)
+    let proc: ChildProcess;
+    try {
+      proc = spawn(
+        pythonCommand,
+        ['-u', script, '--paths', ...paths, '--mode', mode],
+        {
+          cwd: path.dirname(script),
+          stdio: ['ignore', logFd, logFd],
+          env: { ...process.env },
+        },
+      );
+    } finally {
+      // The child dups the fd at fork, so the parent's copy can be closed
+      // right after spawn returns (or throws).
+      fs.closeSync(logFd);
+    }
+    watcherProc = proc;
+    watcherMode = mode;
+
+    proc.on('error', (err) => {
+      console.error('Watcher daemon failed to spawn:', err);
+      if (watcherProc === proc) {
+        watcherProc = null;
+        watcherMode = null;
+      }
+    });
+    proc.on('exit', (code) => {
+      console.log(`Watcher daemon exited with code ${code}`);
+      if (watcherProc === proc) {
+        watcherProc = null;
+        watcherMode = null;
+      }
+    });
+
+    // Give the process a moment to fail fast (bad python, missing script).
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (proc.exitCode !== null) {
+      watcherProc = null;
+      watcherMode = null;
+      return { success: false, error: `Watcher exited immediately (code ${proc.exitCode}). See ~/LuciferAI/logs/watcher.log.` };
+    }
+
+    return { success: true, pid: proc.pid, mode, paths };
+  } catch (error) {
+    watcherProc = null;
+    watcherMode = null;
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Synchronous stop for the shutdown path (will-quit cannot await).
+ * Kills the managed process and any orphaned watcher by pattern.
+ */
+export function stopDaemonSync(): void {
+  try {
+    if (isWatcherProcessAlive() && watcherProc) {
+      watcherProc.kill('SIGTERM');
+      watcherProc = null;
+      watcherMode = null;
+    }
+  } catch {
+    // Already gone.
+  }
+  if (process.platform !== 'win32') {
+    try {
+      spawnSync('pkill', ['-f', WATCHER_PATTERN]);
+    } catch {
+      // pkill missing or nothing to kill.
+    }
+  }
+}
+
+export async function stopDaemon(): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (isWatcherProcessAlive() && watcherProc) {
+      watcherProc.kill('SIGTERM');
+      // Brief grace period, then force.
+      const proc = watcherProc;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      if (proc.exitCode === null) {
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+      watcherProc = null;
+      watcherMode = null;
+    }
+
+    // Orphan cleanup (fan-daemon pkill pattern): if a watcher is still
+    // listed by pgrep after the handle is gone, kill it by pattern.
+    const pids = await pgrepWatcher();
+    if (pids.length > 0 && process.platform !== 'win32') {
+      await execFileAsync('pkill', ['-f', WATCHER_PATTERN]);
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function restartDaemonIfRunning(): Promise<void> {
+  const status = await getDaemonStatus();
+  if (!status.running) return;
+  await stopDaemon();
+  await startDaemon();
+}
+
+export function getWatchPaths(): string[] {
+  return readDaemonSettings().paths;
+}
+
+export async function addWatchPath(dirPath: string): Promise<{ paths: string[]; restarted: boolean }> {
+  const current = readDaemonSettings().paths;
+  const paths = current.includes(dirPath) ? current : [...current, dirPath];
+  settings.set('daemonWatchPaths', paths);
+  const wasRunning = (await getDaemonStatus()).running;
+  if (wasRunning) await restartDaemonIfRunning();
+  return { paths, restarted: wasRunning };
+}
+
+export async function removeWatchPath(dirPath: string): Promise<{ paths: string[]; restarted: boolean }> {
+  const paths = readDaemonSettings().paths.filter((p) => p !== dirPath);
+  settings.set('daemonWatchPaths', paths);
+  const wasRunning = (await getDaemonStatus()).running;
+  if (wasRunning) await restartDaemonIfRunning();
+  return { paths, restarted: wasRunning };
+}
+
+export async function getDaemonLogs(): Promise<DaemonLogEntry[]> {
+  try {
+    const logPath = getMemoryLogPath();
+    if (!fs.existsSync(logPath)) return [];
+    const raw = fs.readFileSync(logPath, 'utf-8');
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const events = parsed.filter(
+      (e): e is WatcherEvent =>
+        !!e && typeof e === 'object' && typeof (e as WatcherEvent).event === 'string',
+    );
+    const { retention, verbosity } = readDaemonSettings();
+    return mapWatcherEventsToLogs(events, retention, verbosity);
+  } catch (error) {
+    console.error('Failed to read daemon logs:', error);
+    return [];
+  }
+}
+
+/** Start the watcher on launch when the setting says so and paths exist. */
+export async function maybeAutoStartDaemon(): Promise<DaemonStartResult | null> {
+  const { enabled, paths } = readDaemonSettings();
+  if (!enabled || paths.length === 0) return null;
+  const result = await startDaemon();
+  if (!result.success) {
+    console.error('Watcher daemon auto-start failed:', result.error);
+  }
+  return result;
+}
+
+export function setupDaemonHandlers(ipcMain: IpcMain): void {
+  ipcMain.handle('daemon:start', async (): Promise<DaemonStartResult> => startDaemon());
+  ipcMain.handle('daemon:stop', async (): Promise<{ success: boolean; error?: string }> => stopDaemon());
+  ipcMain.handle('daemon:status', async (): Promise<DaemonStatus> => getDaemonStatus());
+  ipcMain.handle('daemon:getPaths', async (): Promise<string[]> => getWatchPaths());
+  ipcMain.handle('daemon:addPath', async (_, dirPath: string) => addWatchPath(dirPath));
+  ipcMain.handle('daemon:removePath', async (_, dirPath: string) => removeWatchPath(dirPath));
+  ipcMain.handle('daemon:getLogs', async (): Promise<DaemonLogEntry[]> => getDaemonLogs());
+}

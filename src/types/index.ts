@@ -22,7 +22,26 @@ export interface ChatMessage {
   id?: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** Wall-clock time the message came into being (send time /
+   *  completion time). Display only — it is NOT the ordering key.
+   *  Clocks skew and messages arrive late, so timestamps can disagree
+   *  with the order things actually happened. See `ritualTick`. */
   timestamp?: number;
+  /**
+   * Ritual tick — the causal-order counter for this bubble.
+   *
+   * A timestamp says WHEN a message happened (wall clock). A ritual
+   * tick says WHERE it sits in the causal order: it is a
+   * monotonically increasing integer, per chat, assigned when the
+   * message is retrieved (loaded, read for display, inserted into
+   * the rendered list). Each retrieval advances the chat's counter
+   * and the bubble takes the next tick, so ticks are assigned in
+   * retrieval order and can never be out of order, duplicated, or
+   * skewed the way wall clocks can. The rendered list is ordered by
+   * ritual tick; the timestamp is shown on the bubble but never
+   * orders it.
+   */
+  ritualTick?: number;
   isStreaming?: boolean;
 }
 
@@ -32,6 +51,15 @@ export interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * The next ritual tick to assign in this chat. Persisted with the
+   * session (it round-trips through sessions.json) so the counter
+   * survives a reload and never restarts from zero and collides with
+   * ticks already on the chat's bubbles. Each chat has its own
+   * sequence — a tick in one chat never orders against a tick in
+   * another.
+   */
+  nextTick?: number;
 }
 
 export interface TerminalTab {
@@ -128,9 +156,47 @@ export interface Settings {
   aiModel: string;
   aiTemperature: number;
   terminalPolicy: 'ask' | 'auto' | 'deny';
+  // Validation display (Warp-style)
+  showValidationSteps: boolean;
+  autoCollapseValidation: boolean;
+  // Token display
+  showTokenStats: boolean;
+  showTokenEfficiency: boolean;
+  // File watcher daemon
+  daemonEnabled: boolean;
+  daemonAutoFix: boolean;
+  daemonCommitTracking: boolean;
+  daemonLogRetention: number;
+  daemonLogVerbosity: string;
+  // Directories the file-watcher daemon monitors. Managed through
+  // Settings > Daemon (and the daemon IPC); empty = nothing watched.
+  daemonWatchPaths: string[];
+  // Processing glow effect
+  processingGlowColor: string;
+  processingGlowCustomColor: string;
+  processingGlowIntensity: number;
+  processingGlowSpeed: number;
+  // Sentinel face gaze — how focused the eyes are on the cursor (0-100).
+  // 0 = the eyes ignore the cursor and stay wandering; 100 = they track
+  // it closely and lock on quickly. Default 50: alive, but noticing.
+  gazeSensitivity: number;
+  // Toolbar plugins — which plugins show as buttons in the icon bar,
+  // in the plugins section above Settings. Keyed by plugin id; a missing
+  // key falls back to that plugin's defaultOnToolbar. Empty = all defaults.
+  toolbarPlugins: Record<string, boolean>;
 }
 
-export type View = 'terminal' | 'editor' | 'settings';
+export interface DaemonLogEntry {
+  id: string;
+  timestamp: number;
+  type: 'file_change' | 'auto_fix' | 'error' | 'success';
+  file: string;
+  directory: string;
+  action: string;
+  status: 'success' | 'failed' | 'pending';
+}
+
+export type View = 'terminal' | 'editor' | 'settings' | 'synth';
 
 // Extend Window interface for Electron API
 declare global {
@@ -167,6 +233,7 @@ declare global {
         onData: (callback: (id: string, data: string) => void) => () => void;
         onExit: (callback: (id: string, code: number) => void) => () => void;
         getCwd: (id: string) => Promise<string>;
+        executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
       };
       ai: {
         chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean) => Promise<string>;
@@ -182,6 +249,18 @@ declare global {
         deleteSession: (id: string) => Promise<void>;
         clearSessions: () => Promise<void>;
       };
+      system: {
+        checkNetwork: () => Promise<{ online: boolean }>;
+      };
+      daemon: {
+        start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; error?: string }>;
+        stop: () => Promise<{ success: boolean; error?: string }>;
+        status: () => Promise<{ running: boolean; pids: string[]; mode: 'watch' | 'autofix' | null; paths: string[] }>;
+        getPaths: () => Promise<string[]>;
+        addPath: (dirPath: string) => Promise<{ paths: string[]; restarted: boolean }>;
+        removePath: (dirPath: string) => Promise<{ paths: string[]; restarted: boolean }>;
+        getLogs: () => Promise<DaemonLogEntry[]>;
+      };
       settings: {
         get: <T>(key: string) => Promise<T>;
         set: (key: string, value: unknown) => Promise<void>;
@@ -190,6 +269,7 @@ declare global {
         hasLicenseKey: () => Promise<boolean>;
         deleteLicenseKey: () => Promise<void>;
         getBalance: () => Promise<number>;
+        getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;
       };
@@ -199,7 +279,7 @@ declare global {
         getHistory: () => Promise<any[]>;
         clearHistory: () => Promise<void>;
         getFixNetStats: () => Promise<any>;
-        getModelStatuses: () => Promise<any[]>;
+        getModelStatuses: () => Promise<Record<string, boolean>>;
         getTokenStats: () => Promise<any>;
         changeDirectory: (newDir: string) => Promise<void>;
         getWorkingDirectory: () => Promise<string>;
@@ -210,6 +290,33 @@ declare global {
         llmList: () => Promise<any>;
         llmSetEnabled: (model: string, enabled: boolean) => Promise<any>;
         getUserId: () => Promise<{ success: boolean; userId?: string; isPermanent?: boolean; githubUsername?: string; storagePath?: string; error?: string }>;
+        // Phase 2: Model Installation
+        installModel: (modelName: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+        uninstallModel: (modelName: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+        installTier: (tier: number) => Promise<{ success: boolean; output?: string; error?: string }>;
+        installCoreModels: () => Promise<{ success: boolean; output?: string; error?: string }>;
+        getStorageInfo: () => Promise<{ success: boolean; storage: { used: string; available: string }; error?: string }>;
+        checkModelsInstalled: () => Promise<{ installed: boolean; files: { name: string; path: string; sizeBytes: number }[]; dirsChecked: string[]; errors: string[] }>;
+        installTinyLlama: () => Promise<{ success: boolean; modelPath?: string; output?: string; error?: string }>;
+        onInstallTinyLlamaProgress: (callback: (line: string) => void) => () => void;
+        // Phase 2: FixNet Auto-Fix
+        fixScript: (filepath: string) => Promise<{ success: boolean; fixCount?: number; output?: string; error?: string }>;
+        fixnetSync: () => Promise<{ success: boolean; syncedCount?: number; output?: string; error?: string }>;
+        // Phase 2: GitHub Integration
+        githubLink: () => Promise<{ success: boolean; url?: string; output?: string; error?: string }>;
+        githubUnlink: () => Promise<{ success: boolean; output?: string; error?: string }>;
+        githubStatus: () => Promise<{ success: boolean; linked?: boolean; username?: string; output?: string; error?: string }>;
+        githubUpload: () => Promise<{ success: boolean; repoUrl?: string; output?: string; error?: string }>;
+        githubUpdate: () => Promise<{ success: boolean; output?: string; error?: string }>;
+        githubProjects: () => Promise<{ success: boolean; projects?: any[]; output?: string; error?: string }>;
+        // Phase 2: Environment Management
+        listEnvironments: () => Promise<{ success: boolean; environments?: any[]; output?: string; error?: string }>;
+        searchEnvironment: (query: string) => Promise<{ success: boolean; environment?: any; output?: string; error?: string }>;
+        activateEnvironment: (name: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+        // Phase 2: System Commands
+        systemInfo: () => Promise<{ success: boolean; output?: string; error?: string }>;
+        memoryStats: () => Promise<{ success: boolean; output?: string; error?: string }>;
+        mainMenu: () => Promise<{ success: boolean; output?: string; error?: string }>;
       };
     };
   }

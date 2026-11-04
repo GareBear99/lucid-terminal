@@ -27,7 +27,7 @@ User Input
 Final Output
 ```
 
-**72% of commands NEVER call LLM** - Pure deterministic execution!
+**Deterministic commands NEVER call LLM** - Pure deterministic execution!
 
 ---
 
@@ -223,7 +223,7 @@ function needsLLM(intent: ParsedIntent): boolean {
 }
 ```
 
-### When LLM is NOT Called (72%):
+### When LLM is NOT Called:
 - ✅ `help` - Direct command
 - ✅ `ls -la` - Direct command
 - ✅ `create file test.py` - Clear action
@@ -361,7 +361,7 @@ const result = await router.execute(command);
 ## 🎯 Benefits
 
 ### 1. Speed
-- **72% of commands** execute in <120ms
+- **Deterministic commands** execute in <120ms
 - No network latency for deterministic operations
 - Instant responses for common tasks
 
@@ -376,7 +376,7 @@ const result = await router.execute(command);
 - Reliable, testable behavior
 
 ### 4. Cost Efficiency
-- 72% fewer LLM calls
+- Fewer LLM calls (deterministic commands never call the LLM)
 - Reduced API costs
 - Lower resource usage
 
@@ -397,8 +397,8 @@ Intent Categories:
 └── Ambiguous: ~15% (1 LLM call)
 
 LLM Usage:
-├── NO LLM: 72% of inputs
-└── WITH LLM: 28% of inputs
+├── NO LLM: deterministic commands and cached fixes
+└── WITH LLM: questions and ambiguous inputs
 
 Accuracy:
 ├── Typo correction: 95%+
@@ -427,7 +427,7 @@ Accuracy:
 - ✅ **100+ typo corrections** pre-mapped
 - ✅ **50+ synonym mappings** for normalization
 - ✅ **4 intent types** (direct, question, action, unknown)
-- ✅ **72% no LLM** - Pure deterministic execution
+- ✅ **No LLM for deterministic commands** - Pure deterministic execution
 - ✅ **<120ms latency** for deterministic commands
 - ✅ **Warp AI architecture** - Parse locally, summarize with LLM
 

@@ -30,11 +30,10 @@ cd LuciferAI_Local
 python3 lucifer.py
 ```
 
-**Zero installation required!** LuciferAI auto-bootstraps on first run:
-- ✅ **Auto-assembles** llamafile binary from split parts (1-2 sec)
-- ✅ **Prompts to download** TinyLlama model (670MB, one-time)
-- ✅ **Works offline** after initial setup
-- ✅ **Starts instantly** on subsequent runs (< 1 sec)
+**Setup:** LuciferAI auto-bootstraps on first run:
+- ✅ **Auto-assembles** llamafile binary from split parts (or downloads llamafile 0.10.6)
+- ✅ **Setup script downloads** the TinyLlama model (670MB, one-time): `./setup_bundled_models.sh`
+- ✅ **Works offline** after initial setup (model + binary in the canonical layout — see `core/lucifer_paths.py`)
 
 ### **Usage Examples**
 
@@ -64,7 +63,7 @@ python3 lucifer.py
 
 ### **What You Get Out of the Box**
 
-✅ **TinyLlama (1.1B)** - Bundled, works offline immediately  
+✅ **TinyLlama (1.1B)** - Downloaded by the setup script, works offline once installed  
 ✅ **File Operations** - create, delete, move, copy, read, list, find  
 ✅ **Script Generation** - Natural language → Python/Bash scripts  
 ✅ **Auto-Fix** - Fix broken scripts automatically  
@@ -103,7 +102,7 @@ python3 lucifer.py --verbose
 
 ### **🎯 Zero-LLM Operation (DARPA-Level Documentation)**
 
-**CRITICAL DIFFERENTIATOR:** LuciferAI maintains **72% functionality WITHOUT any LLM**
+**CRITICAL DIFFERENTIATOR:** LuciferAI's deterministic command layer works WITHOUT any LLM — no cloud, no API, no model needed for the built-in commands. (An earlier "72%" figure for this was an unmeasured docs assertion; it has been removed. Verified 2026-11-03: the CLI boots and the deterministic commands run with no model installed.)
 
 📘 **[Read Complete Technical Documentation](docs/NO_LLM_OPERATION.md)** ← DARPA/NSF/DOD Format
 
@@ -137,7 +136,7 @@ python3 lucifer.py --verbose
 - GitHub Copilot: 0% without cloud ❌
 - Cursor: 0% without API ❌
 - Codeium: 0% offline ❌
-- **LuciferAI: 72% without LLM** ✅
+- **LuciferAI: works offline (deterministic commands)** ✅
 
 ---
 
@@ -620,7 +619,7 @@ All robotics projects use unified **Tron Grid Master Controller** theming:
 | **Commands Executed** | Thousands | 100K+ |
 | **FixNet Fixes** | Database Growing | 10K+ validated |
 | **Consensus Success Rate** | 94% (sample) | 95%+ |
-| **Zero-LLM Usage** | 72% of operations | 75%+ |
+| **Zero-LLM Usage** | deterministic commands | 75%+ |
 | **Test Success Rate** | 100% (76/76) | Maintain 100% |
 
 ### Adoption Velocity
@@ -1401,8 +1400,8 @@ LuciferAI > fix my_broken_script.py
 ### 📊 Quick Stats
 
 **Total Commands:** 80+  
-**Work Offline:** 72% (58+ commands)  
-**No LLM Required:** 80% (64+ commands)  
+**Work Offline:** deterministic commands work offline without any LLM  
+**No LLM Required:** deterministic commands (64+ commands)  
 **Average Response Time:** 15-50ms (without LLM)  
 
 **Most Used Commands:**

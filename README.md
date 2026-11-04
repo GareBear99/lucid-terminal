@@ -1,6 +1,6 @@
 # 🔥 Lucid Terminal - Agentic Development Environment
 
-> **AI-Native Terminal • 72% Offline Success • LuciferAI Built-In • Enterprise-Grade • Privacy-First**
+> **AI-Native Terminal • Offline-First • LuciferAI Built-In • Enterprise-Grade • Privacy-First**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
@@ -30,7 +30,7 @@
 
 ### Main Interface
 ![Lucid Terminal UI](docs/images/lucid-terminal-ui.jpg)
-*Lucid Terminal with 72% offline status, dual terminal tabs, and integrated file explorer*
+*Lucid Terminal with offline FixNet status, dual terminal tabs, and integrated file explorer*
 
 ### Command Reference
 ![Command Reference](docs/images/command-reference.jpg)
@@ -41,7 +41,7 @@
 ## ✨ Key Features
 
 ### 🎯 LuciferAI Plugin Integration
-- **72% Offline Success Rate**: Most fixes work without LLM using local templates
+- **Offline FixNet**: Most fixes work without LLM using local templates — the offline success rate is measured live from real lookups (see `fixnet stats`), not a fixed percentage
 - **11-Grade Quality System**: A+ to F- fix quality grading with intelligent filtering
 - **5-Tier Model System**: Tier 0 (nano) to Tier 4 (expert) automatic routing
 - **FixNet Integration**: Encrypted, collaborative fix dictionary
@@ -124,7 +124,7 @@ npm run dev
 ✅ **Script Generation** - Natural language → Python/Bash/TypeScript scripts  
 ✅ **Quality Grading** - 11-grade system (A+ to F-) for fixes  
 ✅ **Step-by-Step Execution** - Visual progress with validation phases  
-✅ **FixNet Integration** - 72% offline success rate with community fixes  
+✅ **FixNet Integration** - offline success rate measured live from real lookups, with community fixes  
 ✅ **Command Registry** - 45+ commands across 12 categories  
 ✅ **Tier 2+ Thinking** - Shows model reasoning for transparency
 
@@ -132,7 +132,7 @@ npm run dev
 
 ## 🎯 Zero-LLM Operation
 
-**CRITICAL DIFFERENTIATOR:** Lucid Terminal maintains **72% functionality WITHOUT any LLM**
+**CRITICAL DIFFERENTIATOR:** Lucid Terminal runs deterministic commands and cached fixes WITHOUT any LLM
 
 **Why This Matters:**
 
@@ -150,7 +150,7 @@ npm run dev
 > /cat file.txt        # Read files
 > /grep pattern        # Search content
 
-# Script execution with FixNet (72% success)
+# Script execution with FixNet (offline success measured live)
 > /run script.py       # Detects errors automatically
 > /fix broken.py       # Applies consensus fixes
 
@@ -166,7 +166,7 @@ npm run dev
 - GitHub Copilot: 0% without cloud ❌
 - Cursor: 0% without API ❌
 - Codeium: 0% offline ❌
-- **Lucid Terminal: 72% without LLM** ✅
+- **Lucid Terminal: works without LLM** ✅
 
 ---
 
@@ -174,7 +174,7 @@ npm run dev
 
 | Feature | LuciferAI_Local | Lucid Terminal | Status |
 |---------|----------------|----------------|--------|
-| **Offline Success Rate** | 72% | 72% | ✅ |
+| **Offline Success Rate** | Unmeasured | Unmeasured — computed live from real FixNet lookups | ✅ |
 | **Quality Grading System** | 11 grades (A+ to F-) | 11 grades (A+ to F-) | ✅ |
 | **Relevance Formula** | `similarity*0.40 + successRate*0.30 + recency*0.20 + usage*0.10` | Exact match | ✅ |
 | **Tier System** | 5 tiers (0-4) | 5 tiers (0-4) | ✅ |
@@ -330,7 +330,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 Lucid Terminal implements the core AI principles and algorithms from **[LuciferAI_Local](https://github.com/GareBear99/LuciferAI_Local)**, including:
 - FixNet consensus system and quality grading
 - 5-tier model routing with intelligent fallback
-- Offline-first architecture (72% success without LLM)
+- Offline-first architecture (success measured from real lookups, not a fixed percentage)
 - Step-by-step validation and auto-fix patterns
 - Relevance scoring formula: `similarity*0.40 + successRate*0.30 + recency*0.20 + usage*0.10`
 

@@ -31,8 +31,9 @@ Thumbs.db
 *.log
 logs/
 
-# FixNet data
-fixnet/
+# FixNet data (root-anchored: only a top-level data dir — NOT the
+# electron/core/fixnet/ source module, which must be committed)
+/fixnet/
 .fixnet/
 *.fixnet
 

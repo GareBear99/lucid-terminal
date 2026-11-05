@@ -94,8 +94,8 @@ export function AccountButton() {
               </span>
             </div>
             <p className="text-xs text-[var(--text-muted)]">
-              {idInfo.isPermanent 
-                ? 'Synced with FixNet' 
+              {idInfo.isPermanent
+                ? 'FixNet ID (local only)'
                 : 'Link GitHub for permanent ID'}
             </p>
           </div>

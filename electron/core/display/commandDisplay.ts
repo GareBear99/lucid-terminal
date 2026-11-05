@@ -219,7 +219,7 @@ export class CommandDisplay {
 ║                                                           ║
 ║   🚀  Lucid Terminal  -  AI-Powered Development Env      ║
 ║                                                           ║
-║   • FixNet: offline fixes, no LLM needed                 ║
+║   • FixNet: offline-first, local-only                  ║
 ║   • Smart bypass routing: Tier 0-5 models                ║
 ║   • Every fix and script stored for reuse                ║
 ║                                                           ║
@@ -258,11 +258,17 @@ ${cyan}▶ Direct Commands${reset} ${dim}(no LLM needed - instant execution)${re
   ${white}help${reset}                   ${dim}Show this help${reset}
   ${white}exit${reset}                   ${dim}Exit terminal${reset}
 
-${yellow}▶ FixNet Commands${reset} ${dim}(offline - no internet needed)${reset}
-  ${white}fix${reset} <error>            ${dim}Auto-fix error with offline templates${reset}
+${yellow}▶ FixNet Commands${reset} ${dim}(offline, local-only - no internet needed)${reset}
+  ${white}fix${reset} <file|error>       ${dim}Auto-fix a file or an error (offline lookup first)${reset}
   ${white}fixnet stats${reset}           ${dim}Show FixNet statistics${reset}
   ${white}fixnet search${reset} <query>  ${dim}Search offline fix dictionary${reset}
+  ${white}fixnet report${reset} <hash> <success|failure>  ${dim}Record whether a fix worked${reset}
+  ${white}fixnet apply${reset} <hash> [file]  ${dim}Apply a stored fix to a file and verify it${reset}
+  ${white}fixnet delete${reset} <hash>  ${dim}Delete a stored fix${reset}
+  ${dim}FixNet is local-only: fixes never leave this machine. Sharing${reset}
+  ${dim}comes later with the causal cloud sync — there is no sync command.${reset}
   ${dim}Examples:${reset}
+    ${dim}fix broken_script.py${reset}
     ${dim}fix ModuleNotFoundError${reset}
     ${dim}fix TypeError: cannot read property${reset}
 
@@ -301,7 +307,7 @@ ${magenta}▶ Natural Language Mode${reset}
 ${red}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${reset}
 ${dim}🩸 Powered by LuciferAI • Enhanced AI Workflow System${reset}
 ${dim}⚡ Offline fixes available • 6-tier model routing${reset}
-${dim}🔧 FixNet: 17 offline templates synced • Fuzzy matching enabled${reset}
+${dim}🔧 FixNet: local-only • offline fixes • Fuzzy matching enabled${reset}
     `.trim();
   }
 }

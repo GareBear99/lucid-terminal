@@ -212,7 +212,7 @@ fixnet_flow():
     
     3. remote_fixes = pull_fixnet_repo()
        # Git pull from GitHub FixNet
-       # Decrypt AES-256 encrypted fixes
+       # Decrypt Fernet-encrypted fixes
     
     4. calculate_consensus():
        for fix in all_fixes:
@@ -679,7 +679,7 @@ class FixNetSystem:
         
         # 3. Remote Search
         remote_fixes = self.search_fixnet_repo(error_hash)
-        # Pull from GitHub, decrypt AES-256 fixes
+        # Pull from GitHub, decrypt Fernet fixes
         
         # 4. Consensus Calculation
         all_fixes = local_fixes + remote_fixes

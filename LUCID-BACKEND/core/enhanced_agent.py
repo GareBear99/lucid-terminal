@@ -3287,7 +3287,7 @@ intelligent script fixing, and a rich badge/achievement system.
   
   {c('What is FixNet?', 'green')}
   FixNet is a {c('decentralized GitHub-based knowledge network', 'yellow')} where developers share
-  proven script fixes. All fixes are AES-256 encrypted, SHA256 signed, and stored
+  proven script fixes. All fixes are Fernet-encrypted, SHA256 signed, and stored
   publicly. Uses fuzzy matching to find fixes that worked for similar errors.
   
   {c('Consensus Trust Levels:', 'green')}

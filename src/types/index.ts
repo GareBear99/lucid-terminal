@@ -301,7 +301,6 @@ declare global {
         onInstallTinyLlamaProgress: (callback: (line: string) => void) => () => void;
         // Phase 2: FixNet Auto-Fix
         fixScript: (filepath: string) => Promise<{ success: boolean; fixCount?: number; output?: string; error?: string }>;
-        fixnetSync: () => Promise<{ success: boolean; syncedCount?: number; output?: string; error?: string }>;
         // Phase 2: GitHub Integration
         githubLink: () => Promise<{ success: boolean; url?: string; output?: string; error?: string }>;
         githubUnlink: () => Promise<{ success: boolean; output?: string; error?: string }>;

@@ -5,6 +5,7 @@
  * Provides simple API for processing user commands
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -37,7 +38,13 @@ export class LucidCore {
   private backendManager: ModelBackendManager;
   private llamafileManager: LlamafileManager;
   private context: WorkflowContext;
-  
+  /**
+   * Set when FixNet started degraded (corrupt dictionary quarantined,
+   * or the dictionary unusable): getFixNetStats() reports it so the
+   * UI can say so instead of silently showing an empty dictionary.
+   */
+  private fixnetDegraded: string | null;
+
   private constructor(
     intentParser: IntentParser,
     bypassRouter: BypassRouter,
@@ -47,7 +54,8 @@ export class LucidCore {
     workflow: WorkflowOrchestrator,
     backendManager: ModelBackendManager,
     llamafileManager: LlamafileManager,
-    context: WorkflowContext
+    context: WorkflowContext,
+    fixnetDegraded: string | null = null
   ) {
     this.intentParser = intentParser;
     this.bypassRouter = bypassRouter;
@@ -58,6 +66,7 @@ export class LucidCore {
     this.backendManager = backendManager;
     this.llamafileManager = llamafileManager;
     this.context = context;
+    this.fixnetDegraded = fixnetDegraded;
   }
   
   /**
@@ -135,8 +144,54 @@ export class LucidCore {
       backendManager
     );
     
-    // Initialize FixNet
-    const fixnetRouter = new FixNetRouter(lucidDir);
+    // Initialize FixNet. A corrupt dictionary degrades FixNet only
+    // (F9) — it must never kill app startup the way it used to (the
+    // constructor throws on corrupt JSON, and initialize() had no
+    // try/catch, so one bad file killed `lucid:init`).
+    //   1. Try the normal construction.
+    //   2. On failure, quarantine the corrupt file aside (timestamped,
+    //      preserved for inspection) and retry with a fresh dictionary.
+    //   3. If even that fails, fall back to a temporary empty dictionary
+    //      under the OS temp dir so the app still starts.
+    // Either fallback records the reason, which getFixNetStats()
+    // reports; the app never pretends the dictionary is fine.
+    let fixnetRouter: FixNetRouter;
+    let fixnetDegraded: string | null = null;
+    try {
+      fixnetRouter = new FixNetRouter(lucidDir);
+    } catch (firstError: any) {
+      console.warn(
+        `[LucidCore] ⚠️ FixNet dictionary unusable: ${firstError.message}`
+      );
+      try {
+        const dictPath = path.join(lucidDir, 'fix_dictionary.json');
+        if (fs.existsSync(dictPath)) {
+          const stamp = new Date()
+            .toISOString()
+            .replace(/[:.]/g, '-');
+          const quarantinePath = `${dictPath}.corrupt-${stamp}`;
+          fs.renameSync(dictPath, quarantinePath);
+          console.warn(
+            `[LucidCore] ⚠️ Quarantined corrupt dictionary to ${quarantinePath}`
+          );
+        }
+        fixnetRouter = new FixNetRouter(lucidDir);
+        fixnetDegraded =
+          `dictionary was corrupt and was quarantined: ${firstError.message}`;
+      } catch (secondError: any) {
+        const tmpDir = path.join(
+          os.tmpdir(),
+          `lucid-fixnet-degraded-${Date.now()}`
+        );
+        console.warn(
+          `[LucidCore] ⚠️ FixNet still unusable after quarantine ` +
+            `(${secondError.message}); using a temporary empty dictionary at ${tmpDir}`
+        );
+        fixnetRouter = new FixNetRouter(tmpDir);
+        fixnetDegraded =
+          `dictionary unusable (${secondError.message}); using a temporary empty dictionary`;
+      }
+    }
     
     // Initialize intent parser
     const intentParser = new IntentParser();
@@ -173,7 +228,8 @@ export class LucidCore {
       workflow,
       backendManager,
       llamafileManager,
-      context
+      context,
+      fixnetDegraded
     );
   }
   
@@ -245,18 +301,30 @@ export class LucidCore {
   }
   
   /**
-   * Get FixNet statistics
+   * Get FixNet statistics.
+   *
+   * `last_sync` is always null: FixNet is local-only and has never
+   * synced (sharing comes later with the causal cloud sync). The old
+   * `// TODO: Implement sync tracking` comment implied sync was coming
+   * as a small job; it is not — it is the causal cloud sync follow-on.
+   * `offline_percentage` is the dictionary HIT rate (lookups that
+   * found a stored fix), not a fix success rate; the outcome-based
+   * rate is reported separately and is null until any outcome exists.
    */
   async getFixNetStats(): Promise<any> {
     const stats = await this.fixnetRouter.getStats();
-    
+
     // Transform to match frontend interface
     return {
       success: true,
       fixes_count: stats.dictionary.total_fixes || 0,
       scripts_count: stats.dictionary.total_scripts || 0,
-      last_sync: null, // TODO: Implement sync tracking
-      offline_percentage: Math.round((stats.performance.offline_success_rate ?? 0) * 100)
+      last_sync: null,
+      offline_percentage: Math.round((stats.performance.offline_success_rate ?? 0) * 100),
+      outcome_success_rate: stats.performance.outcome_success_rate,
+      total_attempts: stats.performance.total_attempts,
+      degraded: this.fixnetDegraded !== null,
+      degrade_reason: this.fixnetDegraded,
     };
   }
   

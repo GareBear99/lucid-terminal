@@ -37,11 +37,12 @@ async validateSyntax(code: string, language: string): Promise<boolean> {
 
 #### 2. Data Protection
 
-**FixNet Encryption**:
-- Algorithm: AES-256-GCM (NIST approved)
-- Key Derivation: PBKDF2 with 100,000 iterations
-- Authentication: HMAC-SHA256 for integrity
-- Storage: User home directory (`~/.lucid/fixnet/`)
+**FixNet Encryption** (Fernet — what the code actually uses; the old
+"AES-256-GCM" claim was wrong):
+- Algorithm: Fernet (AES-128-CBC + HMAC-SHA256)
+- Key: per-device Fernet key stored in the local auth key file, never shared
+- Authentication: HMAC-SHA256 for integrity (built into Fernet)
+- Storage: User home directory (`~/.lucid/fix_dictionary.json` + `fixnet_stats.json` for the terminal store; `~/.luciferai/data/` for the Python store)
 
 **No External Data Transmission**:
 - Offline-first operation (deterministic commands and cached fixes make no network calls; no fixed percentage is claimed)

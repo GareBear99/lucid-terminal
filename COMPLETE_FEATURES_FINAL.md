@@ -12,7 +12,7 @@
 **File**: `electron/core/fixnet/fixNetSync.ts`
 
 **Security Features**:
-- ✅ AES-256-GCM encryption for all fix content
+- ✅ Fernet encryption for all fix content
 - ✅ SHA-256 HMAC signatures for integrity
 - ✅ Anonymized user IDs (SHA-256 hashed)
 - ✅ Secure key storage (0o600 permissions)
@@ -39,7 +39,7 @@
 **Directory Structure**:
 ```
 ~/.lucid/fixnet/
-  ├── .encryption_key      # AES-256 key (0o600)
+  ├── .encryption_key      # Fernet key (0o600)
   ├── refs_local.json      # Local fix metadata
   ├── fixes/               # Encrypted fixes (.enc)
   └── signatures/          # SHA-256 signatures (.sig)
@@ -184,7 +184,7 @@ Warp AI-style validation - already implemented.
 │                                             │
 │  ┌──────────────┐      ┌──────────────┐   │
 │  │ Fix Created  │─────>│  Encrypt     │   │
-│  │  (Plain)     │      │ AES-256-GCM  │   │
+│  │  (Plain)     │      │   Fernet     │   │
 │  └──────────────┘      └──────────────┘   │
 │         │                      │            │
 │         │                      ▼            │
@@ -312,7 +312,7 @@ User types: cd ~/Downloads
 
 **Files Created**: 6 new core systems
 **Files Enhanced**: 5 existing systems
-**Security Level**: DARPA-grade (AES-256, SHA-256, 0o600)
+**Security Level**: DARPA-grade (Fernet, SHA-256, 0o600)
 **Compatibility**: LuciferAI FixNet format
 
 ---
@@ -320,7 +320,7 @@ User types: cd ~/Downloads
 ## 🎯 Feature Checklist
 
 ### FixNet DARPA-Level ✅
-- [x] AES-256-GCM encryption
+- [x] Fernet encryption
 - [x] SHA-256 signatures
 - [x] Anonymized user IDs
 - [x] Grading system (A+ to F)
@@ -486,10 +486,10 @@ async function handleImageUpload(file: File) {
 ## 🎓 Security Details
 
 ### Encryption Strength
-- **Algorithm**: AES-256-GCM (NIST approved)
-- **Key Size**: 256 bits (32 bytes)
-- **IV**: 128 bits (16 bytes, random per encryption)
-- **Auth Tag**: 128 bits (GMAC authentication)
+- **Algorithm**: Fernet (AES-128-CBC + HMAC-SHA256)
+- **Key**: per-device Fernet key from the local auth key file, never shared
+- **IV**: 128 bits (16 bytes, random per encryption, inside the Fernet token)
+- **Auth Tag**: HMAC-SHA256 (built into Fernet)
 
 ### Signature Strength
 - **Algorithm**: HMAC-SHA256
@@ -507,7 +507,7 @@ async function handleImageUpload(file: File) {
 
 ## 🌟 Highlights
 
-**Most Secure**: AES-256-GCM + SHA-256 + timing-safe verification  
+**Most Secure**: Fernet + SHA-256 + timing-safe verification  
 **Most Complex**: FixNet sync with context branching + grading  
 **Most Impactful**: DARPA-level data integrity matching LuciferAI  
 **Best UX**: Drag-drop images + voice input like Warp  

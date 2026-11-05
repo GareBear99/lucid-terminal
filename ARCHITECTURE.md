@@ -264,11 +264,11 @@ function selectModel(): ModelInfo {
 
 #### 4.2 Encryption
 
-**FixNet Storage**:
-- Algorithm: AES-256-GCM
-- Key derivation: PBKDF2 (100,000 iterations)
-- Authentication: HMAC-SHA256
-- Format: `{iv}{ciphertext}{tag}`
+**FixNet Storage** (Fernet — what the code actually uses):
+- Algorithm: Fernet (AES-128-CBC + HMAC-SHA256)
+- Key: per-device Fernet key from the local auth key file, never shared
+- Authentication: HMAC-SHA256 (built into Fernet)
+- Format: Fernet token (version + timestamp + IV + ciphertext + HMAC)
 
 **IPC Communication**:
 - Electron contextBridge isolation

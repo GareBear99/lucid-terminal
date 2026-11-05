@@ -20,7 +20,7 @@ All components are working together seamlessly:
    - Only uploads novel fixes and branch relationships
 
 2. **FixNet Uploader** (`core/fixnet_uploader.py`)
-   - Encrypts fixes with AES-256
+   - Encrypts fixes with Fernet
    - Signs with SHA-256
    - Commits to local Git repo
    - Pushes to GitHub (when configured)
@@ -192,7 +192,7 @@ Test 4: Search fixes
 ## 🎨 What Makes This Special
 
 ### Privacy-First Design
-- ✅ Your fixes encrypted with AES-256
+- ✅ Your fixes encrypted with Fernet
 - ✅ Only metadata visible publicly
 - ✅ Can't decrypt others' fixes (but benefit from patterns)
 - ✅ User IDs anonymized (hash-based)
@@ -351,7 +351,7 @@ All tests passed successfully:
 You now have a **fully integrated, privacy-first, collaborative fix learning system** that:
 
 1. **Intelligently filters** duplicates (71.4% rejection rate)
-2. **Encrypts everything** (AES-256 + SHA-256)
+2. **Encrypts everything** (Fernet + SHA-256)
 3. **Tracks relationships** (branch connections)
 4. **Learns collectively** (relevance scoring)
 5. **Scales efficiently** (GitHub-based, decentralized)

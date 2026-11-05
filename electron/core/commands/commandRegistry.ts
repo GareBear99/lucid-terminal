@@ -16,6 +16,8 @@
  * - System Information (stats/diagnostics)
  */
 
+import { FIXNET_COMMANDS } from './fixnetCommands';
+
 export interface CommandDefinition {
   name: string;
   category: string;
@@ -115,42 +117,26 @@ export class CommandRegistry {
     });
     
     // ========================================
-    // FIXNET COMMANDS (3 commands - offline-first)
-    // Offline-first error fixing with local templates
+    // FIXNET COMMANDS (from the canonical table)
+    // Offline-first, LOCAL-ONLY error fixing. The table
+    // (fixnetCommands.ts) is the one source of truth — this registry,
+    // the intent parser, the renderer router, and the help surfaces
+    // all read from it. There is no `fixnet sync`: sharing comes later
+    // with the causal cloud sync.
     // ========================================
-    
-    this._register({
-      name: 'fixnet sync',
-      category: 'FixNet Commands',
-      description: 'Sync with GitHub FixNet repository',
-      usage: 'fixnet sync',
-      examples: ['fixnet sync'],
-      requiresLLM: false,
-      offline: false
-    });
-    
-    this._register({
-      name: 'fixnet stats',
-      category: 'FixNet Commands',
-      description: 'Show FixNet statistics and metrics',
-      usage: 'fixnet stats',
-      examples: ['fixnet stats'],
-      requiresLLM: false,
-      offline: true
-    });
-    
-    this._register({
-      name: 'fixnet search',
-      category: 'FixNet Commands',
-      description: 'Search for similar fixes in dictionary',
-      usage: 'fixnet search <error>',
-      examples: [
-        'fixnet search NameError',
-        'fixnet search "import not found"'
-      ],
-      requiresLLM: false,
-      offline: true
-    });
+
+    for (const cmd of FIXNET_COMMANDS) {
+      this._register({
+        name: cmd.name,
+        category: cmd.category,
+        description: cmd.description,
+        usage: cmd.usage,
+        examples: cmd.examples,
+        requiresLLM: cmd.requiresLLM,
+        tier: cmd.tier,
+        offline: cmd.offline,
+      });
+    }
     
     // ========================================
     // MODEL MANAGEMENT (4 commands)
@@ -308,27 +294,33 @@ export class CommandRegistry {
     this._register({
       name: 'github sync',
       category: 'GitHub Integration',
-      description: 'Sync with GitHub FixNet repo',
+      description:
+        'GitHub account sync (FixNet sharing itself is local-only until ' +
+        'the causal cloud sync — no fixes are uploaded or downloaded)',
       usage: 'github sync',
       examples: ['github sync'],
       requiresLLM: false,
       offline: false
     });
-    
+
     this._register({
       name: 'github push',
       category: 'GitHub Integration',
-      description: 'Push local fixes to GitHub',
+      description:
+        'Push to GitHub (FixNet fixes are local-only and are never ' +
+        'uploaded — sharing comes later with the causal cloud sync)',
       usage: 'github push',
       examples: ['github push'],
       requiresLLM: false,
       offline: false
     });
-    
+
     this._register({
       name: 'github pull',
       category: 'GitHub Integration',
-      description: 'Pull fixes from GitHub',
+      description:
+        'Pull from GitHub (FixNet fixes are local-only and are never ' +
+        'downloaded — sharing comes later with the causal cloud sync)',
       usage: 'github pull',
       examples: ['github pull'],
       requiresLLM: false,
@@ -458,18 +450,10 @@ export class CommandRegistry {
       requiresLLM: false,
       offline: true
     });
-    
-    this._register({
-      name: 'fix',
-      category: 'Developer Tools',
-      description: 'Auto-fix script errors',
-      usage: 'fix <file>',
-      examples: ['fix broken_script.py'],
-      requiresLLM: true,
-      tier: 2,
-      offline: true
-    });
-    
+
+    // NOTE: `fix` is registered from the canonical FixNet table above
+    // (category 'Developer Tools') — it is not duplicated here.
+
     this._register({
       name: 'test',
       category: 'Developer Tools',
@@ -686,14 +670,12 @@ export class CommandRegistry {
       return lines.join('\n');
     }
     
-    // Show category overview
-    // The FixNet offline share is computed from the registered commands
-    // (share of FixNet commands flagged offline) — never a hardcoded rate.
+    // Show category overview. No hardcoded counts live here: the old
+    // header line was computed from registry metadata flags plus
+    // invented numbers, and is removed.
     const categories = this.getCategories();
-    const fixnetOffline = categories.find(c => c.name === 'FixNet Commands')?.offlinePercent;
     const lines = [
       `🔥 LuciferAI Command Reference`,
-      `${fixnetOffline !== undefined ? `${fixnetOffline}% of FixNet commands offline • ` : ''}17 templates • 8 model tiers`,
       ``,
       ``
     ];

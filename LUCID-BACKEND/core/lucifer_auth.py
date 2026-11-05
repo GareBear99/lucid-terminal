@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 🔐 LuciferAI Authentication System
-AES-256 encryption with device binding
+Fernet encryption with device binding
 """
 import os
 import json

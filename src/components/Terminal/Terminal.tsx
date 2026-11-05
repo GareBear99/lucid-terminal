@@ -238,6 +238,32 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
     }
   };
 
+  // Local commands (fix / fixnet) go through the same `lucid:command`
+  // IPC but WITHOUT the 'lucifer-task' loading key: they run in the
+  // local FixNet path, not the LuciferAI plugin, so the Sentinel face
+  // must not drip for them. (The 'command' key is already started by
+  // handleSubmit for every submission, so the top-left swirl still
+  // shows while a local command runs.)
+  const runLocalCommand = async (cmd: string) => {
+    return await window.lucidAPI.lucid.command(cmd);
+  };
+
+  // Render a `lucid:command` result into a terminal block: the
+  // formatted terminal output when the workflow ran, else the error.
+  const renderLocalResult = (result: any): string => {
+    if (!result) return '❌ No response from the local workflow.';
+    if (typeof result.terminalOutput === 'string' && result.terminalOutput) {
+      return result.terminalOutput;
+    }
+    if (typeof result.error === 'string' && result.error) {
+      return `❌ ${result.error}`;
+    }
+    if (typeof result.output === 'string' && result.output) {
+      return result.output;
+    }
+    return '❌ No response from the local workflow.';
+  };
+
   const handleSubmit = async (command: string) => {
     if (!command.trim()) return;
 
@@ -289,7 +315,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
     // 5. Generate validation steps based on command type
     let validationSteps = ValidationStepFactory.shellCommand(command);
     
-    if (parsed.type === 'fixnet') {
+    if (parsed.type === 'fixnet' || parsed.type === 'fix') {
       if (command.startsWith('fix ')) {
         validationSteps = ValidationStepFactory.fixNetAutoFix(command);
       } else {
@@ -355,56 +381,46 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
           }, 500);
           break;
 
+        case 'fix':
+          // `fix <file|error>` — the local FixNet path. It used to have
+          // no case here at all, so it fell to the default branch and
+          // was sent to the plugin (or to the shell). It now runs the
+          // workflow orchestrator's dual-form fix directly.
+          console.log('[Fix] Processing:', parsed.command);
+          {
+            const result = await runLocalCommand(command);
+            setBlocks(prev => {
+              const updated = [...prev];
+              const lastBlock = updated[updated.length - 1];
+              if (lastBlock?.id === newBlock.id) {
+                lastBlock.output = renderLocalResult(result);
+                lastBlock.isComplete = true;
+              }
+              return updated;
+            });
+          }
+          break;
+
         case 'fixnet':
-          // FixNet commands - route to IPC
+          // FixNet commands — ALL local now (stats, search, report,
+          // apply, delete, and the honest `fixnet sync` answer). They
+          // used to render raw JSON from direct IPC branches that could
+          // never match (the renderer router stored only the first word),
+          // and anything else fell through to the plugin with a
+          // "LuciferAI plugin required" lie. The orchestrator formats
+          // the output, so the Terminal renders terminalOutput.
           console.log('[FixNet] Processing:', parsed.command);
-          if (parsed.command === 'fixnet stats') {
-            const stats = await window.lucidAPI.lucid.getFixNetStats();
+          {
+            const result = await runLocalCommand(command);
             setBlocks(prev => {
               const updated = [...prev];
               const lastBlock = updated[updated.length - 1];
               if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = JSON.stringify(stats, null, 2);
+                lastBlock.output = renderLocalResult(result);
                 lastBlock.isComplete = true;
               }
               return updated;
             });
-          } else if (parsed.command.startsWith('fixnet search')) {
-            const query = parsed.args.join(' ');
-            const result = await window.lucidAPI.lucid.fixnetSearch(query);
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = JSON.stringify(result, null, 2);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
-          } else {
-            // Other fixnet commands - route to Python backend
-            if (luciferAIAvailable) {
-              const result = await runPluginCommand(command);
-              setBlocks(prev => {
-                const updated = [...prev];
-                const lastBlock = updated[updated.length - 1];
-                if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = result.terminalOutput || result.output || '';
-                  lastBlock.isComplete = true;
-                }
-                return updated;
-              });
-            } else {
-              setBlocks(prev => {
-                const updated = [...prev];
-                const lastBlock = updated[updated.length - 1];
-                if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = '⚠️  LuciferAI plugin required for this command.\nSee "help" for available commands.';
-                  lastBlock.isComplete = true;
-                }
-                return updated;
-              });
-            }
           }
           break;
 

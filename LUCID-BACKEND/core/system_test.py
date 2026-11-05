@@ -402,7 +402,7 @@ if __name__ == "__main__":
         
         print(f"{GREEN}Step 6: Upload to Consensus{RESET}")
         print(f"  • Validates user ID (only validated can upload)")
-        print(f"  • Encrypts fix data (AES-256)")
+        print(f"  • Encrypts fix data (Fernet)")
         print(f"  • Signs with SHA256")
         print(f"  • Uploads to GitHub with branch metadata:")
         print(f"    - inspired_by: fix_auth_abc123")
@@ -884,7 +884,7 @@ print("Done!")
         time.sleep(0.3)
         
         print(f"{CYAN}Creating encrypted user credentials...{RESET}")
-        print(f"  • Generating AES-256 encryption key")
+        print(f"  • Generating Fernet encryption key")
         print(f"  • Encrypting GitHub token")
         print(f"  • Creating SHA256 signature")
         print(f"  • Storing in ~/.luciferai/credentials.enc\n")
@@ -931,7 +931,7 @@ print("Done!")
             ("Fix signature valid", "✅ Passed"),
             ("Duplicate check", "✅ Unique"),
             ("Rate limit check", "✅ Within limit (1/5)"),
-            ("Encryption check", "✅ AES-256"),
+            ("Encryption check", "✅ Fernet"),
         ]
         for check, status in checks:
             print(f"  {CYAN}• {check}...{RESET}", end=' ')
@@ -1026,7 +1026,7 @@ print("Done!")
         
         print(f"{BLUE}💡 Key Features:{RESET}")
         print(f"  ✓ Password-based authentication (GitHub API)")
-        print(f"  ✓ Encrypted credential storage (AES-256)")
+        print(f"  ✓ Encrypted credential storage (Fernet)")
         print(f"  ✓ Validated accounts only can upload/vote")
         print(f"  ✓ Rate limiting prevents spam (5/hour)")
         print(f"  ✓ Reputation system rewards good fixes")

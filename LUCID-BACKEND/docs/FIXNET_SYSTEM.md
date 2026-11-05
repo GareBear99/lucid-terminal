@@ -267,7 +267,7 @@ weighted_score = Σ(vote × user_reputation) / Σ(user_reputation)
 ## Privacy & Security
 
 ### Encryption
-- **AES-256-GCM** for fix content
+- **Fernet (AES-128-CBC + HMAC-SHA256)** for fix content
 - **Per-user keys** (never shared)
 - **Metadata only** visible publicly
 
@@ -511,7 +511,7 @@ github.com/YourOrg/LuciferAI-FixNet
 A: No! The deterministic FixNet operations work without an LLM (fix application, search, consensus). LLM only needed for advanced validation and fix generation.
 
 **Q: Is my code safe?**
-A: Yes. All code is encrypted client-side with AES-256-GCM. Only metadata is public. Your encryption key never leaves your machine.
+A: Yes. All code is encrypted client-side with Fernet (AES-128-CBC + HMAC-SHA256). Only metadata is public. Your encryption key never leaves your machine.
 
 **Q: Can I use FixNet offline?**
 A: Partially. Local fixes and cached consensus work offline. Remote sync requires internet.

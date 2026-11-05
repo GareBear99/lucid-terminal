@@ -2,12 +2,17 @@
  * FixDictionary - persistent local store for FixNet fixes.
  *
  * One JSON file (fix_dictionary.json) under the lucid dir, keyed by error
- * type, in the same shape the Python FixNet uses
- * (FIXNET_AUDIT.md §2 / LUCID-BACKEND/core/fixnet_uploader.py):
- * entries carry an error signature, a solution, a SHA-256 fix hash,
+ * type: entries carry an error signature, a solution, a SHA-256 fix hash,
  * keywords, success/failure counts, a relevance score, a timestamp and
  * context. Script templates are tracked separately so the dictionary can
  * report how many distinct scripts it holds.
+ *
+ * NOTE: this store is LOCAL-ONLY and TS-owned (Gary, 2026-11-04). Its
+ * shape is NOT the same as the Python FixNet store
+ * (~/.luciferai/data/fix_dictionary.json, a bare
+ * {normalized_error: [entries]} map) — the two stores are separate
+ * until the merge (stage 2), which follows the causal cloud sync.
+ * Nothing here is shared with, or synced to, any other machine.
  *
  * Fail-loud by design: a corrupt dictionary file (invalid JSON, or the
  * wrong shape) throws on load instead of silently starting empty.
@@ -107,11 +112,33 @@ export class FixDictionary {
     const scripts = Array.isArray(parsed.scripts)
       ? (parsed.scripts.filter((s) => typeof s === 'string') as string[])
       : [];
-    return {
+    const loaded: DictionaryFile = {
       version: typeof parsed.version === 'number' ? parsed.version : 1,
       entries,
       scripts,
     };
+    // Migration (F12): purge phantom entries stored with an empty error
+    // signature. They came from the old parser dropping the error text,
+    // can never be matched, and permanently inflated fixes_count.
+    // They are removed on load, once, and the clean file is saved.
+    let purged = 0;
+    for (const [type, list] of Object.entries(loaded.entries)) {
+      const kept = list.filter(
+        (e) => normalizeError(e.error_signature || '') !== ''
+      );
+      purged += list.length - kept.length;
+      loaded.entries[type] = kept;
+    }
+    if (purged > 0) {
+      this.data = loaded;
+      this.save();
+      console.warn(
+        `[FixNet] Removed ${purged} phantom entr${
+          purged === 1 ? 'y' : 'ies'
+        } with an empty error signature from ${this.filePath}.`
+      );
+    }
+    return loaded;
   }
 
   /** Atomic-ish save: write a temp file, then rename over the real one. */
@@ -125,13 +152,20 @@ export class FixDictionary {
    * Store a fix. A repeat store of the same normalized error updates the
    * existing entry (new solution/timestamp) instead of duplicating it,
    * and keeps its success/failure counts.
+   *
+   * Returns null and stores nothing when the error is empty or
+   * whitespace-only: no fix is ever stored with an empty error
+   * signature (F12). The old parser stored one such phantom entry for
+   * every broken `fix` / `fixnet sync` call; the load-time migration
+   * above removes the ones already on disk.
    */
   add(
     kind: string,
     error: string,
     solution: string,
     meta: Record<string, unknown> = {}
-  ): FixEntry {
+  ): FixEntry | null {
+    if (!error || !error.trim()) return null;
     const errorType = classifyError(error);
     const list = this.data.entries[errorType] ?? [];
     const normalized = normalizeError(error);
@@ -197,6 +231,23 @@ export class FixDictionary {
   /** Find one entry by its fix hash. */
   byHash(fixHash: string): FixEntry | undefined {
     return this.all().find((e) => e.fix_hash === fixHash);
+  }
+
+  /**
+   * Delete one entry by its fix hash. Returns false when the hash is
+   * unknown. Persists on success.
+   */
+  deleteByHash(fixHash: string): boolean {
+    for (const [type, list] of Object.entries(this.data.entries)) {
+      const index = list.findIndex((e) => e.fix_hash === fixHash);
+      if (index !== -1) {
+        list.splice(index, 1);
+        if (list.length === 0) delete this.data.entries[type];
+        this.save();
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

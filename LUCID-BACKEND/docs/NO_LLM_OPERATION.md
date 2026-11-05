@@ -687,7 +687,7 @@ FixNet check: 94% of users add timeout parameter
 ### Security: 9.0/10
 
 **Features:**
-- ✅ AES-256 encryption for fixes
+- ✅ Fernet encryption for fixes
 - ✅ SHA256 verification for downloads
 - ✅ Malicious pattern detection
 - ✅ Community spam reporting

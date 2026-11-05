@@ -40,7 +40,7 @@
      ↓                     ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ 2. ENCRYPT & SIGN                                           │
-│    • AES-256 encryption (device-bound key)                  │
+│    • Fernet encryption (device-bound key)                   │
 │    • SHA256 signature for integrity                         │
 └────────────────────┬────────────────────────────────────────┘
                      ↓
@@ -98,7 +98,7 @@
 
 ## 🔑 Security Model
 
-### Encryption (AES-256)
+### Encryption (Fernet)
 ```python
 # Device-bound key generation
 device_uuid + username + hostname

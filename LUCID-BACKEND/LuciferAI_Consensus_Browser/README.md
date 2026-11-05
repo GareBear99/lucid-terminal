@@ -222,7 +222,7 @@ The browser integrates seamlessly with the main LuciferAI system:
 ## Privacy & Security
 
 - **Local fixes**: Stored unencrypted on your system
-- **Remote fixes**: Encrypted with AES-256
+- **Remote fixes**: Encrypted with Fernet
 - **User IDs**: Hashed for privacy
 - **No tracking**: Browse completely offline
 

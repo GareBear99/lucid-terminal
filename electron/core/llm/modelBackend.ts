@@ -507,6 +507,31 @@ export class ModelBackendManager {
       info.enabled = enabled;
     }
   }
+
+  /**
+   * Update a model's validated state. Validated means "a real model file
+   * for this model was found on disk" (set by the bypass router's file
+   * scan) or "the endpoint answered a test generation" (set by testAll).
+   * Mirrors setModelEnabled; the router owns the file-derived value.
+   */
+  setModelValidated(name: string, validated: boolean): void {
+    const info = this.modelInfo.get(name);
+    if (info) {
+      info.validated = validated;
+    }
+  }
+
+  /**
+   * Update a model's running state (a llamafile server is answering on
+   * its endpoint). Set by testAll(); exposed so tests — and a future
+   * server manager — can mark a model running without a live generation.
+   */
+  setModelRunning(name: string, running: boolean): void {
+    const info = this.modelInfo.get(name);
+    if (info) {
+      info.running = running;
+    }
+  }
   
   /**
    * Check if any models are available

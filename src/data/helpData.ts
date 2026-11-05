@@ -119,7 +119,7 @@ export const helpCategories: HelpCategory[] = [
   {
     id: 'fixnet',
     title: 'FixNet Commands',
-    description: 'Offline error fixing with local templates',
+    description: 'Offline-first error fixing, local-only (no sync yet)',
     icon: '🔧',
     color: '#d29922',
     stats: {
@@ -129,9 +129,10 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'fix',
-        syntax: 'fix <error>',
-        description: 'Auto-fix errors using offline templates',
+        syntax: 'fix <file|error>',
+        description: 'Auto-fix a file or an error: offline lookup first, then the model (Tier 2) for new fixes',
         examples: [
+          'fix broken_script.py',
           'fix ModuleNotFoundError',
           'fix TypeError: cannot read property',
           'fix EACCES permission denied',
@@ -156,6 +157,27 @@ export const helpCategories: HelpCategory[] = [
           'fixnet search npm'
         ],
         tags: ['search', 'offline', 'dictionary']
+      },
+      {
+        name: 'fixnet report',
+        syntax: 'fixnet report <fix_hash> <success|failure>',
+        description: 'Record whether a served fix actually worked',
+        examples: ['fixnet report abc123 success'],
+        tags: ['info', 'stats', 'offline']
+      },
+      {
+        name: 'fixnet apply',
+        syntax: 'fixnet apply <fix_hash> [file]',
+        description: 'Apply a stored fix to a file and verify it by re-running',
+        examples: ['fixnet apply abc123 script.py'],
+        tags: ['error', 'debugging', 'offline', 'auto-fix']
+      },
+      {
+        name: 'fixnet delete',
+        syntax: 'fixnet delete <fix_hash>',
+        description: 'Delete a stored fix from the local dictionary',
+        examples: ['fixnet delete abc123'],
+        tags: ['info', 'offline', 'dictionary']
       }
     ]
   },
@@ -583,11 +605,14 @@ export function getCategoryById(id: string): HelpCategory | undefined {
 }
 
 /**
- * System statistics
+ * System statistics.
+ *
+ * Only measured numbers live here. `totalTemplates` used to be a
+ * hardcoded 17 — the dictionary starts empty and nothing is synced,
+ * so the claim was removed rather than replaced with another number.
  */
 export const systemStats = {
   offlineCoverage: 'unmeasured',
-  totalTemplates: 17,
   modelTiers: 6,
   features: [
     'Smart bypass routing',

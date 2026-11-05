@@ -23,7 +23,7 @@ FixNet is a **collaborative error-fixing knowledge base** that:
 ```
 IntegratedFixNet (Orchestrator)
 ├── FixNetUploader (GitHub Integration)
-│   ├── Encryption (AES-256)
+│   ├── Encryption (Fernet)
 │   ├── Signing (SHA256)
 │   └── Git Push
 ├── RelevanceDictionary (Storage Layer)
@@ -178,7 +178,7 @@ User Applies Fix
 │    ├─ Novel? → Upload                   │
 │    └─ Duplicate? → Local only           │
 │ 3. Create Patch                          │
-│ 4. Encrypt (AES-256)                     │
+│ 4. Encrypt (Fernet)                      │
 │ 5. Sign (SHA256)                         │
 │ 6. Git Commit + Push                     │
 │ 7. Update refs.json                      │
@@ -454,7 +454,7 @@ def is_duplicate(incoming_fix, refs):
 
 **Required Checks:**
 1. ✅ **Signature Verification** - SHA256 matches encrypted content
-2. ✅ **Encryption Validation** - File is valid AES-256
+2. ✅ **Encryption Validation** - File is a valid Fernet token
 3. ✅ **User ID Format** - Valid format (16 hex chars)
 4. ✅ **Rate Limiting** - Max 10 uploads/minute per user
 5. ✅ **Spam Detection** - Check against known patterns
@@ -822,7 +822,7 @@ Total: ~$140/mo
 ## 14. Security Considerations
 
 ### Data Privacy
-- ✅ All patches encrypted (AES-256)
+- ✅ All patches encrypted (Fernet)
 - ✅ User IDs anonymized (hash only)
 - ✅ No source code in plaintext
 - ✅ No PII in metadata
@@ -845,7 +845,7 @@ Total: ~$140/mo
 ### Current State ✅
 - **Local System:** Fully operational
 - **Storage:** `~/.luciferai/` with complete dictionary
-- **Encryption:** AES-256 + SHA256 signatures
+- **Encryption:** Fernet + SHA256 signatures
 - **Smart Filtering:** Prevents duplicates
 - **Consensus:** Trust scoring implemented
 - **GitHub Sync:** 17 fixes synced successfully

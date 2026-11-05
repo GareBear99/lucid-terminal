@@ -2,7 +2,7 @@ import { IpcMain, BrowserWindow } from 'electron';
 
 // ... imports
 import { chat, cancelStream, hasApiKey, ChatMessage } from '../services/openai';
-import { chatLocal, checkLocalBackendHealth } from '../services/local_ai'; // Import local service
+import { chatLocal, checkLocalBackendHealth, cancelLocalChat } from '../services/local_ai'; // Import local service
 import { historyManager } from '../services/historyManager';
 import { isAnyModelAvailable } from './lucidWorkflow';
 
@@ -86,9 +86,13 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
     }
   });
 
-  // Cancel ongoing stream
+  // Cancel ongoing stream — both paths: the OpenAI stream and any
+  // local chat task (queued or running). Until now this only
+  // cancelled the OpenAI path, so a local generation kept running
+  // and landed in the current chat after the user had moved on.
   ipcMain.on('ai:cancelStream', () => {
     cancelStream();
+    cancelLocalChat();
   });
 
 

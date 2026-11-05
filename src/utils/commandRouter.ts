@@ -74,7 +74,44 @@ export function parseCommand(input: string): ParsedCommand {
 
   // Check for direct LuciferAI commands (without slash)
   const firstWord = trimmed.split(/\s+/)[0].toLowerCase();
-  
+  const words = trimmed.split(/\s+/);
+  const twoWords = words.slice(0, 2).join(' ').toLowerCase();
+
+  // Multi-word commands FIRST: the old order checked the single first
+  // word first, so 'fixnet stats' returned command='fixnet' (the first
+  // word only) and the Terminal's `parsed.command === 'fixnet stats'`
+  // branch could never match — every direct-IPC branch in the Terminal
+  // was dead. The full matched phrase is the command now.
+  if (
+    twoWords === 'fixnet stats' ||
+    twoWords === 'fixnet search' ||
+    twoWords === 'fixnet report' ||
+    twoWords === 'fixnet apply' ||
+    twoWords === 'fixnet delete' ||
+    twoWords === 'fixnet sync'
+  ) {
+    return {
+      type: 'fixnet',
+      command: twoWords,
+      args: words.slice(2),
+      raw: input,
+      isSlashCommand: false,
+      shouldShowHelp: false
+    };
+  }
+
+  if (twoWords === 'llm list' || twoWords === 'llm status' ||
+      twoWords === 'llm enable' || twoWords === 'llm disable') {
+    return {
+      type: 'llm',
+      command: twoWords,
+      args: words.slice(2),
+      raw: input,
+      isSlashCommand: false,
+      shouldShowHelp: false
+    };
+  }
+
   // Check if it's a shell command
   if (SHELL_COMMANDS.has(firstWord)) {
     return {
@@ -90,7 +127,7 @@ export function parseCommand(input: string): ParsedCommand {
   // Check if it's a LuciferAI command (without slash)
   if (LUCIFERAI_COMMANDS.has(firstWord)) {
     const args = trimmed.split(/\s+/).slice(1);
-    
+
     // Special case: "help" command shows help panel
     if (firstWord === 'help') {
       return {
@@ -102,36 +139,11 @@ export function parseCommand(input: string): ParsedCommand {
         shouldShowHelp: true
       };
     }
-    
+
     return {
       type: firstWord as CommandType,
       command: firstWord,
       args,
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-
-  // Check for multi-word LuciferAI commands
-  const twoWords = trimmed.split(/\s+/).slice(0, 2).join(' ').toLowerCase();
-  if (twoWords === 'fixnet stats' || twoWords === 'fixnet search') {
-    return {
-      type: 'fixnet',
-      command: 'fixnet',
-      args: trimmed.split(/\s+/).slice(1),
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-  
-  if (twoWords === 'llm list' || twoWords === 'llm status' || 
-      twoWords === 'llm enable' || twoWords === 'llm disable') {
-    return {
-      type: 'llm',
-      command: 'llm',
-      args: trimmed.split(/\s+/).slice(1),
       raw: input,
       isSlashCommand: false,
       shouldShowHelp: false

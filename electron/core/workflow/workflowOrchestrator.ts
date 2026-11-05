@@ -16,6 +16,21 @@ import { WorkflowValidator, ValidationPhase } from '../validation/workflowValida
 import { getModelTier } from '../models/modelTiers';
 import { ScriptExecutor, ExecutionStep } from '../executor/scriptExecutor';
 import { SegmentedDisplay, SearchSegment } from '../display/segmentedDisplay';
+import * as fs from 'fs';
+import * as path from 'path';
+import { FIXNET_SYNC_UNAVAILABLE } from '../commands/fixnetCommands';
+import { AUTO_APPLY_THRESHOLD } from '../fixnet/consensusEngine';
+import {
+  patternFixForError,
+  validateFixForError,
+} from '../fixnet/patternFix';
+import { hashFix } from '../fixnet/fixDictionary';
+import {
+  runFile,
+  applyImportFix,
+  extractImportLine,
+  revertFile,
+} from '../fixnet/fileFixer';
 
 export interface WorkflowContext {
   userId: string;
@@ -33,7 +48,14 @@ export interface WorkflowResult {
   output: string;
   bypassRoute?: BypassRoute;
   tokenStats?: TokenStats;
+  /**
+   * True ONLY when a fix was actually written to a file and the file
+   * then re-ran clean. Presenting a solution, or generating one, is
+   * not applying it — those paths leave this false/undefined.
+   */
   fixApplied?: boolean;
+  /** How many files a fix was applied to and verified in (0 or 1). */
+  fixCount?: number;
   executionTimeMs: number;
   validationPhases?: Array<{
     phase: ValidationPhase;
@@ -170,6 +192,17 @@ export class WorkflowOrchestrator {
   ): Promise<WorkflowResult> {
     const command = (intent.normalized || '').trim().toLowerCase();
 
+    // Arguments keep their original case: `command` is lowercased for
+    // matching, and slicing arguments out of it would mangle any
+    // uppercase letter in a file path (case-sensitive filesystems) or
+    // a hash. The command name has the same length in both, so slice
+    // the original by name length.
+    const original = (intent.original || '').trim();
+    const restAfter = (name: string): string =>
+      original.slice(0, name.length).toLowerCase() === name
+        ? original.slice(name.length).trim()
+        : '';
+
     // 'help' — show the command reference. Local-only: no LLM, no tool call.
     // (IntentParser leaves `action` unset for direct commands, so a bare
     // toolRegistry lookup would fail with "Tool not found".)
@@ -198,7 +231,7 @@ export class WorkflowOrchestrator {
     // synonym map rewrote 'search' -> 'find', so this never matched a
     // direct command and fell through to the fix-request/LLM path.)
     if (command === 'fixnet search' || command.startsWith('fixnet search ')) {
-      const query = command.slice('fixnet search'.length).trim();
+      const query = restAfter('fixnet search');
       if (!query) {
         return {
           success: false,
@@ -210,6 +243,75 @@ export class WorkflowOrchestrator {
       return {
         success: true,
         output: this._formatFixNetSearchResults(query, results),
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    // 'fixnet sync' — recognised but unavailable. FixNet is local-only
+    // until the causal cloud sync; there is no sync to run. Answer
+    // honestly instead of misreading it as a fix request for an empty
+    // error (which used to store a phantom entry).
+    if (command === 'fixnet sync' || command.startsWith('fixnet sync ')) {
+      return {
+        success: false,
+        output: FIXNET_SYNC_UNAVAILABLE,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    // 'fixnet report <hash> <success|failure>' — record whether a
+    // served fix actually worked. This is what moves the consensus:
+    // with no outcomes a fix grades Experimental on the neutral 0.5,
+    // and each recorded outcome moves its success rate — and so its
+    // trust band — up or down.
+    if (command === 'fixnet report' || command.startsWith('fixnet report ')) {
+      return await this._handleFixNetReport(
+        restAfter('fixnet report'),
+        startTime
+      );
+    }
+
+    // 'fixnet apply <hash> [file]' — apply a stored fix to a file and
+    // verify it by re-running. Records the outcome.
+    if (command === 'fixnet apply' || command.startsWith('fixnet apply ')) {
+      return await this._handleFixNetApply(
+        restAfter('fixnet apply'),
+        startTime
+      );
+    }
+
+    // 'fixnet delete <hash>' — remove a stored fix.
+    if (command === 'fixnet delete' || command.startsWith('fixnet delete ')) {
+      const fixHash = restAfter('fixnet delete').split(/\s+/)[0] || '';
+      if (!fixHash) {
+        return {
+          success: false,
+          output: 'Usage: fixnet delete <fix_hash>',
+          executionTimeMs: Date.now() - startTime
+        };
+      }
+      const deleted = this.fixnetRouter.deleteByHash(fixHash);
+      return {
+        success: deleted,
+        output: deleted
+          ? `🗑️ Deleted fix ${fixHash} from the local dictionary.`
+          : `❌ No fix with hash ${fixHash} in the local dictionary.`,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    // Any other 'fixnet ...' — unknown subcommand. Say so plainly
+    // instead of falling through to a tool lookup that fabricates a
+    // result. (Known commands: stats, search, report, apply, delete.)
+    if (command === 'fixnet' || command.startsWith('fixnet ')) {
+      return {
+        success: false,
+        output:
+          `❌ Unknown FixNet command: '${command}'\n\n` +
+          'Available: fixnet stats, fixnet search <query>, ' +
+          'fixnet report <hash> <success|failure>, ' +
+          'fixnet apply <hash> [file], fixnet delete <hash>\n' +
+          'FixNet is local-only — there is no sync command.',
         executionTimeMs: Date.now() - startTime
       };
     }
@@ -241,90 +343,547 @@ export class WorkflowOrchestrator {
   }
   
   /**
-   * Handle fix requests (FixNet-first)
+   * Handle fix requests (FixNet-first, dual-form).
+   *
+   * Dual-form (Gary, 2026-11-04): the argument is a FILE PATH or an
+   * ERROR MESSAGE. A file path is resolved against the working
+   * directory; anything else is treated as error text.
+   *
+   * File mode: run the file to get the real error, look it up offline,
+   * apply a matching fix only when consensus is ≥90% (auto-apply
+   * threshold) AND the fix is a single import line, verify by
+   * re-running, and record the outcome. The file on disk only changes
+   * when the fix is applied and the re-run passes; on failure the
+   * file is reverted and the failure is recorded against the fix.
+   *
+   * Error mode: look the error up offline and present the fix, or
+   * generate one. No file is involved, so fixApplied stays false.
+   *
+   * `fixApplied` is true ONLY when a file was written and verified.
+   * Presenting or generating a solution never sets it.
    */
   private async _handleFixRequest(
     intent: ParsedIntent,
     startTime: number
   ): Promise<WorkflowResult> {
-    const error = intent.target ?? '';  // Error message or file with error
-    
-    // Show loading
-    const loadId = this.display.addLoading('Searching FixNet...');
-    
-    // Search FixNet first
-    const fixResult = await this.fixnetRouter.findFix({ error });
-    
-    this.display.removeLoading(loadId);
-    
-    if (fixResult.success && !fixResult.needs_llm) {
-      // Found offline fix!
-      // Show what was found
-      if (fixResult.quality) {
-        this.display.addResult(
-          'FixNet Dictionary',
-          ['error pattern'],
-          [error],
-          1,
-          undefined
-        );
-      }
-      
+    const arg = (intent.target ?? '').trim();
+
+    if (!arg) {
       return {
-        success: true,
-        output: this._formatFixOutput(fixResult),
-        executionTimeMs: Date.now() - startTime,
-        fixApplied: true,
-        searchSegments: this.display.getSegments()
+        success: false,
+        output:
+          'Usage: fix <file|error>\n' +
+          '  fix broken_script.py — run the file, find the error, apply a verified fix\n' +
+          '  fix ModuleNotFoundError: No module named requests — look up or generate a fix',
+        executionTimeMs: Date.now() - startTime
       };
     }
-    
-    // Start execute phase
+
+    // File mode: the argument is an existing file path.
+    const filePath = this._resolveFixFile(arg);
+    if (filePath) {
+      return await this._handleFixFile(filePath, intent, startTime);
+    }
+    if (this._looksLikeFilePath(arg)) {
+      return {
+        success: false,
+        output: `❌ No such file: ${arg}`,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    // Error mode: the argument is an error message.
+    return await this._handleFixErrorText(arg, intent, startTime);
+  }
+
+  /** Resolve `arg` to an existing file path, or null when it is not a file. */
+  private _resolveFixFile(arg: string): string | null {
+    const candidates = [arg, path.resolve(this.context.workingDirectory, arg)];
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          return path.resolve(candidate);
+        }
+      } catch {
+        // Not a readable path — treat as error text below.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * True when the argument looks like a bare file path (but does not
+   * exist). An error message can contain '/' (a traceback) or end in
+   * '.py', so a path must ALSO have no spaces — a bare path almost
+   * never has one, an error message almost always does. A path with
+   * spaces is the known edge case: it is treated as error text.
+   */
+  private _looksLikeFilePath(arg: string): boolean {
+    if (/\s/.test(arg)) return false;
+    return (
+      arg.includes('/') ||
+      arg.includes('\\') ||
+      /\.(py|js|ts|sh|bash|json|md|txt)$/i.test(arg)
+    );
+  }
+
+  /**
+   * File mode: run the file, get the real error, look it up, and apply
+   * a verified fix when one is safe to apply.
+   */
+  private async _handleFixFile(
+    filePath: string,
+    intent: ParsedIntent,
+    startTime: number
+  ): Promise<WorkflowResult> {
+    const loadId = this.display.addLoading('Running file to find the error...');
+    const run = await runFile(filePath);
+    this.display.removeLoading(loadId);
+
+    if (run.ok) {
+      return {
+        success: true,
+        output: `✅ ${filePath} runs clean — nothing to fix.`,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    const error = run.error || 'Unknown error';
+    const fixResult = await this.fixnetRouter.findFix({ error });
+
+    if (fixResult.success && !fixResult.needs_llm && fixResult.fix) {
+      const grade = fixResult.quality;
+      const score =
+        grade && typeof grade.score === 'number' ? grade.score : 0;
+      // Auto-apply only at ≥90% consensus. Below that the fix is
+      // presented and the user applies it explicitly with
+      // `fixnet apply <hash> <file>`.
+      if (score >= AUTO_APPLY_THRESHOLD) {
+        const applied = await this._applyImportFixToFile(
+          filePath,
+          fixResult.fix.solution,
+          fixResult.fix.fix_hash,
+          startTime
+        );
+        if (applied) return applied;
+      }
+      return {
+        success: true,
+        output:
+          this._formatFixOutput(fixResult) +
+          `\n\nFixNet found a fix (consensus ${Math.round(score * 100)}%, ` +
+          `below the ${Math.round(AUTO_APPLY_THRESHOLD * 100)}% auto-apply bar). ` +
+          `The file was not modified.\n` +
+          `Apply it explicitly: fixnet apply ${fixResult.fix.fix_hash} ${filePath}`,
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: false
+      };
+    }
+
+    // No stored fix — pattern fast path (missing import / known name).
+    const pattern = patternFixForError(error);
+    if (pattern) {
+      const original = fs.readFileSync(filePath, 'utf-8');
+      const apply = applyImportFix(filePath, pattern);
+      if (apply.applied) {
+        const verify = await runFile(filePath);
+        if (verify.ok) {
+          await this.fixnetRouter.storeFix('pattern_fix', error, pattern, {
+            file: filePath,
+          });
+          this.fixnetRouter.recordOutcome(hashFix(error, pattern), true);
+          return {
+            success: true,
+            output:
+              `🔧 Applied pattern fix to ${filePath}:\n${pattern}\n\n` +
+              `✅ Verified: the file now runs clean.`,
+            executionTimeMs: Date.now() - startTime,
+            fixApplied: true,
+            fixCount: 1,
+            filePath
+          };
+        }
+        revertFile(filePath, original);
+        return {
+          success: false,
+          output:
+            `❌ Pattern fix '${pattern}' did not resolve the error — the file was reverted.\n\n` +
+            `Error after fix:\n${verify.error}`,
+          executionTimeMs: Date.now() - startTime,
+          fixApplied: false
+        };
+      }
+      // The import is already present but the file still errors: the
+      // pattern fix cannot help. Fall through to the LLM below.
+    }
+
+    // No offline fix and no pattern fix — LLM fallback (Tier 2).
     if (this.validator) {
       this.validator.startPhase('execute', 'Generating fix with LLM');
     }
-    
-    // Need LLM - use bypass router
-    const { result, route } = await this.bypassRouter.executeWithBypass(
-      async (model) => {
-        return await this._generateFixWithModel(model, error);
-      },
-      'fix_generation'
-    );
-    
+    let result: { solution: string; tokenStats?: TokenStats } | undefined;
+    let route: BypassRoute | undefined;
+    try {
+      ({ result, route } = await this.bypassRouter.executeQueued(
+        async (model) => {
+          return await this._generateFixWithModel(model, error);
+        },
+        'fix_generation'
+      ));
+    } catch (err) {
+      // Same guard as the error-text path: a failed generation returns
+      // a failure result instead of throwing out of processRequest.
+      return {
+        success: false,
+        output:
+          `❌ Could not generate a fix for this error — the model backend failed: ${(err as Error).message}. ` +
+          'No fix was stored.',
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: false
+      };
+    }
+
     if (result) {
-      // Store in FixNet for future
-      this.fixnetRouter.storeFix(
+      // V2 name-based validation: a fix for `name 'X' is not defined`
+      // must import or define exactly X. An invalid fix is not stored
+      // and is not presented as a fix.
+      if (!validateFixForError(error, result.solution)) {
+        return {
+          success: false,
+          output:
+            '❌ The generated fix did not pass validation (it does not ' +
+            'import or define the missing name) and was not stored.',
+          bypassRoute: route,
+          executionTimeMs: Date.now() - startTime
+        };
+      }
+      await this.fixnetRouter.storeFix(
         'generated_fix',
         error,
         result.solution,
         { model: route.selected_model, tier: route.selected_tier }
       );
-      
-      // Generate thinking steps for Tier 2+
       const thinkingSteps = route.selected_tier >= 2
         ? this._generateThinkingSteps(error, intent, route.selected_tier)
         : undefined;
-      
       if (this.validator) {
         this.validator.completePhase('execute', 'Fix generated successfully');
       }
-      
       return {
         success: true,
-        output: result.solution,
+        output:
+          `${result.solution}\n\n` +
+          `The file was not modified — this is a generated solution, not ` +
+          `a verified file edit. Apply it by hand, or store it for later ` +
+          `with 'fixnet search'.`,
         bypassRoute: route,
         executionTimeMs: Date.now() - startTime,
-        fixApplied: true,
+        fixApplied: false,
         thinkingSteps
       };
     }
-    
+
     return {
       success: false,
       output: '❌ Could not generate fix - all models failed',
       bypassRoute: route,
       executionTimeMs: Date.now() - startTime
+    };
+  }
+
+  /**
+   * Error mode: look an error message up offline, then the pattern
+   * fast path, then the LLM. No file is involved, so nothing is ever
+   * written and fixApplied stays false.
+   */
+  private async _handleFixErrorText(
+    error: string,
+    intent: ParsedIntent,
+    startTime: number
+  ): Promise<WorkflowResult> {
+    const loadId = this.display.addLoading('Searching FixNet...');
+    const fixResult = await this.fixnetRouter.findFix({ error });
+    this.display.removeLoading(loadId);
+
+    if (fixResult.success && !fixResult.needs_llm && fixResult.fix) {
+      return {
+        success: true,
+        output: this._formatFixOutput(fixResult),
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: false,
+        searchSegments: this.display.getSegments()
+      };
+    }
+
+    const pattern = patternFixForError(error);
+    if (pattern) {
+      await this.fixnetRouter.storeFix('pattern_fix', error, pattern, {});
+      return {
+        success: true,
+        output: `🔧 Pattern fix:\n${pattern}`,
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: false
+      };
+    }
+
+    if (this.validator) {
+      this.validator.startPhase('execute', 'Generating fix with LLM');
+    }
+    let result: { solution: string; tokenStats?: TokenStats } | undefined;
+    let route: BypassRoute | undefined;
+    try {
+      ({ result, route } = await this.bypassRouter.executeQueued(
+        async (model) => {
+          return await this._generateFixWithModel(model, error);
+        },
+        'fix_generation'
+      ));
+    } catch (err) {
+      // A failed generation is a failed fix, not a crash: processRequest
+      // must still return a result (its catch calls _handleError, which
+      // would try the same failing router again and throw a second time).
+      return {
+        success: false,
+        output:
+          `❌ Could not generate a fix for this error — the model backend failed: ${(err as Error).message}. ` +
+          'No fix was stored.',
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
+    if (result) {
+      if (!validateFixForError(error, result.solution)) {
+        return {
+          success: false,
+          output:
+            '❌ The generated fix did not pass validation (it does not ' +
+            'import or define the missing name) and was not stored.',
+          bypassRoute: route,
+          executionTimeMs: Date.now() - startTime
+        };
+      }
+      await this.fixnetRouter.storeFix(
+        'generated_fix',
+        error,
+        result.solution,
+        { model: route.selected_model, tier: route.selected_tier }
+      );
+      const thinkingSteps = route.selected_tier >= 2
+        ? this._generateThinkingSteps(error, intent, route.selected_tier)
+        : undefined;
+      if (this.validator) {
+        this.validator.completePhase('execute', 'Fix generated successfully');
+      }
+      return {
+        success: true,
+        output: result.solution,
+        bypassRoute: route,
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: false,
+        thinkingSteps
+      };
+    }
+
+    return {
+      success: false,
+      output: '❌ Could not generate fix - all models failed',
+      bypassRoute: route,
+      executionTimeMs: Date.now() - startTime
+    };
+  }
+
+  /**
+   * Apply a stored fix's solution to a file, verify by re-running, and
+   * record the outcome. Returns null when the solution is not a single
+   * import line — such a fix cannot be applied automatically, so the
+   * caller presents it instead. The file is reverted when the re-run
+   * still fails, and the failure is recorded against the fix.
+   */
+  private async _applyImportFixToFile(
+    filePath: string,
+    solution: string,
+    fixHash: string,
+    startTime: number
+  ): Promise<WorkflowResult | null> {
+    const importLine = extractImportLine(solution);
+    if (!importLine) return null;
+
+    let original: string;
+    try {
+      original = fs.readFileSync(filePath, 'utf-8');
+    } catch (error) {
+      return {
+        success: false,
+        output: `❌ Could not read ${filePath}: ${(error as Error).message}`,
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: false
+      };
+    }
+
+    const apply = applyImportFix(filePath, importLine);
+    if (!apply.applied) {
+      // The import is already present but the file still errors: the
+      // stored fix does not resolve this error. Record the failure.
+      this.fixnetRouter.recordOutcome(fixHash, false);
+      return {
+        success: false,
+        output:
+          `❌ The stored fix '${importLine}' is already present in ` +
+          `${filePath}, but the file still fails. The failure was ` +
+          `recorded against the fix.`,
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: false
+      };
+    }
+
+    const verify = await runFile(filePath);
+    if (verify.ok) {
+      this.fixnetRouter.recordOutcome(fixHash, true);
+      return {
+        success: true,
+        output:
+          `🔧 Applied fix to ${filePath}:\n${importLine}\n\n` +
+          `✅ Verified: the file now runs clean.`,
+        executionTimeMs: Date.now() - startTime,
+        fixApplied: true,
+        fixCount: 1,
+        filePath
+      };
+    }
+    revertFile(filePath, original);
+    this.fixnetRouter.recordOutcome(fixHash, false);
+    return {
+      success: false,
+      output:
+        `❌ Applied '${importLine}' but the file still fails — the file ` +
+        `was reverted and the failure was recorded against the fix.\n\n` +
+        `Error after fix:\n${verify.error}`,
+      executionTimeMs: Date.now() - startTime,
+      fixApplied: false
+    };
+  }
+
+  /**
+   * `fixnet report <hash> <success|failure>` — record whether a served
+   * fix actually worked. Drives the consensus success factor, the
+   * trust level, and the outcome-based success rate in stats.
+   */
+  private async _handleFixNetReport(
+    rest: string,
+    startTime: number
+  ): Promise<WorkflowResult> {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const fixHash = parts[0] || '';
+    const outcome = (parts[1] || '').toLowerCase();
+    if (!fixHash || (outcome !== 'success' && outcome !== 'failure')) {
+      return {
+        success: false,
+        output: 'Usage: fixnet report <fix_hash> <success|failure>',
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+    const recorded = this.fixnetRouter.recordOutcome(
+      fixHash,
+      outcome === 'success'
+    );
+    if (!recorded) {
+      return {
+        success: false,
+        output: `❌ No fix with hash ${fixHash} in the local dictionary.`,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+    const entry = this.fixnetRouter.getEntry(fixHash);
+    const grade = this.fixnetRouter.gradeEntry(fixHash);
+    const attempts =
+      (entry?.success_count ?? 0) + (entry?.failure_count ?? 0);
+    const lines = [
+      `✅ Recorded ${outcome} for fix ${fixHash}.`,
+      `Successes: ${entry?.success_count ?? 0}, failures: ${entry?.failure_count ?? 0} (${attempts} recorded outcome${attempts === 1 ? '' : 's'}).`,
+    ];
+    if (entry) {
+      const relevance = Math.round(entry.relevance_score * 100);
+      lines.push(`Relevance: ${relevance}%`);
+    }
+    if (grade) {
+      lines.push(
+        `Consensus: ${(grade.score * 100).toFixed(0)}% — ${grade.trust_level.replace('_', ' ')}.`
+      );
+    }
+    return {
+      success: true,
+      output: lines.join('\n'),
+      executionTimeMs: Date.now() - startTime
+    };
+  }
+
+  /**
+   * `fixnet apply <hash> [file]` — apply a stored fix to a file and
+   * verify it by re-running. Records the outcome. A quarantined fix
+   * is refused. A solution that is not a single import line is
+   * presented, not written.
+   */
+  private async _handleFixNetApply(
+    rest: string,
+    startTime: number
+  ): Promise<WorkflowResult> {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const fixHash = parts[0] || '';
+    if (!fixHash) {
+      return {
+        success: false,
+        output: 'Usage: fixnet apply <fix_hash> [file]',
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+    const entry = this.fixnetRouter.getEntry(fixHash);
+    if (!entry) {
+      return {
+        success: false,
+        output: `❌ No fix with hash ${fixHash} in the local dictionary.`,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+    const grade = this.fixnetRouter.gradeEntry(fixHash);
+    if (grade && !grade.safe_to_use) {
+      return {
+        success: false,
+        output:
+          `❌ Fix ${fixHash} is quarantined (consensus ` +
+          `${(grade.score * 100).toFixed(0)}%) and will not be applied.`,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+    const fileArg = parts.slice(1).join(' ');
+    const storedFile =
+      typeof entry.meta?.filename === 'string' ? entry.meta.filename : '';
+    const filePath = this._resolveFixFile(fileArg || storedFile);
+    if (!filePath) {
+      return {
+        success: false,
+        output:
+          `❌ No file to apply fix ${fixHash} to.\n` +
+          `Usage: fixnet apply <fix_hash> [file]` +
+          (storedFile ? `\n(The fix was stored without a file.)` : ''),
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+    const applied = await this._applyImportFixToFile(
+      filePath,
+      entry.solution,
+      fixHash,
+      startTime
+    );
+    if (applied) return applied;
+    // Not an automatic file edit — present the solution instead.
+    return {
+      success: true,
+      output:
+        `🔧 Fix ${fixHash} for ${filePath}:\n\n${entry.solution}\n\n` +
+        `This fix is a text solution, not a single import line, so it ` +
+        `was not written to the file. Apply it by hand.`,
+      executionTimeMs: Date.now() - startTime,
+      fixApplied: false
     };
   }
   
@@ -345,7 +904,7 @@ export class WorkflowOrchestrator {
     const loadId = this.display.addLoading('Generating script...');
     
     // Use bypass router to generate script code
-    const { result, route } = await this.bypassRouter.executeWithBypass(
+    const { result, route } = await this.bypassRouter.executeQueued(
       async (model) => {
         return await this._generateScriptWithModel(model, userInput, intent);
       },
@@ -439,7 +998,7 @@ export class WorkflowOrchestrator {
     }
     
     // Use bypass router for conversational response
-    const { result, route } = await this.bypassRouter.executeWithBypass(
+    const { result, route } = await this.bypassRouter.executeQueued(
       async (model) => {
         return await this._generateResponseWithModel(model, userInput);
       },
@@ -487,7 +1046,12 @@ export class WorkflowOrchestrator {
   }
   
   /**
-   * Handle errors during execution
+   * Handle errors during execution.
+   *
+   * NOTE: this handler only ever PRESENTS a fix — it never writes one
+   * to a file. `fixApplied` therefore stays false here. (It used to
+   * claim `fixApplied: true` on both success paths while only printing
+   * the solution text.)
    */
   private async _handleError(
     error: Error,
@@ -502,23 +1066,35 @@ export class WorkflowOrchestrator {
     });
     
     if (fixResult.success && !fixResult.needs_llm) {
-      // Found fix - apply it
+      // Found fix - present it (not applied: no file is involved here)
       return {
         success: true,
-        output: `🔧 Found fix for error:\n\n${errorMessage}\n\nApplying fix:\n${fixResult.fix?.solution}`,
-        fixApplied: true,
+        output: `🔧 Found fix for error:\n\n${errorMessage}\n\nSuggested fix:\n${fixResult.fix?.solution}`,
+        fixApplied: false,
         executionTimeMs: Date.now() - startTime
       };
     }
     
-    // No fix found - generate with LLM
-    const { result, route } = await this.bypassRouter.executeWithBypass(
-      async (model) => {
-        return await this._generateFixWithModel(model, errorMessage);
-      },
-      'error_fix'
-    );
-    
+    // No fix found - generate with LLM. This is the last resort, so
+    // it must not throw: a failing router returns the honest failure
+    // below instead of crashing processRequest a second time.
+    let result: { solution: string; tokenStats?: TokenStats } | undefined;
+    let route: BypassRoute | undefined;
+    try {
+      ({ result, route } = await this.bypassRouter.executeQueued(
+        async (model) => {
+          return await this._generateFixWithModel(model, errorMessage);
+        },
+        'error_fix'
+      ));
+    } catch {
+      return {
+        success: false,
+        output: `❌ Error occurred and no fix could be generated:\n${errorMessage}`,
+        executionTimeMs: Date.now() - startTime
+      };
+    }
+
     if (result) {
       // Store for future
       this.fixnetRouter.storeFix(
@@ -532,7 +1108,7 @@ export class WorkflowOrchestrator {
         success: true,
         output: `🔧 Generated fix:\n\n${result.solution}`,
         bypassRoute: route,
-        fixApplied: true,
+        fixApplied: false,
         executionTimeMs: Date.now() - startTime
       };
     }
@@ -685,16 +1261,29 @@ export class WorkflowOrchestrator {
   
   /**
    * Format FixNet statistics as human-readable terminal output.
-   * Same fields as LucidCore.getFixNetStats() (fixes/scripts/offline %).
+   * Same fields as LucidCore.getFixNetStats() (fixes/scripts/rates).
+   *
+   * Labels are honest about what each number measures:
+   *   - "Dictionary hit rate" is offline lookups that found a stored
+   *     fix (NOT a fix success rate — a hit only means an entry
+   *     matched).
+   *   - "Fix success rate" is recorded outcomes only (null until any
+   *     outcome is recorded — no invented percentage).
    */
   private _formatFixNetStats(stats: FixNetStats): string {
-    const rate = Math.round((stats.performance.offline_success_rate ?? 0) * 100);
+    const hitRate = Math.round((stats.performance.offline_success_rate ?? 0) * 100);
+    const outcomeRate = stats.performance.outcome_success_rate;
     const lines = [];
-    lines.push('🔧 FixNet Statistics');
+    lines.push('🔧 FixNet Statistics (local-only)');
     lines.push('');
     lines.push(`Fixes in dictionary: ${stats.dictionary.total_fixes}`);
     lines.push(`Scripts stored: ${stats.dictionary.total_scripts}`);
-    lines.push(`Offline success rate: ${rate}%`);
+    lines.push(`Dictionary hit rate: ${hitRate}%`);
+    lines.push(
+      outcomeRate === null
+        ? 'Fix success rate: no outcomes recorded yet'
+        : `Fix success rate: ${Math.round(outcomeRate * 100)}% (${stats.performance.total_attempts} recorded outcome${stats.performance.total_attempts === 1 ? '' : 's'})`
+    );
     return lines.join('\n');
   }
 

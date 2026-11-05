@@ -11,6 +11,7 @@
  */
 
 import { findClosestMatch, getSuggestions } from '../utils/fuzzyMatch';
+import { FIXNET_DIRECT_COMMANDS } from '../commands/fixnetCommands';
 
 export interface ParsedIntent {
   type: 'question' | 'action' | 'direct_command' | 'fix_request' | 'script_build' | 'query' | 'unknown';
@@ -196,14 +197,20 @@ const POLITENESS_PHRASES = [
 ];
 
 /**
- * Direct commands - execute immediately without LLM
+ * Direct commands - execute immediately without LLM.
+ * The FixNet entries come from the canonical command table
+ * (fixnetCommands.ts) — one source of truth, not a second list.
+ * `fix` itself is NOT here: it parses as a fix_request so the error
+ * text / file path is extracted. `fixnet sync` IS here, deliberately:
+ * typing it must answer honestly (local-only) instead of being
+ * misread as a fix request for an empty error.
  */
 const DIRECT_COMMANDS = [
   'help', 'exit', 'quit', 'clear', 'pwd', 'cd', 'ls', 'cat',
   'mkdir', 'touch', 'rm', 'cp', 'mv', 'find', 'grep',
   'ps', 'kill', 'run', 'info', 'memory', 'version',
   'llm list', 'llm enable', 'llm disable',
-  'fixnet stats', 'fixnet search',
+  ...FIXNET_DIRECT_COMMANDS,
   'install', 'environments', 'activate',
   'github link', 'github status', 'github projects'
 ];
@@ -414,6 +421,29 @@ export function extractLocation(text: string): string | null {
 }
 
 /**
+ * Extract the fix target from a fix request: the file path or error
+ * text after the leading fix verb. Taken from the text AFTER
+ * auto-correct and politeness removal but BEFORE synonym
+ * normalization, so file paths keep their original case and the
+ * error text is not rewritten ('ModuleNotFoundError' must survive
+ * verbatim). When the input carries no leading fix verb (e.g. a bare
+ * pasted error), the whole input is the target.
+ *
+ * This is the F1 repair: the old parser only set `target` for
+ * `type === 'action'`, so every fix request arrived at the
+ * orchestrator with an empty error and the offline lookup could
+ * never match anything.
+ */
+export function extractFixTarget(text: string): string {
+  const trimmed = text.trim();
+  const verbMatch = trimmed.match(
+    /^(fix|repair|debug|autofix)\b\s*(.*)$/i
+  );
+  if (verbMatch) return verbMatch[2].trim();
+  return trimmed;
+}
+
+/**
  * Main parsing function - extract intent WITHOUT LLM
  */
 export function parseIntent(input: string): ParsedIntent {
@@ -485,12 +515,20 @@ export function parseIntent(input: string): ParsedIntent {
   let target: string | undefined;
   let targetName: string | undefined;
   let location: string | undefined;
-  
+
   if (type === 'action') {
     action = extractAction(normalized) || undefined;
     target = extractTarget(normalized) || undefined;
     targetName = extractTargetName(text) || undefined;
     location = extractLocation(normalized) || undefined;
+  }
+
+  // A fix request carries its error text / file path end to end:
+  // the parser used to leave `target` unset here, so the orchestrator
+  // always saw an empty error. The target is extracted from the
+  // un-normalized text so file paths keep their case.
+  if (type === 'fix_request') {
+    target = extractFixTarget(text) || undefined;
   }
   
   // Step 6: Build suggestions (if typos fixed)

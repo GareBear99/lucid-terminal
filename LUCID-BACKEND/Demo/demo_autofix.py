@@ -74,7 +74,7 @@ def main():
     print(f"  ✅ Fix generated: import json")
     print(f"  ✅ Fix applied to script")
     print(f"  ✅ Script now works!")
-    print(f"  ✅ Fix encrypted with AES-256")
+    print(f"  ✅ Fix encrypted with Fernet")
     print(f"  ✅ Fix signed with SHA256")
     print(f"  ✅ Fix committed to local FixNet repo")
     print(f"  ✅ Fix added to learning dictionary")

@@ -491,7 +491,7 @@ Action:
 ### Network Access:
 - Only required for initial model download
 - All subsequent operations: offline
-- FixNet sync: encrypted AES-256 (optional)
+- FixNet (local-only): fixes encrypted with Fernet (sharing comes later with the causal cloud sync)
 - No telemetry or analytics sent
 
 ### File Permissions:

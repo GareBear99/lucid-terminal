@@ -110,7 +110,7 @@ Public repository of encrypted, signed code fixes from the LuciferAI community.
 - `refs.json` - Relevance dictionary (anonymized)
 
 ## Security
-All fixes are AES-256 encrypted and SHA256 signed.
+All fixes are Fernet-encrypted and SHA256 signed.
 User IDs are anonymized hashes.
 """)
                     
@@ -195,7 +195,7 @@ User IDs are anonymized hashes.
     
     def encrypt_patch(self, patch_file: str) -> str:
         """
-        Encrypt patch file with AES-256.
+        Encrypt patch file with Fernet (AES-128-CBC + HMAC-SHA256).
         
         Args:
             patch_file: Path to patch file

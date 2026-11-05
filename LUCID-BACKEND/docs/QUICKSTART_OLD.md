@@ -110,7 +110,7 @@ You > run broken.py
 3. \u2699\ufe0f If found: applies known fix
 4. \u2705 If not found: generates new fix (`import json`)
 5. \ud83d\udcbe Applies fix to script
-6. \ud83d\udd10 Encrypts fix (AES-256)
+6. \ud83d\udd10 Encrypts fix (Fernet)
 7. \u270d\ufe0f Signs fix (SHA256)
 8. \ud83c\udf0d Uploads to GitHub FixNet
 9. \ud83d\udccacUpdates local dictionary
@@ -218,7 +218,7 @@ Future similar errors → Higher relevance score
 ### How It Works
 ```
 Your Fix
-  ↓ AES-256 encryption (device-bound key)
+  ↓ Fernet encryption (device-bound key)
   ↓ SHA256 signature
   ↓ Upload .enc + .sig files
 GitHub (public)

@@ -180,7 +180,7 @@ See `MASTER_CONTROLLER_STATUS.md` for full details.
 | **Team Size** | 1 developer | 20-200 engineers |
 | **Self-Healing** | ✅ FixNet (unique) | ❌ None |
 | **100% Local** | ✅ Yes | ❌ Cloud-dependent |
-| **Privacy** | ✅ AES-256 encrypted | ❌ Data leaves machine |
+| **Privacy** | ✅ Fernet encrypted | ❌ Data leaves machine |
 
 **Outperforms funded competitors:** Tabnine ($32M), Codeium ($65M), Amazon Q Developer, Replit AI ($100M+), and 5,200+ other tools.
 
@@ -775,7 +775,7 @@ All robotics projects use unified **Tron Grid Master Controller** theming:
 
 ### Key Differentiators for Grants
 1. **Novel Self-Healing Architecture**: Only ~10 tools globally have this capability
-2. **Privacy-Preserving Collaboration**: AES-256 encrypted fix sharing without exposing source code
+2. **Privacy-Preserving Collaboration**: Fernet-encrypted fix sharing without exposing source code
 3. **Multi-Tier Intelligence**: 5 LLM tiers with automatic task-appropriate model selection
 4. **Hardware Integration**: Thermal management for AI workloads (unique in category)
 5. **Zero External Dependencies**: Fully local operation, no API keys or cloud services required
@@ -975,7 +975,7 @@ Install missing components? [Y/n]:
 ### 🔧 Self-Healing FixNet
 - **Automatic Error Detection**: Catches and fixes common errors automatically
 - **51% Consensus Validation**: Community-validated fixes with quality thresholds
-- **Privacy-First**: AES-256 encrypted fixes, only metadata shared publicly
+- **Privacy-First**: Fernet-encrypted fixes, only metadata shared publicly
 - **71.4% Duplicate Rejection**: Smart filter prevents fix pollution
 
 ### 🌐 Collaborative Learning

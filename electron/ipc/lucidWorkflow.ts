@@ -540,16 +540,19 @@ export function setupLucidWorkflowHandlers(ipcMain: IpcMain): void {
   // PHASE 2: FIXNET AUTO-FIX
   // ============================================================================
   
-  // Auto-fix Python script
+  // Auto-fix Python script — runs `fix <filepath>` through the
+  // workflow, which reads the file, runs it, applies a verified fix
+  // when one is safe, and reports how many files were fixed (0 or 1).
   ipcMain.handle('lucid:fixScript', async (_, filepath: string) => {
     if (!lucidCore) {
       return { success: false, error: 'LucidCore not initialized' };
     }
-    
+
     try {
       const result = await lucidCore.processCommand(`fix ${filepath}`);
       return {
         success: result.result.success,
+        fixCount: result.result.fixCount ?? 0,
         output: result.terminalOutput,
         error: result.result.success ? undefined : result.result.output
       };
@@ -557,24 +560,13 @@ export function setupLucidWorkflowHandlers(ipcMain: IpcMain): void {
       return { success: false, error: error.message };
     }
   });
-  
-  // Sync FixNet dictionary to GitHub
-  ipcMain.handle('lucid:fixnetSync', async () => {
-    if (!lucidCore) {
-      return { success: false, error: 'LucidCore not initialized' };
-    }
-    
-    try {
-      const result = await lucidCore.processCommand('fixnet sync');
-      return {
-        success: result.result.success,
-        output: result.terminalOutput,
-        error: result.result.success ? undefined : result.result.output
-      };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  });
+
+  // NOTE: there is no `lucid:fixnetSync` handler. FixNet is local-only
+  // until the causal cloud sync (Gary, 2026-11-04); the old handler
+  // ran `processCommand('fixnet sync')`, which parsed as an empty-error
+  // fix request and reported success for doing nothing. Typing
+  // `fixnet sync` in the terminal now answers honestly instead, and
+  // no preload API exposes a sync call.
   
   // ============================================================================
   // PHASE 2: GITHUB INTEGRATION

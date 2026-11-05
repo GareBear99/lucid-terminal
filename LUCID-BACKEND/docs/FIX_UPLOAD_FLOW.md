@@ -60,7 +60,7 @@ If you hit the **rate limit (5 uploads/hour)**:
 ┌─────────────────────────────────────────────────────────┐
 │ 4. Upload to FixNet (AUTOMATIC)                        │
 │    • Calls: uploader.full_fix_upload_flow()            │
-│    • Encrypts fix data (AES-256)                       │
+│    • Encrypts fix data (Fernet)                        │
 │    • Creates SHA256 signature                          │
 │    • Checks rate limit                                 │
 └─────────────────────┬───────────────────────────────────┘
@@ -112,7 +112,7 @@ If you hit the **rate limit (5 uploads/hour)**:
 ```
 
 ### Privacy & Security:
-- ✅ Fix code is **encrypted** (AES-256)
+- ✅ Fix code is **encrypted** (Fernet)
 - ✅ User ID is **hashed**
 - ✅ Only **validated users** can upload
 - ✅ **Digital signature** prevents tampering

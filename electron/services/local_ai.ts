@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import { app } from 'electron';
 import * as readline from 'readline';
+import { TaskQueue, TaskCancelledError } from '../core/tasks/taskQueue';
 
 export interface ChatMessage {
     role: 'system' | 'user' | 'assistant';
@@ -13,9 +14,13 @@ let backendInterface: readline.Interface | null = null;
 let pendingRequestResolver: ((response: any) => void) | null = null;
 let isBackendReady = false;
 
-// Queue to serialize requests if multiple come in (though UI usually prevents this)
-const requestQueue: Array<() => Promise<void>> = [];
-let isProcessingQueue = false;
+// The stdio backend answers one request at a time (a single-request
+// stdio loop), so concurrent chat calls queue behind the running one
+// on this single-worker queue instead of throwing "Backend is busy".
+// This replaces the old dead declarations (`requestQueue` /
+// `isProcessingQueue`, which nothing ever used) and the single-slot
+// mutex in `chatLocal()` that failed concurrent callers outright.
+const chatQueue = new TaskQueue(1);
 
 export function startBackend(): void {
     const rootDir = app.isPackaged
@@ -110,22 +115,46 @@ export async function checkLocalBackendHealth(): Promise<boolean> {
     return isBackendReady && !!backendProcess;
 }
 
-export async function chatLocal(messages: ChatMessage[], cwd?: string): Promise<string> {
+export function chatLocal(messages: ChatMessage[], cwd?: string): Promise<string> {
     if (!backendProcess || !isBackendReady) {
-        throw new Error("Local backend is not running");
+        return Promise.reject(new Error("Local backend is not running"));
     }
 
-    // Simple mutex: wait if a request is pending
-    if (pendingRequestResolver) {
-        // You might want to implement a proper queue here, 
-        // but for now we'll just throw or wait. 
-        // Let's implement a quick polling wait or queue.
-        // For simplicity in this iteration:
-        throw new Error("Backend is busy processing another request");
-    }
+    // Concurrent calls queue behind the running one (single worker)
+    // instead of throwing "Backend is busy" — the stdio backend is a
+    // single-request loop, so serialising here is what it supports.
+    // A backend-down call still fails fast above, not queued.
+    // NOTE: this function is deliberately NOT `async` — it returns
+    // the queue's promise itself, which carries the queue's no-op
+    // `.catch` against unhandled rejections. An `async` wrapper would
+    // hand the caller a fresh outer promise whose rejection surfaces
+    // as unhandled until the caller awaits it (a macrotask later).
+    const { promise } = chatQueue.enqueue<string>(
+        'ai-chat',
+        { messages: messages.length, cwd: cwd ?? null },
+        (_task, isCancelled) => sendChatRequest(messages, cwd, isCancelled)
+    );
+    return promise;
+}
 
+/**
+ * One stdio round-trip: write the chat payload, resolve with the
+ * backend's reply. The resolver stays installed until the backend
+ * answers (the single-request protocol must stay in sync), so a
+ * cancelled run still consumes its reply line — the result is just
+ * dropped and the caller gets TaskCancelledError instead.
+ */
+function sendChatRequest(
+    messages: ChatMessage[],
+    cwd: string | undefined,
+    isCancelled: () => boolean
+): Promise<string> {
     return new Promise((resolve, reject) => {
         pendingRequestResolver = (response: any) => {
+            if (isCancelled()) {
+                reject(new TaskCancelledError('ai-chat'));
+                return;
+            }
             if (response.status === 'success') {
                 resolve(response.response);
             } else {
@@ -149,4 +178,20 @@ export async function chatLocal(messages: ChatMessage[], cwd?: string): Promise<
             reject(e);
         }
     });
+}
+
+/**
+ * Cancel the running chat task (best-effort — the reply is dropped
+ * when it arrives) and drop every queued chat. Returns true when
+ * anything was cancelled. Wired to `ai:cancelStream`, which until now
+ * only cancelled the OpenAI path while local generations kept running.
+ */
+export function cancelLocalChat(): boolean {
+    let cancelled = false;
+    for (const task of chatQueue.list()) {
+        if (task.status === 'queued' || task.status === 'running') {
+            cancelled = chatQueue.cancel(task.id) || cancelled;
+        }
+    }
+    return cancelled;
 }

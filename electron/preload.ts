@@ -161,7 +161,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     
     // Phase 2: FixNet Auto-Fix
     fixScript: (filepath: string) => ipcRenderer.invoke('lucid:fixScript', filepath),
-    fixnetSync: () => ipcRenderer.invoke('lucid:fixnetSync'),
     
     // Phase 2: GitHub Integration
     githubLink: () => ipcRenderer.invoke('lucid:githubLink'),
@@ -286,7 +285,6 @@ export interface LucidAPI {
     
     // Phase 2: FixNet Auto-Fix
     fixScript: (filepath: string) => Promise<{success: boolean; fixCount?: number; output?: string; error?: string}>;
-    fixnetSync: () => Promise<{success: boolean; syncedCount?: number; output?: string; error?: string}>;
     
     // Phase 2: GitHub Integration
     githubLink: () => Promise<{success: boolean; url?: string; output?: string; error?: string}>;

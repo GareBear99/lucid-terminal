@@ -44,6 +44,23 @@ const WEIGHTS = { success: 0.5, network: 0.2, context: 0.15, recency: 0.15 };
 const RECENCY_FULL_DAYS = 7;
 const RECENCY_ZERO_DAYS = 180;
 
+/**
+ * Auto-apply threshold (Gary, 2026-11-04): a stored fix is only
+ * written to a file without being asked when its consensus score is
+ * at or above this. Below it, the fix is presented and the user
+ * applies it explicitly (`fixnet apply`). This is a SEPARATE number
+ * from the trust bands (Highly Trusted starts at 0.75) — a fix can
+ * be Highly Trusted and still need an explicit apply.
+ */
+export const AUTO_APPLY_THRESHOLD = 0.9;
+
+/** Trust-level boundaries (Gary, 2026-11-04). */
+export const TRUST_BANDS = {
+  highlyTrusted: 0.75,
+  trusted: 0.51,
+  experimental: 0.3,
+} as const;
+
 function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(1, value));
@@ -96,6 +113,22 @@ export class ConsensusEngine {
   /**
    * Grade one candidate fix. `contextScore` is the matcher score for how
    * well the fix's error matches the query (0..1).
+   *
+   * The weighted `score` is the multi-factor consensus (success 50% /
+   * network 20% / context 15% / recency 15%) — the ranking and
+   * auto-apply signal. The `trust_level` is NOT the score's band: it
+   * follows the OBSERVED success rate, the rule the Python consensus
+   * (the original design) uses — the trust bands are success-rate
+   * bands (≥75 / 51–74 / 30–50 / <30). With no attempts yet there is
+   * no usage data, so the fix is Experimental, however high the
+   * neutral prior scores: a fix nobody has used is not Trusted.
+   *
+   * This is what makes F4 real. The weighted score alone could never
+   * quarantine a fix — its neutral network/context/recency factors
+   * floor an exact match at 0.40 even with a 0% success rate, so a
+   * repeatedly-failed fix would keep being served. The success-rate
+   * rule drives it below 30%, quarantines it, and `safe_to_use`
+   * goes false, so findFix and fixnet apply both refuse it.
    */
   grade(entry: FixEntry, contextScore: number): ConsensusGrade {
     const attempts = entry.success_count + entry.failure_count;
@@ -112,7 +145,18 @@ export class ConsensusEngine {
       WEIGHTS.network * factors.network +
       WEIGHTS.context * factors.context +
       WEIGHTS.recency * factors.recency;
-    const trust_level = this.trustLevel(score);
+    let trust_level: TrustLevel;
+    if (attempts === 0) {
+      trust_level = 'experimental';
+    } else if (success >= 0.75) {
+      trust_level = 'highly_trusted';
+    } else if (success >= 0.51) {
+      trust_level = 'trusted';
+    } else if (success >= 0.3) {
+      trust_level = 'experimental';
+    } else {
+      trust_level = 'quarantined';
+    }
     return {
       score,
       trust_level,
@@ -120,7 +164,6 @@ export class ConsensusEngine {
       safe_to_use: trust_level !== 'quarantined',
     };
   }
-
   /** True unless the grade is quarantined. */
   isSafeToUse(grade: ConsensusGrade): boolean {
     return grade.safe_to_use;

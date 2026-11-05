@@ -13,6 +13,7 @@ import {
   ZoomOut,
   Copy,
   ExternalLink,
+  KeyRound,
   Undo2,
 } from 'lucide-react';
 import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
@@ -22,6 +23,9 @@ import {
 } from '../../stores/browserHistory';
 import { useBrowserDownloads } from '../../stores/browserDownloads';
 import { DownloadShelf } from './DownloadShelf';
+import { useBrowserCredentials } from '../../stores/browserCredentials';
+import { SaveLoginPrompt } from './SaveLoginPrompt';
+import { SavedLoginsPanel } from './SavedLoginsPanel';
 import { getPhoneEntries, type PhoneEntry } from '../../phone/streaming';
 import { usePhoneStore } from '../../stores/phoneStore';
 import PhoneView from '../Phone/PhoneView';
@@ -122,6 +126,13 @@ function BrowserPanel() {
   const applyDownloadUpdate = useBrowserDownloads((s) => s.applyUpdate);
   const loadDownloads = useBrowserDownloads((s) => s.load);
 
+  // Credentials (Area 3): the save offer from main, shown as a bar
+  // under the nav bar until Gary answers it.
+  const loginOffer = useBrowserCredentials((s) => s.offer);
+  const setLoginOffer = useBrowserCredentials((s) => s.setOffer);
+  const clearLoginOffer = useBrowserCredentials((s) => s.clearOffer);
+  const [loginsOpen, setLoginsOpen] = useState(false);
+
   // Downloads (Area 2): live progress from main, plus the current
   // list on mount (a download started before the panel opened).
   useEffect(() => {
@@ -135,6 +146,18 @@ function BrowserPanel() {
       cleanupDownloads();
     };
   }, [applyDownloadUpdate, loadDownloads]);
+
+  // Save-login offers from main (a sign-in was captured on a page
+  // Gary just left). The latest offer replaces any earlier one.
+  useEffect(() => {
+    const cleanupLoginDetected =
+      window.lucidAPI.browser.onLoginDetected((offer) => {
+        setLoginOffer(offer);
+      });
+    return () => {
+      cleanupLoginDetected();
+    };
+  }, [setLoginOffer]);
 
   // Phone entries: the external app always, the in-app (internal)
   // stream only when the Android add-on is installed — and greyed
@@ -598,7 +621,24 @@ function BrowserPanel() {
               <ExternalLink size={16} />
             </button>
           </Tooltip>
+          <Tooltip content="Saved logins">
+            <button
+              type="button"
+              onClick={() => setLoginsOpen((open) => !open)}
+              className={`p-1.5 rounded hover:bg-[var(--bg-secondary)] ${
+                loginsOpen ? 'bg-[var(--bg-tertiary)]' : ''
+              }`}
+            >
+              <KeyRound size={16} />
+            </button>
+          </Tooltip>
         </form>
+
+        {/* Saved-logins panel: origin + username only, with Fill /
+            Delete per login. */}
+        {loginsOpen ? (
+          <SavedLoginsPanel onClose={() => setLoginsOpen(false)} />
+        ) : null}
 
         {/* Typed-URL history: recent pages first, filtered as Gary
             types. Arrow keys + Enter pick one; Esc closes. */}
@@ -631,6 +671,13 @@ function BrowserPanel() {
           </div>
         ) : null}
       </div>
+
+      {/* Save-login offer (Area 3): main captured a sign-in on a
+          page Gary just left; Save persists it in the vault, Not now
+          drops the candidate. */}
+      {loginOffer ? (
+        <SaveLoginPrompt offer={loginOffer} onDone={clearLoginOffer} />
+      ) : null}
 
       {/* Find-in-page bar */}
       {findOpen ? (

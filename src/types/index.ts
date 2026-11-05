@@ -295,6 +295,26 @@ export interface BrowserDownload {
   state: BrowserDownloadState;
 }
 
+/** A saved login, as the renderer ever sees it: origin + username
+ * only. The password lives encrypted in the main-process vault and
+ * never crosses IPC to the renderer. */
+export interface BrowserSavedLogin {
+  /** Origin the login belongs to (`https://example.com`). */
+  origin: string;
+  username: string;
+  /** ISO timestamp of the last save. */
+  updatedAt: string;
+}
+
+/** A login the main process captured from a page Gary just signed
+ * in on: origin + username only. The password stays in main's
+ * memory until Gary confirms the save, and is never sent to the
+ * renderer. */
+export interface BrowserLoginOffer {
+  origin: string;
+  username: string;
+}
+
 export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
 
 // Extend Window interface for Electron API
@@ -376,6 +396,15 @@ declare global {
         resumeDownload: (id: string) => Promise<boolean>;
         showDownloadInFolder: (id: string) => Promise<boolean>;
         onDownloadUpdated: (callback: (update: BrowserDownload) => void) => () => void;
+        listSavedLogins: () => Promise<BrowserSavedLogin[]>;
+        deleteSavedLogin: (origin: string) => Promise<boolean>;
+        /** Persist the in-memory candidate for this origin (the
+         * password never crosses IPC — main already holds it). */
+        saveLogin: (origin: string, username: string) => Promise<boolean>;
+        dismissLoginOffer: (origin: string) => Promise<void>;
+        /** Fill the active tab's page from the vault. */
+        fillSavedLogin: () => Promise<boolean>;
+        onLoginDetected: (callback: (offer: BrowserLoginOffer) => void) => () => void;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

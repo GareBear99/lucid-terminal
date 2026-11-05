@@ -184,6 +184,24 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('browser:download-updated', listener);
       return () => ipcRenderer.removeListener('browser:download-updated', listener);
     },
+    // Saved logins (Area 3): the vault lives in main; the renderer
+    // only ever sees origin + username — the password never crosses
+    // IPC. saveLogin confirms a candidate main already holds.
+    listSavedLogins: () =>
+      ipcRenderer.invoke('browser:list-saved-logins'),
+    deleteSavedLogin: (origin: string) =>
+      ipcRenderer.invoke('browser:delete-saved-login', origin),
+    saveLogin: (origin: string, username: string) =>
+      ipcRenderer.invoke('browser:save-login', origin, username),
+    dismissLoginOffer: (origin: string) =>
+      ipcRenderer.invoke('browser:dismiss-login-offer', origin),
+    fillSavedLogin: () =>
+      ipcRenderer.invoke('browser:fill-saved-login'),
+    onLoginDetected: (callback: (offer: BrowserLoginOffer) => void) => {
+      const listener = (_: any, offer: BrowserLoginOffer) => callback(offer);
+      ipcRenderer.on('browser:login-detected', listener);
+      return () => ipcRenderer.removeListener('browser:login-detected', listener);
+    },
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -645,6 +663,29 @@ export interface BrowserAuthRequest {
 export interface BrowserFindResult {
   activeMatchOrdinal: number;
   matches: number;
+}
+
+export interface BrowserDownload {
+  id: string;
+  url: string;
+  filename: string;
+  savePath: string;
+  receivedBytes: number;
+  totalBytes: number;
+  state: 'progressing' | 'completed' | 'cancelled' | 'interrupted';
+}
+
+/** A saved login, as the renderer ever sees it: origin + username
+ * only — the password never crosses IPC. */
+export interface BrowserSavedLogin {
+  origin: string;
+  username: string;
+  updatedAt: string;
+}
+
+export interface BrowserLoginOffer {
+  origin: string;
+  username: string;
 }
 
 export interface ChatMessage {

@@ -23,6 +23,10 @@ import {
 import type { BrowserPermissionAllowlist } from '../services/browserPermissions';
 import { browserContextMenuItems } from '../services/browserContextMenu';
 import { setupBrowserDownloads } from '../services/browserDownloads';
+import {
+  createBrowserCredentialsVault,
+} from '../services/browserCredentials';
+import type { BrowserCredentialsDeps } from '../services/browserCredentials';
 import type { BrowserAuthRequest, BrowserDownload } from '../../src/types';
 
 /**
@@ -72,6 +76,13 @@ import type { BrowserAuthRequest, BrowserDownload } from '../../src/types';
  * by default, `browserDownloadsFolder` setting overrides it) with
  * progress pushed back as `browser:download-updated`; the shelf
  * offers pause / resume / cancel / show-in-folder.
+ *
+ * Credentials (Area 3): a `safeStorage` vault (one login per
+ * origin, logins only) auto-fills a saved login on page load, and
+ * captures a login candidate when Gary signs in and the page
+ * navigates away — the renderer only ever sees origin + username,
+ * and only saves when he confirms the offer. The password never
+ * crosses IPC, is never logged, and never enters the AI chat.
  */
 
 export type { BrowserViewBounds };
@@ -114,6 +125,9 @@ export function setupBrowserHandlers(
     /** Folder downloads go to; defaults to the OS Downloads folder.
      * main passes the `browserDownloadsFolder` setting here. */
     getDownloadsFolder?: () => string | undefined;
+    /** Vault dependencies (store / crypto). Production uses the
+     * real safeStorage + electron-store; tests inject fakes. */
+    credentials?: BrowserCredentialsDeps;
   },
 ): void {
   const views = new Map<string, ReturnType<typeof createBrowserView>>();
@@ -163,6 +177,35 @@ export function setupBrowserHandlers(
       win.webContents.send('browser:download-updated', update);
     },
   });
+
+  // Credentials (Area 3): built lazily on first use, so a test that
+  // never touches a login never constructs the vault's store.
+  let credentialsVault: ReturnType<
+    typeof createBrowserCredentialsVault
+  > | null = null;
+  const getCredentials = () => {
+    if (!credentialsVault) {
+      credentialsVault = createBrowserCredentialsVault(
+        options?.credentials,
+      );
+    }
+    return credentialsVault;
+  };
+
+  // Read the departing page's login fields; when a password was
+  // filled, offer Gary the save (origin + username only — the
+  // password stays in main's memory until he confirms).
+  const captureAndOffer = (wc: import('electron').WebContents) => {
+    void getCredentials()
+      .captureCandidate(wc)
+      .then((offer) => {
+        if (!offer) return;
+        const win = getMainWindow();
+        if (!win || win.isDestroyed()) return;
+        win.webContents.send('browser:login-detected', offer);
+      })
+      .catch(() => undefined);
+  };
 
   // Pending HTTP-auth requests: request id -> resolver + tab. The
   // renderer shows Gary a prompt and answers via `browser:auth-response`.
@@ -233,6 +276,16 @@ export function setupBrowserHandlers(
     wc.on('did-start-loading', update);
     wc.on('did-stop-loading', update);
     wc.on('page-title-updated', update);
+    // Credentials (Area 3): auto-fill a saved login when the page
+    // loads, and capture a login candidate when Gary signs in and
+    // the page navigates away (or changes route in-page, for SPA
+    // logins). The capture reads the departing page while it is
+    // still live; by `did-navigate` it would already be gone.
+    wc.on('did-finish-load', () => {
+      void getCredentials().fillLogin(wc).catch(() => undefined);
+    });
+    wc.on('will-navigate', () => captureAndOffer(wc));
+    wc.on('did-navigate-in-page', () => captureAndOffer(wc));
     // Find-in-page: push match counts back so the panel's find bar
     // can show "3 / 12". Every update is forwarded; the last one is
     // the settled count.
@@ -477,4 +530,32 @@ export function setupBrowserHandlers(
   ipcMain.handle('browser:show-download', (_event, id: string) =>
     downloads.showDownloadInFolder(id),
   );
+
+  // Credentials (Area 3): the vault lives in main; the renderer
+  // only ever sees origin + username. `browser:save-login`
+  // confirms a candidate main already holds — the password never
+  // crosses IPC. Unknown origins are no-ops (false).
+  ipcMain.handle('browser:list-saved-logins', () =>
+    getCredentials().listLogins(),
+  );
+
+  ipcMain.handle('browser:delete-saved-login', (_event, origin: string) =>
+    getCredentials().deleteLogin(origin),
+  );
+
+  ipcMain.handle(
+    'browser:save-login',
+    (_event, origin: string, username: string) =>
+      getCredentials().confirmCandidate(origin, username),
+  );
+
+  ipcMain.handle('browser:dismiss-login-offer', (_event, origin: string) => {
+    getCredentials().discardCandidate(origin);
+  });
+
+  ipcMain.handle('browser:fill-saved-login', () => {
+    const view = activeTabId ? views.get(activeTabId) : undefined;
+    if (!view) return false;
+    return getCredentials().fillLogin(view.webContents);
+  });
 }

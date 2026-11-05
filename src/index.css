@@ -24,6 +24,9 @@
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   --font-size: 13px;
+
+  /* Color-shift accent cycle time (see .lucid-color-shift below). */
+  --color-shift-duration: 8s;
 }
 
 * {
@@ -431,4 +434,48 @@ button {
 .context-menu-separator {
   @apply my-1 border-t;
   border-color: var(--border);
+}
+
+/* ---- Lucid color-shift accents (Gary, 2026-11-05) ----
+   One shared iridescent gradient, used ONLY on the few accent
+   lines/wordmarks where it makes the UI feel futuristic, sleek and
+   bigger than it is: the sidebar divider, the splash "Lucid"
+   wordmark, and the input drag-handle grip. Nowhere else - the
+   restraint is the point.
+   Palette: deep violet -> cool blue -> cyan -> teal -> violet, kept
+   low-saturation so it reads as futuristic light, not party lights.
+   The gradient's first and last stops match and it is 200% wide, so
+   animating background-position 0% -> 200% loops seamlessly.
+   GPU-friendly: background-position on a gradient is a paint-only
+   animation (no layout, no per-frame JS, no filter: blur()).
+   Cycle time is --color-shift-duration (8s); tune it in :root.
+   Reduced motion: the animation stops and the gradient sits still. */
+.lucid-color-shift {
+  background-image: linear-gradient(90deg, #7c5cff 0%, #58a6ff 25%, #38bdf8 50%, #2dd4bf 75%, #7c5cff 100%);
+  background-size: 200% 100%;
+  animation: lucid-color-shift var(--color-shift-duration, 8s) linear infinite;
+}
+
+/* Same shifting gradient as a text fill (background-clip: text),
+   with a lighter palette so the letters read as shimmering light. */
+.lucid-color-shift-text {
+  background-image: linear-gradient(90deg, #eef2ff 0%, #c4b5fd 25%, #93c5fd 50%, #67e8f9 75%, #eef2ff 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: lucid-color-shift var(--color-shift-duration, 8s) linear infinite;
+}
+
+@keyframes lucid-color-shift {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lucid-color-shift,
+  .lucid-color-shift-text {
+    animation: none;
+  }
 }

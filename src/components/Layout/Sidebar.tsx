@@ -283,7 +283,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
                 );
               })}
             </div>
-            <div className="w-8 border-t border-[var(--border)] my-1" aria-hidden="true" />
+            <div className="lucid-color-shift my-1 h-px w-8" aria-hidden="true" />
           </>
         )}
 

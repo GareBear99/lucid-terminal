@@ -10,8 +10,9 @@ interface InputDragHandleProps {
  * dragging it up grows the bubble, dragging it down shrinks it.
  * Pointer events cover mouse and touch; touch-action: none stops
  * the browser from scrolling while dragging. The grip brightens
- * while dragging so the grab is visible; at rest it uses the flat
- * border color.
+ * while dragging so the grab is visible; at rest it carries the
+ * shared .lucid-color-shift accent (index.css) instead of the flat
+ * border color, so it reads as a sleek futuristic accent.
  */
 export function InputDragHandle({
   isDragging,
@@ -32,7 +33,7 @@ export function InputDragHandle({
     >
       <div
         className={`mt-[3px] h-[4px] w-10 rounded-full ${
-          isDragging ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
+          isDragging ? 'bg-[var(--accent)]' : 'lucid-color-shift'
         }`}
       />
     </div>

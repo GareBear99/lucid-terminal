@@ -164,7 +164,7 @@ function SplashScreenInner({ onDone }: { onDone: () => void }) {
       )}
       <div className="splash-wordmark" data-testid="splash-wordmark">
         <div className="splash-wordmark-glow" aria-hidden="true" />
-        <span className="splash-wordmark-text">
+        <span className="splash-wordmark-text lucid-color-shift-text">
           {'Lucid'.split('').map((letter, i) => (
             <span
               key={i}

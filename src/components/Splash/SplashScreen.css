@@ -137,8 +137,10 @@
   letter-spacing: 0.35em;
   text-indent: 0.35em;
   line-height: 1;
-  /* Static fill: a cool white-to-blue gradient. */
-  background: linear-gradient(90deg, #eef2ff, #93c5fd 55%, #67e8f9);
+  /* Fill comes from the shared .lucid-color-shift-text class in
+     index.css (slow iridescent gradient); it must stay the fill here —
+     a background: shorthand on this rule would override it, because
+     this file loads after index.css. */
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;

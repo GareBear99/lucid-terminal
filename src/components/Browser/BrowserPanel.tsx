@@ -15,6 +15,7 @@ import {
   Copy,
   ExternalLink,
   KeyRound,
+  PictureInPicture2,
   Undo2,
 } from 'lucide-react';
 import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
@@ -122,6 +123,8 @@ function BrowserPanel() {
   const applyTabUpdate = useBrowserStore((s) => s.applyTabUpdate);
   const closedTabs = useBrowserStore((s) => s.closedTabs);
   const restoreClosedTab = useBrowserStore((s) => s.restoreClosedTab);
+  const poppedOutTabId = useBrowserStore((s) => s.poppedOutTabId);
+  const setPoppedOutTabId = useBrowserStore((s) => s.setPoppedOutTabId);
   const zoomIn = useBrowserStore((s) => s.zoomIn);
   const zoomOut = useBrowserStore((s) => s.zoomOut);
   const resetZoom = useBrowserStore((s) => s.resetZoom);
@@ -180,12 +183,15 @@ function BrowserPanel() {
 
   // Opening the internal stream hides the BrowserView; closing it
   // re-attaches the active browser tab at the container's rect.
+  // A popped-out tab stays in the mini window — never re-attached
+  // here.
   useEffect(() => {
     if (activeInternalSerial) {
       void window.lucidAPI.browser.hide();
       return;
     }
     if (panelTab !== 'browser' || !activeTabId) return;
+    if (activeTabId === poppedOutTabId) return;
     const el = containerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -195,7 +201,7 @@ function BrowserPanel() {
       width: Math.round(r.width),
       height: Math.round(r.height),
     });
-  }, [activeInternalSerial, panelTab, activeTabId]);
+  }, [activeInternalSerial, panelTab, activeTabId, poppedOutTabId]);
 
   // Internal entry: stream the first connected device. The serial
   // comes from adb, not from a guess — no device, no stream.
@@ -289,11 +295,30 @@ function BrowserPanel() {
         }
       },
     );
+    // Mini window (Area 6): a popped-out tab came back (popped in,
+    // tab closed, or mini window closed) — clear the popped-out
+    // state for that tab, and the attach effect below re-attaches
+    // the active tab to the main window.
+    const cleanupMiniClosed = window.lucidAPI.browser.onMiniClosed(
+      (tabId) => {
+        if (useBrowserStore.getState().poppedOutTabId === tabId) {
+          useBrowserStore.getState().setPoppedOutTabId(null);
+        }
+      },
+    );
+    // The mini window's internal Phone entry: it popped the tab back
+    // in and asks the panel to open the stream here.
+    const cleanupOpenInternal =
+      window.lucidAPI.browser.onOpenInternalPhone(() => {
+        void openInternalPhone();
+      });
     return () => {
       cleanupUpdated();
       cleanupOpenUrl();
       cleanupAuth();
       cleanupFind();
+      cleanupMiniClosed();
+      cleanupOpenInternal();
     };
   }, [applyTabUpdate, createTab]);
 
@@ -382,6 +407,17 @@ function BrowserPanel() {
     useBrowserStore.getState().setPanelTab('ai');
   };
 
+  // Pop the active tab out to the mini window (Area 6): its view
+  // migrates to the floating window, and the panel stops attaching
+  // it here until it pops back in (`browser:mini-closed`).
+  const popOutActiveTab = async () => {
+    if (!activeTabId) return;
+    const result = await window.lucidAPI.browser
+      .popOut(activeTabId)
+      .catch(() => null);
+    if (result && result.ok) setPoppedOutTabId(activeTabId);
+  };
+
   // Copy the active page's URL (clipboard API, with a textarea
   // fallback for contexts where it is unavailable).
   const copyCurrentUrl = async () => {
@@ -403,8 +439,12 @@ function BrowserPanel() {
   };
 
   // Attach the active view at the container's rect, and keep it there.
+  // A popped-out tab lives in the mini window: activating it here
+  // would drag its view back, so the effect skips it (and re-runs
+  // when it pops back in, via poppedOutTabId).
   useEffect(() => {
     if (panelTab !== 'browser' || !activeTabId) return;
+    if (activeTabId === poppedOutTabId) return;
     const el = containerRef.current;
     if (!el) return;
     const bounds = (): BrowserBounds => {
@@ -430,7 +470,7 @@ function BrowserPanel() {
       window.removeEventListener('resize', onWindowResize);
       void window.lucidAPI.browser.hide();
     };
-  }, [panelTab, activeTabId]);
+  }, [panelTab, activeTabId, poppedOutTabId]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -489,6 +529,8 @@ function BrowserPanel() {
             >
               {tab.loading ? (
                 <Loader size={12} className="animate-spin shrink-0" />
+              ) : tab.id === poppedOutTabId ? (
+                <PictureInPicture2 size={12} className="shrink-0" />
               ) : (
                 <Globe size={12} className="shrink-0" />
               )}
@@ -662,6 +704,26 @@ function BrowserPanel() {
               className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
             >
               <Sparkles size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip
+            content={
+              poppedOutTabId === activeTabId
+                ? 'This tab is in the mini window'
+                : 'Pop out to mini window'
+            }
+          >
+            <button
+              type="button"
+              onClick={() => void popOutActiveTab()}
+              disabled={!activeTabId || poppedOutTabId === activeTabId}
+              className={`p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30 ${
+                poppedOutTabId === activeTabId
+                  ? 'bg-[var(--bg-tertiary)]'
+                  : ''
+              }`}
+            >
+              <PictureInPicture2 size={16} />
             </button>
           </Tooltip>
         </form>

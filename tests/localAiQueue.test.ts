@@ -26,6 +26,17 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('child_process', () => ({
+  // aiTools.ts (imported via local_ai.ts) promisifies `exec` at
+  // module load, so the mock must provide it even though these
+  // tests never run a command — without it the import throws.
+  exec: (...args: unknown[]) => {
+    const cb = args[args.length - 1];
+    if (typeof cb === 'function') {
+      (
+        cb as (err: unknown, stdout: string, stderr: string) => void
+      )(null, '', '');
+    }
+  },
   spawn: (..._args: any[]) => {
     const { PassThrough } = require('stream');
     const proc: any = {

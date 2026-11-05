@@ -118,6 +118,19 @@ import type {
  * Web search runs in a temporary tab that is never attached to a
  * window and is destroyed when the results are read. Everything
  * is local: the model, the tools, the page. No remote server.
+ *
+ * Mini window (Area 6): popping a tab out moves its BrowserView
+ * from the main window to a compact floating window (640x420,
+ * frameless, always on top, bounds persisted — see
+ * `electron/services/browserMiniWindow.ts`); popping back reverses
+ * it. The view, its session and its cookies survive the move.
+ * Popping back in never attaches the view to the main window
+ * directly — the panel re-attaches the active tab when it hears
+ * `browser:mini-closed`, so a different active tab is never
+ * clobbered. The Phone tab pops out like any other tab; the
+ * in-app stream stays in the panel (its frames go to the main
+ * window), and the mini window's phone entries reuse the spike's
+ * GPU gate exactly like the panel's.
  */
 
 export type { BrowserViewBounds };
@@ -163,6 +176,15 @@ export function setupBrowserHandlers(
     /** Vault dependencies (store / crypto). Production uses the
      * real safeStorage + electron-store; tests inject fakes. */
     credentials?: BrowserCredentialsDeps;
+    /** Mini window (Area 6): create/get the floating window.
+     * Production wires the real BrowserWindow (see
+     * `electron/services/browserMiniWindow.ts`); tests inject a
+     * fake. Absent means no mini window: pop-out reports
+     * `mini-unavailable`. */
+    mini?: {
+      create: (onClosed: () => void) => BrowserWindow | null;
+      get: () => BrowserWindow | null;
+    };
   },
 ): void {
   const views = new Map<string, ReturnType<typeof createBrowserView>>();
@@ -205,6 +227,80 @@ export function setupBrowserHandlers(
   const actions = createBrowserActionsRunner();
   const actionWebContents = (tabId: string) =>
     views.get(tabId)?.webContents ?? null;
+
+  // Mini window (Area 6): at most one tab is popped out at a time.
+  // `lastMiniBounds` is the container rect the mini renderer last
+  // reported (the view is re-positioned there); before the first
+  // report it is the default mini size minus the mini chrome
+  // (~70px of nav bar + quick tabs), so the first paint lands under
+  // the chrome instead of over it.
+  let poppedOutTabId: string | null = null;
+  let lastMiniBounds: BrowserViewBounds = {
+    x: 0,
+    y: 70,
+    width: 640,
+    height: 350,
+  };
+
+  /** Tell the panel a popped-out tab is back in the main window
+   * (popped in, tab closed, or mini window closed). The event
+   * carries the tab id; the panel clears its popped-out state only
+   * for that tab. */
+  const emitMiniClosed = (tabId: string) => {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('browser:mini-closed', tabId);
+  };
+
+  /** Pop a tab back into the main window. Never attaches the view
+   * to the main window directly: the panel re-attaches the active
+   * tab when it hears `browser:mini-closed`, so a different active
+   * tab is never clobbered. Closing the mini window is optional
+   * (a swap to another popped-out tab keeps it open). */
+  const popIn = (
+    tabId: string,
+    closeWindow = true,
+  ): BrowserActionResult => {
+    if (poppedOutTabId !== tabId) {
+      return { ok: false, error: 'not-popped-out' };
+    }
+    poppedOutTabId = null;
+    const mini = options?.mini?.get() ?? null;
+    if (mini && !mini.isDestroyed()) {
+      detachBrowserView(mini);
+      if (closeWindow) mini.close();
+    }
+    emitMiniClosed(tabId);
+    return { ok: true };
+  };
+
+  /** The mini window closed (Gary closed it, or it was closed by a
+   * pop-in): whatever tab was out comes back. Popping in already
+   * cleared the state, so this is a no-op for a deliberate pop-in. */
+  const onMiniClosed = () => {
+    if (!poppedOutTabId) return;
+    popIn(poppedOutTabId, false);
+  };
+
+  /** Move a tab's view to the mini window. A different tab already
+   * out pops back in first (the window stays open; the new tab
+   * takes its place). */
+  const popOut = (tabId: string): BrowserActionResult => {
+    const view = views.get(tabId);
+    if (!view) return { ok: false, error: 'no-such-tab' };
+    if (poppedOutTabId === tabId) return { ok: true };
+    if (!options?.mini) return { ok: false, error: 'mini-unavailable' };
+    if (poppedOutTabId) popIn(poppedOutTabId, false);
+    const mini = options.mini.create(onMiniClosed);
+    if (!mini || mini.isDestroyed()) {
+      return { ok: false, error: 'mini-unavailable' };
+    }
+    if (activeTabId === tabId) detach();
+    attachBrowserView(mini, view, lastMiniBounds);
+    poppedOutTabId = tabId;
+    sendUpdate(tabId);
+    return { ok: true };
+  };
 
   // Downloads (Area 2): the session is shared by every browser
   // view, so one will-download handler covers all tabs. Progress
@@ -279,6 +375,14 @@ export function setupBrowserHandlers(
       canGoForward: wc.canGoForward(),
     };
     win.webContents.send('browser:updated', tabId, state);
+    // A popped-out tab's state goes to the mini window too, so its
+    // chrome (address bar, title) stays in step with the page.
+    if (tabId === poppedOutTabId) {
+      const mini = options?.mini?.get() ?? null;
+      if (mini && !mini.isDestroyed()) {
+        mini.webContents.send('browser:mini-state', tabId, state);
+      }
+    }
   };
 
   const attach = (tabId: string) => {
@@ -433,16 +537,26 @@ export function setupBrowserHandlers(
   });
 
   // Destroy a tab's view (detach first if it is active). Shared by
-  // the close handler and the search temp tab (Area 5).
+  // the close handler and the search temp tab (Area 5). Closing a
+  // popped-out tab (Area 6) also closes the mini window and tells
+  // the panel the tab is back (so it clears its popped-out state).
   const closeView = (tabId: string) => {
     const view = views.get(tabId);
     if (!view) return;
-    // A BrowserView has no destroy of its own — its webContents is
-    // destroyed, and it must be detached first.
+    const wasPoppedOut = poppedOutTabId === tabId;
+    if (wasPoppedOut) poppedOutTabId = null;
     if (activeTabId === tabId) detach();
     cancelPendingAuthForTab(tabId);
     zoomFactors.delete(tabId);
     views.delete(tabId);
+    if (wasPoppedOut) {
+      const mini = options?.mini?.get() ?? null;
+      if (mini && !mini.isDestroyed()) {
+        detachBrowserView(mini);
+        mini.close();
+      }
+      emitMiniClosed(tabId);
+    }
     view.webContents.destroy();
   };
 
@@ -454,6 +568,9 @@ export function setupBrowserHandlers(
     'browser:activate',
     (_event, tabId: string, bounds: BrowserViewBounds) => {
       lastBounds = bounds;
+      // A popped-out tab lives in the mini window: activating it in
+      // the panel must not drag its view back to the main window.
+      if (tabId === poppedOutTabId) return;
       attach(tabId);
     },
   );
@@ -825,4 +942,41 @@ export function setupBrowserHandlers(
     search: async (query, timeoutMs) => searchWeb(query, timeoutMs),
   };
   registerBrowserToolTarget(toolTarget);
+
+  // Mini window (Area 6): pop a tab's view out to the floating
+  // window, or back in. The mini renderer reports its container
+  // bounds so the view lands under the mini chrome, not over it.
+  ipcMain.handle(
+    'browser:pop-out',
+    (_event, tabId: string): BrowserActionResult => popOut(tabId),
+  );
+
+  ipcMain.handle(
+    'browser:pop-in',
+    (_event, tabId: string): BrowserActionResult => popIn(tabId, true),
+  );
+
+  ipcMain.handle('browser:set-mini-bounds', (_event, bounds: BrowserViewBounds) => {
+    lastMiniBounds = bounds;
+    const view = poppedOutTabId ? views.get(poppedOutTabId) : undefined;
+    if (view) setBrowserViewBounds(view, bounds);
+  });
+
+  // Close the mini window (its tab pops back in first, via the
+  // close handler's pop-in).
+  ipcMain.handle('browser:mini-close', () => {
+    if (poppedOutTabId) popIn(poppedOutTabId, true);
+  });
+
+  // The mini window's internal Phone entry: the stream itself lives
+  // in the panel (its frames go to the main window), so the tab
+  // pops back in and the panel opens the stream there. The entry's
+  // enabled/disabled state comes from the spike's GPU gate, exactly
+  // like the panel's — the mini window never decides it alone.
+  ipcMain.handle('browser:mini-open-internal', () => {
+    if (poppedOutTabId) popIn(poppedOutTabId, true);
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('browser:open-internal-phone');
+  });
 }

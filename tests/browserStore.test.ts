@@ -54,6 +54,7 @@ const resetStore = () => {
     tabs: [],
     activeTabId: null,
     closedTabs: [],
+    poppedOutTabId: null,
   });
   useBrowserHistory.setState({ entries: [] });
 };
@@ -391,5 +392,16 @@ describe('useBrowserStore', () => {
       canGoForward: false,
     });
     expect(useBrowserHistory.getState().entries).toEqual([]);
+  });
+});
+
+describe('poppedOutTabId (Area 6)', () => {
+  it('starts null; setPoppedOutTabId records and clears it', () => {
+    const api = useBrowserStore.getState();
+    expect(api.poppedOutTabId).toBeNull();
+    api.setPoppedOutTabId('tab-1');
+    expect(useBrowserStore.getState().poppedOutTabId).toBe('tab-1');
+    api.setPoppedOutTabId(null);
+    expect(useBrowserStore.getState().poppedOutTabId).toBeNull();
   });
 });

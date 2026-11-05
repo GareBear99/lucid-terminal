@@ -115,6 +115,11 @@ interface BrowserState {
   activeTabId: string | null;
   /** Recently closed tabs, oldest first — the reopen stack. */
   closedTabs: ClosedBrowserTab[];
+  /** The tab popped out to the mini window (Area 6), or null when
+   * no tab is out. The panel never attaches this tab's view to the
+   * main window while it is out. */
+  poppedOutTabId: string | null;
+  setPoppedOutTabId: (id: string | null) => void;
 
   setPanelTab: (tab: PanelTab) => void;
   createTab: (url?: string) => void;
@@ -155,6 +160,11 @@ export const useBrowserStore = create<BrowserState>()((set, get) => ({
   tabs: [],
   activeTabId: null,
   closedTabs: [],
+  poppedOutTabId: null,
+
+  setPoppedOutTabId: (id) => {
+    set({ poppedOutTabId: id });
+  },
 
   setPanelTab: (tab) => {
     set({ panelTab: tab });

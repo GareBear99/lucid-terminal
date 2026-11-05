@@ -217,6 +217,33 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('browser:action-screenshot', tabId),
     getState: (tabId: string) =>
       ipcRenderer.invoke('browser:action-state', tabId),
+    // Mini window (Area 6): pop a tab out to the floating window
+    // or back in. The mini renderer reports its container bounds
+    // so the view lands under the mini chrome.
+    popOut: (tabId: string) =>
+      ipcRenderer.invoke('browser:pop-out', tabId),
+    popIn: (tabId: string) =>
+      ipcRenderer.invoke('browser:pop-in', tabId),
+    setMiniBounds: (bounds: BrowserBounds) =>
+      ipcRenderer.invoke('browser:set-mini-bounds', bounds),
+    closeMini: () => ipcRenderer.invoke('browser:mini-close'),
+    miniOpenInternal: () => ipcRenderer.invoke('browser:mini-open-internal'),
+    onMiniState: (callback: (tabId: string, state: BrowserTabState) => void) => {
+      const listener = (_: any, tabId: string, state: BrowserTabState) =>
+        callback(tabId, state);
+      ipcRenderer.on('browser:mini-state', listener);
+      return () => ipcRenderer.removeListener('browser:mini-state', listener);
+    },
+    onMiniClosed: (callback: (tabId: string) => void) => {
+      const listener = (_: any, tabId: string) => callback(tabId);
+      ipcRenderer.on('browser:mini-closed', listener);
+      return () => ipcRenderer.removeListener('browser:mini-closed', listener);
+    },
+    onOpenInternalPhone: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('browser:open-internal-phone', listener);
+      return () => ipcRenderer.removeListener('browser:open-internal-phone', listener);
+    },
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -464,6 +491,14 @@ export interface LucidAPI {
     waitForSelector: (tabId: string, selector: string, timeoutMs?: number) => Promise<BrowserActionResult>;
     screenshot: (tabId: string) => Promise<BrowserScreenshotResult>;
     getState: (tabId: string) => Promise<BrowserActionResult & { state?: BrowserPageState }>;
+    popOut: (tabId: string) => Promise<BrowserActionResult>;
+    popIn: (tabId: string) => Promise<BrowserActionResult>;
+    setMiniBounds: (bounds: BrowserBounds) => Promise<void>;
+    closeMini: () => Promise<void>;
+    miniOpenInternal: () => Promise<void>;
+    onMiniState: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
+    onMiniClosed: (callback: (tabId: string) => void) => () => void;
+    onOpenInternalPhone: (callback: () => void) => () => void;
   };
   android: {
     getGpuGate: () => Promise<GpuGateStatus>;

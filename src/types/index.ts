@@ -461,6 +461,14 @@ declare global {
         waitForSelector: (tabId: string, selector: string, timeoutMs?: number) => Promise<BrowserActionResult>;
         screenshot: (tabId: string) => Promise<BrowserScreenshotResult>;
         getState: (tabId: string) => Promise<BrowserActionResult & { state?: BrowserPageState }>;
+        popOut: (tabId: string) => Promise<BrowserActionResult>;
+        popIn: (tabId: string) => Promise<BrowserActionResult>;
+        setMiniBounds: (bounds: BrowserBounds) => Promise<void>;
+        closeMini: () => Promise<void>;
+        miniOpenInternal: () => Promise<void>;
+        onMiniState: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
+        onMiniClosed: (callback: (tabId: string) => void) => () => void;
+        onOpenInternalPhone: (callback: () => void) => () => void;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

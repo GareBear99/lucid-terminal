@@ -9,6 +9,10 @@ import { setupSystemHandlers } from './ipc/system';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupBrowserHandlers } from './ipc/browser';
+import {
+  createMiniBrowserWindow,
+  getMiniBrowserWindow,
+} from './services/browserMiniWindow';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
 import { apiKeyStorage, settings } from './services/secureStorage';
@@ -102,6 +106,12 @@ app.whenReady().then(() => {
     // the OS Downloads folder.
     getDownloadsFolder: () =>
       settings.get<string>('browserDownloadsFolder') ?? undefined,
+    // Mini window (Area 6): the floating 640x420 browser window
+    // a popped-out tab's view migrates to.
+    mini: {
+      create: (onClosed) => createMiniBrowserWindow({ onClosed }),
+      get: () => getMiniBrowserWindow(),
+    },
   });
   // Phone streaming (scrcpy) needs the window for the PhoneView canvas host.
   setupAndroidHandlers(ipcMain, () => mainWindow);

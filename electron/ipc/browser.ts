@@ -27,7 +27,15 @@ import {
   createBrowserCredentialsVault,
 } from '../services/browserCredentials';
 import type { BrowserCredentialsDeps } from '../services/browserCredentials';
-import type { BrowserAuthRequest, BrowserDownload } from '../../src/types';
+import { createBrowserActionsRunner } from '../services/browserActions';
+import type {
+  BrowserActionResult,
+  BrowserAuthRequest,
+  BrowserDownload,
+  BrowserPageState,
+  BrowserPageText,
+  BrowserScreenshotResult,
+} from '../../src/types';
 
 /**
  * In-panel browser: one real Chromium view (BrowserView) per browser
@@ -83,6 +91,14 @@ import type { BrowserAuthRequest, BrowserDownload } from '../../src/types';
  * navigates away — the renderer only ever sees origin + username,
  * and only saves when he confirms the offer. The password never
  * crosses IPC, is never logged, and never enters the AI chat.
+ *
+ * Page actions (Area 4): typed main-process actions — `readText`,
+ * `fill`, `click`, `waitForSelector`, `screenshot`, `getState` —
+ * parameterised, never raw JS from the renderer. The scripts live
+ * in `src/lib/browserActions.ts` and are built and run in main
+ * only. The generic `fill` refuses password fields (use the
+ * saved-login fill); the AI tools (Area 5) and the flow runner
+ * (Area 7) are built on these actions.
  */
 
 export type { BrowserViewBounds };
@@ -163,6 +179,13 @@ export function setupBrowserHandlers(
       );
     },
   );
+
+  // Page actions (Area 4): the automation foundation. The runner
+  // is stateless; every handler resolves its tab first and reports
+  // `no-such-tab` for a closed or unknown tab instead of throwing.
+  const actions = createBrowserActionsRunner();
+  const actionWebContents = (tabId: string) =>
+    views.get(tabId)?.webContents ?? null;
 
   // Downloads (Area 2): the session is shared by every browser
   // view, so one will-download handler covers all tabs. Progress
@@ -558,4 +581,77 @@ export function setupBrowserHandlers(
     if (!view) return false;
     return getCredentials().fillLogin(view.webContents);
   });
+
+  // Page actions (Area 4): typed, parameterised, main-side only.
+  // The renderer sends a tab id + parameters (a selector, a value);
+  // the scripts are built in main from `src/lib/browserActions.ts`.
+  // Every result is `{ ok, ... }` — a closed tab reports
+  // `no-such-tab`, never a throw.
+  ipcMain.handle(
+    'browser:action-read-text',
+    async (_event, tabId: string): Promise<
+      BrowserActionResult & { text?: BrowserPageText }
+    > => {
+      const wc = actionWebContents(tabId);
+      if (!wc) return { ok: false, error: 'no-such-tab' };
+      return actions.readText(wc);
+    },
+  );
+
+  ipcMain.handle(
+    'browser:action-fill',
+    async (
+      _event,
+      tabId: string,
+      selector: string,
+      value: string,
+    ): Promise<BrowserActionResult> => {
+      const wc = actionWebContents(tabId);
+      if (!wc) return { ok: false, error: 'no-such-tab' };
+      return actions.fill(wc, selector, value);
+    },
+  );
+
+  ipcMain.handle(
+    'browser:action-click',
+    async (_event, tabId: string, selector: string): Promise<BrowserActionResult> => {
+      const wc = actionWebContents(tabId);
+      if (!wc) return { ok: false, error: 'no-such-tab' };
+      return actions.click(wc, selector);
+    },
+  );
+
+  ipcMain.handle(
+    'browser:action-wait',
+    async (
+      _event,
+      tabId: string,
+      selector: string,
+      timeoutMs?: number,
+    ): Promise<BrowserActionResult> => {
+      const wc = actionWebContents(tabId);
+      if (!wc) return { ok: false, error: 'no-such-tab' };
+      return actions.waitForSelector(wc, selector, timeoutMs);
+    },
+  );
+
+  ipcMain.handle(
+    'browser:action-screenshot',
+    async (_event, tabId: string): Promise<BrowserScreenshotResult> => {
+      const wc = actionWebContents(tabId);
+      if (!wc) return { ok: false, error: 'no-such-tab' };
+      return actions.screenshot(wc);
+    },
+  );
+
+  ipcMain.handle(
+    'browser:action-state',
+    async (_event, tabId: string): Promise<
+      BrowserActionResult & { state?: BrowserPageState }
+    > => {
+      const wc = actionWebContents(tabId);
+      if (!wc) return { ok: false, error: 'no-such-tab' };
+      return actions.getState(wc);
+    },
+  );
 }

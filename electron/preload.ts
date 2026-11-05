@@ -202,6 +202,21 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('browser:login-detected', listener);
       return () => ipcRenderer.removeListener('browser:login-detected', listener);
     },
+    // Page actions (Area 4): typed, parameterised — the renderer
+    // sends a tab id + parameters; the scripts are built in main.
+    // fill never fills a password field (vault fill instead).
+    readText: (tabId: string) =>
+      ipcRenderer.invoke('browser:action-read-text', tabId),
+    fill: (tabId: string, selector: string, value: string) =>
+      ipcRenderer.invoke('browser:action-fill', tabId, selector, value),
+    click: (tabId: string, selector: string) =>
+      ipcRenderer.invoke('browser:action-click', tabId, selector),
+    waitForSelector: (tabId: string, selector: string, timeoutMs?: number) =>
+      ipcRenderer.invoke('browser:action-wait', tabId, selector, timeoutMs),
+    screenshot: (tabId: string) =>
+      ipcRenderer.invoke('browser:action-screenshot', tabId),
+    getState: (tabId: string) =>
+      ipcRenderer.invoke('browser:action-state', tabId),
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -423,6 +438,32 @@ export interface LucidAPI {
     reload: (tabId: string) => Promise<void>;
     onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
     onOpenUrl: (callback: (url: string) => void) => () => void;
+
+    onAuthRequired: (callback: (request: BrowserAuthRequest) => void) => () => void;
+    authResponse: (requestId: string, creds: { username: string; password: string } | null) => Promise<void>;
+    findInPage: (tabId: string, text: string, options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }) => Promise<number>;
+    stopFindInPage: (tabId: string, action?: 'clearSelection' | 'keepSelection' | 'activateSelection') => Promise<void>;
+    onFindUpdated: (callback: (tabId: string, result: BrowserFindResult) => void) => () => void;
+    setZoom: (tabId: string, factor: number) => Promise<number>;
+    openExternal: (url: string) => Promise<void>;
+    listDownloads: () => Promise<BrowserDownload[]>;
+    cancelDownload: (id: string) => Promise<boolean>;
+    pauseDownload: (id: string) => Promise<boolean>;
+    resumeDownload: (id: string) => Promise<boolean>;
+    showDownloadInFolder: (id: string) => Promise<boolean>;
+    onDownloadUpdated: (callback: (update: BrowserDownload) => void) => () => void;
+    listSavedLogins: () => Promise<BrowserSavedLogin[]>;
+    deleteSavedLogin: (origin: string) => Promise<boolean>;
+    saveLogin: (origin: string, username: string) => Promise<boolean>;
+    dismissLoginOffer: (origin: string) => Promise<void>;
+    fillSavedLogin: () => Promise<boolean>;
+    onLoginDetected: (callback: (offer: BrowserLoginOffer) => void) => () => void;
+    readText: (tabId: string) => Promise<BrowserActionResult & { text?: BrowserPageText }>;
+    fill: (tabId: string, selector: string, value: string) => Promise<BrowserActionResult>;
+    click: (tabId: string, selector: string) => Promise<BrowserActionResult>;
+    waitForSelector: (tabId: string, selector: string, timeoutMs?: number) => Promise<BrowserActionResult>;
+    screenshot: (tabId: string) => Promise<BrowserScreenshotResult>;
+    getState: (tabId: string) => Promise<BrowserActionResult & { state?: BrowserPageState }>;
   };
   android: {
     getGpuGate: () => Promise<GpuGateStatus>;

@@ -315,6 +315,56 @@ export interface BrowserLoginOffer {
   username: string;
 }
 
+
+/** Result of one page action (Area 4). `ok: false` carries a typed
+ * `error` instead of throwing: `bad-selector`, `bad-value`,
+ * `not-found`, `not-fillable`, `password-field`, `timeout`,
+ * `unavailable`, `script-failed`, `capture-failed`, `bad-result`,
+ * `no-such-tab`. */
+export interface BrowserActionResult {
+  ok: boolean;
+  error?: string;
+}
+
+/** Visible text of a page, as `readText` returns it. Text is
+ * capped in main (MAX_ACTION_TEXT_CHARS) so a huge page cannot
+ * flood the caller. */
+export interface BrowserPageText {
+  title: string;
+  url: string;
+  text: string;
+}
+
+/** One field of a page form, as `getState` reports it. Password
+ * fields are reported as present but their values are never read. */
+export interface BrowserPageFormField {
+  name: string;
+  type: string;
+  label: string;
+  autocomplete: string;
+  hasValue: boolean;
+}
+
+/** One form on the page. */
+export interface BrowserPageForm {
+  action: string;
+  method: string;
+  fields: BrowserPageFormField[];
+}
+
+/** Page description, as `getState` returns it. */
+export interface BrowserPageState {
+  url: string;
+  title: string;
+  loading: boolean;
+  forms: BrowserPageForm[];
+}
+
+/** Screenshot result: a PNG data URL of the page as Gary sees it. */
+export interface BrowserScreenshotResult extends BrowserActionResult {
+  dataUrl?: string;
+}
+
 export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
 
 // Extend Window interface for Electron API

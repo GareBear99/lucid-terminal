@@ -273,3 +273,58 @@ describe('vendored v67 shell', () => {
     }
   });
 });
+
+// HUD panels are solid and borderless (Gary 2026-11-05): the synth
+// windows were blurry (frosted glass, backdrop blur) with a visible
+// outline line around them. The panels are solid dark cards now — no
+// backdrop blur, no border, opaque backgrounds. The soft box-shadow
+// glows stay; they are not lines.
+describe('synth HUD panels are solid and borderless', () => {
+  const shellPath = path.join(
+    process.cwd(),
+    'public',
+    'synth',
+    'matrix-synth-v67.html',
+  );
+  const shellSrc = fs.readFileSync(shellPath, 'utf-8');
+
+  test('no backdrop blur anywhere in the shell', () => {
+    expect(shellSrc).not.toContain('backdrop-filter');
+  });
+
+  // [css selector, expected solid background] for each floating panel.
+  // The group rule covers three panels in one declaration.
+  const panels: Array<[string, string]> = [
+    ['#overlay', 'background:#000000;'],
+    ['#vstrip', 'background:#000000;'],
+    ['#vpanel', 'background:#000000;'],
+    [
+      '#probePanel',
+      'background:linear-gradient(180deg, rgb(34,10,44), rgb(20,8,30));',
+    ],
+    [
+      '#microReceiptPanel',
+      'background:linear-gradient(180deg, rgb(16,18,34), rgb(10,12,24));',
+    ],
+    [
+      '#writebackPanel,#commandHistoryPanel,#builderSwarmPanel',
+      'background:#000000;',
+    ],
+  ];
+
+  test.each(panels)('%s has no border and a solid background', (selector, background) => {
+    const escaped = selector.replace(/[#.]/g, '\\$&');
+    const rule = shellSrc.match(new RegExp(`${escaped}\\{[^}]*\\}`));
+    expect(rule, `${selector} rule present`).not.toBeNull();
+    expect(rule![0]).not.toContain('border:');
+    expect(rule![0]).toContain(background);
+  });
+
+  test('eyePanel (inline style) has no border and a solid background', () => {
+    const style = shellSrc.match(/id="eyePanel" style="([^"]*)"/);
+    expect(style, 'eyePanel style present').not.toBeNull();
+    expect(style![1]).not.toContain('border:');
+    expect(style![1]).not.toContain('backdrop-filter');
+    expect(style![1]).toContain('background:#000000;');
+  });
+});

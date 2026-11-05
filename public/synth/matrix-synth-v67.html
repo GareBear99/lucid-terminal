@@ -32,7 +32,8 @@
   /* HUD sits above the validator strip (pinned to the bottom) to prevent overlap. */
   #hud{position:fixed;left:12px;bottom:calc(var(--validator-h) + 16px);z-index:10;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;color:#d6f7ff;pointer-events:none;text-shadow:0 0 12px rgba(0,255,255,.18);max-width:min(920px,calc(100vw - var(--right-dock-w) - 48px));}
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(120,255,255,.35);background:rgba(0,0,0,.25);margin-right:6px;}
-  #overlay{position:fixed;right:12px;top:12px;z-index:11;width:min(560px,52vw);max-height:72vh;overflow:auto;background:rgba(0,0,0,.45);border:1px solid rgba(255,60,210,.25);border-radius:14px;padding:10px 12px;display:none;pointer-events:auto;box-shadow:0 0 30px rgba(255,60,210,.10);}
+  /* HUD panels are solid and borderless by design: no backdrop blur, no outline. */
+  #overlay{position:fixed;right:12px;top:12px;z-index:11;width:min(560px,52vw);max-height:72vh;overflow:auto;background:#000000;border-radius:14px;padding:10px 12px;display:none;pointer-events:auto;box-shadow:0 0 30px rgba(255,60,210,.10);}
   #overlay .title{font-weight:700;color:#ff7be5;margin-bottom:6px;}
   #overlay .row{opacity:.95;margin:2px 0;}
   #overlay code{color:#bff;}
@@ -42,20 +43,20 @@
   /* Validator strip pinned to the bottom; keep layout safe (no overlap with HUD). */
   #vstrip{position:fixed;left:10px;right:10px;bottom:10px;top:auto;z-index:50;
     font:12px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
-    color:#dff;background:rgba(0,0,0,0.55);border:1px solid rgba(160,255,255,0.18);
-    padding:6px 10px;border-radius:10px;display:flex;align-items:center;gap:10px;backdrop-filter: blur(6px);}
+    color:#dff;background:#000000;
+    padding:6px 10px;border-radius:10px;display:flex;align-items:center;gap:10px;}
   #vstrip .dot{width:8px;height:8px;border-radius:50%;background:rgba(80,255,180,0.9);box-shadow:0 0 10px rgba(80,255,180,0.35);}
   #vstrip.bad .dot{background:rgba(255,90,90,0.95);box-shadow:0 0 12px rgba(255,90,90,0.45);}
   #vstrip .pill{padding:2px 8px;border-radius:999px;border:1px solid rgba(160,255,255,0.18);background:rgba(0,0,0,0.25);}
   #vstrip .muted{opacity:0.75}
   #vpanel{position:fixed;left:10px;top:calc(var(--topbar-h) + 10px);width:min(520px,calc(100vw - 20px));max-height:52vh;overflow:auto;
-    z-index:51;display:none;color:#dff;background:rgba(0,0,0,0.72);border:1px solid rgba(160,255,255,0.18);
-    padding:10px;border-radius:12px;backdrop-filter: blur(8px);scrollbar-width:none;scrollbar-color:rgba(160,255,255,.34) rgba(0,0,0,.14);overscroll-behavior:contain;position:fixed;}
+    z-index:51;display:none;color:#dff;background:#000000;
+    padding:10px;border-radius:12px;scrollbar-width:none;scrollbar-color:rgba(160,255,255,.34) rgba(0,0,0,.14);overscroll-behavior:contain;position:fixed;}
   #vpanel.show{display:block;}
   #vpanel::-webkit-scrollbar{width:10px;height:10px;opacity:0;}
   #vpanel::-webkit-scrollbar-track{background:rgba(0,0,0,.14);border-radius:999px;}
   #vpanel::-webkit-scrollbar-thumb{background:rgba(160,255,255,.32);border-radius:999px;border:2px solid rgba(0,0,0,.18);}
-  #vpanel.scroll-hover,#vpanel.scroll-active{scrollbar-width:thin;box-shadow:0 0 0 1px rgba(160,255,255,.18),0 0 18px rgba(160,255,255,.16),inset 0 0 24px rgba(160,255,255,.04);}
+  #vpanel.scroll-hover,#vpanel.scroll-active{scrollbar-width:thin;box-shadow:0 0 18px rgba(160,255,255,.16),inset 0 0 24px rgba(160,255,255,.04);}
   #vpanel.scroll-hover::-webkit-scrollbar,#vpanel.scroll-active::-webkit-scrollbar{opacity:1;}
   #vpanel::before,#vpanel::after{content:"";position:sticky;left:0;right:0;display:block;height:8px;pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:2;}
   #vpanel::before{top:0;background:linear-gradient(180deg, rgba(160,255,255,.42), rgba(160,255,255,0));}
@@ -69,7 +70,7 @@
   #vpanel .log{margin-top:8px;border-top:1px solid rgba(160,255,255,0.14);padding-top:8px;opacity:0.9}
   #vpanel .entry{margin:4px 0;opacity:0.9}
 
-  #probePanel{position:fixed;right:18px;bottom:190px;z-index:20;min-width:192px;padding:12px 12px;border-radius:18px;background:linear-gradient(180deg, rgba(34,10,44,0.86), rgba(20,8,30,0.76));border:1px solid rgba(255,120,235,0.22);box-shadow:0 0 28px rgba(255,120,235,0.14), inset 0 0 24px rgba(255,255,255,0.02);font:12px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;color:#f6e6ff;backdrop-filter: blur(10px);max-height:min(70vh,760px);overflow:auto;}
+  #probePanel{position:fixed;right:18px;bottom:190px;z-index:20;min-width:192px;padding:12px 12px;border-radius:18px;background:linear-gradient(180deg, rgb(34,10,44), rgb(20,8,30));box-shadow:0 0 28px rgba(255,120,235,0.14), inset 0 0 24px rgba(255,255,255,0.02);font:12px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;color:#f6e6ff;max-height:min(70vh,760px);overflow:auto;}
   #probePanel::-webkit-scrollbar,#probeQueueList::-webkit-scrollbar{width:10px;height:10px;opacity:0;}
   #probePanel::-webkit-scrollbar-track,#probeQueueList::-webkit-scrollbar-track{background:rgba(0,0,0,.14);border-radius:999px;}
   #probePanel::-webkit-scrollbar-thumb,#probeQueueList::-webkit-scrollbar-thumb{background:rgba(255,160,245,.28);border-radius:999px;border:2px solid rgba(0,0,0,.18);}
@@ -101,14 +102,14 @@
   #probePanel .inspectLine{font-size:10px;opacity:.84;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   #probePanel .inspectLine strong{font-size:11px;color:#fff;font-weight:700;}
   #probePanel .inspectEmpty{font-size:10px;opacity:.60;padding:6px 2px;}
-  #microReceiptPanel{position:fixed;right:18px;bottom:120px;z-index:20;min-width:192px;padding:12px 12px;border-radius:18px;background:linear-gradient(180deg, rgba(16,18,34,0.90), rgba(10,12,24,0.82));border:1px solid rgba(120,255,255,0.18);box-shadow:0 0 28px rgba(120,255,255,0.10), inset 0 0 24px rgba(255,255,255,0.02);font:12px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;color:#dcf7ff;backdrop-filter: blur(10px);max-height:min(34vh,360px);overflow:auto;}
+  #microReceiptPanel{position:fixed;right:18px;bottom:120px;z-index:20;min-width:192px;padding:12px 12px;border-radius:18px;background:linear-gradient(180deg, rgb(16,18,34), rgb(10,12,24));box-shadow:0 0 28px rgba(120,255,255,0.10), inset 0 0 24px rgba(255,255,255,0.02);font:12px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;color:#dcf7ff;max-height:min(34vh,360px);overflow:auto;}
   #microReceiptPanel::-webkit-scrollbar,#microReceiptList::-webkit-scrollbar{width:10px;height:10px;opacity:0;}
   #microReceiptPanel::-webkit-scrollbar-track,#microReceiptList::-webkit-scrollbar-track{background:rgba(0,0,0,.14);border-radius:999px;}
   #microReceiptPanel::-webkit-scrollbar-thumb,#microReceiptList::-webkit-scrollbar-thumb{background:rgba(120,255,255,.28);border-radius:999px;border:2px solid rgba(0,0,0,.18);}
   #microReceiptPanel.scroll-hover,#microReceiptPanel.scroll-active,#microReceiptList.scroll-hover,#microReceiptList.scroll-active{scrollbar-width:thin;box-shadow:0 0 0 1px rgba(120,255,255,.16),0 0 18px rgba(120,255,255,.12),inset 0 0 24px rgba(120,255,255,.04);}
   #microReceiptPanel.scroll-hover::-webkit-scrollbar,#microReceiptPanel.scroll-active::-webkit-scrollbar,#microReceiptList.scroll-hover::-webkit-scrollbar,#microReceiptList.scroll-active::-webkit-scrollbar{opacity:1;}
   #microReceiptPanel::before,#microReceiptPanel::after,#microReceiptList::before,#microReceiptList::after{content:"";position:sticky;left:0;right:0;display:block;height:8px;pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:2;}
-#writebackPanel,#commandHistoryPanel,#builderSwarmPanel{position:fixed;right:18px;z-index:20;min-width:260px;max-width:320px;padding:12px 14px;border-radius:14px;background:rgba(0,0,0,0.40);border:1px solid rgba(160,255,255,0.16);box-shadow:0 0 18px rgba(255,120,235,0.08);font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;color:#dff;backdrop-filter: blur(6px);overflow:auto;}
+#writebackPanel,#commandHistoryPanel,#builderSwarmPanel{position:fixed;right:18px;z-index:20;min-width:260px;max-width:320px;padding:12px 14px;border-radius:14px;background:#000000;box-shadow:0 0 18px rgba(255,120,235,0.08);font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;color:#dff;overflow:auto;}
 #writebackPanel .title,#commandHistoryPanel .title,#builderSwarmPanel .title{font-weight:700;letter-spacing:.08em;color:#fff;margin-bottom:6px;}
 #writebackPanel .sub,#commandHistoryPanel .sub,#builderSwarmPanel .sub{opacity:.78;margin-bottom:8px;}
 #writebackPanel .row,#commandHistoryPanel .row,#builderSwarmPanel .row{display:flex;justify-content:space-between;gap:10px;margin:4px 0;}
@@ -311,7 +312,7 @@
 
 <div id="rightDock"></div>
 
-<div id="eyePanel" style="position:fixed;right:18px;top:68px;z-index:20;min-width:260px;max-width:320px;padding:12px 14px;border-radius:14px;background:rgba(0,0,0,0.40);border:1px solid rgba(160,255,255,0.16);box-shadow:0 0 18px rgba(255,120,235,0.08);font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;color:#dff;backdrop-filter: blur(6px);">
+<div id="eyePanel" style="position:fixed;right:18px;top:68px;z-index:20;min-width:260px;max-width:320px;padding:12px 14px;border-radius:14px;background:#000000;box-shadow:0 0 18px rgba(255,120,235,0.08);font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;color:#dff;">
   <div style="font-weight:700;letter-spacing:.08em;color:#fff;margin-bottom:6px;">EYE COMMAND</div>
   <div id="eyePanelMode" style="opacity:.88">mode=AUTO</div>
   <div id="eyePanelTarget" style="opacity:.84">target=none</div>

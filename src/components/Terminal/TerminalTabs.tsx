@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, X, Terminal, Bell } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
@@ -35,6 +35,7 @@ export interface TerminalTabsViewProps {
   notificationsOpen: boolean;
   onCreateTab: () => void;
   onCloseTab: (id: string) => void;
+  onRenameTab: (id: string, title: string) => void;
   onSelectTab: (id: string) => void;
   onToggleNotifications: () => void;
   onDismissNotification: (id: string) => void;
@@ -48,6 +49,7 @@ export function TerminalTabsView({
   notificationsOpen,
   onCreateTab,
   onCloseTab,
+  onRenameTab,
   onSelectTab,
   onToggleNotifications,
   onDismissNotification,
@@ -55,6 +57,13 @@ export function TerminalTabsView({
 }: TerminalTabsViewProps) {
   const unread = unreadCount(notifications);
   const hasUnreadError = notifications.some((n) => !n.read && n.type === 'error');
+
+  // Inline rename: double-clicking a tab swaps its label for a text
+  // field with the current name selected. Enter or clicking away
+  // commits, Escape cancels.
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const cancelEditRef = useRef(false);
 
   return (
     <div className="relative h-9 flex items-center bg-[var(--bg-secondary)] border-b border-[var(--border)]">
@@ -69,9 +78,44 @@ export function TerminalTabsView({
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
             }`}
             onClick={() => onSelectTab(tab.id)}
+            onDoubleClick={() => {
+              setEditingTabId(tab.id);
+              setEditValue(tab.title);
+            }}
           >
             <Terminal size={14} />
-            <span className="text-sm whitespace-nowrap">{tab.title}</span>
+            {editingTabId === tab.id ? (
+              <input
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    // Blur commits (single commit path, see onBlur).
+                    e.currentTarget.blur();
+                  } else if (e.key === 'Escape') {
+                    cancelEditRef.current = true;
+                    e.currentTarget.blur();
+                  }
+                }}
+                onBlur={() => {
+                  if (cancelEditRef.current) {
+                    cancelEditRef.current = false;
+                  } else {
+                    const next = editValue.trim();
+                    if (next) onRenameTab(tab.id, next);
+                  }
+                  setEditingTabId(null);
+                }}
+                className="text-sm w-24 min-w-0 bg-transparent outline-none border-b border-[var(--border)]"
+                aria-label={`Rename ${tab.title}`}
+              />
+            ) : (
+              <span className="text-sm whitespace-nowrap">{tab.title}</span>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -171,7 +215,8 @@ export function TerminalTabsView({
 }
 
 function TerminalTabs() {
-  const { tabs, activeTabId, createTab, closeTab, setActiveTab } = useTerminalStore();
+  const { tabs, activeTabId, createTab, closeTab, setActiveTab, updateTabTitle } =
+    useTerminalStore();
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -188,6 +233,7 @@ function TerminalTabs() {
       notificationsOpen={notificationsOpen}
       onCreateTab={() => createTab()}
       onCloseTab={closeTab}
+      onRenameTab={updateTabTitle}
       onSelectTab={setActiveTab}
       onToggleNotifications={toggleNotifications}
       onDismissNotification={removeNotification}

@@ -33,7 +33,25 @@ interface TerminalState {
   updateTabCwd: (id: string, cwd: string) => void;
 }
 
-let tabCounter = 0;
+/**
+ * Numbers currently held by a live tab or an in-flight createTab call.
+ * New tabs reuse the lowest free number, so deleting a tab frees its
+ * number instead of the count climbing forever (Gary, 2026-11-05).
+ * The number is keyed off the tab id (`terminal-N`), not the title —
+ * a tab keeps its number when it is renamed.
+ */
+const usedTabNumbers = new Set<number>();
+
+function tabNumberFromId(id: string): number | null {
+  const match = /^terminal-(\d+)$/.exec(id);
+  return match ? Number(match[1]) : null;
+}
+
+function lowestFreeTabNumber(): number {
+  let n = 1;
+  while (usedTabNumbers.has(n)) n++;
+  return n;
+}
 
 export const useTerminalStore = create<TerminalState>((set) => ({
   tabs: [],
@@ -41,12 +59,23 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   createErrors: {},
 
   createTab: async (cwd?: string) => {
-    const id = `terminal-${++tabCounter}`;
-    const workingDir = cwd || await window.lucidAPI.fs.getHomeDir();
+    // Reserve the lowest free number synchronously, before any await:
+    // two creates fired back-to-back must still get distinct numbers.
+    const tabNumber = lowestFreeTabNumber();
+    usedTabNumbers.add(tabNumber);
+    const id = `terminal-${tabNumber}`;
+    let workingDir: string;
+    try {
+      workingDir = cwd || await window.lucidAPI.fs.getHomeDir();
+    } catch (error) {
+      // No tab was created, so the number is free again.
+      usedTabNumbers.delete(tabNumber);
+      throw error;
+    }
 
     const newTab: TerminalTab = {
       id,
-      title: `Terminal ${tabCounter}`,
+      title: `Terminal ${tabNumber}`,
       cwd: workingDir,
       isActive: true,
     };
@@ -80,6 +109,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   },
 
   closeTab: (id) => {
+    // Free the tab's number so a later tab reuses it.
+    const tabNumber = tabNumberFromId(id);
+    if (tabNumber !== null) usedTabNumbers.delete(tabNumber);
     // Destroy the PTY process
     window.lucidAPI.terminal.destroy(id);
     // Drop the tab's chats too — its blocks must not linger in the

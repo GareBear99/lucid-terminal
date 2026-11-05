@@ -58,6 +58,7 @@ const renderView = (props: {
       notificationsOpen: props.notificationsOpen ?? false,
       onCreateTab: noop,
       onCloseTab: noop,
+      onRenameTab: noop,
       onSelectTab: noop,
       onToggleNotifications: noop,
       onDismissNotification: noop,

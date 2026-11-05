@@ -2,10 +2,12 @@
  * SentinelFace — the Sentinel's face, standalone, now with horns.
  *
  * The simple emoji face from the synth: head circle, void eyes, fanged
- * maw, in the shell's fixed magenta palette. No customization props —
- * this is a fixed piece, kept separate for use in a corner of the UI
- * (Gary, 2026-11-04: the face goes in the corner of the typing bar as a
- * pressable button that opens the Synth view, the Sentinel's home).
+ * maw. Its colour is the Homunculus colour — purple or pink, chosen on
+ * first entry to the Synth view and stored as the `homunculusColor`
+ * setting. No choice yet (or an invalid one) and the face is unformed —
+ * black, with no eyes — until a colour is chosen, when the eyes fade
+ * in and the head line draws itself (the wake-up reveal). The horns
+ * are part of the face and wear the same colour.
  *
  * Horns (Gary, 2026-11-04): a pair of horns grows out of the top of the
  * head. They grow the more often you prompt and regress when your
@@ -14,7 +16,7 @@
  * settles at a stable horn length and the average nulls out instead of
  * growing forever). Horn length is the pace level, 0 (no horns) to 1
  * (full horns), scaled smoothly from the horn base with a CSS transition.
- * Fixed magenta only, no customization — the horns are part of the face.
+ * The horns wear the Homunculus colour, like the rest of the face.
  *
  * Blinks (Gary, 2026-11-04): the eyes blink every once in a while, on
  * a random interval — usually once, sometimes twice in quick succession.
@@ -64,6 +66,15 @@ import { usePromptPaceStore, hornScaleForLevel } from '../../stores/promptPaceSt
 import { useAIStore } from '../../stores/aiStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import {
+  HOMUNCULUS_EYE_FADE_MS,
+  HOMUNCULUS_LINE_DRAW_MS,
+  HOMUNCULUS_REVEAL_MS,
+  HOMUNCULUS_THEMES,
+  HOMUNCULUS_UNFORMED_THEME,
+  parseHomunculusColor,
+} from '../../lib/homunculusColor';
+import './SentinelFace.css';
 import { useGazeStore, setCursor, getCursors } from '../../stores/gazeStore';
 import { useHornWiggleStore, WIGGLE_DURATION_MS } from '../../stores/hornWiggleStore';
 import {
@@ -101,6 +112,21 @@ type EyeSide = 'left' | 'right';
 
 /** Eye close/open transition — fast, so the blink reads as a blink. */
 const EYE_BLINK_TRANSITION_MS = 90;
+
+/** The head circle's radius (r = 17) and circumference (2 * pi * 17),
+    the distance the wake-up line draw travels. */
+const HOMUNCULUS_HEAD_RADIUS = 17;
+const HOMUNCULUS_HEAD_CIRCUMFERENCE = 2 * Math.PI * HOMUNCULUS_HEAD_RADIUS;
+
+/** Reduced motion (mirrors the splash screen's helper): the reveal
+    animation is skipped and the final face shows at once. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
 
 export function SentinelFace({ size = 28 }: { size?: number }) {
   const level = usePromptPaceStore((s) => s.level);
@@ -259,6 +285,53 @@ export function SentinelFace({ size = 28 }: { size?: number }) {
   const attention = useGazeStore((s) => s.attention);
   const activeKeys = useLoadingStore((s) => s.activeKeys);
   const sensitivity = (useSettingsStore((s) => s.settings?.gazeSensitivity) ?? 50) / 100;
+
+  // Homunculus colour — purple or pink, chosen on first entry to the
+  // Synth view and stored as the `homunculusColor` setting. The whole
+  // face wears it: horns, head outline, and eyes. No choice yet (or an
+  // invalid one) and the face is unformed: black, with no eyes — the
+  // unformed theme, and the eyes and maw are not rendered at all.
+  // Pink is the face's current variation; purple is the new alternative.
+  const chosenHomunculusColor = parseHomunculusColor(
+    useSettingsStore((s) => s.settings?.homunculusColor),
+  );
+  const homunculusTheme = chosenHomunculusColor
+    ? HOMUNCULUS_THEMES[chosenHomunculusColor]
+    : HOMUNCULUS_UNFORMED_THEME;
+
+  // --- Wake-up reveal ---------------------------------------------------
+  // The face starts unformed (black, no eyes). The moment a colour is
+  // chosen, the eyes fade in and the head line draws itself — the
+  // Homunculus waking up. The reveal fires only on the null -> colour
+  // transition: not on mount with a colour already stored, and not
+  // when switching between pink and purple. Reduced motion skips the
+  // animation and shows the final face at once.
+  //
+  // Two effects, not one timer effect: React StrictMode double-invokes
+  // effects in dev, and a single effect that both sets and clears the
+  // flag could leave `revealing` stuck true. The trigger effect only
+  // ever sets it; the clearing effect only ever clears it.
+  const [revealing, setRevealing] = useState(false);
+  const prevChosenRef = useRef(chosenHomunculusColor);
+  useEffect(() => {
+    const prev = prevChosenRef.current;
+    prevChosenRef.current = chosenHomunculusColor;
+    if (
+      prev === null &&
+      chosenHomunculusColor !== null &&
+      !prefersReducedMotion()
+    ) {
+      setRevealing(true);
+    }
+  }, [chosenHomunculusColor]);
+  useEffect(() => {
+    if (!revealing) return;
+    const id = window.setTimeout(
+      () => setRevealing(false),
+      HOMUNCULUS_REVEAL_MS,
+    );
+    return () => window.clearTimeout(id);
+  }, [revealing]);
   const attentionRef = useRef(attention);
   attentionRef.current = attention;
   const activeKeysRef = useRef(activeKeys);
@@ -445,7 +518,7 @@ export function SentinelFace({ size = 28 }: { size?: number }) {
       style={{ overflow: 'visible' }}
     >
       {/* Horns — curved blades growing out of the top of the head, in the
-          face's fixed magenta. Scaled from the base (bottom centre of
+          face's Homunculus colour. Scaled from the base (bottom centre of
           each horn) by the prompting pace, 0 = no horns, 1 = full.
           Each horn is its own group so a task completion can wiggle
           it inward (rotate toward the centre and back) on top of the
@@ -454,33 +527,73 @@ export function SentinelFace({ size = 28 }: { size?: number }) {
         <g data-horn="left" style={hornWiggleStyle(1)}>
           <path
             d="M50,45 C45,38 42,33 43,29 C47,34 51,39 54,43 Z"
-            fill="#ff2d95"
-            stroke="#d7a0ff"
+            fill={homunculusTheme.primary}
+            stroke={homunculusTheme.light}
             strokeWidth="0.75"
           />
         </g>
         <g data-horn="right" style={hornWiggleStyle(-1)}>
           <path
             d="M70,45 C75,38 78,33 77,29 C73,34 69,39 66,43 Z"
-            fill="#ff2d95"
-            stroke="#d7a0ff"
+            fill={homunculusTheme.primary}
+            stroke={homunculusTheme.light}
             strokeWidth="0.75"
           />
         </g>
       </g>
-      {/* Head + void eyes + fanged maw */}
-      <circle cx="60" cy="56" r="17" fill="#0a0208" stroke="#ff2d95" strokeWidth="1.5" />
+      {/* Head + void eyes + fanged maw. Before a colour is chosen the
+          face is unformed: black, no eyes, no maw. Once chosen, the eyes
+          fade in and the head line draws itself (the wake-up reveal).
+          The head circle carries a dasharray of its own circumference
+          so the draw can start from a fully hidden line. */}
+      <circle
+        data-head="true"
+        cx="60"
+        cy="56"
+        r={HOMUNCULUS_HEAD_RADIUS}
+        fill="#0a0208"
+        stroke={homunculusTheme.primary}
+        strokeWidth="1.5"
+        strokeDasharray={HOMUNCULUS_HEAD_CIRCUMFERENCE}
+        strokeDashoffset={revealing ? undefined : 0}
+        style={
+          revealing
+            ? {
+                animation: `homunculus-line-draw ${HOMUNCULUS_LINE_DRAW_MS}ms ease forwards`,
+              }
+            : undefined
+        }
+      />
       {/* Gaze — the eyes shift toward what they are looking at and tilt
           a little in the direction of the look. The blink scaleY is on
           each eye itself, so a blink still closes the eyes wherever
-          they are looking. */}
+          they are looking. The eyes only exist once a colour is chosen
+          — the unformed face has none. */}
       <g style={tiltStyle} data-gaze-tilt="true">
         <g style={gazeStyle} data-gaze="true">
-          <circle cx="53" cy="54" r="3" fill="#d7a0ff" data-eye="left" style={eyeStyle(leftClosed)} />
-          <circle cx="67" cy="54" r="3" fill="#d7a0ff" data-eye="right" style={eyeStyle(rightClosed)} />
+          {chosenHomunculusColor !== null && (
+            <g
+              style={
+                revealing
+                  ? {
+                      animation: `homunculus-eye-fade ${HOMUNCULUS_EYE_FADE_MS}ms ease forwards`,
+                    }
+                  : undefined
+              }
+            >
+              <circle cx="53" cy="54" r="3" fill={homunculusTheme.light} data-eye="left" style={eyeStyle(leftClosed)} />
+              <circle cx="67" cy="54" r="3" fill={homunculusTheme.light} data-eye="right" style={eyeStyle(rightClosed)} />
+            </g>
+          )}
         </g>
       </g>
-      <path d="M54,66 l3,4 l3,-4 l3,4 l3,-4" stroke="#ffffff" strokeWidth="1" fill="none" />
+      {/* The fanged maw appears with the formed face — it is part of
+          the face once it has a colour, not part of the unformed
+          placeholder. (It is not animated: the reveal is the eye fade
+          and the head line draw.) */}
+      {chosenHomunculusColor !== null && (
+        <path data-maw="true" d="M54,66 l3,4 l3,-4 l3,4 l3,-4" stroke="#ffffff" strokeWidth="1" fill="none" />
+      )}
       {/* Blood — tiny faint pixels dripping from the fang tips while
           LuciferAI is running a task. Each falls and fades (the
           sentinel-blood-drip keyframe), then removes itself. Pointer

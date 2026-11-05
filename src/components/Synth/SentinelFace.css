@@ -1,0 +1,30 @@
+/**
+ * SentinelFace reveal — the Homunculus waking up.
+ *
+ * Gary (2026-11-05): once a colour is chosen the face reveals — the
+ * eyes fade in and the head line draws itself. Opacity and
+ * stroke-dashoffset only: both are compositor-friendly, no layout
+ * thrash, no per-frame JS.
+ *
+ * The head circle's radius is 17, so its circumference is 2 * pi * 17
+ * = 106.814… — the draw starts at 106.82 (rounded up, so the circle
+ * starts fully hidden) and draws to 0 (a full outline).
+ */
+
+@keyframes homunculus-eye-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes homunculus-line-draw {
+  from {
+    stroke-dashoffset: 106.82;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}

@@ -66,6 +66,8 @@ const defaultSettings: Settings = {
   processingGlowIntensity: 0.8,
   processingGlowSpeed: 3,
   gazeSensitivity: 50,
+  homunculusColor: null,
+  synthDisclaimerChoice: null,
   toolbarPlugins: {},
 };
 

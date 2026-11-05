@@ -33,6 +33,27 @@ import {
 import { useWindowMaximized } from '../../hooks/useWindowMaximized';
 import { synthScaleStyle } from './windowedScale';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { useSettingsStore } from '../../stores/settingsStore';
+import {
+  HOMUNCULUS_REVEAL_MS,
+  HOMUNCULUS_THEMES,
+  HOMUNCULUS_UNFORMED_THEME,
+  parseHomunculusColor,
+  shouldShowHomunculusPicker,
+  type HomunculusColor,
+} from '../../lib/homunculusColor';
+import {
+  shouldShowSynthDisclaimer,
+  type SynthDisclaimerChoice,
+} from '../../lib/synthDisclaimer';
+import {
+  HomunculusColorPicker,
+  HomunculusPickerErrorBoundary,
+} from './HomunculusColorPicker';
+import {
+  SynthDemoDisclaimer,
+  SynthDemoDisclaimerErrorBoundary,
+} from './SynthDemoDisclaimer';
 
 export function SynthView() {
   const activePluginId = useSynthStore((s) => s.activePluginId);
@@ -124,8 +145,71 @@ export function SynthView() {
   // together and stay interactive.
   const isMaximized = useWindowMaximized();
 
+  // Homunculus colour — purple or pink, chosen on first entry. Pink is
+  // the face's current variation; purple is the new alternative. The
+  // stored choice themes the face everywhere (SentinelFace reads the
+  // same setting); no choice yet shows the picker over the view and
+  // the face is unformed — black, with no eyes.
+  // The picker never blocks the view: it is wrapped in an error
+  // boundary, and a picker crash leaves the face unformed. A failed
+  // persist still hides the picker for this entry — the choice is
+  // simply asked again on the next entry.
+  const storedHomunculusColor = useSettingsStore(
+    (s) => s.settings?.homunculusColor,
+  );
+  const chosenHomunculusColor = parseHomunculusColor(storedHomunculusColor);
+  const homunculusTheme = chosenHomunculusColor
+    ? HOMUNCULUS_THEMES[chosenHomunculusColor]
+    : HOMUNCULUS_UNFORMED_THEME;
+  const [homunculusPickerDone, setHomunculusPickerDone] = useState(false);
+  const showHomunculusPicker =
+    shouldShowHomunculusPicker(storedHomunculusColor) &&
+    !homunculusPickerDone;
+  // The disclaimer waits for the wake-up reveal to finish when a
+  // colour was just chosen; on a later entry (colour already stored)
+  // there is no reveal to wait for. The timer lives in a ref and is
+  // cleared on unmount, so it can never fire into a dead view.
+  const disclaimerTimerRef = useRef(0);
+  useEffect(() => () => window.clearTimeout(disclaimerTimerRef.current), []);
+  const [synthDisclaimerDelayDone, setSynthDisclaimerDelayDone] = useState(
+    () => chosenHomunculusColor !== null,
+  );
+  const chooseHomunculusColor = useCallback((color: HomunculusColor) => {
+    void useSettingsStore.getState().updateSetting('homunculusColor', color);
+    setHomunculusPickerDone(true);
+    // The disclaimer follows the wake-up reveal: let the eye fade in
+    // and the line draw before asking.
+    window.clearTimeout(disclaimerTimerRef.current);
+    disclaimerTimerRef.current = window.setTimeout(
+      () => setSynthDisclaimerDelayDone(true),
+      HOMUNCULUS_REVEAL_MS,
+    );
+  }, []);
+
+  // Demo disclaimer — after the colour choice. Gary (2026-11-05): the
+  // Lucid synth is a demo, the demo of what it can become, until you
+  // build your own — and you build your own with Iteration 8, the
+  // creator builder. The disclaimer asks once: commence building your
+  // own (Iteration 8), or explore the demo still? A stored choice,
+  // either one, means it never asks again.
+  const storedSynthDisclaimerChoice = useSettingsStore(
+    (s) => s.settings?.synthDisclaimerChoice,
+  );
+  const [synthDisclaimerDone, setSynthDisclaimerDone] = useState(false);
+  const showSynthDisclaimer =
+    shouldShowSynthDisclaimer(storedSynthDisclaimerChoice) &&
+    !synthDisclaimerDone &&
+    chosenHomunculusColor !== null &&
+    synthDisclaimerDelayDone;
+  const chooseSynthDisclaimer = useCallback((choice: SynthDisclaimerChoice) => {
+    void useSettingsStore
+      .getState()
+      .updateSetting('synthDisclaimerChoice', choice);
+    setSynthDisclaimerDone(true);
+  }, []);
+
   return (
-    <div className="flex-1 overflow-hidden bg-[var(--bg-primary)]">
+    <div className="relative flex-1 overflow-hidden bg-[var(--bg-primary)]">
       <div className="flex" style={synthScaleStyle(isMaximized)}>
       {/* Shell — the vendored v67 MATRIX SYNTH, with the thinker in the eye once mounted */}
       <div className="flex-1 overflow-hidden relative">
@@ -137,7 +221,10 @@ export function SynthView() {
           onLoad={postMount}
           className="w-full h-full border-0 bg-black"
         />
-        <div className="absolute top-2 left-2 px-2 py-1 rounded bg-black/60 text-[11px] font-mono text-[#ff5db1] pointer-events-none">
+        <div
+          className="absolute top-2 left-2 px-2 py-1 rounded bg-black/60 text-[11px] font-mono pointer-events-none"
+          style={{ color: homunculusTheme.bright }}
+        >
           boot={bootState} · eye={eyeMode} · tile={selectedTileId}
           {mounted ? ` · ${mounted.name} mounted` : ' · shell empty'}
         </div>
@@ -151,11 +238,17 @@ export function SynthView() {
             Shell — {spec?.name ?? activePluginId}
           </h2>
           <div className="font-mono text-xs space-y-1 text-[var(--text-primary)]">
-            <div>boot: <span className="text-[#ff5db1]">{bootState}</span></div>
+            <div>boot: <span style={{ color: homunculusTheme.bright }}>{bootState}</span></div>
             <div>seed: {seedHex}</div>
             <div>tile: {selectedTileId} (center)</div>
             <div>eye: {eyeMode}</div>
             <div>blueprint: {shellLoaded ? 'loaded' : 'none — load one in the shell (Upload Blueprint JSON)'}</div>
+            {/* "Build my own" (Iteration 8, the creator builder) — the
+                choice is recorded; Iteration 8 itself is not built yet,
+                so this names it rather than faking a builder. */}
+            {storedSynthDisclaimerChoice === 'build' && (
+              <div>build: your own — Iteration 8, the creator builder (coming soon)</div>
+            )}
           </div>
           <Tooltip content="Randomize the Neural Synth seed">
             <button
@@ -186,7 +279,13 @@ export function SynthView() {
                 </div>
                 <div>
                   condition:{' '}
-                  <span className={condition === 'AWAKE' ? 'text-[#ff5db1]' : ''}>
+                  <span
+                    style={
+                      condition === 'AWAKE'
+                        ? { color: homunculusTheme.bright }
+                        : undefined
+                    }
+                  >
                     {condition}
                   </span>
                 </div>
@@ -273,6 +372,24 @@ export function SynthView() {
 
       </div>
       </div>
+      {/* First entry, no colour chosen yet: the Homunculus colour
+          picker. It overlays the view and never blocks it — a picker
+          crash renders nothing (error boundary) and the face stays
+          unformed (black, no eyes). */}
+      {showHomunculusPicker && (
+        <HomunculusPickerErrorBoundary>
+          <HomunculusColorPicker onChoose={chooseHomunculusColor} />
+        </HomunculusPickerErrorBoundary>
+      )}
+      {/* After the colour choice: the demo disclaimer. It asks once —
+          build your own with Iteration 8, the creator builder, or
+          explore the demo still — and never blocks the view (a
+          disclaimer crash renders nothing, error boundary). */}
+      {showSynthDisclaimer && (
+        <SynthDemoDisclaimerErrorBoundary>
+          <SynthDemoDisclaimer onChoose={chooseSynthDisclaimer} />
+        </SynthDemoDisclaimerErrorBoundary>
+      )}
     </div>
   );
 }

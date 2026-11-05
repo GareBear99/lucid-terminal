@@ -5,6 +5,8 @@ import type {
   StreamMetricsSnapshot,
   TouchMessage,
 } from '../phone/streaming';
+import type { HomunculusColor } from '../lib/homunculusColor';
+import type { SynthDisclaimerChoice } from '../lib/synthDisclaimer';
 
 export interface FileEntry {
   name: string;
@@ -187,6 +189,16 @@ export interface Settings {
   // 0 = the eyes ignore the cursor and stay wandering; 100 = they track
   // it closely and lock on quickly. Default 50: alive, but noticing.
   gazeSensitivity: number;
+  // Homunculus (the Sentinel face) colour — purple or pink, chosen on
+  // first entry to the Synth view. null = no choice yet: the picker
+  // shows on entry.
+  homunculusColor: HomunculusColor | null;
+  // Demo disclaimer choice (after the Homunculus colour) - 'build'
+  // = commence building your own with Iteration 8, the creator
+  // builder; 'explore' = explore the demo still. null = not
+  // answered yet: the disclaimer asks once. Either stored choice
+  // means it never asks again.
+  synthDisclaimerChoice: SynthDisclaimerChoice | null;
   // Toolbar plugins — which plugins show as buttons in the icon bar,
   // in the plugins section above Settings. Keyed by plugin id; a missing
   // key falls back to that plugin's defaultOnToolbar. Empty = all defaults.

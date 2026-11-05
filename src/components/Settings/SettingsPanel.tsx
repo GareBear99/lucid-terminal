@@ -12,6 +12,8 @@ import {
   Sliders,
   Package,
   Eye,
+  Puzzle,
+  Bot,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { themes, createDefaultCustomTheme } from '../../themes/themes';
@@ -19,15 +21,18 @@ import { Theme } from '../../types';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
 import { TOOLBAR_PLUGINS } from '../../data/toolbarPlugins';
+import { PLUGIN_ADDONS } from '../../data/pluginAddons';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 
 interface SettingsPanelProps {
   onClose: () => void;
+  /** Which tab opens first. Defaults to 'appearance'. */
+  initialTab?: SettingsTab;
 }
 
-type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general';
+type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins';
 
-function SettingsPanel({ onClose }: SettingsPanelProps) {
+function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const {
     settings,
     currentTheme,
@@ -41,7 +46,7 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
     importSettings,
   } = useSettingsStore();
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'appearance');
   const [licenseKeyInput, setLicenseKeyInput] = useState('');
   const [customTheme, setCustomThemeState] = useState<Theme>(
     settings.customTheme || createDefaultCustomTheme()
@@ -54,6 +59,43 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [daemonBusy, setDaemonBusy] = useState(false);
   const [daemonError, setDaemonError] = useState<string | null>(null);
   const [showDaemonLogs, setShowDaemonLogs] = useState(false);
+
+  // LuciferAI backend condition (Plugins tab). Best-effort, same status
+  // call SynthView uses (lucid.getModelStatuses): any backend up reads
+  // as awake, otherwise dormant. The Sentinel's mount state is not
+  // visible here — nothing mounts in Settings — so this is the backend
+  // condition only, not the full SentinelCondition.
+  const [luciferCondition, setLuciferCondition] = useState<
+    'checking' | 'awake' | 'dormant' | 'unavailable'
+  >('checking');
+
+  useEffect(() => {
+    if (activeTab !== 'plugins') return;
+    let cancelled = false;
+    const fetchStatus = async () => {
+      try {
+        const api = window.lucidAPI?.lucid;
+        if (!api || typeof api.getModelStatuses !== 'function') {
+          if (!cancelled) setLuciferCondition('unavailable');
+          return;
+        }
+        const result = await api.getModelStatuses();
+        if (cancelled || !result || typeof result !== 'object') return;
+        const anyUp = Object.values(result as Record<string, boolean>).some(
+          (v) => v === true,
+        );
+        if (!cancelled) setLuciferCondition(anyUp ? 'awake' : 'dormant');
+      } catch {
+        if (!cancelled) setLuciferCondition('unavailable');
+      }
+    };
+    fetchStatus();
+    const timer = setInterval(fetchStatus, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeTab]);
 
   const refreshDaemon = async () => {
     if (!window.lucidAPI.daemon) return;
@@ -201,6 +243,7 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
     { id: 'customization', label: 'Customization', icon: <Sliders size={18} /> },
+    { id: 'plugins', label: 'Plugins', icon: <Puzzle size={18} /> },
     { id: 'models', label: 'Models', icon: <Package size={18} /> },
     { id: 'terminal', label: 'Terminal', icon: <Terminal size={18} /> },
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} /> },
@@ -503,39 +546,6 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
               </section>
 
               <section>
-                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Toolbar plugins</h3>
-                <div className="space-y-3">
-                  {TOOLBAR_PLUGINS.map((plugin) => {
-                    const Icon = plugin.icon;
-                    const onToolbar = settings.toolbarPlugins?.[plugin.id] ?? plugin.defaultOnToolbar;
-                    return (
-                      <label key={plugin.id} className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={onToolbar}
-                          onChange={(e) =>
-                            updateSetting('toolbarPlugins', {
-                              ...(settings.toolbarPlugins ?? {}),
-                              [plugin.id]: e.target.checked,
-                            })
-                          }
-                          className="rounded"
-                        />
-                        <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
-                        <span className="min-w-0">
-                          <span className="block text-sm">{plugin.name}</span>
-                          <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-[var(--text-muted)] mt-2">
-                  Toggled-on plugins show as buttons in the icon bar, in the section above Settings. Applies right away, no restart needed.
-                </p>
-              </section>
-
-              <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Validation Display</h3>
                 <div className="space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -580,6 +590,94 @@ function SettingsPanel({ onClose }: SettingsPanelProps) {
                     />
                     <span className="text-sm">Show efficiency indicators</span>
                   </label>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'plugins' && (
+            <div className="space-y-6">
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Core plugins</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Built in — always installed.
+                </p>
+                <div className="space-y-3">
+                  {TOOLBAR_PLUGINS.map((plugin) => {
+                    const Icon = plugin.icon;
+                    const onToolbar = settings.toolbarPlugins?.[plugin.id] ?? plugin.defaultOnToolbar;
+                    return (
+                      <label key={plugin.id} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={onToolbar}
+                          onChange={(e) =>
+                            updateSetting('toolbarPlugins', {
+                              ...(settings.toolbarPlugins ?? {}),
+                              [plugin.id]: e.target.checked,
+                            })
+                          }
+                          className="rounded"
+                        />
+                        <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block text-sm">{plugin.name}</span>
+                          <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                  <div className="flex items-center gap-3">
+                    <Bot size={18} className="text-[var(--text-muted)] shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm">LuciferAI</span>
+                      <span className="block text-xs text-[var(--text-muted)]">
+                        The plugin itself — local AI backend, command passes, FixNet. The Synth shell and AI Chat above are its two surfaces.
+                      </span>
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)] shrink-0">
+                      Built-in ·{' '}
+                      {luciferCondition === 'checking'
+                        ? 'Checking…'
+                        : luciferCondition === 'awake'
+                          ? 'Awake'
+                          : luciferCondition === 'dormant'
+                            ? 'Dormant'
+                            : 'Status unavailable'}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mt-2">
+                  Toggled-on plugins show as buttons in the icon bar, in the section above Settings. Applies right away, no restart needed. LuciferAI has no toggle — it is always built in.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Add-ons</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Installed on demand — nothing is pre-installed. The install flow is not built yet, so the Install buttons stay disabled until it exists.
+                </p>
+                <div className="space-y-3">
+                  {PLUGIN_ADDONS.map((addon) => (
+                    <div key={addon.id} className="flex items-center gap-3">
+                      <Puzzle size={18} className="text-[var(--text-muted)] shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm">{addon.name}</span>
+                        <span className="block text-xs text-[var(--text-muted)]">
+                          {addon.description}
+                          {addon.removable ? ' Removable once installed.' : ''}
+                        </span>
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)] shrink-0">Not installed</span>
+                      <button
+                        disabled
+                        title="Install flow not built yet"
+                        className="btn btn-secondary text-xs shrink-0 opacity-50 cursor-not-allowed"
+                      >
+                        Install
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </section>
             </div>

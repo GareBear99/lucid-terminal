@@ -21,11 +21,10 @@ jobs:
       # and fails in CI (same reason local installs use it). Neither the
       # vitest suite nor the tool-integration script needs node-pty or
       # the Electron binary.
-      # NOTE: `npm install`, not `npm ci`: package-lock.json is
-      # gitignored in this repo, so a fresh checkout has no lockfile
-      # for `npm ci` to use.
+      # `npm ci`: package-lock.json is tracked, so installs are
+      # reproducible from the lockfile.
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       - name: Run unit tests (vitest)
         run: npm test

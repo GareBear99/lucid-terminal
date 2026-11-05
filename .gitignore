@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
-package-lock.json
+# NOTE: package-lock.json is intentionally TRACKED (see .github/workflows/test.yml):
+# `npm ci` needs it, so installs are reproducible.
 yarn.lock
 
 # Build outputs

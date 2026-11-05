@@ -31,7 +31,16 @@ async function createWindow() {
     frame: false, // Custom titlebar
     titleBarStyle: 'hidden',
     backgroundColor: '#0d1117',
-    icon: path.join(__dirname, '../resources/icon.ico'),
+    // Window icon: resources/icon.icns on macOS, resources/icon.ico on
+    // Windows. The old path pointed at a resources/ directory that did
+    // not exist, and .ico is a Windows format — macOS wants .icns.
+    // Packaged apps resolve from process.resourcesPath (extraResources
+    // copies resources/ there); in dev, from the repo root.
+    icon: path.join(
+      app.isPackaged ? process.resourcesPath : path.join(__dirname, '..'),
+      'resources',
+      process.platform === 'darwin' ? 'icon.icns' : 'icon.ico',
+    ),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

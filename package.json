@@ -60,6 +60,59 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "LUCID-BACKEND/core",
+        "to": "LUCID-BACKEND/core",
+        "filter": [
+          "**/*.py",
+          "**/*.json"
+        ]
+      },
+      {
+        "from": "LUCID-BACKEND/tools",
+        "to": "LUCID-BACKEND/tools",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "LUCID-BACKEND/luci",
+        "to": "LUCID-BACKEND/luci",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "LUCID-BACKEND/lucifer.py",
+        "to": "LUCID-BACKEND/lucifer.py"
+      },
+      {
+        "from": "LUCID-BACKEND/games/soul_combat/demo_physics_combat.py",
+        "to": "LUCID-BACKEND/games/soul_combat/demo_physics_combat.py"
+      },
+      {
+        "from": "resources/icon.icns",
+        "to": "resources/icon.icns"
+      },
+      {
+        "from": "resources/icon.ico",
+        "to": "resources/icon.ico"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.icns",
+      "category": "public.app-category.developer-tools"
+    },
     "win": {
       "target": [
         {

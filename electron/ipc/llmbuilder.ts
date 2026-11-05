@@ -44,15 +44,19 @@ import {
   RunManifest,
   candidateGgufPath,
   importDatasetFile,
+  installedCandidatePath,
   listRunManifests,
+  previousInstalledCandidatePath,
   readPromotionDecisionFile,
   readRoster,
   readScoreboardFile,
   runAskBrain,
   runProcess,
   sanitizeDatasetFilename,
+  swapInstalledCandidateSidecars,
   validateDatasetJsonl,
   writeFileAtomic,
+  writeInstalledCandidate,
   writeRosterAtomic,
 } from '../core/llmbuilder/jobRunner';
 
@@ -286,6 +290,12 @@ function copyFileAtomic(source: string, target: string): void {
  * ~/.lucid/models/<homunculusId>.gguf, the dir llamafileManager
  * already scans. The previous incumbent is kept on disk as
  * <homunculusId>.gguf.prev, so rollback is re-pointing.
+ *
+ * The brain IS the trained model: the installed candidate is recorded
+ * in a sidecar next to the GGUF, so ask-the-brain resolves the
+ * exemplar from THIS candidate — never from the latest candidate.
+ * The displaced incumbent's record moves with it, so rollback can
+ * re-point at it by name.
  */
 export function installBrainFor(
   paths: LlmbuilderPaths,
@@ -307,8 +317,14 @@ export function installBrainFor(
     if (fs.existsSync(target)) {
       fs.copyFileSync(target, previous);
       previousModelPath = previous;
+      const targetSidecar = installedCandidatePath(paths, homunculusId);
+      const previousSidecar = previousInstalledCandidatePath(paths, homunculusId);
+      if (fs.existsSync(targetSidecar)) {
+        copyFileAtomic(targetSidecar, previousSidecar);
+      }
     }
     copyFileAtomic(gguf, target);
+    writeInstalledCandidate(paths, homunculusId, candidate, target);
     return { ok: true, modelPath: target, previousModelPath };
   } catch (err) {
     return {
@@ -323,6 +339,11 @@ export function installBrainFor(
  * the previous incumbent swap, so a second rollback returns to the
  * newer brain. When there is no previous incumbent, the honest
  * error 'no previous incumbent' is returned — never faked.
+ *
+ * The installed-candidate records swap with the GGUFs, so the brain's
+ * records always describe the model that is actually installed — the
+ * rolled-back brain answers from the previous incumbent's records,
+ * not the newer model's.
  */
 export function rollbackFor(
   paths: LlmbuilderPaths,
@@ -333,6 +354,8 @@ export function rollbackFor(
   if (!fs.existsSync(previous)) {
     return { ok: false, error: 'no previous incumbent' };
   }
+  const targetSidecar = installedCandidatePath(paths, homunculusId);
+  const previousSidecar = previousInstalledCandidatePath(paths, homunculusId);
   try {
     if (fs.existsSync(target)) {
       // Swap: the displaced current brain becomes the new previous.
@@ -340,8 +363,17 @@ export function rollbackFor(
       fs.renameSync(target, tmp);
       fs.renameSync(previous, target);
       fs.renameSync(tmp, previous);
+      swapInstalledCandidateSidecars(targetSidecar, previousSidecar);
     } else {
       fs.copyFileSync(previous, target);
+      // No swap — the previous incumbent stays put, so its record
+      // copies to the target; a stale target record is dropped
+      // rather than kept naming the wrong brain.
+      if (fs.existsSync(previousSidecar)) {
+        copyFileAtomic(previousSidecar, targetSidecar);
+      } else if (fs.existsSync(targetSidecar)) {
+        fs.unlinkSync(targetSidecar);
+      }
     }
     return { ok: true, modelPath: target, previousModelPath: previous };
   } catch (err) {

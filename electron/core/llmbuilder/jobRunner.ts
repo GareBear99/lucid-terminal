@@ -937,10 +937,16 @@ export function candidateGgufPath(
 }
 
 /**
- * Find the Homunculus's current exemplar artifact: the latest run
+ * Find the Homunculus's latest exemplar artifact: the latest run
  * manifest for the Homunculus names its candidate; fall back to the
  * newest candidate dir starting with `<homunculusId>-` that has an
  * exemplar model. Null when the Homunculus has no brain yet.
+ *
+ * This is the LATEST candidate, not necessarily the INSTALLED brain —
+ * it is only the fallback for when no brain has been installed (no
+ * install record). `runAskBrain` prefers the installed candidate's
+ * exemplar (see installedCandidateFor) so the brain never answers
+ * from a different model's records.
  */
 export function findHomunculusExemplar(
   paths: LlmbuilderPaths,
@@ -980,6 +986,105 @@ export function findHomunculusExemplar(
     if (artifact) return { candidate, artifact };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Installed-brain record — the brain IS the trained model (Gary:
+// never let them conflict). When a promoted model is installed as a
+// Homunculus's brain, the installed candidate is recorded in a
+// sidecar next to the GGUF, so ask-the-brain resolves the exemplar
+// from the INSTALLED candidate — never from the latest candidate,
+// which may be a newer model that has not been installed. Rollback
+// swaps the sidecars with the GGUFs, so the record always describes
+// the model that is actually installed. A sidecar that named the
+// wrong candidate would answer from another model's records — worse
+// than none, so a stale one is removed, never kept.
+// ---------------------------------------------------------------------------
+
+export interface InstalledBrainRecord {
+  candidate: string;
+  modelPath: string;
+  installedAt: string;
+}
+
+/** Sidecar path recording which candidate is installed as the brain. */
+export function installedCandidatePath(
+  paths: LlmbuilderPaths,
+  homunculusId: string,
+): string {
+  return path.join(paths.modelsDir, `${homunculusId}.installed.json`);
+}
+
+/** Sidecar path for the previous incumbent's candidate. */
+export function previousInstalledCandidatePath(
+  paths: LlmbuilderPaths,
+  homunculusId: string,
+): string {
+  return path.join(
+    paths.modelsDir,
+    `${homunculusId}.gguf.prev.installed.json`,
+  );
+}
+
+/** The installed candidate, or null when no install has been recorded. */
+export function installedCandidateFor(
+  paths: LlmbuilderPaths,
+  homunculusId: string,
+): string | null {
+  try {
+    const raw = fs.readFileSync(
+      installedCandidatePath(paths, homunculusId),
+      'utf-8',
+    );
+    const rec = JSON.parse(raw) as Partial<InstalledBrainRecord>;
+    return typeof rec.candidate === 'string' && rec.candidate !== ''
+      ? rec.candidate
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Record that `candidate` is installed as the Homunculus's brain. */
+export function writeInstalledCandidate(
+  paths: LlmbuilderPaths,
+  homunculusId: string,
+  candidate: string,
+  modelPath: string,
+): void {
+  ensureLlmbuilderDirs(paths);
+  const rec: InstalledBrainRecord = {
+    candidate,
+    modelPath,
+    installedAt: new Date().toISOString(),
+  };
+  writeFileAtomic(
+    installedCandidatePath(paths, homunculusId),
+    JSON.stringify(rec, null, 2) + '\n',
+  );
+}
+
+/**
+ * Swap two installed-candidate sidecars the way rollback swaps the
+ * GGUFs: after the swap, the sidecar at `a` describes the model now
+ * at `a` (the old model at `b`), and vice versa. When only one
+ * exists, it moves to `a`; when only `a` exists, it is removed — it
+ * described the model that was just displaced, and keeping it would
+ * name the wrong brain.
+ */
+export function swapInstalledCandidateSidecars(a: string, b: string): void {
+  const aHas = fs.existsSync(a);
+  const bHas = fs.existsSync(b);
+  if (aHas && bHas) {
+    const tmp = `${a}.swap-${process.pid}-${Date.now()}`;
+    fs.renameSync(a, tmp);
+    fs.renameSync(b, a);
+    fs.renameSync(tmp, b);
+  } else if (bHas) {
+    fs.renameSync(b, a);
+  } else if (aHas) {
+    fs.unlinkSync(a);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1888,7 +1993,31 @@ export async function runAskBrain(
   args: { homunculusId: string; prompt: string; capability?: string },
   deps: { spawnFn?: SpawnFn; timeoutMs?: number } = {},
 ): Promise<AskBrainResult> {
-  const found = findHomunculusExemplar(paths, args.homunculusId);
+  // The brain IS the trained model: when a brain is installed, answer
+  // from the INSTALLED candidate's exemplar — never from the latest
+  // candidate, which may be a newer model that has not been installed.
+  // No install record (legacy / test setups) falls back to the latest
+  // candidate, the pre-existing behaviour.
+  const installed = installedCandidateFor(paths, args.homunculusId);
+  let found: { candidate: string; artifact: string } | null;
+  if (installed) {
+    const artifact = exemplarArtifactPath(paths, installed);
+    if (!artifact) {
+      return {
+        ok: false,
+        text: '',
+        matches: [],
+        answer: '',
+        matchedCapabilities: [],
+        confidence: null,
+        noMatch: true,
+        error: `installed brain ${installed} has no exemplar artifact — its records are missing`,
+      };
+    }
+    found = { candidate: installed, artifact };
+  } else {
+    found = findHomunculusExemplar(paths, args.homunculusId);
+  }
   if (!found) {
     return {
       ok: false,

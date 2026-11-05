@@ -87,12 +87,14 @@ vi.mock('child_process', async (importOriginal) => {
 
 import { setupLlmbuilderHandlers } from '../electron/ipc/llmbuilder';
 import { resolveLlmbuilderPaths } from '../electron/core/llmbuilder/paths';
+import { installedCandidateFor } from '../electron/core/llmbuilder/jobRunner';
 
 function makeFixture(): {
   tmp: string;
   builderDir: string;
   dataDir: string;
   modelsDir: string;
+  paths: ReturnType<typeof resolveLlmbuilderPaths>;
 } {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmbuilder-ipc-'));
   const builderDir = path.join(tmp, 'LUCID-BUILDER');
@@ -127,7 +129,7 @@ function makeFixture(): {
     { builderDir, dataDir, modelsDir, homeDir: tmp },
   );
   void paths;
-  return { tmp, builderDir, dataDir, modelsDir };
+  return { tmp, builderDir, dataDir, modelsDir, paths };
 }
 
 async function invoke(channel: string, ...args: any[]): Promise<any> {
@@ -348,6 +350,10 @@ describe('installBrain and rollback', () => {
     expect(
       fs.readFileSync(first.modelPath, 'utf-8'),
     ).toBe('gguf-lucifer-1');
+    // The brain IS the trained model: installing records which
+    // candidate is installed, so ask-the-brain answers from its
+    // records — never from a newer, uninstalled candidate.
+    expect(installedCandidateFor(fixture.paths, 'lucifer')).toBe('lucifer-1');
 
     writeGguf('lucifer-2');
     const second = await invoke('llmbuilder:installBrain', 'lucifer', 'lucifer-2');
@@ -361,6 +367,15 @@ describe('installBrain and rollback', () => {
         'utf-8',
       ),
     ).toBe('gguf-lucifer-1');
+    expect(installedCandidateFor(fixture.paths, 'lucifer')).toBe('lucifer-2');
+    // The displaced incumbent's record moved with it.
+    const prevRecord = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.modelsDir, 'lucifer.gguf.prev.installed.json'),
+        'utf-8',
+      ),
+    );
+    expect(prevRecord.candidate).toBe('lucifer-1');
 
     const rolled = await invoke('llmbuilder:rollback', 'lucifer');
     expect(rolled.ok).toBe(true);
@@ -370,6 +385,9 @@ describe('installBrain and rollback', () => {
         'utf-8',
       ),
     ).toBe('gguf-lucifer-1');
+    // Rollback re-points the brain AND its records at the previous
+    // incumbent — the records must not keep the newer model's name.
+    expect(installedCandidateFor(fixture.paths, 'lucifer')).toBe('lucifer-1');
   });
 
   it('installBrain fails honestly with no promoted GGUF', async () => {

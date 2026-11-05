@@ -292,6 +292,7 @@ import {
   validateDatasetJsonl,
   importDatasetFile,
   readRoster,
+  writeInstalledCandidate,
   writeRosterAtomic,
   type LlmbuilderPaths,
   type LlmbuilderProgressEvent,
@@ -814,6 +815,64 @@ describe('askBrain', () => {
     );
     expect(directCall).toBeDefined();
     expect(directCall!.args).toContain('--system-prompt');
+  });
+
+  it('answers from the installed candidate, not the latest', async () => {
+    // Two candidates with exemplars; the latest run names lucifer-2,
+    // but the installed brain is lucifer-1. The brain IS the trained
+    // model — it must answer from lucifer-1's records, never from the
+    // newer, uninstalled candidate's.
+    for (const candidate of ['lucifer-1', 'lucifer-2']) {
+      const base = path.join(
+        fixture.builderDir,
+        'exports',
+        'candidates',
+        candidate,
+        'exemplar_train',
+      );
+      fs.mkdirSync(base, { recursive: true });
+      fs.writeFileSync(
+        path.join(base, 'exemplar_model.json'),
+        JSON.stringify({ records: [] }),
+        'utf-8',
+      );
+    }
+    // A run manifest naming lucifer-2 (the latest candidate).
+    const events: LlmbuilderProgressEvent[] = [];
+    const runner = makeRunner(fixture.paths, events);
+    const started = runner.startRun({
+      homunculusId: 'lucifer',
+      candidate: 'lucifer-2',
+      tier: 'tiny',
+      steps: 20,
+      batchSize: 4,
+      corpus: 'repo',
+    });
+    await waitFor(() => {
+      const m = runner.getRun(started.runId);
+      return !!m && m.status !== 'running';
+    });
+    // Install lucifer-1 as the brain.
+    writeInstalledCandidate(
+      fixture.paths,
+      'lucifer',
+      'lucifer-1',
+      path.join(fixture.paths.modelsDir, 'lucifer.gguf'),
+    );
+    const result = await runAskBrain(
+      fixture.paths,
+      { homunculusId: 'lucifer', prompt: 'who are you?' },
+      { spawnFn: spawn as unknown as SpawnFn },
+    );
+    expect(result.ok).toBe(true);
+    const directCall = mockState.calls.find((c) =>
+      c.args.some((a) => a.includes('run_direct_candidate')),
+    );
+    expect(directCall).toBeDefined();
+    const artifactIdx = directCall!.args.indexOf('--artifact');
+    expect(artifactIdx).toBeGreaterThan(-1);
+    expect(directCall!.args[artifactIdx + 1]).toContain('lucifer-1');
+    expect(directCall!.args[artifactIdx + 1]).not.toContain('lucifer-2');
   });
 });
 

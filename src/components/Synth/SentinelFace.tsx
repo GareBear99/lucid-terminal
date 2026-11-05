@@ -82,6 +82,7 @@ import {
   nextWanderDelayMs,
   pickWanderTarget,
   focusTransitionMs,
+  screenPointToClient,
   type GazeOffset,
 } from './gaze';
 import {
@@ -301,6 +302,15 @@ export function SentinelFace({ size = 28 }: { size?: number }) {
   // The user's pointer registers as the 'user' cursor — one entry in
   // the follow-target registry, not a special case. Later, any agent's
   // cursor registers the same way and the most recently moved one wins.
+  //
+  // Off-window cursor: pointer events only fire inside the app's
+  // window, so the main process also polls the global cursor position
+  // (screen coordinates, works anywhere on the desktop) and pushes it
+  // over IPC. The point is converted to client coordinates with the
+  // window's live screen position and fed into the SAME 'user' entry
+  // the mousemove path writes — most recent write wins, and the
+  // priority, sensitivity, idle timeout, and smoothing all apply
+  // unchanged. No lucidAPI in tests/SSR: skip quietly.
   useEffect(() => {
     const schedule = () => {
       cancelAnimationFrame(rafRef.current);
@@ -312,9 +322,18 @@ export function SentinelFace({ size = 28 }: { size?: number }) {
     };
     window.addEventListener('pointermove', onPointer);
     window.addEventListener('pointerdown', onPointer);
+    const onGlobalPoint = window.lucidAPI?.cursor?.onGlobalPoint;
+    const unsubscribeGlobal = onGlobalPoint
+      ? onGlobalPoint((sx, sy) => {
+          const c = screenPointToClient(sx, sy, window.screenX, window.screenY);
+          setCursor('user', c.x, c.y);
+          schedule();
+        })
+      : undefined;
     return () => {
       window.removeEventListener('pointermove', onPointer);
       window.removeEventListener('pointerdown', onPointer);
+      unsubscribeGlobal?.();
       cancelAnimationFrame(rafRef.current);
     };
   }, [updateGaze]);

@@ -188,6 +188,24 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 /**
+ * Convert a global (screen) cursor point to client coordinates for a
+ * window whose top-left is at (windowX, windowY) on screen. Both are
+ * in DIPs, so a plain subtraction works on any display — including a
+ * second monitor, where screen coordinates can be negative or beyond
+ * the primary display. The result may be far outside the window; the
+ * gaze math handles that (direction + saturation at full deflection),
+ * so an off-window cursor still aims the eyes the right way.
+ */
+export function screenPointToClient(
+  screenX: number,
+  screenY: number,
+  windowX: number,
+  windowY: number,
+): { x: number; y: number } {
+  return { x: screenX - windowX, y: screenY - windowY };
+}
+
+/**
  * Eye shift for a target point, given the face centre (both in client
  * pixels). The shift points from the face centre toward the target, at
  * full deflection once the target is GAZE_REACH_PX away or more, and

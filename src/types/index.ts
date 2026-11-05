@@ -282,6 +282,9 @@ declare global {
         onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
         onOpenUrl: (callback: (url: string) => void) => () => void;
       };
+      cursor: {
+        onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;
+      };
       daemon: {
         start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; error?: string }>;
         stop: () => Promise<{ success: boolean; error?: string }>;

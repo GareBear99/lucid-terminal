@@ -140,6 +140,17 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     },
   },
 
+  // Global cursor (off-window gaze) — the main process polls
+  // screen.getCursorScreenPoint() and pushes points here; the
+  // Sentinel face converts them to client coordinates.
+  cursor: {
+    onGlobalPoint: (callback: (x: number, y: number) => void) => {
+      const listener = (_: any, x: number, y: number) => callback(x, y);
+      ipcRenderer.on('cursor:global-point', listener);
+      return () => ipcRenderer.removeListener('cursor:global-point', listener);
+    },
+  },
+
   // File-watcher daemon (LuciferWatcher) operations
   daemon: {
     start: () => ipcRenderer.invoke('daemon:start'),
@@ -275,6 +286,9 @@ export interface LucidAPI {
     reload: (tabId: string) => Promise<void>;
     onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
     onOpenUrl: (callback: (url: string) => void) => () => void;
+  };
+  cursor: {
+    onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;
   };
   daemon: {
     start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; error?: string }>;

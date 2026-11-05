@@ -8,6 +8,7 @@ import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
 import { setupSystemHandlers } from './ipc/system';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupBrowserHandlers } from './ipc/browser';
+import { setupGlobalCursorPolling } from './ipc/cursor';
 import { apiKeyStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
@@ -84,6 +85,10 @@ app.whenReady().then(() => {
   setupDaemonHandlers(ipcMain);
   // The in-panel browser needs the window to attach its BrowserViews to.
   setupBrowserHandlers(ipcMain, () => mainWindow);
+  // The Sentinel face follows the cursor even off-window: the
+  // main process polls the global cursor position and pushes it
+  // to the renderer (see electron/ipc/cursor.ts).
+  setupGlobalCursorPolling();
 
   // Start the file-watcher daemon when the setting says so (and watch
   // paths exist). The watcher is a background Python process; it stops

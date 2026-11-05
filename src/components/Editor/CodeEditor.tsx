@@ -1,7 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
 import { X, Save } from 'lucide-react';
-import Editor from '@monaco-editor/react';
+import Editor, { loader } from '@monaco-editor/react';
+import '../../lib/monacoLoader';
+import { MONACO_LOAD_TIMEOUT_MS } from '../../lib/monacoLoader';
 import { useFileStore } from '../../stores/fileStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useToastStore } from '../../stores/toastStore';
 
 function CodeEditor() {
   const { openFiles, activeFilePath, setActiveFile, closeFile, updateFileContent, saveFile } =
@@ -9,6 +13,45 @@ function CodeEditor() {
   const { settings, currentTheme } = useSettingsStore();
 
   const activeFile = openFiles.find((f) => f.path === activeFilePath);
+
+  // Monaco fallback: if the editor never loads, the view used to sit on
+  // "Loading..." forever with no way to type. Fall back to a plain
+  // textarea so the file stays editable — same deal as the prompt input.
+  const [monacoFailed, setMonacoFailed] = useState(false);
+  const monacoReady = useRef(false);
+  const fallbackToastShown = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fallBack = () => {
+      if (cancelled || monacoReady.current) return;
+      setMonacoFailed(true);
+      if (!fallbackToastShown.current) {
+        fallbackToastShown.current = true;
+        useToastStore.getState().warning(
+          'Monaco editor failed to load — using plain text editing. Saving still works.'
+        );
+      }
+    };
+    // Fast path: the loader promise rejects when the bundle fails to load.
+    // Slow path: the load can hang instead of failing outright.
+    loader
+      .init()
+      .then(() => {
+        monacoReady.current = true;
+      })
+      .catch(fallBack);
+    const timer = setTimeout(fallBack, MONACO_LOAD_TIMEOUT_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Monaco mounted — the fallback is no longer needed.
+  const handleEditorDidMount = () => {
+    monacoReady.current = true;
+  };
 
   // Determine language from file extension
   const getLanguage = (filename: string): string => {
@@ -127,30 +170,44 @@ function CodeEditor() {
       {/* Editor */}
       {activeFile && (
         <div className="flex-1 overflow-hidden">
-          <Editor
-            height="100%"
-            language={getLanguage(activeFile.name)}
-            value={activeFile.content || ''}
-            loading="" // Disable default loading text to see if it's Monaco
-            theme={getEditorTheme()}
-            onChange={(value) => updateFileContent(activeFile.path, value || '')}
-            options={{
-              fontFamily: settings.fontFamily,
-              fontSize: settings.fontSize,
-              minimap: { enabled: true },
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              automaticLayout: true,
-              tabSize: 2,
-              insertSpaces: true,
-              renderWhitespace: 'selection',
-              bracketPairColorization: { enabled: true },
-              guides: {
-                indentation: true,
-                bracketPairs: true,
-              },
-            }}
-          />
+          {monacoFailed ? (
+            <textarea
+              aria-label="Plain text editor (Monaco unavailable)"
+              value={activeFile.content || ''}
+              onChange={(e) => updateFileContent(activeFile.path, e.target.value)}
+              spellCheck={false}
+              placeholder="Plain text editing — Monaco unavailable"
+              title="Monaco editor unavailable — using plain text editing"
+              className="w-full h-full bg-transparent text-[var(--text-primary)] font-mono text-sm p-3 outline-none resize-none overflow-auto whitespace-pre"
+              style={{ fontFamily: settings.fontFamily, fontSize: settings.fontSize }}
+            />
+          ) : (
+            <Editor
+              height="100%"
+              language={getLanguage(activeFile.name)}
+              value={activeFile.content || ''}
+              loading="" // Disable default loading text to see if it's Monaco
+              theme={getEditorTheme()}
+              onMount={handleEditorDidMount}
+              onChange={(value) => updateFileContent(activeFile.path, value || '')}
+              options={{
+                fontFamily: settings.fontFamily,
+                fontSize: settings.fontSize,
+                minimap: { enabled: true },
+                scrollBeyondLastLine: false,
+                wordWrap: 'on',
+                automaticLayout: true,
+                tabSize: 2,
+                insertSpaces: true,
+                renderWhitespace: 'selection',
+                bracketPairColorization: { enabled: true },
+                guides: {
+                  indentation: true,
+                  bracketPairs: true,
+                },
+              }}
+            />
+          )}
         </div>
       )}
     </div>

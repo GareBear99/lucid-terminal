@@ -12,6 +12,9 @@ out/
 *.js.map
 *.d.ts
 !electron/**/*.js
+# Vendored Monaco bundle (public/monaco/vs) — shipped with the app so the
+# editor works with no CDN. Keep it in git; re-copy it on monaco upgrades.
+!public/monaco/**
 
 # IDE
 .vscode/

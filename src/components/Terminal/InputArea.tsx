@@ -1,11 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
+import '../../lib/monacoLoader'; // Bundle Monaco locally instead of the CDN
 import { ProcessingGlow } from './ProcessingGlow';
 import { useToastStore } from '../../stores/toastStore';
 
-// How long to wait for Monaco (loaded from cdn.jsdelivr.net) before giving
+// How long to wait for Monaco (bundled locally with the app) before giving
 // up and rendering a plain textarea. Without this the prompt sits on
-// "Loading..." forever when the CDN is unreachable, and the user cannot type
+// "Loading..." forever if Monaco fails to load, and the user cannot type
 // a command at all.
 const MONACO_LOAD_TIMEOUT_MS = 8000;
 
@@ -29,10 +30,9 @@ interface InputAreaProps {
 export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
 
-  // Monaco fallback: the editor loads from a CDN, so when the network (or
-  // the CDN) is down it never mounts and the prompt is stuck on "Loading..."
-  // with no way to type. Fall back to a plain textarea so the terminal
-  // stays usable.
+  // Monaco fallback: the editor is bundled locally, but if it still fails
+  // to mount the prompt is stuck on "Loading..." with no way to type.
+  // Fall back to a plain textarea so the terminal stays usable.
   const [monacoFailed, setMonacoFailed] = useState(false);
   const fallbackToastShown = useRef(false);
 
@@ -48,9 +48,9 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         );
       }
     };
-    // Fast path: the loader promise rejects when the CDN script fails.
+    // Fast path: the loader promise rejects when the Monaco bundle fails to load.
     loader.init().catch(fallBack);
-    // Slow path: the CDN request can hang instead of failing outright.
+    // Slow path: the Monaco load can hang instead of failing outright.
     const timer = setTimeout(fallBack, MONACO_LOAD_TIMEOUT_MS);
     return () => {
       cancelled = true;

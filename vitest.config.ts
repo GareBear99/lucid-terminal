@@ -5,7 +5,7 @@ export default defineConfig({
     // Node environment: the command router / tool registry run in the
     // Electron main process, not a browser.
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     // The existing tests use Jest-style globals (describe/test/expect)
     // without importing them; enable vitest globals so they run as-is.
     globals: true,

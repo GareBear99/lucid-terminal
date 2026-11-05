@@ -24,8 +24,10 @@
  *   - After the error: health is false, chatLocal rejects with
  *     "Local backend is not running" (fails fast, never queued).
  *   - An error AFTER the backend was ready clears the live state.
- *   - resolvePythonPath() returns the real python3 in this VM
- *     (hand-checked: `which python3` is /usr/bin/python3).
+ *   - resolvePythonPath() returns the real python3 in this environment
+ *     (hand-checked: `which python3` is /usr/bin/python3 in this VM,
+ *     /usr/local/bin/python3 on Gary's Mac — the test asserts against
+ *     an independent lookup, never a hard-coded path).
  *   - resolvePythonPath() returns null when PATH is empty and no
  *     candidate exists (forced via the injected parameters).
  *
@@ -34,6 +36,7 @@
 
 import { vi } from 'vitest';
 import * as fs from 'fs';
+import { execFileSync } from 'child_process';
 
 const spawnCalls = vi.hoisted(() => ({ procs: [] as any[] }));
 
@@ -102,6 +105,32 @@ function enoentError(): Error {
   return err;
 }
 
+/** Independent oracle for the resolver: the PATH lookup first, then
+ * the well-known locations newest-first — the documented order in
+ * pythonPath.ts, computed here without calling the resolver. On the
+ * Mac this is /usr/local/bin/python3; in this VM /usr/bin/python3. */
+function expectedPythonPath(): string {
+  try {
+    const found = execFileSync('/usr/bin/which', ['python3'], {
+      encoding: 'utf-8',
+    })
+      .trim()
+      .split('\n')[0]
+      ?.trim();
+    if (found && fs.existsSync(found)) return found;
+  } catch {
+    // `which` failed — fall through to the absolute candidates.
+  }
+  for (const candidate of [
+    '/usr/local/bin/python3',
+    '/opt/homebrew/bin/python3',
+    '/usr/bin/python3',
+  ]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error('no python3 found in this environment');
+}
+
 describe('startBackend spawn failure (python3 ENOENT)', () => {
   beforeEach(() => {
     spawnCalls.procs.length = 0;
@@ -162,8 +191,9 @@ describe('resolvePythonPath / getPythonCommand', () => {
     expect(resolved).not.toBeNull();
     expect(resolved!.endsWith('python3')).toBe(true);
     expect(fs.existsSync(resolved!)).toBe(true);
-    // Hand-checked in this VM: `which python3` is /usr/bin/python3.
-    expect(resolved).toBe('/usr/bin/python3');
+    // Asserted against the independent lookup, not a hard-coded
+    // path — /usr/bin/python3 here, /usr/local/bin/python3 on the Mac.
+    expect(resolved).toBe(expectedPythonPath());
   });
 
   test('returns null when PATH is empty and no candidate exists', () => {
@@ -171,7 +201,7 @@ describe('resolvePythonPath / getPythonCommand', () => {
   });
 
   test('getPythonCommand returns the resolved absolute path', () => {
-    expect(getPythonCommand()).toBe('/usr/bin/python3');
+    expect(getPythonCommand()).toBe(expectedPythonPath());
   });
 
   test('getPythonCommand falls back to the bare command when nothing resolves', () => {

@@ -73,6 +73,7 @@ import {
   HOMUNCULUS_THEMES,
   HOMUNCULUS_UNFORMED_THEME,
   parseHomunculusColor,
+  type HomunculusColor,
 } from '../../lib/homunculusColor';
 import './SentinelFace.css';
 import { useGazeStore, setCursor, getCursors } from '../../stores/gazeStore';
@@ -128,7 +129,19 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-export function SentinelFace({ size = 28 }: { size?: number }) {
+export function SentinelFace({
+  size = 28,
+  color,
+}: {
+  size?: number;
+  /** The Homunculus colour to wear. When given, it overrides the
+      colour stored in Settings — the Forge roster card passes each
+      Homunculus's own colour, so two Homunculi of different colours
+      show different faces. When omitted, the face reads the colour
+      from Settings as before (the prompt-bar button and Synth view).
+      An explicit `null` means unformed (black, no eyes). */
+  color?: HomunculusColor | null;
+}) {
   const level = usePromptPaceStore((s) => s.level);
 
   // Slow tick so the horns regress while the user is idle — the store's
@@ -292,9 +305,15 @@ export function SentinelFace({ size = 28 }: { size?: number }) {
   // invalid one) and the face is unformed: black, with no eyes — the
   // unformed theme, and the eyes and maw are not rendered at all.
   // Pink is the face's current variation; purple is the new alternative.
-  const chosenHomunculusColor = parseHomunculusColor(
+  //
+  // An explicit `color` prop wins over Settings — the Forge roster
+  // card passes each Homunculus's own colour. `undefined` means "no
+  // override, read Settings"; an explicit `null` means unformed.
+  const settingsHomunculusColor = parseHomunculusColor(
     useSettingsStore((s) => s.settings?.homunculusColor),
   );
+  const chosenHomunculusColor =
+    color !== undefined ? color : settingsHomunculusColor;
   const homunculusTheme = chosenHomunculusColor
     ? HOMUNCULUS_THEMES[chosenHomunculusColor]
     : HOMUNCULUS_UNFORMED_THEME;

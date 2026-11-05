@@ -105,6 +105,19 @@ describe('ForgeView', () => {
     expect(screen.getByText(/Untrained/)).toBeTruthy();
   });
 
+  test('roster card face wears the Homunculus own color, not the Settings color', async () => {
+    // Settings says pink; this Homunculus is purple — the card's face
+    // must be purple (#a855f7). Without the color prop the face would
+    // wear the Settings color instead.
+    const PURPLE_ONE: Homunculus = { ...LUCIFER, id: 'violet', name: 'Violet', color: 'purple' };
+    restore = installMock([PURPLE_ONE]);
+    render(<ForgeView />);
+    await waitFor(() => expect(screen.getByText('Violet')).toBeTruthy());
+    const head = document.querySelector('[data-head="true"]');
+    expect(head).not.toBeNull();
+    expect(head?.getAttribute('stroke')).toBe('#a855f7');
+  });
+
   test('pipeline shows all five stages', async () => {
     restore = installMock([LUCIFER]);
     render(<ForgeView />);

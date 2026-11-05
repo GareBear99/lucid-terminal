@@ -157,3 +157,47 @@ describe('SentinelFace unformed state', () => {
     );
   });
 });
+
+describe('SentinelFace color prop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    seedHomunculusColor(null);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    seedHomunculusColor(null);
+  });
+
+  test('a color prop wears that color even when Settings has no choice', () => {
+    // Settings: no choice yet (unformed). The prop still forms the face.
+    const { container } = render(<SentinelFace color="pink" />);
+    expect(headCircle(container)?.getAttribute('stroke')).toBe('#ff2d95');
+    expect(container.querySelector('[data-eye="left"]')).not.toBeNull();
+    expect(container.querySelector('[data-maw="true"]')).not.toBeNull();
+  });
+
+  test('a color prop overrides the color stored in Settings', () => {
+    // Settings says pink; the prop says purple — the face is purple.
+    // This is how the Forge roster card shows each Homunculus's own
+    // face when two Homunculi have different colors.
+    seedHomunculusColor('pink');
+    const { container } = render(<SentinelFace color="purple" />);
+    expect(headCircle(container)?.getAttribute('stroke')).toBe('#a855f7');
+    expect(container.querySelector('[data-eye="left"]')).not.toBeNull();
+  });
+
+  test('without a color prop the face reads Settings as before', () => {
+    seedHomunculusColor('purple');
+    const { container } = render(<SentinelFace />);
+    expect(headCircle(container)?.getAttribute('stroke')).toBe('#a855f7');
+  });
+
+  test('an explicit null color prop renders the unformed face', () => {
+    seedHomunculusColor('pink');
+    const { container } = render(<SentinelFace color={null} />);
+    expect(headCircle(container)?.getAttribute('stroke')).toBe('#262626');
+    expect(container.querySelector('[data-eye="left"]')).toBeNull();
+    expect(container.querySelector('[data-maw="true"]')).toBeNull();
+  });
+});

@@ -2,14 +2,11 @@
  * RosterCard — one Homunculus in the Forge roster.
  *
  * Shows its avatar (the SentinelFace SVG, small — the face IS the
- * avatar, in the Homunculus's colour), name, colour, biography (or
- * "Biography not written yet" — never an invented one), brain (model
- * name + status), and last Gate v2 decision. Clicking selects it.
- *
- * Note: SentinelFace itself wears the colour stored in Settings (it
- * takes no colour prop) — the card's accent ring and colour label use
- * this Homunculus's own colour, so a roster of two Homunculi is still
- * told apart at a glance.
+ * avatar, in the Homunculus's colour — passed as the `color` prop so
+ * each card's face wears its own Homunculus's colour), name, colour,
+ * biography (or "Biography not written yet" — never an invented one),
+ * brain (model name + status), and last Gate v2 decision. Clicking
+ * selects it.
  */
 
 import { SentinelFace } from '../Synth/SentinelFace';
@@ -48,7 +45,7 @@ export function RosterCard({
     >
       <span className="flex items-start gap-3">
         <span className="shrink-0" aria-hidden="true">
-          <SentinelFace size={44} />
+          <SentinelFace size={44} color={homunculus.color} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold text-[var(--text-primary)]">

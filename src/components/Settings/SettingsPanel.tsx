@@ -39,15 +39,15 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setTheme,
     setCustomTheme,
     updateSetting,
-    hasLicenseKey,
-    setLicenseKey,
-    deleteLicenseKey,
+    hasApiKey,
+    setApiKey,
+    deleteApiKey,
     exportSettings,
     importSettings,
   } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'appearance');
-  const [licenseKeyInput, setLicenseKeyInput] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState('');
   const [customTheme, setCustomThemeState] = useState<Theme>(
     settings.customTheme || createDefaultCustomTheme()
   );
@@ -460,14 +460,17 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
           {activeTab === 'ai' && (
             <div className="space-y-6">
               <section>
-                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">License Key</h3>
-                {hasLicenseKey ? (
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">API Key (Tier 5)</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Your own key for the chat API — sent straight to the API, never through a middleman. The model picked below is the model actually used.
+                </p>
+                {hasApiKey ? (
                   <div className="flex items-center gap-3">
                     <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-[var(--bg-tertiary)] rounded-md">
                       <Check size={16} className="text-[var(--success)]" />
-                      <span className="text-sm text-[var(--text-muted)]">License key active</span>
+                      <span className="text-sm text-[var(--text-muted)]">API key saved</span>
                     </div>
-                    <button onClick={deleteLicenseKey} className="btn btn-danger">
+                    <button onClick={deleteApiKey} className="btn btn-danger">
                       <Trash2 size={16} />
                       Remove
                     </button>
@@ -477,12 +480,12 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     <input
                       type="password"
                       className="input"
-                      placeholder="LUCID-..."
-                      value={licenseKeyInput}
-                      onChange={(e) => setLicenseKeyInput(e.target.value)}
+                      placeholder="sk-..."
+                      value={apiKeyInput}
+                      onChange={(e) => setApiKeyInput(e.target.value)}
                     />
-                    <button onClick={() => setLicenseKey(licenseKeyInput)} className="btn btn-primary">
-                      Activate
+                    <button onClick={() => setApiKey(apiKeyInput)} className="btn btn-primary">
+                      Save
                     </button>
                   </div>
                 )}

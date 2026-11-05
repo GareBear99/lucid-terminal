@@ -43,7 +43,7 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
       // No local model: fall back to OpenAI when a key is configured,
       // otherwise report cleanly instead of sending to a model-less backend.
       if (!hasApiKey()) {
-        const message = 'No model loaded — AI chat is unavailable. Install a model or add a license key.';
+        const message = 'No model loaded — AI chat is unavailable. Install a model or add an API key in Settings.';
         if (!sender.isDestroyed()) {
           sender.send('ai:streamError', message);
         }

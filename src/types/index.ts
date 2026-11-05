@@ -299,10 +299,9 @@ declare global {
         get: <T>(key: string) => Promise<T>;
         set: (key: string, value: unknown) => Promise<void>;
         getAll: () => Promise<Record<string, unknown>>;
-        setLicenseKey: (key: string) => Promise<void>;
-        hasLicenseKey: () => Promise<boolean>;
-        deleteLicenseKey: () => Promise<void>;
-        getBalance: () => Promise<number>;
+        setApiKey: (key: string) => Promise<void>;
+        hasApiKey: () => Promise<boolean>;
+        deleteApiKey: () => Promise<void>;
         getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;

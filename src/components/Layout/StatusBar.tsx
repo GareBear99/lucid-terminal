@@ -11,7 +11,7 @@ interface StatusBarProps {
 
 function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
   const { tabs, activeTabId } = useTerminalStore();
-  const { hasLicenseKey, currentTheme } = useSettingsStore();
+  const { hasApiKey, currentTheme } = useSettingsStore();
 
   // Network reachability, probed from the main process (short-timeout
   // CDN check). This is actual reachability — not the FixNet offline %,
@@ -102,7 +102,7 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
           title={showAI ? 'Hide AI Panel' : 'Show AI Panel'}
         >
           <MessageSquare size={12} />
-          <span>AI {hasLicenseKey ? '' : '(No Key)'}</span>
+          <span>AI {hasApiKey ? '' : '(No Key)'}</span>
         </button>
       </div>
     </div>

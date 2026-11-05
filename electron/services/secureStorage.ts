@@ -288,20 +288,4 @@ export const apiKeyStorage = {
     secureStorage.deleteSecret('openai-api-key');
   },
 
-  // License Key helpers
-  setLicenseKey(key: string): void {
-    secureStorage.setSecret('lucid-license-key', key);
-  },
-
-  getLicenseKey(): string | null {
-    return secureStorage.getSecret('lucid-license-key');
-  },
-
-  hasLicenseKey(): boolean {
-    return secureStorage.hasSecret('lucid-license-key');
-  },
-
-  deleteLicenseKey(): void {
-    secureStorage.deleteSecret('lucid-license-key');
-  },
 };

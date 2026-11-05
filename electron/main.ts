@@ -110,30 +110,15 @@ app.whenReady().then(() => {
     console.error('Watcher daemon auto-start failed:', err);
   });
 
-  // License Key Handlers
-  ipcMain.handle('settings:setLicenseKey', (_, key) => {
-    apiKeyStorage.setLicenseKey(key);
+  // API Key Handlers (Tier 5: direct API key, stored encrypted)
+  ipcMain.handle('settings:setApiKey', (_, key) => {
+    apiKeyStorage.setApiKey(key);
   });
-  ipcMain.handle('settings:hasLicenseKey', () => {
-    return apiKeyStorage.hasLicenseKey();
+  ipcMain.handle('settings:hasApiKey', () => {
+    return apiKeyStorage.hasApiKey();
   });
-  ipcMain.handle('settings:deleteLicenseKey', () => {
-    apiKeyStorage.deleteLicenseKey();
-  });
-
-  ipcMain.handle('settings:getBalance', async () => {
-    const key = apiKeyStorage.getLicenseKey();
-    if (!key) return null;
-
-    try {
-      const response = await fetch(`https://lucid-backend.replit.app/balance?key=${key}`);
-      if (!response.ok) return null;
-      const data = await response.json();
-      return data.credits;
-    } catch (error) {
-      console.error('Failed to fetch balance:', error);
-      return null;
-    }
+  ipcMain.handle('settings:deleteApiKey', () => {
+    apiKeyStorage.deleteApiKey();
   });
 
 

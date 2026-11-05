@@ -101,11 +101,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     set: (key: string, value: unknown) =>
       ipcRenderer.invoke('settings:set', key, value),
     getAll: () => ipcRenderer.invoke('settings:getAll'),
-    // License Key
-    setLicenseKey: (key: string) => ipcRenderer.invoke('settings:setLicenseKey', key),
-    hasLicenseKey: () => ipcRenderer.invoke('settings:hasLicenseKey'),
-    deleteLicenseKey: () => ipcRenderer.invoke('settings:deleteLicenseKey'),
-    getBalance: () => ipcRenderer.invoke('settings:getBalance'),
+    // API Key (Tier 5)
+    setApiKey: (key: string) => ipcRenderer.invoke('settings:setApiKey', key),
+    hasApiKey: () => ipcRenderer.invoke('settings:hasApiKey'),
+    deleteApiKey: () => ipcRenderer.invoke('settings:deleteApiKey'),
     getStorageStatus: () => ipcRenderer.invoke('settings:getStorageStatus'),
     export: () => ipcRenderer.invoke('settings:export'),
     import: (data: string) => ipcRenderer.invoke('settings:import', data),

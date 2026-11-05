@@ -53,7 +53,6 @@ function TitleBar() {
         <span className="text-sm font-semibold text-[var(--text-primary)]">
           Lucid Terminal
         </span>
-        <BalanceDisplay />
       </div>
 
       {/* Account Button (Warp-style) */}
@@ -108,31 +107,5 @@ function TitleBar() {
   );
 }
 
-import { useSettingsStore } from '../../stores/settingsStore';
-import { Coins } from 'lucide-react';
-
-function BalanceDisplay() {
-  const { balance, fetchBalance, hasLicenseKey } = useSettingsStore();
-
-  useEffect(() => {
-    if (hasLicenseKey) {
-      fetchBalance();
-      // Poll every 30 seconds
-      const interval = setInterval(fetchBalance, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [hasLicenseKey, fetchBalance]);
-
-  if (!hasLicenseKey || balance === null) return null;
-
-  return (
-    <div className="flex items-center gap-1.5 px-2 py-0.5 ml-4 bg-[var(--bg-tertiary)] rounded-full border border-[var(--border)]">
-      <Coins size={12} className="text-[var(--accent)]" />
-      <span className="text-xs font-medium text-[var(--text-secondary)]">
-        {balance.toLocaleString()} Credits
-      </span>
-    </div>
-  );
-}
 
 export default TitleBar;

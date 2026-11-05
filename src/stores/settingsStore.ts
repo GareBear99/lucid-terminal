@@ -26,15 +26,11 @@ interface SettingsState {
   setTheme: (themeId: string) => Promise<void>;
   setCustomTheme: (theme: Theme) => Promise<void>;
 
-  // License Key Actions
-  setLicenseKey: (key: string) => Promise<void>;
-  deleteLicenseKey: () => Promise<void>;
-  checkLicenseKey: () => Promise<void>;
-  hasLicenseKey: boolean;
-
-  // Balance
-  balance: number | null;
-  fetchBalance: () => Promise<void>;
+  // API Key Actions (Tier 5)
+  setApiKey: (key: string) => Promise<void>;
+  deleteApiKey: () => Promise<void>;
+  checkApiKey: () => Promise<void>;
+  hasApiKey: boolean;
   checkBackendStatus: () => Promise<void>;
 
   exportSettings: () => Promise<string>;
@@ -76,18 +72,17 @@ const defaultSettings: Settings = {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: defaultSettings,
   currentTheme: themes[0],
-  hasLicenseKey: false,
+  hasApiKey: false,
   isLocalBackendAvailable: false,
   isLocalModelAvailable: false,
   storageDegraded: false,
   storageDegradedReason: null,
-  balance: null,
   isLoading: true,
 
   loadSettings: async () => {
     try {
       const allSettings = await window.lucidAPI.settings.getAll();
-      const hasKey = await window.lucidAPI.settings.hasLicenseKey();
+      const hasKey = await window.lucidAPI.settings.hasApiKey();
 
       // Check local backend status
       await get().checkBackendStatus();
@@ -117,11 +112,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       document.documentElement.style.setProperty('--font-mono', settings.fontFamily);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
 
-      set({ settings, currentTheme: theme, hasLicenseKey: hasKey, isLoading: false });
+      set({ settings, currentTheme: theme, hasApiKey: hasKey, isLoading: false });
 
-      if (hasKey) {
-        await get().fetchBalance();
-      }
     } catch (error) {
       console.error('Failed to load settings:', error);
       set({ isLoading: false });
@@ -181,32 +173,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }));
   },
 
-  setLicenseKey: async (key) => {
-    await window.lucidAPI.settings.setLicenseKey(key);
-    set({ hasLicenseKey: true });
-    await get().fetchBalance();
+  setApiKey: async (key) => {
+    await window.lucidAPI.settings.setApiKey(key);
+    set({ hasApiKey: true });
   },
 
-  deleteLicenseKey: async () => {
-    await window.lucidAPI.settings.deleteLicenseKey();
-    set({ hasLicenseKey: false, balance: null });
+  deleteApiKey: async () => {
+    await window.lucidAPI.settings.deleteApiKey();
+    set({ hasApiKey: false });
   },
 
-  checkLicenseKey: async () => {
-    const hasKey = await window.lucidAPI.settings.hasLicenseKey();
-    set({ hasLicenseKey: hasKey });
-    if (hasKey) await get().fetchBalance();
-  },
-
-  fetchBalance: async () => {
-    try {
-      if (!get().hasLicenseKey) return;
-      const balance = await window.lucidAPI.settings.getBalance();
-      set({ balance });
-    } catch (error) {
-      console.error('Failed to fetch balance:', error);
-      set({ balance: null });
-    }
+  checkApiKey: async () => {
+    const hasKey = await window.lucidAPI.settings.hasApiKey();
+    set({ hasApiKey: hasKey });
   },
 
   checkBackendStatus: async () => {

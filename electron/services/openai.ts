@@ -59,6 +59,22 @@ export function resetClient(): void {
   // No-op
 }
 
+// One streamed line from the chat completions endpoint: the API
+// sends Server-Sent Events ("data: {...}" lines, ending with
+// "data: [DONE]"); a bare JSON line is accepted too. Returns the
+// delta, or null for [DONE] and blank lines.
+function streamDelta(line: string): { content?: string; tool_calls?: any[] } | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  let payload = trimmed;
+  if (payload.startsWith('data:')) {
+    payload = payload.slice('data:'.length).trim();
+    if (payload === '[DONE]') return null;
+  }
+  const chunk = JSON.parse(payload);
+  return chunk.choices?.[0]?.delta ?? null;
+}
+
 let currentAbortController: AbortController | null = null;
 
 export async function chat(
@@ -68,16 +84,15 @@ export async function chat(
   onEnd?: () => void,
   onError?: (error: string) => void
 ): Promise<string> {
-  const licenseKey = apiKeyStorage.getLicenseKey();
+  const apiKey = apiKeyStorage.getApiKey();
 
-  if (!licenseKey) {
-    const errorMsg = 'License Key not configured. Please add your License Key in Settings.';
+  if (!apiKey) {
+    const errorMsg = 'API key not configured. Please add your API key in Settings (Tier 5).';
     onError?.(errorMsg);
     throw new Error(errorMsg);
   }
 
   const model = settings.get<string>('aiModel') || 'gpt-4';
-  // temperature concept might need to be passed to backend if supported
 
   let systemPrompt = SYSTEM_PROMPT;
   if (contextDirectory) {
@@ -98,23 +113,32 @@ export async function chat(
   currentAbortController = new AbortController();
 
   try {
-    const response = await fetch('https://lucid-backend.replit.app/chat', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        license_key: licenseKey,
+        model: model,
         messages: messages,
         tools: tools, // Send tools definition
-        model: model
+        stream: true,
+        temperature: settings.get<number>('aiTemperature') ?? 0.7,
       }),
       signal: currentAbortController.signal,
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Backend error (${response.status}): ${errText}`);
+      let detail = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        detail = parsed.error?.message || errText;
+      } catch {
+        // Not JSON — report the raw body.
+      }
+      throw new Error(`API error (${response.status}): ${detail}`);
     }
 
     if (!response.body) throw new Error('No response body');
@@ -140,8 +164,7 @@ export async function chat(
         if (!line.trim()) continue;
 
         try {
-          const chunk = JSON.parse(line);
-          const delta = chunk.choices[0]?.delta;
+          const delta = streamDelta(line);
 
           if (delta?.content) {
             finalResponse += delta.content;
@@ -169,8 +192,7 @@ export async function chat(
     // Process any remaining buffer (though usually empty if ended with \n)
     if (buffer.trim()) {
       try {
-        const chunk = JSON.parse(buffer);
-        const delta = chunk.choices[0]?.delta;
+        const delta = streamDelta(buffer);
         if (delta?.content) {
           finalResponse += delta.content;
           onStream?.(delta.content);
@@ -254,5 +276,5 @@ export function cancelStream(): void {
 }
 
 export function hasApiKey(): boolean {
-  return apiKeyStorage.hasLicenseKey();
+  return apiKeyStorage.hasApiKey();
 }

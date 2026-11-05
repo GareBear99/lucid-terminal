@@ -15,7 +15,7 @@ interface AIChatProps {
 
 function AIChat({ onClose }: AIChatProps) {
 
-  const { hasLicenseKey, setLicenseKey, isLocalBackendAvailable, isLocalModelAvailable, checkBackendStatus } = useSettingsStore();
+  const { hasApiKey, setApiKey, isLocalBackendAvailable, isLocalModelAvailable, checkBackendStatus } = useSettingsStore();
   const {
     sessions,
     currentSessionId,
@@ -117,7 +117,7 @@ function AIChat({ onClose }: AIChatProps) {
   const handleSend = async () => {
     // Allow if has key OR a loaded local model. A wrapper with no model
     // must not receive the message — it answers with a raw Python error.
-    if (!input.trim() || isLoading || (!hasLicenseKey && !isLocalModelAvailable)) return;
+    if (!input.trim() || isLoading || (!hasApiKey && !isLocalModelAvailable)) return;
 
     // A submitted prompt feeds the Sentinel face's horns.
     usePromptPaceStore.getState().recordPrompt();
@@ -157,7 +157,7 @@ function AIChat({ onClose }: AIChatProps) {
 
   const handleSaveKey = async () => {
     if (!keyInput.trim()) return;
-    await setLicenseKey(keyInput.trim());
+    await setApiKey(keyInput.trim());
     setKeyInput('');
   };
 
@@ -320,10 +320,10 @@ function AIChat({ onClose }: AIChatProps) {
     </div>
   );
 
-  // License Key / No Model Screen — shown when there is no key and no
+  // API Key / No Model Screen — shown when there is no key and no
   // loaded local model. The message must say so plainly when the wrapper
   // is up but no model is loaded.
-  if (!hasLicenseKey && !isLocalModelAvailable) {
+  if (!hasApiKey && !isLocalModelAvailable) {
     return (
       <div className="h-full flex flex-col bg-[var(--bg-primary)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -346,12 +346,12 @@ function AIChat({ onClose }: AIChatProps) {
                   No model loaded — AI chat is unavailable.
                   <br />
                   <span className="text-xs text-[var(--text-muted)] mt-2 block">
-                    Install a model, or enter a license key to use AI chat instead.
+                    Install a model, or enter an API key to use AI chat instead.
                   </span>
                 </>
               ) : (
                 <>
-                  Please enter your License Key to access AI features.
+                  Please enter your API key to access AI features.
                   <br />
                   <span className="text-xs text-[var(--text-muted)] mt-2 block">
                     (Or verify local LuciferAI backend is running)
@@ -365,7 +365,7 @@ function AIChat({ onClose }: AIChatProps) {
                 type="password"
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
-                placeholder="LUCID-..."
+                placeholder="sk-..."
                 className="input w-full"
                 onKeyDown={(e) => e.key === 'Enter' && handleSaveKey()}
               />
@@ -374,11 +374,11 @@ function AIChat({ onClose }: AIChatProps) {
                 className="btn btn-primary w-full justify-center"
                 disabled={!keyInput.trim()}
               >
-                Activate License
+                Save API Key
               </button>
               <div className="pt-1 border-t border-[var(--border)]">
                 <p className="text-xs text-[var(--text-muted)] mt-3 mb-2">
-                  No license key? Install the bundled local model instead — free, about 700 MB, a few minutes. No key needed.
+                  No API key? Install the bundled local model instead — free, about 700 MB, a few minutes. No key needed.
                 </p>
                 <button
                   onClick={installTinyLlama}

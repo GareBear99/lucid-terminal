@@ -244,6 +244,26 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('browser:open-internal-phone', listener);
       return () => ipcRenderer.removeListener('browser:open-internal-phone', listener);
     },
+    // Flows (Area 7): start / stop / approve / reject, and the
+    // progress + approval events the panel shows.
+    startFlow: (definition: FlowDefinition, tabId: string) =>
+      ipcRenderer.invoke('browser:flow-start', definition, tabId),
+    stopFlow: (flowId: string) =>
+      ipcRenderer.invoke('browser:flow-stop', flowId),
+    approveFlowStep: (flowId: string) =>
+      ipcRenderer.invoke('browser:flow-approve', flowId),
+    rejectFlowStep: (flowId: string) =>
+      ipcRenderer.invoke('browser:flow-reject', flowId),
+    onFlowProgress: (callback: (event: FlowProgressEvent) => void) => {
+      const listener = (_: any, event: FlowProgressEvent) => callback(event);
+      ipcRenderer.on('browser:flow-progress', listener);
+      return () => ipcRenderer.removeListener('browser:flow-progress', listener);
+    },
+    onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => {
+      const listener = (_: any, request: FlowApprovalRequest) => callback(request);
+      ipcRenderer.on('browser:flow-approval-needed', listener);
+      return () => ipcRenderer.removeListener('browser:flow-approval-needed', listener);
+    },
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -499,6 +519,12 @@ export interface LucidAPI {
     onMiniState: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
     onMiniClosed: (callback: (tabId: string) => void) => () => void;
     onOpenInternalPhone: (callback: () => void) => () => void;
+    startFlow: (definition: FlowDefinition, tabId: string) => Promise<{ ok: boolean; flowId?: string; error?: string; errors?: string[] }>;
+    stopFlow: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
+    approveFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
+    rejectFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
+    onFlowProgress: (callback: (event: FlowProgressEvent) => void) => () => void;
+    onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
   };
   android: {
     getGpuGate: () => Promise<GpuGateStatus>;

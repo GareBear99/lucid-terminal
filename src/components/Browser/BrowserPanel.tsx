@@ -27,6 +27,7 @@ import {
 } from '../../stores/browserHistory';
 import { useBrowserDownloads } from '../../stores/browserDownloads';
 import { DownloadShelf } from './DownloadShelf';
+import FlowProgress from './FlowProgress';
 import { useBrowserCredentials } from '../../stores/browserCredentials';
 import { SaveLoginPrompt } from './SaveLoginPrompt';
 import { SavedLoginsPanel } from './SavedLoginsPanel';
@@ -861,6 +862,11 @@ function BrowserPanel() {
       ) : (
         <div ref={containerRef} className="flex-1 min-h-0 bg-white" />
       )}
+
+      {/* Flow progress (Area 7): shows while a scripted flow runs
+          on the active tab, with Approve / Reject on a supervision
+          gate and Take over to stop the flow and drive by hand. */}
+      <FlowProgress />
 
       {/* Download shelf (Area 2): renders only while a download
           exists; finished ones stay until Gary dismisses them. */}

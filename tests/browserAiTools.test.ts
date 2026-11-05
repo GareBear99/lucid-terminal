@@ -31,10 +31,12 @@ const EXPECTED_TOOLS = [
   'browser_screenshot',
   'browser_get_state',
   'browser_search',
+  // Area 7: scripted flows.
+  'browser_run_flow',
 ];
 
 describe('browser tool definitions', () => {
-  it('defines all seven browser tools', () => {
+  it('defines all eight browser tools', () => {
     const names = tools.map((t) => t.function.name);
     for (const name of EXPECTED_TOOLS) {
       expect(names).toContain(name);
@@ -61,7 +63,7 @@ describe('browser tool definitions', () => {
     expect(byName.get('browser_get_state')?.parameters.required).toBeUndefined();
   });
 
-  it('the allowlist is exactly the seven browser tools', () => {
+  it('the allowlist is exactly the eight browser tools', () => {
     expect([...browserToolNames].sort()).toEqual([...EXPECTED_TOOLS].sort());
   });
 
@@ -102,6 +104,10 @@ describe('executeTool browser cases', () => {
       calls.push({ name: 'search', args: query });
       return '1. Result\n   https://example.com/';
     }),
+    runFlow: vi.fn(async (definition: unknown) => {
+      calls.push({ name: 'runFlow', args: definition });
+      return 'Flow started: Test flow.';
+    }),
   };
 
   beforeEach(() => {
@@ -134,6 +140,14 @@ describe('executeTool browser cases', () => {
     expect(await executeTool('browser_search', { query: 'lucid' })).toBe(
       '1. Result\n   https://example.com/',
     );
+    expect(
+      await executeTool('browser_run_flow', {
+        definition: {
+          name: 'Test flow',
+          steps: [{ kind: 'click', selector: '#go' }],
+        },
+      }),
+    ).toBe('Flow started: Test flow.');
     expect(calls.map((c) => c.name)).toEqual([
       'navigate',
       'readPage',
@@ -142,6 +156,7 @@ describe('executeTool browser cases', () => {
       'screenshot',
       'getState',
       'search',
+      'runFlow',
     ]);
   });
 
@@ -158,6 +173,12 @@ describe('executeTool browser cases', () => {
     ).toMatch(/needs a value/);
     expect(await executeTool('browser_search', { query: '' })).toMatch(
       /needs a query/,
+    );
+    expect(await executeTool('browser_run_flow', {})).toMatch(
+      /needs a flow definition/,
+    );
+    expect(await executeTool('browser_run_flow', { definition: 'nope' })).toMatch(
+      /needs a flow definition/,
     );
     expect(calls).toHaveLength(0);
   });

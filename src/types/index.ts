@@ -361,6 +361,23 @@ export interface BrowserPageState {
 }
 
 /** Screenshot result: a PNG data URL of the page as Gary sees it. */
+/** Flow definitions and events (Area 7) — the domain types live
+ * in src/lib/browserFlows.ts; re-exported here for the renderer. */
+import type {
+  FlowApprovalRequest,
+  FlowDefinition,
+  FlowProgressEvent,
+  FlowRunStatus,
+  FlowStep,
+} from '../lib/browserFlows';
+export type {
+  FlowApprovalRequest,
+  FlowDefinition,
+  FlowProgressEvent,
+  FlowRunStatus,
+  FlowStep,
+};
+
 export interface BrowserScreenshotResult extends BrowserActionResult {
   dataUrl?: string;
 }
@@ -469,6 +486,12 @@ declare global {
         onMiniState: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
         onMiniClosed: (callback: (tabId: string) => void) => () => void;
         onOpenInternalPhone: (callback: () => void) => () => void;
+    startFlow: (definition: FlowDefinition, tabId: string) => Promise<{ ok: boolean; flowId?: string; error?: string; errors?: string[] }>;
+    stopFlow: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
+    approveFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
+    rejectFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
+    onFlowProgress: (callback: (event: FlowProgressEvent) => void) => () => void;
+    onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

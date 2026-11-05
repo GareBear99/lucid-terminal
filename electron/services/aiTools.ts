@@ -242,6 +242,29 @@ export const tools: ToolDefinition[] = [
             },
         },
     },
+
+    {
+        type: 'function',
+        function: {
+            name: 'browser_run_flow',
+            description: 'Run a scripted multi-step flow in the in-panel browser: navigate, wait for an element, fill a field, click, or verify the page. Steps are {kind, url?, selector?, value?, timeout?, expectedText?, requiresApproval?}. Steps that need approval (money, irreversible, or flagged) pause for Gary in the browser panel — the flow never completes a purchase on its own.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    definition: {
+                        type: 'object',
+                        description: 'The flow: {name: string, steps: array of step objects}.',
+                        properties: {
+                            name: { type: 'string' },
+                            steps: { type: 'array' },
+                        },
+                        required: ['name', 'steps'],
+                    },
+                },
+                required: ['definition'],
+            },
+        },
+    },
 ];
 
 /** Browser tools the AI may call. The local chat path (local_ai.ts)
@@ -255,6 +278,7 @@ export const browserToolNames: readonly string[] = [
   'browser_screenshot',
   'browser_get_state',
   'browser_search',
+  'browser_run_flow',
 ];
 
 export async function executeTool(
@@ -407,6 +431,18 @@ export async function executeTool(
                 }
                 onLog?.(`Searching the web: ${args.query}`);
                 return await target.search(args.query);
+            }
+
+
+            case 'browser_run_flow': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                const definition = args.definition;
+                if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+                    return 'Error: browser_run_flow needs a flow definition object ({name, steps}).';
+                }
+                onLog?.(`Running browser flow: ${(definition as { name?: unknown }).name ?? '(unnamed)'}`);
+                return await target.runFlow(definition as never);
             }
 
             default:

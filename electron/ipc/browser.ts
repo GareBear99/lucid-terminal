@@ -39,6 +39,8 @@ import {
   registerBrowserToolTarget,
 } from '../services/browserToolBridge';
 import type { BrowserToolTarget } from '../services/browserToolBridge';
+import { createBrowserFlowRunner } from '../services/browserFlows';
+import type { FlowDefinition } from '../../src/lib/browserFlows';
 import type {
   BrowserActionResult,
   BrowserAuthRequest,
@@ -131,6 +133,19 @@ import type {
  * in-app stream stays in the panel (its frames go to the main
  * window), and the mini window's phone entries reuse the spike's
  * GPU gate exactly like the panel's.
+ *
+ * Flows (Area 7): scripted multi-step flows (navigate, wait,
+ * fill, click, verify) on one tab, run by
+ * `electron/services/browserFlows.ts` on top of the Area 4
+ * actions, with per-step verification from page state. A step
+ * that needs approval — explicitly flagged, or matching the
+ * money/irreversible heuristic (a click on a buy/checkout/pay/
+ * submit control, a navigate to a checkout/payment page) —
+ * PAUSES the runner until Gary approves it in the panel; a
+ * rejection ends the flow, and stop ("take over") ends it and
+ * leaves the page where it is for Gary to drive by hand. The AI
+ * tool `browser_run_flow` can start a flow but never completes
+ * a purchase unobserved.
  */
 
 export type { BrowserViewBounds };
@@ -227,6 +242,38 @@ export function setupBrowserHandlers(
   const actions = createBrowserActionsRunner();
   const actionWebContents = (tabId: string) =>
     views.get(tabId)?.webContents ?? null;
+
+  // Flow runner (Area 7): scripted multi-step flows on one tab.
+  // Progress and approval requests go to the main window (the
+  // panel shows them); a gated step pauses until Gary approves
+  // it in the panel, or rejects / takes over.
+  const flows = createBrowserFlowRunner({
+    actions,
+    navigate: async (tabId, url) => {
+      const view = views.get(tabId);
+      if (!view) return { ok: false, error: 'no-such-tab' };
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return { ok: false, error: 'bad-url' };
+        }
+      } catch {
+        return { ok: false, error: 'bad-url' };
+      }
+      await view.webContents.loadURL(url);
+      return { ok: true };
+    },
+    getWebContents: (tabId) => views.get(tabId)?.webContents ?? null,
+    onProgress: (event) => {
+      getMainWindow()?.webContents.send('browser:flow-progress', event);
+    },
+    onApprovalNeeded: (request) => {
+      getMainWindow()?.webContents.send(
+        'browser:flow-approval-needed',
+        request,
+      );
+    },
+  });
 
   // Mini window (Area 6): at most one tab is popped out at a time.
   // `lastMiniBounds` is the container rect the mini renderer last
@@ -940,8 +987,49 @@ export function setupBrowserHandlers(
     },
 
     search: async (query, timeoutMs) => searchWeb(query, timeoutMs),
+
+    // Start a scripted flow (Area 7) on the active tab. The flow
+    // runs in the background; the AI gets a started summary, not a
+    // completion — gated steps pause for Gary in the panel, so a
+    // purchase is never completed unobserved.
+    runFlow: async (definition) => {
+      if (!activeTabId) return 'No browser tab is open.';
+      const started = flows.startFlow(definition, activeTabId);
+      if (!started.ok) {
+        const detail = started.errors?.length
+          ? ` ${started.errors.join(' ')}`
+          : '';
+        return `Could not start the flow: ${started.error}.${detail}`;
+      }
+      return `Flow started: ${definition.name} (${started.flowId}) — ${definition.steps.length} step(s). Steps that need approval (money, irreversible, or flagged) will pause for Gary in the browser panel; progress shows there.`;
+    },
   };
   registerBrowserToolTarget(toolTarget);
+
+  // Flows (Area 7): start / stop / approve / reject. Start
+  // validates the definition in main and reports `no-such-tab`
+  // for a closed or unknown tab. Approve/reject answer a pending
+  // supervision gate; stop ends the flow and leaves the page
+  // where it is (Gary takes over by hand from there).
+  ipcMain.handle(
+    'browser:flow-start',
+    (_event, definition: FlowDefinition, tabId: string) => {
+      if (!views.has(tabId)) return { ok: false, error: 'no-such-tab' };
+      return flows.startFlow(definition, tabId);
+    },
+  );
+
+  ipcMain.handle('browser:flow-stop', (_event, flowId: string) =>
+    flows.stopFlow(flowId),
+  );
+
+  ipcMain.handle('browser:flow-approve', (_event, flowId: string) =>
+    flows.approveStep(flowId),
+  );
+
+  ipcMain.handle('browser:flow-reject', (_event, flowId: string) =>
+    flows.rejectStep(flowId),
+  );
 
   // Mini window (Area 6): pop a tab's view out to the floating
   // window, or back in. The mini renderer reports its container

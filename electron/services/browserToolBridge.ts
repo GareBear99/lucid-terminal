@@ -15,6 +15,8 @@
  * backend. The AI asks; main acts on the page.
  */
 
+import type { FlowDefinition } from '../../src/lib/browserFlows';
+
 /** What the AI can do to the in-panel browser, as plain-text
  * tool results (the format `executeTool` returns). */
 export interface BrowserToolTarget {
@@ -33,6 +35,11 @@ export interface BrowserToolTarget {
   getState(): Promise<string>;
   /** Search the web in a temporary tab; returns titles/URLs/snippets. */
   search(query: string, timeoutMs?: number): Promise<string>;
+  /** Start a scripted multi-step flow (Area 7) on the active tab.
+   * The flow runs in the background; steps that need approval
+   * (money/irreversible, or explicitly flagged) pause for Gary
+   * in the browser panel. Returns a started-flow summary. */
+  runFlow(definition: FlowDefinition): Promise<string>;
 }
 
 let target: BrowserToolTarget | null = null;

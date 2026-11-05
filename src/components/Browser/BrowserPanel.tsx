@@ -9,6 +9,7 @@ import {
   Loader,
   Smartphone,
   Search,
+  Sparkles,
   ZoomIn,
   ZoomOut,
   Copy,
@@ -17,6 +18,8 @@ import {
   Undo2,
 } from 'lucide-react';
 import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
+import { useAIStore } from '../../stores/aiStore';
+import { buildPageSummaryPrompt } from '../../lib/browserActions';
 import {
   useBrowserHistory,
   matchHistoryEntries,
@@ -360,6 +363,25 @@ function BrowserPanel() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [panelTab, zoomIn, zoomOut, resetZoom, restoreClosedTab]);
 
+  // Ask the AI about this page (Area 5): read the active tab's
+  // text through the page-action API, queue it as a prompt for the
+  // AI chat (capped for the chat context), and switch to the AI
+  // tab — the chat sends it as the next user message. A blank tab
+  // or a failed read does nothing.
+  const askAiAboutPage = async () => {
+    if (!activeTabId || !activeTab?.url || activeTab.url === 'about:blank') {
+      return;
+    }
+    const result = await window.lucidAPI.browser
+      .readText(activeTabId)
+      .catch(() => null);
+    if (!result || !result.ok || !result.text) return;
+    useAIStore.getState().queueAiPrompt(
+      buildPageSummaryPrompt(result.text.url, result.text.text),
+    );
+    useBrowserStore.getState().setPanelTab('ai');
+  };
+
   // Copy the active page's URL (clipboard API, with a textarea
   // fallback for contexts where it is unavailable).
   const copyCurrentUrl = async () => {
@@ -630,6 +652,16 @@ function BrowserPanel() {
               }`}
             >
               <KeyRound size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Ask the AI about this page">
+            <button
+              type="button"
+              onClick={() => void askAiAboutPage()}
+              disabled={!activeTab?.url || activeTab.url === 'about:blank'}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <Sparkles size={16} />
             </button>
           </Tooltip>
         </form>

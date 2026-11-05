@@ -200,3 +200,62 @@ export function buildSelectorPresentScript(selector: string): string {
   }
 })()`;
 }
+
+/** How many search results the `browser_search` tool returns. */
+export const MAX_SEARCH_RESULTS = 8;
+
+/** One web-search result, as the search page reports it. */
+export interface SearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+/** Read search results off a results page (DuckDuckGo's html
+ * endpoint: `a.result__a` links with `.result__snippet` text).
+ * Returns up to MAX_SEARCH_RESULTS `{ title, url, snippet }`
+ * items. Pure DOM read — no navigation, no clicks. */
+export function buildSearchResultsScript(): string {
+  return `(() => {
+  const out = [];
+  const links = document.querySelectorAll('a.result__a');
+  for (const a of links) {
+    if (out.length >= ${MAX_SEARCH_RESULTS}) break;
+    const container = a.closest('.result');
+    const snip = container
+      ? container.querySelector('.result__snippet')
+      : null;
+    out.push({
+      title: (a.textContent || '').trim(),
+      url: a.href || '',
+      snippet: snip ? (snip.textContent || '').trim() : '',
+    });
+  }
+  return out;
+})()`;
+}
+
+/** Format search results as the plain-text tool result the AI
+ * receives. An empty list reports honestly that nothing matched. */
+export function formatSearchResults(results: SearchResultItem[]): string {
+  if (results.length === 0) {
+    return 'No search results found.';
+  }
+  return results
+    .map(
+      (r, i) =>
+        `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ''}`,
+    )
+    .join('\n');
+}
+
+/** Compose the "ask the AI about this page" prompt (Area 5 UI):
+ * a short instruction, the page URL, and the page text capped for
+ * the chat context so a huge page cannot flood it. */
+export function buildPageSummaryPrompt(url: string, text: string): string {
+  const capped =
+    text.length > MAX_PAGE_TEXT_FOR_AI
+      ? text.slice(0, MAX_PAGE_TEXT_FOR_AI)
+      : text;
+  return `Summarise this page for me, and answer any questions I have about it:\n\n${url}\n\n${capped}`;
+}

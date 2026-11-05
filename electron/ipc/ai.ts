@@ -2,7 +2,7 @@ import { IpcMain, BrowserWindow } from 'electron';
 
 // ... imports
 import { chat, cancelStream, hasApiKey, ChatMessage } from '../services/openai';
-import { chatLocal, checkLocalBackendHealth, cancelLocalChat } from '../services/local_ai'; // Import local service
+import { chatLocal, checkLocalBackendHealth, cancelLocalChat, chatLocalWithBrowserTools } from '../services/local_ai'; // Import local service
 import { historyManager } from '../services/historyManager';
 import { isAnyModelAvailable } from './lucidWorkflow';
 
@@ -22,7 +22,20 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
 
       if (modelAvailable) {
         console.log('Using Local LuciferAI Backend');
-        const response = await chatLocal(messages, contextDirectory);
+        // Browser tools (Area 5): the local path runs the same
+        // browser_* tools as the OpenAI path, through a tool loop
+        // in main around the stdio backend - the model, the tools
+        // and the page are all local. Tool calls stream as `> `
+        // notices, like the OpenAI path does.
+        const response = await chatLocalWithBrowserTools(messages, contextDirectory, {
+          onToolCall: stream
+            ? (name, summary) => {
+                if (!sender.isDestroyed()) {
+                  sender.send('ai:stream', `\n > \u26a1 ** ${name}**... \`${summary}...\`\n`);
+                }
+              }
+            : undefined,
+        });
         // The local backend answers whole-reply (no stream), but the UI
         // only ever receives a reply through the stream events —
         // AIChat discards this handler's return value, so returning

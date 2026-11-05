@@ -455,6 +455,12 @@ declare global {
         /** Fill the active tab's page from the vault. */
         fillSavedLogin: () => Promise<boolean>;
         onLoginDetected: (callback: (offer: BrowserLoginOffer) => void) => () => void;
+        readText: (tabId: string) => Promise<BrowserActionResult & { text?: BrowserPageText }>;
+        fill: (tabId: string, selector: string, value: string) => Promise<BrowserActionResult>;
+        click: (tabId: string, selector: string) => Promise<BrowserActionResult>;
+        waitForSelector: (tabId: string, selector: string, timeoutMs?: number) => Promise<BrowserActionResult>;
+        screenshot: (tabId: string) => Promise<BrowserScreenshotResult>;
+        getState: (tabId: string) => Promise<BrowserActionResult & { state?: BrowserPageState }>;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

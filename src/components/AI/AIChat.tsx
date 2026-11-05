@@ -41,7 +41,9 @@ function AIChat({ onClose }: AIChatProps) {
     completeStream,
     setLoading,
     setContextDirectory,
-    isSessionsLoaded
+    isSessionsLoaded,
+    pendingAiPrompt,
+    clearPendingAiPrompt
   } = useAIStore();
 
   const [input, setInput] = useState('');
@@ -147,23 +149,24 @@ function AIChat({ onClose }: AIChatProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingMessage]);
 
-  const handleSend = async () => {
+  const handleSend = async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
     // Allow if has key OR a loaded local model. A wrapper with no model
     // must not receive the message — it answers with a raw Python error.
-    if (!input.trim() || isLoading || (!hasApiKey && !isLocalModelAvailable)) return;
+    if (!text || isLoading || (!hasApiKey && !isLocalModelAvailable)) return;
 
     // A submitted prompt feeds the Sentinel face's horns.
     usePromptPaceStore.getState().recordPrompt();
 
     const userMessage: ChatMessage = {
       role: 'user',
-      content: input.trim(),
+      content: text,
       id: Date.now().toString(),
       timestamp: Date.now()
     };
 
     addMessage(userMessage);
-    setInput('');
+    if (!overrideText) setInput('');
     setLoading(true);
 
     try {
@@ -181,6 +184,20 @@ function AIChat({ onClose }: AIChatProps) {
       setLoading(false);
     }
   };
+
+  // A prompt queued from outside the chat (the browser's "ask the AI
+  // about this page") is sent as the next user message. The queue is
+  // cleared first so a re-render cannot send it twice; while a
+  // generation is running the prompt stays queued and this effect
+  // re-fires when the load ends.
+  useEffect(() => {
+    if (!pendingAiPrompt || isLoading) return;
+    clearPendingAiPrompt();
+    void handleSend(pendingAiPrompt);
+    // Deliberately only on the queued prompt / load state: listing
+    // handleSend would re-fire on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAiPrompt, isLoading]);
 
   const handleCancel = () => {
     window.lucidAPI.ai.cancelStream();

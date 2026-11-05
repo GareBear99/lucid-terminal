@@ -2,6 +2,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import {
+  BROWSER_TOOL_UNAVAILABLE,
+  getBrowserToolTarget,
+} from './browserToolBridge';
 
 const execAsync = promisify(exec);
 
@@ -132,6 +136,125 @@ export const tools: ToolDefinition[] = [
             },
         },
     },
+
+    {
+        type: 'function',
+        function: {
+            name: 'browser_navigate',
+            description: 'Open a URL in the in-panel browser (the active tab). Use this to go to a page the user asked about.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    url: {
+                        type: 'string',
+                        description: 'The http(s) URL to open.',
+                    },
+                },
+                required: ['url'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'browser_read_page',
+            description: 'Read the visible text of the current page in the in-panel browser. Use this to see what a page says, summarise it, or find information on it.',
+            parameters: {
+                type: 'object',
+                properties: {},
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'browser_click',
+            description: 'Click an element on the current page in the in-panel browser, found by CSS selector.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    selector: {
+                        type: 'string',
+                        description: 'CSS selector of the element to click (e.g. "#submit", "a.next").',
+                    },
+                },
+                required: ['selector'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'browser_fill',
+            description: 'Type text into a form field on the current page in the in-panel browser, found by CSS selector. Never use this for a password field - passwords come from the saved-login vault, not from chat.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    selector: {
+                        type: 'string',
+                        description: 'CSS selector of the field to fill (e.g. "#search", "input[name=\"q\"]").',
+                    },
+                    value: {
+                        type: 'string',
+                        description: 'Text to type into the field.',
+                    },
+                },
+                required: ['selector', 'value'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'browser_screenshot',
+            description: 'Save a screenshot of the current page in the in-panel browser. Returns the file path of the saved PNG.',
+            parameters: {
+                type: 'object',
+                properties: {},
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'browser_get_state',
+            description: 'Describe the current page in the in-panel browser: its URL, title, and the forms on it (so you can see what a form wants before filling it).',
+            parameters: {
+                type: 'object',
+                properties: {},
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'browser_search',
+            description: 'Search the web from the in-panel browser. Returns titles, URLs and snippets for the top results.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: {
+                        type: 'string',
+                        description: 'The search query.',
+                    },
+                },
+                required: ['query'],
+            },
+        },
+    },
+];
+
+/** Browser tools the AI may call. The local chat path (local_ai.ts)
+ * allows ONLY these - never the file/command tools, which a small
+ * local model must not be able to reach by hallucinating a call. */
+export const browserToolNames: readonly string[] = [
+  'browser_navigate',
+  'browser_read_page',
+  'browser_click',
+  'browser_fill',
+  'browser_screenshot',
+  'browser_get_state',
+  'browser_search',
 ];
 
 export async function executeTool(
@@ -213,6 +336,77 @@ export async function executeTool(
                 if (stderr) onLog?.(`Command Error: ${stderr.slice(0, 100).replace(/\n/g, ' ')}...`);
 
                 return `STDOUT:\n${stdout}\n\nSTDERR:\n${stderr}`;
+            }
+
+
+            // Browser tools (Area 5): everything runs through the
+            // local main-process bridge - the AI asks, main acts on
+            // the page. No remote server is involved. Argument
+            // validation happens here (a bad call is a clean error
+            // string, never a throw), and the bridge reports when
+            // no browser tab is open.
+            case 'browser_navigate': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                if (typeof args.url !== 'string' || !args.url.trim()) {
+                    return 'Error: browser_navigate needs a url string.';
+                }
+                onLog?.(`Opening in browser: ${args.url}`);
+                return await target.navigate(args.url);
+            }
+
+            case 'browser_read_page': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                onLog?.('Reading the current page...');
+                return await target.readPage();
+            }
+
+            case 'browser_click': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                if (typeof args.selector !== 'string' || !args.selector.trim()) {
+                    return 'Error: browser_click needs a selector string.';
+                }
+                onLog?.(`Clicking in browser: ${args.selector}`);
+                return await target.click(args.selector);
+            }
+
+            case 'browser_fill': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                if (typeof args.selector !== 'string' || !args.selector.trim()) {
+                    return 'Error: browser_fill needs a selector string.';
+                }
+                if (typeof args.value !== 'string') {
+                    return 'Error: browser_fill needs a value string.';
+                }
+                onLog?.(`Filling in browser: ${args.selector}`);
+                return await target.fill(args.selector, args.value);
+            }
+
+            case 'browser_screenshot': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                onLog?.('Screenshotting the current page...');
+                return await target.screenshot();
+            }
+
+            case 'browser_get_state': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                onLog?.('Describing the current page...');
+                return await target.getState();
+            }
+
+            case 'browser_search': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                if (typeof args.query !== 'string' || !args.query.trim()) {
+                    return 'Error: browser_search needs a query string.';
+                }
+                onLog?.(`Searching the web: ${args.query}`);
+                return await target.search(args.query);
             }
 
             default:

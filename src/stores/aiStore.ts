@@ -44,6 +44,12 @@ interface AIState {
     addMessage: (message: ChatMessage, targetSessionId?: string) => void;
     updateStreamingMessage: (content: string) => void;
     completeStream: () => void;
+    /** A prompt queued from outside the chat — e.g. the browser's
+     * "ask the AI about this page" (Area 5). AIChat watches it and
+     * sends it as the next user message; null when none is queued. */
+    pendingAiPrompt: string | null;
+    queueAiPrompt: (text: string) => void;
+    clearPendingAiPrompt: () => void;
     setContextDirectory: (dir: string | null) => void;
     setLoading: (loading: boolean) => void;
 }
@@ -198,6 +204,7 @@ export const useAIStore = create<AIState>((set, get) => {
     streamingMessage: '',
     streamStartedAt: null,
     generatingSessionId: null,
+    pendingAiPrompt: null,
     lastTokenAt: null,
     stagingMessages: null,
     nextMessages: null,
@@ -441,6 +448,19 @@ export const useAIStore = create<AIState>((set, get) => {
 
     setContextDirectory: (dir: string | null) => {
         set({ contextDirectory: dir });
+    },
+
+    // A prompt queued from outside the chat (browser "ask the AI
+    // about this page"). AIChat picks it up and sends it; the
+    // queue holds one prompt — a second queue replaces the first,
+    // so a stale page can never be sent after a newer one.
+    queueAiPrompt: (text: string) => {
+        if (!text.trim()) return;
+        set({ pendingAiPrompt: text });
+    },
+
+    clearPendingAiPrompt: () => {
+        set({ pendingAiPrompt: null });
     },
 
     setLoading: (loading: boolean) => {

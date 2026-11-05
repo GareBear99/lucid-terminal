@@ -15,13 +15,18 @@ import {
   buildClickScript,
   buildFillScript,
   buildGetStateScript,
+  buildPageSummaryPrompt,
   buildReadTextScript,
+  buildSearchResultsScript,
   buildSelectorPresentScript,
   clampWaitTimeout,
+  formatSearchResults,
   isValidFillValue,
   isValidSelector,
   MAX_ACTION_TEXT_CHARS,
   MAX_FILL_VALUE_LENGTH,
+  MAX_PAGE_TEXT_FOR_AI,
+  MAX_SEARCH_RESULTS,
   MAX_SELECTOR_LENGTH,
   MAX_WAIT_TIMEOUT_MS,
   DEFAULT_WAIT_TIMEOUT_MS,
@@ -134,5 +139,53 @@ describe('buildSelectorPresentScript', () => {
     expect(script).toContain('try');
     expect(script).toContain('catch');
     expect(script).toContain(JSON.stringify('#ready'));
+  });
+});
+
+describe('buildSearchResultsScript + formatSearchResults', () => {
+  it('reads result links and snippets, capped', () => {
+    const script = buildSearchResultsScript();
+    expect(script).toContain('a.result__a');
+    expect(script).toContain('result__snippet');
+    expect(script).toContain(`>= ${MAX_SEARCH_RESULTS}`);
+    expect(script).toContain('title');
+    expect(script).toContain('url');
+  });
+
+  it('formats results numbered with URL and snippet', () => {
+    const text = formatSearchResults([
+      { title: 'First', url: 'https://first.example/', snippet: 'Snip.' },
+      { title: 'Second', url: 'https://second.example/', snippet: '' },
+    ]);
+    expect(text).toContain('1. First');
+    expect(text).toContain('https://first.example/');
+    expect(text).toContain('Snip.');
+    expect(text).toContain('2. Second');
+  });
+
+  it('reports honestly when nothing matched', () => {
+    expect(formatSearchResults([])).toBe('No search results found.');
+  });
+});
+
+describe('buildPageSummaryPrompt', () => {
+  it('includes the URL and the page text', () => {
+    const prompt = buildPageSummaryPrompt(
+      'https://example.com/',
+      'Hello world.',
+    );
+    expect(prompt).toContain('https://example.com/');
+    expect(prompt).toContain('Hello world.');
+    expect(prompt).toMatch(/summarise/i);
+  });
+
+  it('caps long page text for the chat context', () => {
+    const prompt = buildPageSummaryPrompt(
+      'https://example.com/',
+      'x'.repeat(MAX_PAGE_TEXT_FOR_AI + 5000),
+    );
+    expect(prompt.length).toBeLessThanOrEqual(
+      MAX_PAGE_TEXT_FOR_AI + 'https://example.com/'.length + 200,
+    );
   });
 });

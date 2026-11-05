@@ -7,6 +7,7 @@ import {
   session,
   shell,
 } from 'electron';
+import * as fs from 'fs';
 import path from 'path';
 import {
   attachBrowserView,
@@ -28,6 +29,16 @@ import {
 } from '../services/browserCredentials';
 import type { BrowserCredentialsDeps } from '../services/browserCredentials';
 import { createBrowserActionsRunner } from '../services/browserActions';
+import { capTextForAi } from '../services/browserActions';
+import {
+  buildSearchResultsScript,
+  formatSearchResults,
+} from '../../src/lib/browserActions';
+import type { SearchResultItem } from '../../src/lib/browserActions';
+import {
+  registerBrowserToolTarget,
+} from '../services/browserToolBridge';
+import type { BrowserToolTarget } from '../services/browserToolBridge';
 import type {
   BrowserActionResult,
   BrowserAuthRequest,
@@ -99,6 +110,14 @@ import type {
  * only. The generic `fill` refuses password fields (use the
  * saved-login fill); the AI tools (Area 5) and the flow runner
  * (Area 7) are built on these actions.
+ *
+ * AI browser tools (Area 5): the `browser_*` tools in
+ * `electron/services/aiTools.ts` run through the bridge in
+ * `electron/services/browserToolBridge.ts`, registered here — the
+ * AI asks, main acts on the active tab through the Area 4 actions.
+ * Web search runs in a temporary tab that is never attached to a
+ * window and is destroyed when the results are read. Everything
+ * is local: the model, the tools, the page. No remote server.
  */
 
 export type { BrowserViewBounds };
@@ -413,7 +432,9 @@ export function setupBrowserHandlers(
     createView(tabId, url);
   });
 
-  ipcMain.handle('browser:close', (_event, tabId: string) => {
+  // Destroy a tab's view (detach first if it is active). Shared by
+  // the close handler and the search temp tab (Area 5).
+  const closeView = (tabId: string) => {
     const view = views.get(tabId);
     if (!view) return;
     // A BrowserView has no destroy of its own — its webContents is
@@ -423,6 +444,10 @@ export function setupBrowserHandlers(
     zoomFactors.delete(tabId);
     views.delete(tabId);
     view.webContents.destroy();
+  };
+
+  ipcMain.handle('browser:close', (_event, tabId: string) => {
+    closeView(tabId);
   });
 
   ipcMain.handle(
@@ -654,4 +679,150 @@ export function setupBrowserHandlers(
       return actions.getState(wc);
     },
   );
+
+  // AI browser tools (Area 5): the bridge target. The AI asks,
+  // main acts on the ACTIVE tab through the Area 4 actions, and
+  // answers in plain text. No browser tab open → a clean message,
+  // never a throw. Screenshots are saved under userData (the AI
+  // gets the path; the chat is text-only, so the image itself is
+  // never pasted into it).
+  const activeWebContents = () =>
+    activeTabId ? views.get(activeTabId)?.webContents ?? null : null;
+
+  // Web search: a temporary tab loads DuckDuckGo's html endpoint
+  // (no JS needed), the results are read off the DOM, and the tab
+  // is destroyed. The tab is never attached to a window, so Gary
+  // never sees it. A load that never finishes destroys the tab on
+  // timeout instead of leaking it.
+  let searchCounter = 0;
+  const searchWeb = async (
+    query: string,
+    timeoutMs = 15000,
+  ): Promise<string> => {
+    const timeout = Math.min(
+      60000,
+      Math.max(1000, Math.floor(timeoutMs) || 15000),
+    );
+    searchCounter += 1;
+    const tempId = `browser-search-${Date.now().toString(36)}-${searchCounter}`;
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    createView(tempId, searchUrl);
+    const view = views.get(tempId);
+    if (!view) return 'Search failed: could not open a search tab.';
+    try {
+      const loaded = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), timeout);
+        view.webContents.once('did-finish-load', () => {
+          clearTimeout(timer);
+          resolve(true);
+        });
+      });
+      if (!loaded) {
+        return `Search timed out after ${Math.round(timeout / 1000)}s.`;
+      }
+      const results = (await view.webContents.executeJavaScript(
+        buildSearchResultsScript(),
+      )) as SearchResultItem[];
+      if (!Array.isArray(results)) {
+        return 'Search failed: could not read the results page.';
+      }
+      return formatSearchResults(results);
+    } catch {
+      return 'Search failed: the results page could not be read.';
+    } finally {
+      closeView(tempId);
+    }
+  };
+
+  const saveScreenshot = (dataUrl: string): string | null => {
+    const base64 = dataUrl.split(',')[1];
+    if (!base64) return null;
+    try {
+      const dir = path.join(app.getPath('userData'), 'browser-screenshots');
+      fs.mkdirSync(dir, { recursive: true });
+      const filePath = path.join(
+        dir,
+        `browser-${Date.now().toString(36)}-${searchCounter}.png`,
+      );
+      fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+      return filePath;
+    } catch {
+      return null;
+    }
+  };
+
+  const toolTarget: BrowserToolTarget = {
+    navigate: async (url) => {
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return `Could not open ${url}: not a valid URL.`;
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return `Could not open ${url}: only http(s) URLs can be opened.`;
+      }
+      const wc = activeWebContents();
+      if (!wc) return 'No browser tab is open.';
+      void wc.loadURL(url);
+      return `Opened ${url} in the active tab.`;
+    },
+
+    readPage: async () => {
+      const wc = activeWebContents();
+      if (!wc) return 'No browser tab is open.';
+      const result = await actions.readText(wc);
+      if (!result.ok || !result.text) {
+        return `Could not read the page: ${result.error ?? 'unknown error'}.`;
+      }
+      const text = capTextForAi(result.text.text);
+      return `Page: ${result.text.title} (${result.text.url})\n\n${text}`;
+    },
+
+    click: async (selector) => {
+      const wc = activeWebContents();
+      if (!wc) return 'No browser tab is open.';
+      const result = await actions.click(wc, selector);
+      return result.ok
+        ? `Clicked ${selector}.`
+        : `Could not click ${selector}: ${result.error ?? 'unknown error'}.`;
+    },
+
+    fill: async (selector, value) => {
+      const wc = activeWebContents();
+      if (!wc) return 'No browser tab is open.';
+      const result = await actions.fill(wc, selector, value);
+      if (result.ok) return `Filled ${selector}.`;
+      if (result.error === 'password-field') {
+        return 'That field is a password field — fill it from the saved login instead, or let Gary type it.';
+      }
+      return `Could not fill ${selector}: ${result.error ?? 'unknown error'}.`;
+    },
+
+    screenshot: async () => {
+      const wc = activeWebContents();
+      if (!wc) return 'No browser tab is open.';
+      const result = await actions.screenshot(wc);
+      if (!result.ok || !result.dataUrl) {
+        return `Could not take a screenshot: ${result.error ?? 'unknown error'}.`;
+      }
+      const filePath = saveScreenshot(result.dataUrl);
+      if (!filePath) return 'Could not save the screenshot.';
+      return `Screenshot saved to ${filePath}.`;
+    },
+
+    getState: async () => {
+      const wc = activeWebContents();
+      if (!wc) return 'No browser tab is open.';
+      const result = await actions.getState(wc);
+      if (!result.ok || !result.state) {
+        return `Could not describe the page: ${result.error ?? 'unknown error'}.`;
+      }
+      const json = JSON.stringify(result.state, null, 2);
+      return json.length > 8000 ? json.slice(0, 8000) : json;
+    },
+
+    search: async (query, timeoutMs) => searchWeb(query, timeoutMs),
+  };
+  registerBrowserToolTarget(toolTarget);
 }

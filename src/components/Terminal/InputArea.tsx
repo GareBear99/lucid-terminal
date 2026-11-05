@@ -2,6 +2,13 @@ import { useRef, useEffect, useState } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import '../../lib/monacoLoader'; // Bundle Monaco locally instead of the CDN
 import { ProcessingGlow } from './ProcessingGlow';
+import { InputDragHandle } from '../InputDragHandle';
+import {
+  INPUT_DRAG_MAX_HEIGHT_VH,
+  INPUT_MIN_HEIGHT_PX,
+  resolveInputHeightPx,
+  useDraggableInputHeight,
+} from '../../lib/inputHeight';
 import { useToastStore } from '../../stores/toastStore';
 
 // How long to wait for Monaco (bundled locally with the app) before giving
@@ -10,13 +17,11 @@ import { useToastStore } from '../../stores/toastStore';
 // a command at all.
 const MONACO_LOAD_TIMEOUT_MS = 8000;
 
-// How tall the prompt bubble may grow: half the page. It grows
-// upward with the input up to this cap, then scrolls - so long
-// input stays readable without swallowing the terminal.
-export const INPUT_MAX_HEIGHT_VH = 50;
-
-// One line of prompt: the floor the bubble never shrinks below.
-const INPUT_MIN_HEIGHT_PX = 40;
+// The default cap lives in src/lib/inputHeight.ts (INPUT_DEFAULT_HEIGHT_VH,
+// one-third of the page) and the drag max there (INPUT_DRAG_MAX_HEIGHT_VH,
+// half the page). The bubble grows upward with the input up to the
+// default cap, then scrolls — and a drag handle on its top edge lets the
+// user drag it taller or shorter, up to the drag max.
 
 // Monaco types
 declare global {
@@ -37,7 +42,22 @@ interface InputAreaProps {
 
 export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
-  const [editorHeight, setEditorHeight] = useState(INPUT_MIN_HEIGHT_PX);
+  // Content height from the editor (Monaco) or the fallback textarea;
+  // the bubble height derives from it plus the dragged floor (below).
+  const [contentHeightPx, setContentHeightPx] = useState(INPUT_MIN_HEIGHT_PX);
+  const [viewportHeightPx, setViewportHeightPx] = useState(
+    () => window.innerHeight,
+  );
+  const { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight } =
+    useDraggableInputHeight();
+  // The bubble height: default cap 33.33vh, dragged floor + resnap to
+  // content up to the 50vh drag max, direct pointer follow while dragging.
+  const editorHeight = resolveInputHeightPx(
+    contentHeightPx,
+    draggedHeightPx,
+    viewportHeightPx,
+    isDragging,
+  );
   const fallbackRef = useRef<HTMLTextAreaElement>(null);
   const editorDisposers = useRef<Array<() => void>>([]);
 
@@ -76,6 +96,18 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         };
     }, []);
 
+    // Keep the drag's start height current, and track viewport resizes
+    // so the vh caps stay right when the window changes size.
+    useEffect(() => {
+        noteHeight(editorHeight);
+    }, [editorHeight, noteHeight]);
+
+    useEffect(() => {
+        const onResize = () => setViewportHeightPx(window.innerHeight);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
     // Sync external input state with editor
     useEffect(() => {
         if (editorRef.current && input !== editorRef.current.getValue()) {
@@ -93,18 +125,21 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
 
     // Plain-textarea fallback: grow with the content up to the cap,
     // then scroll - long input stays readable instead of clipping.
+    // The dragged floor holds (no shrink on delete); content outgrowing
+    // it resnaps up to the 50vh drag max.
     useEffect(() => {
         const el = fallbackRef.current;
         if (!el) return;
-        const maxPx = Math.floor(
-            window.innerHeight * (INPUT_MAX_HEIGHT_VH / 100),
-        );
         el.style.height = 'auto';
-        el.style.height = `${Math.max(
-            INPUT_MIN_HEIGHT_PX,
-            Math.min(el.scrollHeight, maxPx),
-        )}px`;
-    }, [input, monacoFailed]);
+        const heightPx = resolveInputHeightPx(
+            el.scrollHeight,
+            draggedHeightPx,
+            window.innerHeight,
+            isDragging,
+        );
+        el.style.height = `${heightPx}px`;
+        noteHeight(heightPx);
+    }, [input, monacoFailed, draggedHeightPx, isDragging, noteHeight]);
 
     // Handle Monaco Editor mount
     const handleEditorDidMount = (editor: any, monaco: any) => {
@@ -163,26 +198,15 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         // Focus editor
         editor.focus();
         
-        // Grow the bubble with the content up to the cap, then scroll.
+        // Record the content height; the bubble height derives from it
+        // (default cap, dragged floor + resnap, drag follow). Window
+        // resizes are tracked by the viewport effect above.
         const syncHeight = () => {
-            const maxPx = Math.floor(
-                window.innerHeight * (INPUT_MAX_HEIGHT_VH / 100),
-            );
-            setEditorHeight(
-                Math.max(
-                    INPUT_MIN_HEIGHT_PX,
-                    Math.min(editor.getContentHeight(), maxPx),
-                ),
-            );
+            setContentHeightPx(editor.getContentHeight());
         };
         syncHeight();
         const sizeDisposable = editor.onDidContentSizeChange(syncHeight);
         editorDisposers.current.push(() => sizeDisposable.dispose());
-        const onResize = () => syncHeight();
-        window.addEventListener('resize', onResize);
-        editorDisposers.current.push(() =>
-            window.removeEventListener('resize', onResize),
-        );
     };
 
     // Plain-textarea fallback: same behaviour as the editor — Enter submits,
@@ -207,6 +231,12 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         <div className="w-full h-auto min-h-[40px] flex items-center relative px-3">
             {/* Rainbow swirl processing glow */}
             <ProcessingGlow isProcessing={isProcessing} />
+            {/* Drag handle on the bubble's top edge: drag up to grow,
+                down to shrink, up to half the page. */}
+            <InputDragHandle
+                isDragging={isDragging}
+                onDragHandlePointerDown={onDragHandlePointerDown}
+            />
             
             {monacoFailed ? (
                 <textarea
@@ -219,7 +249,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     placeholder="Type a command… (plain input — Monaco unavailable)"
                     title="Monaco editor unavailable — using plain input"
                     className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-y-auto"
-                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace", maxHeight: `${INPUT_MAX_HEIGHT_VH}vh` }}
+                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace", maxHeight: `${INPUT_DRAG_MAX_HEIGHT_VH}vh` }}
                 />
             ) : (
             <Editor

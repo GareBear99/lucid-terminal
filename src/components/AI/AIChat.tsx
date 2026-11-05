@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, MessageSquare, Trash2, Menu, Folder, FolderOpen, Loader } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
@@ -8,6 +8,13 @@ import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { ChatMessage } from '../../types';
 import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
+import { InputDragHandle } from '../InputDragHandle';
+import {
+  INPUT_DRAG_MAX_HEIGHT_VH,
+  INPUT_MIN_HEIGHT_PX,
+  resolveInputHeightPx,
+  useDraggableInputHeight,
+} from '../../lib/inputHeight';
 
 interface AIChatProps {
   onClose: () => void;
@@ -53,6 +60,32 @@ function AIChat({ onClose }: AIChatProps) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight } =
+    useDraggableInputHeight();
+
+  // Size the chat input: default cap 33.33vh, dragged floor + resnap to
+  // content up to the 50vh drag max. The height is reset to 'auto'
+  // first so scrollHeight shrinks when content is deleted.
+  const syncChatInputHeight = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const heightPx = resolveInputHeightPx(
+      el.scrollHeight,
+      draggedHeightPx,
+      window.innerHeight,
+      isDragging,
+    );
+    el.style.height = `${heightPx}px`;
+    noteHeight(heightPx);
+  }, [draggedHeightPx, isDragging, noteHeight]);
+
+  // Re-sync when the text, the dragged floor, or the drag state changes
+  // (typing, deleting, dragging, and sending all flow through here).
+  useEffect(() => {
+    syncChatInputHeight();
+  }, [input, syncChatInputHeight]);
 
   useEffect(() => {
     loadSessions();
@@ -565,7 +598,13 @@ function AIChat({ onClose }: AIChatProps) {
           )}
         </div>
 
-        <div className="p-3 border-t border-[var(--border)]">
+        <div className="relative p-3 border-t border-[var(--border)]">
+          {/* Drag handle on the input's top edge: drag up to grow,
+              down to shrink, up to half the page. */}
+          <InputDragHandle
+            isDragging={isDragging}
+            onDragHandlePointerDown={onDragHandlePointerDown}
+          />
           <div className="flex gap-2">
             <textarea
               ref={inputRef}
@@ -574,19 +613,15 @@ function AIChat({ onClose }: AIChatProps) {
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = `${Math.min(e.target.scrollHeight, Math.floor(window.innerHeight / 2))}px`;
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
-                  // Reset height
-                  if (inputRef.current) inputRef.current.style.height = 'auto';
                 }
               }}
               rows={1}
-              style={{ minHeight: '40px', maxHeight: '50vh' }}
+              style={{ minHeight: `${INPUT_MIN_HEIGHT_PX}px`, maxHeight: `${INPUT_DRAG_MAX_HEIGHT_VH}vh` }}
               disabled={isLoading}
             />
             {isLoading ? (
@@ -597,7 +632,6 @@ function AIChat({ onClose }: AIChatProps) {
               <button
                 onClick={() => {
                   handleSend();
-                  if (inputRef.current) inputRef.current.style.height = 'auto';
                 }}
                 disabled={!input.trim()}
                 className="btn btn-primary px-3 disabled:opacity-50 self-end h-[40px]"

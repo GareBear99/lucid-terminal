@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
-import { useToastStore } from './stores/toastStore';
+import { useToastStore, visibleToastNotifications } from './stores/toastStore';
 import { ErrorNotification } from './components/Terminal/ErrorNotification';
 import { useTerminalStore } from './stores/terminalStore';
 import { useFileStore } from './stores/fileStore';
@@ -22,7 +22,7 @@ import { View } from './types';
 
 function App() {
   const { loadSettings, isLoading, storageDegraded } = useSettingsStore();
-  const { notifications, removeNotification } = useToastStore();
+  const { notifications, dismissToast } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
   const { openFiles, currentDir, setCurrentDir } = useFileStore();
 
@@ -278,8 +278,11 @@ function App() {
         }}
       />
 
-      {/* Error toasts (file, terminal, backend, Monaco fallback) */}
-      <ErrorNotification notifications={notifications} onDismiss={removeNotification} />
+      {/* Error toasts (file, terminal, backend, Monaco fallback).
+          Dismissing a toast only hides it from this stack - the
+          notification stays in the store so the bell panel in the
+          terminal tab bar (the persistent home) can still list it. */}
+      <ErrorNotification notifications={visibleToastNotifications(notifications)} onDismiss={dismissToast} />
     </div>
   );
 }

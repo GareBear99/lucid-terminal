@@ -21,6 +21,48 @@ export interface Notification {
   message: string;
   duration?: number; // milliseconds, 0 = no auto-dismiss
   dismissible?: boolean;
+  /** True once the user has seen this notification in the bell panel. */
+  read?: boolean;
+  /**
+   * True once the toast has gone (auto-faded or X-dismissed). The toast
+   * stack hides it, but the notification stays in the store so the bell
+   * panel — the persistent home — can still list it.
+   */
+  toastDismissed?: boolean;
+}
+
+/** Icon + colours for a notification type (shared by the toast stack and the bell panel). */
+export function getTypeStyles(type: NotificationType) {
+  switch (type) {
+    case 'error':
+      return {
+        bg: 'bg-red-500/15',
+        border: 'border-red-500/40',
+        text: 'text-red-300',
+        icon: AlertCircle,
+      };
+    case 'warning':
+      return {
+        bg: 'bg-yellow-500/15',
+        border: 'border-yellow-500/40',
+        text: 'text-yellow-300',
+        icon: AlertTriangle,
+      };
+    case 'success':
+      return {
+        bg: 'bg-green-500/15',
+        border: 'border-green-500/40',
+        text: 'text-green-300',
+        icon: CheckCircle,
+      };
+    case 'info':
+      return {
+        bg: 'bg-blue-500/15',
+        border: 'border-blue-500/40',
+        text: 'text-blue-300',
+        icon: Info,
+      };
+  }
 }
 
 interface ErrorNotificationProps {
@@ -34,39 +76,6 @@ export function ErrorNotification({
   onDismiss, 
   autoFadeEnabled = true 
 }: ErrorNotificationProps) {
-  
-  const getTypeStyles = (type: NotificationType) => {
-    switch (type) {
-      case 'error':
-        return {
-          bg: 'bg-red-500/15',
-          border: 'border-red-500/40',
-          text: 'text-red-300',
-          icon: AlertCircle
-        };
-      case 'warning':
-        return {
-          bg: 'bg-yellow-500/15',
-          border: 'border-yellow-500/40',
-          text: 'text-yellow-300',
-          icon: AlertTriangle
-        };
-      case 'success':
-        return {
-          bg: 'bg-green-500/15',
-          border: 'border-green-500/40',
-          text: 'text-green-300',
-          icon: CheckCircle
-        };
-      case 'info':
-        return {
-          bg: 'bg-blue-500/15',
-          border: 'border-blue-500/40',
-          text: 'text-blue-300',
-          icon: Info
-        };
-    }
-  };
   
   return (
     <div className="error-notification-container fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-md">

@@ -15,10 +15,26 @@ interface ToastState {
   addNotification: (type: NotificationType, message: string, duration?: number) => string;
   removeNotification: (id: string) => void;
   clearAll: () => void;
+  /** Hide a notification's toast (it stays in the store for the bell panel). */
+  dismissToast: (id: string) => void;
+  /** Mark every notification read (the bell badge clears). */
+  markAllRead: () => void;
   error: (message: string, duration?: number) => string;
   warning: (message: string, duration?: number) => string;
   info: (message: string, duration?: number) => string;
   success: (message: string, duration?: number) => string;
+}
+
+/** Notifications the bell badge counts: those the user has not seen yet. */
+export function unreadCount(notifications: readonly Notification[]): number {
+  return notifications.filter((n) => !n.read).length;
+}
+
+/** Notifications the toast stack shows: those whose toast has not gone yet. */
+export function visibleToastNotifications(
+  notifications: readonly Notification[],
+): Notification[] {
+  return notifications.filter((n) => !n.toastDismissed);
 }
 
 function makeId(): string {
@@ -37,6 +53,8 @@ export const useToastStore = create<ToastState>((set) => {
       message,
       duration,
       dismissible: true,
+      read: false,
+      toastDismissed: false,
     };
     set((state) => ({ notifications: [...state.notifications, notification] }));
     return notification.id;
@@ -48,6 +66,16 @@ export const useToastStore = create<ToastState>((set) => {
     removeNotification: (id) =>
       set((state) => ({ notifications: state.notifications.filter((n) => n.id !== id) })),
     clearAll: () => set({ notifications: [] }),
+    dismissToast: (id) =>
+      set((state) => ({
+        notifications: state.notifications.map((n) =>
+          n.id === id ? { ...n, toastDismissed: true } : n,
+        ),
+      })),
+    markAllRead: () =>
+      set((state) => ({
+        notifications: state.notifications.map((n) => ({ ...n, read: true })),
+      })),
     error: (message, duration = 5000) => addNotification('error', message, duration),
     warning: (message, duration = 5000) => addNotification('warning', message, duration),
     info: (message, duration = 4000) => addNotification('info', message, duration),

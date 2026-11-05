@@ -38,10 +38,19 @@ vi.mock('electron', () => {
   class BrowserView {
     webContents: Record<string, unknown>;
     constructor(opts: unknown) {
-      const handlers: Record<string, (...args: unknown[]) => void> = {};
+      // Real Electron runs EVERY listener for an event; the mock
+      // must too (createView registers several did-finish-load
+      // listeners — update, credential fill, visit log). A
+      // single-slot map silently drops all but the last.
+      const lists: Record<string, Array<(...args: unknown[]) => void>> = {};
+      const dispatchers: Record<string, (...args: unknown[]) => void> = {};
       const wc: Record<string, unknown> = {
         on: (event: string, handler: (...args: unknown[]) => void) => {
-          handlers[event] = handler;
+          const list = (lists[event] ??= []);
+          list.push(handler);
+          dispatchers[event] = (...args: unknown[]) => {
+            for (const h of list) void h(...args);
+          };
         },
         setWindowOpenHandler: () => undefined,
         loadURL: () => undefined,
@@ -69,7 +78,7 @@ vi.mock('electron', () => {
         goBack: () => undefined,
         goForward: () => undefined,
         reload: () => undefined,
-        __handlers: handlers,
+        __handlers: dispatchers,
       };
       this.webContents = wc;
       state.views.push({ wc });

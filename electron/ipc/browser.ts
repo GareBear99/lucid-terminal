@@ -20,9 +20,14 @@ import {
   isPermissionAllowed,
   loadPermissionAllowlist,
   originOfUrl,
+  savePermissionAllowlist,
+  setPermissionAllowed,
 } from '../services/browserPermissions';
-import type { BrowserPermissionAllowlist } from '../services/browserPermissions';
-import { browserContextMenuItems } from '../services/browserContextMenu';
+import type {
+  BrowserPermission,
+  BrowserPermissionAllowlist,
+} from '../services/browserPermissions';
+import { browserContextMenuItems, buildCurlCommand } from '../services/browserContextMenu';
 import { setupBrowserDownloads } from '../services/browserDownloads';
 import {
   createBrowserCredentialsVault,
@@ -42,6 +47,13 @@ import type { BrowserToolTarget } from '../services/browserToolBridge';
 import { createBrowserFlowRunner } from '../services/browserFlows';
 import type { FlowDefinition } from '../../src/lib/browserFlows';
 import { createBrowserCdpManager } from '../services/browserCdp';
+import {
+  formatVisitsForAi,
+  loadVisitLog,
+  recordVisit,
+  saveVisitLog,
+} from '../services/browserVisitLog';
+import type { BrowserVisit } from '../services/browserVisitLog';
 import type {
   BrowserActionResult,
   BrowserAuthRequest,
@@ -81,12 +93,15 @@ import type {
  * knows Electron's view API — so the Electron 30 `WebContentsView`
  * migration is a one-file swap later.
  *
- * Session handlers (Area 0): the browser session denies permissions
- * by default (camera/mic/notifications only for origins on the
- * allowlist, which is empty until the per-site memory lands in
- * Area 9); HTTP-auth (`login`) asks Gary in the panel and never
- * silently retries; right-click shows a native context menu
- * (Back / Forward / Reload / Copy Link / Copy / Inspect).
+ * Session handlers (Area 0, memory in Area 9): the browser
+ * session denies permissions by default (camera/mic/notifications
+ * only for origins on the allowlist); a request for a
+ * not-yet-allowed origin is held and asked about in the panel
+ * (Allow once / Allow always / Deny), once per
+ * origin+permission per session. HTTP-auth (`login`) asks Gary
+ * in the panel and never silently retries; right-click shows a
+ * native context menu (Back / Forward / Reload / Copy Link /
+ * Copy Link as curl / Copy Page URL as curl / Copy / Inspect).
  *
  * Chrome completion (Area 1): find-in-page (with match counts pushed
  * back as `browser:find-updated`), per-tab zoom (0.25–5, remembered
@@ -158,6 +173,17 @@ import type {
  * `Network` — never `Target`): trusted mouse/keyboard input and
  * per-tab diagnostics (failed requests, HTTP errors, console
  * errors, uncaught exceptions).
+ *
+ * Polish + stretch (Area 9): per-site permission memory (a
+ * request for a not-yet-allowed origin is HELD and asked about
+ * in the panel — Allow once / Allow always / Deny — once per
+ * origin+permission per session; the allowlist persists to
+ * userData); a main-side visit log (finished http(s) loads,
+ * capped at 200) behind the AI tool `browser_history`; save page
+ * as file into the downloads folder; the context menu copies a
+ * link or the page URL as a `curl` command (copied, never
+ * executed). Bookmarks live in the renderer
+ * (`src/stores/browserBookmarks.ts`).
  */
 
 export type { BrowserViewBounds };
@@ -221,30 +247,73 @@ export function setupBrowserHandlers(
   // forgets it — a reopened tab starts at 100%).
   const zoomFactors = new Map<string, number>();
 
-  // Per-site permission allowlist (deny by default; empty until the
-  // per-site memory UI lands in Area 9). Loaded once at startup.
+  // Visit log (Area 9): the AI's copy of Gary's browsing, newest
+  // first, persisted to userData. Recorded on finished loads.
+  const visitLogPath = path.join(app.getPath('userData'), 'browser-visits.json');
+  let visitLog: BrowserVisit[] = loadVisitLog(visitLogPath);
+
+  // The session is shared by every browser view, so one permission
+  // handler covers all tabs. Default is DENY — but a request for
+  // a not-yet-allowed origin is HELD and asked about (Area 9):
+  // the panel shows Allow once / Allow always / Deny, and the
+  // page waits for Gary's answer instead of being silently
+  // denied. One prompt per origin+permission per session: a
+  // repeat request while one is pending joins the same prompt
+  // and gets the same answer.
+  const permissionFilePath = path.join(
+    app.getPath('userData'),
+    'browser-permissions.json',
+  );
+  const browserSession = session.fromPartition(BROWSER_PARTITION);
   let allowlist: BrowserPermissionAllowlist = {};
   try {
-    allowlist = loadPermissionAllowlist(
-      path.join(app.getPath('userData'), 'browser-permissions.json'),
-    );
+    allowlist = loadPermissionAllowlist(permissionFilePath);
   } catch {
     allowlist = {};
   }
-
-  // The session is shared by every browser view, so one permission
-  // handler covers all tabs. Deny by default; allow only origins on
-  // the allowlist.
-  const browserSession = session.fromPartition(BROWSER_PARTITION);
+  /** origin+permission pairs allowed for this session only
+   * ("Allow once" — never persisted). */
+  const sessionAllowed = new Set<string>();
+  const permissionKey = (origin: string, permission: string) =>
+    `${origin}\n${permission}`;
+  interface PendingPermission {
+    origin: string;
+    permission: string;
+    callbacks: Array<(granted: boolean) => void>;
+  }
+  const pendingPermissions = new Map<string, PendingPermission>();
   browserSession.setPermissionRequestHandler(
     (_webContents, permission, callback, details) => {
       const origin =
         details.requestingUrl != null
           ? originOfUrl(details.requestingUrl)
           : null;
-      callback(
-        origin !== null && isPermissionAllowed(allowlist, origin, permission),
-      );
+      if (origin === null) {
+        callback(false);
+        return;
+      }
+      const key = permissionKey(origin, permission);
+      if (
+        isPermissionAllowed(allowlist, origin, permission) ||
+        sessionAllowed.has(key)
+      ) {
+        callback(true);
+        return;
+      }
+      const pending = pendingPermissions.get(key);
+      if (pending) {
+        pending.callbacks.push(callback);
+        return;
+      }
+      pendingPermissions.set(key, {
+        origin,
+        permission,
+        callbacks: [callback],
+      });
+      getMainWindow()?.webContents.send('browser:permission-requested', {
+        origin,
+        permission,
+      });
     },
   );
 
@@ -495,6 +564,23 @@ export function setupBrowserHandlers(
     wc.on('did-finish-load', () => {
       void getCredentials().fillLogin(wc).catch(() => undefined);
     });
+    // Visit log (Area 9): a finished load is a visit for the AI's
+    // "what did I look at yesterday?" — http(s) only, consecutive
+    // duplicates dropped, capped at 200, persisted to userData.
+    wc.on('did-finish-load', () => {
+      const url = wc.getURL();
+      const title = wc.getTitle();
+      visitLog = recordVisit(visitLog, {
+        url,
+        title,
+        visitedAt: Date.now(),
+      });
+      try {
+        saveVisitLog(visitLogPath, visitLog);
+      } catch {
+        // A failed write must not break the page load.
+      }
+    });
     wc.on('will-navigate', () => captureAndOffer(wc));
     wc.on('did-navigate-in-page', () => captureAndOffer(wc));
     // Find-in-page: push match counts back so the panel's find bar
@@ -553,6 +639,7 @@ export function setupBrowserHandlers(
       if (!mainWin || mainWin.isDestroyed()) return;
       const items = browserContextMenuItems({
         linkURL: params.linkURL,
+        pageURL: params.pageURL,
         selectionText: params.selectionText,
         canGoBack: wc.canGoBack(),
         canGoForward: wc.canGoForward(),
@@ -562,7 +649,12 @@ export function setupBrowserHandlers(
       for (const item of items) {
         if (item.id === 'back' || item.id === 'forward' || item.id === 'reload') {
           groups[0].push(item);
-        } else if (item.id === 'copy-link' || item.id === 'copy') {
+        } else if (
+          item.id === 'copy-link' ||
+          item.id === 'copy-link-curl' ||
+          item.id === 'copy-page-curl' ||
+          item.id === 'copy'
+        ) {
           groups[1].push(item);
         } else {
           groups[2].push(item);
@@ -577,6 +669,11 @@ export function setupBrowserHandlers(
         },
         reload: () => wc.reload(),
         'copy-link': () => clipboard.writeText(params.linkURL),
+        // Terminal commands, copied — never executed.
+        'copy-link-curl': () =>
+          clipboard.writeText(buildCurlCommand(params.linkURL)),
+        'copy-page-curl': () =>
+          clipboard.writeText(buildCurlCommand(params.pageURL)),
         copy: () => wc.copy(),
         inspect: () => wc.inspectElement(params.x, params.y),
       };
@@ -1025,6 +1122,15 @@ export function setupBrowserHandlers(
         : `Could not click ${selector}: ${result.error ?? 'unknown error'}.`;
     },
 
+    // Visit history (Area 9): what Gary looked at, for the AI.
+    getHistory: async (days) => {
+      const n =
+        typeof days === 'number' && Number.isFinite(days)
+          ? Math.min(30, Math.max(1, Math.floor(days)))
+          : 7;
+      return formatVisitsForAi(visitLog, n);
+    },
+
     // Start a scripted flow (Area 7) on the active tab. The flow
     // runs in the background; the AI gets a started summary, not a
     // completion — gated steps pause for Gary in the panel, so a
@@ -1088,6 +1194,94 @@ export function setupBrowserHandlers(
     const attached = await cdp.attach(tabId, view.webContents);
     if (!attached.ok) return { ok: false, error: attached.error };
     return { ok: true, diagnostics: cdp.getDiagnostics(tabId) };
+  });
+
+  // Per-site permission memory (Area 9): answer a held request,
+  // list the allowlist, revoke an entry. 'once' grants the held
+  // request(s) and remembers the pair for this session only;
+  // 'always' grants and persists it to the allowlist file; 'deny'
+  // denies. The panel asks once per origin+permission per session.
+  ipcMain.handle(
+    'browser:permission-answer',
+    (
+      _event,
+      origin: string,
+      permission: BrowserPermission,
+      decision: 'once' | 'always' | 'deny',
+    ) => {
+      const key = permissionKey(origin, permission);
+      const pending = pendingPermissions.get(key);
+      if (!pending) return { ok: false, error: 'no-such-request' };
+      pendingPermissions.delete(key);
+      if (decision === 'once') {
+        sessionAllowed.add(key);
+        pending.callbacks.forEach((cb) => cb(true));
+      } else if (decision === 'always') {
+        allowlist = setPermissionAllowed(
+          allowlist,
+          origin,
+          permission,
+          true,
+        );
+        try {
+          savePermissionAllowlist(permissionFilePath, allowlist);
+        } catch {
+          // The grant still stands for this session.
+        }
+        pending.callbacks.forEach((cb) => cb(true));
+      } else {
+        pending.callbacks.forEach((cb) => cb(false));
+      }
+      return { ok: true };
+    },
+  );
+
+  ipcMain.handle('browser:permission-list', () => ({
+    ok: true,
+    allowlist,
+  }));
+
+  ipcMain.handle(
+    'browser:permission-revoke',
+    (_event, origin: string, permission: BrowserPermission) => {
+      allowlist = setPermissionAllowed(allowlist, origin, permission, false);
+      sessionAllowed.delete(permissionKey(origin, permission));
+      try {
+        savePermissionAllowlist(permissionFilePath, allowlist);
+      } catch {
+        // The revoke still stands in memory.
+      }
+      return { ok: true, allowlist };
+    },
+  );
+
+  // Save page as file (Area 9): the active page, complete with
+  // its assets, into the downloads folder. http(s) pages only.
+  ipcMain.handle('browser:save-page', async (_event, tabId: string) => {
+    const view = views.get(tabId);
+    if (!view) return { ok: false, error: 'no-such-tab' };
+    const wc = view.webContents;
+    const url = wc.getURL();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return { ok: false, error: 'not-savable' };
+    }
+    const downloadsFolder =
+      options?.getDownloadsFolder?.() ?? app.getPath('downloads');
+    const base =
+      (wc.getTitle() || 'page')
+        .replace(/[^a-zA-Z0-9._-]+/g, '_')
+        .slice(0, 80) || 'page';
+    const filePath = path.join(
+      downloadsFolder,
+      `${base}-${Date.now().toString(36)}.html`,
+    );
+    try {
+      fs.mkdirSync(downloadsFolder, { recursive: true });
+      await wc.savePage(filePath, 'HTMLComplete');
+      return { ok: true, path: filePath };
+    } catch {
+      return { ok: false, error: 'save-failed' };
+    }
   });
 
   // Mini window (Area 6): pop a tab's view out to the floating

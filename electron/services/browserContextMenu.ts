@@ -8,10 +8,15 @@
  * copy via the view's selection, inspect via `inspectElement`).
  *
  * Items are returned in display order, grouped as:
- *   Back / Forward / Reload | Copy Link Address / Copy | Inspect Element
+ *   Back / Forward / Reload | Copy Link Address / Copy Link as
+ *   curl Command / Copy Page URL as curl Command / Copy |
+ *   Inspect Element
  * A group is omitted when none of its items applies (e.g. no link under
  * the cursor means no "Copy Link Address"). Separators between groups
  * are the main process's job.
+ *
+ * The curl commands copy a ready-to-paste terminal command to the
+ * clipboard — they never execute anything.
  */
 
 export type BrowserContextMenuItemId =
@@ -19,6 +24,8 @@ export type BrowserContextMenuItemId =
   | 'forward'
   | 'reload'
   | 'copy-link'
+  | 'copy-link-curl'
+  | 'copy-page-curl'
   | 'copy'
   | 'inspect';
 
@@ -31,10 +38,20 @@ export interface BrowserContextMenuItem {
 export interface BrowserContextMenuParams {
   /** URL of the link under the cursor, or '' when not on a link. */
   linkURL: string;
+  /** URL of the page itself (for "copy page as curl"). */
+  pageURL: string;
   /** Selected text, or '' when nothing is selected. */
   selectionText: string;
   canGoBack: boolean;
   canGoForward: boolean;
+}
+
+/** A URL as a terminal command, copied to the clipboard — never
+ * executed. `curl -L` follows redirects; the URL is single-quoted
+ * and embedded quotes are escaped, so the command is safe to
+ * paste into a terminal. */
+export function buildCurlCommand(url: string): string {
+  return `curl -L '${url.replace(/'/g, `'\\''`)}'`;
 }
 
 export function browserContextMenuItems(
@@ -49,6 +66,18 @@ export function browserContextMenuItems(
     items.push({
       id: 'copy-link',
       label: 'Copy Link Address',
+      enabled: true,
+    });
+    items.push({
+      id: 'copy-link-curl',
+      label: 'Copy Link as curl Command',
+      enabled: true,
+    });
+  }
+  if (params.pageURL) {
+    items.push({
+      id: 'copy-page-curl',
+      label: 'Copy Page URL as curl Command',
       enabled: true,
     });
   }

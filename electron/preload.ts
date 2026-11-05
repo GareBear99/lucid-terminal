@@ -271,6 +271,19 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('browser:action-trusted-click', tabId, selector),
     getCdpDiagnostics: (tabId: string) =>
       ipcRenderer.invoke('browser:cdp-diagnostics', tabId),
+    // Save page + per-site permission memory (Area 9).
+    savePage: (tabId: string) =>
+      ipcRenderer.invoke('browser:save-page', tabId),
+    answerPermission: (origin: string, permission: string, decision: 'once' | 'always' | 'deny') =>
+      ipcRenderer.invoke('browser:permission-answer', origin, permission, decision),
+    listPermissions: () => ipcRenderer.invoke('browser:permission-list'),
+    revokePermission: (origin: string, permission: string) =>
+      ipcRenderer.invoke('browser:permission-revoke', origin, permission),
+    onPermissionRequested: (callback: (request: BrowserPermissionRequest) => void) => {
+      const listener = (_: any, request: BrowserPermissionRequest) => callback(request);
+      ipcRenderer.on('browser:permission-requested', listener);
+      return () => ipcRenderer.removeListener('browser:permission-requested', listener);
+    },
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -534,6 +547,11 @@ export interface LucidAPI {
     onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
     trustedClick: (tabId: string, selector: string) => Promise<BrowserActionResult>;
     getCdpDiagnostics: (tabId: string) => Promise<{ ok: boolean; diagnostics?: CdpDiagnostics; error?: string }>;
+    savePage: (tabId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    answerPermission: (origin: string, permission: string, decision: 'once' | 'always' | 'deny') => Promise<{ ok: boolean; error?: string }>;
+    listPermissions: () => Promise<{ ok: boolean; allowlist: Record<string, string[]> }>;
+    revokePermission: (origin: string, permission: string) => Promise<{ ok: boolean; allowlist: Record<string, string[]> }>;
+    onPermissionRequested: (callback: (request: BrowserPermissionRequest) => void) => () => void;
   };
   android: {
     getGpuGate: () => Promise<GpuGateStatus>;

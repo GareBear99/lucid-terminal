@@ -38,6 +38,9 @@ export interface BrowserToolTarget {
   /** Click an element with a real (trusted) mouse event via CDP
    * (Area 8) — for pages that ignore Tier 1's synthetic click. */
   trustedClick(selector: string): Promise<string>;
+  /** What the user looked at in the last `days` days (Area 9),
+   * formatted for the AI chat. */
+  getHistory(days?: number): Promise<string>;
   /** Start a scripted multi-step flow (Area 7) on the active tab.
    * The flow runs in the background; steps that need approval
    * (money/irreversible, or explicitly flagged) pause for Gary

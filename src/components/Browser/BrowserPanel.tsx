@@ -17,6 +17,10 @@ import {
   KeyRound,
   PictureInPicture2,
   Undo2,
+  Star,
+  Bookmark,
+  Shield,
+  FileDown,
 } from 'lucide-react';
 import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
 import { useAIStore } from '../../stores/aiStore';
@@ -25,6 +29,15 @@ import {
   useBrowserHistory,
   matchHistoryEntries,
 } from '../../stores/browserHistory';
+import {
+  useBrowserBookmarks,
+  isBookmarkableUrl,
+} from '../../stores/browserBookmarks';
+import BrowserBookmarks from './BrowserBookmarks';
+import {
+  BrowserPermissionPrompt,
+  BrowserPermissionsList,
+} from './BrowserPermissionPrompt';
 import { useBrowserDownloads } from '../../stores/browserDownloads';
 import { DownloadShelf } from './DownloadShelf';
 import FlowProgress from './FlowProgress';
@@ -41,6 +54,7 @@ import type {
   BrowserAuthRequest,
   BrowserBounds,
   BrowserFindResult,
+  BrowserPermissionRequest,
 } from '../../types';
 
 /**
@@ -230,6 +244,10 @@ function BrowserPanel() {
   };
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  const toggleBookmark = useBrowserBookmarks((s) => s.toggleBookmark);
+  const isActiveBookmarked = useBrowserBookmarks((s) =>
+    activeTab?.url ? s.isBookmarked(activeTab.url) : false,
+  );
   const panelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -254,9 +272,29 @@ function BrowserPanel() {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Bookmarks + permissions lists (Area 9), toggled from the tab strip.
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  // Held permission requests, queued in arrival order (main asks
+  // once per origin+permission per session; the panel dedupes
+  // defensively). The prompt shows the first one.
+  const [permissionQueue, setPermissionQueue] = useState<
+    BrowserPermissionRequest[]
+  >([]);
+  // Transient one-line notice (e.g. "Saved to …"), cleared shortly after.
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showNotice = (text: string) => {
+    setNotice(text);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 5000);
+  };
+
   useEffect(() => {
     return () => {
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
   }, []);
 
@@ -313,6 +351,21 @@ function BrowserPanel() {
       window.lucidAPI.browser.onOpenInternalPhone(() => {
         void openInternalPhone();
       });
+    // Per-site permissions (Area 9): a page wants a capability
+    // its origin is not allowed yet; main holds the request until
+    // Gary answers in the prompt.
+    const cleanupPermission =
+      window.lucidAPI.browser.onPermissionRequested((request) => {
+        setPermissionQueue((prev) =>
+          prev.some(
+            (r) =>
+              r.origin === request.origin &&
+              r.permission === request.permission,
+          )
+            ? prev
+            : [...prev, request],
+        );
+      });
     return () => {
       cleanupUpdated();
       cleanupOpenUrl();
@@ -320,6 +373,7 @@ function BrowserPanel() {
       cleanupFind();
       cleanupMiniClosed();
       cleanupOpenInternal();
+      cleanupPermission();
     };
   }, [applyTabUpdate, createTab]);
 
@@ -417,6 +471,20 @@ function BrowserPanel() {
       .popOut(activeTabId)
       .catch(() => null);
     if (result && result.ok) setPoppedOutTabId(activeTabId);
+  };
+
+  // Save the active page as a file (Area 9): the complete page
+  // into the downloads folder. The notice shows where it landed.
+  const saveCurrentPage = async () => {
+    if (!activeTabId) return;
+    const result = await window.lucidAPI.browser
+      .savePage(activeTabId)
+      .catch(() => null);
+    if (result?.ok && result.path) {
+      showNotice(`Saved to ${result.path}`);
+    } else {
+      showNotice('Could not save this page.');
+    }
   };
 
   // Copy the active page's URL (clipboard API, with a textarea
@@ -567,7 +635,44 @@ function BrowserPanel() {
             <Undo2 size={14} />
           </button>
         </Tooltip>
+        <Tooltip content="Bookmarks">
+          <button
+            onClick={() => {
+              setBookmarksOpen((v) => !v);
+              setPermissionsOpen(false);
+            }}
+            className={`p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0 ${
+              bookmarksOpen ? 'bg-[var(--bg-tertiary)]' : ''
+            }`}
+          >
+            <Bookmark size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Site permissions">
+          <button
+            onClick={() => {
+              setPermissionsOpen((v) => !v);
+              setBookmarksOpen(false);
+            }}
+            className={`p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0 ${
+              permissionsOpen ? 'bg-[var(--bg-tertiary)]' : ''
+            }`}
+          >
+            <Shield size={14} />
+          </button>
+        </Tooltip>
       </div>
+
+      {/* Bookmarks / permissions lists (Area 9), toggled from the strip. */}
+      {bookmarksOpen ? (
+        <BrowserBookmarks
+          onOpen={(url) => {
+            if (activeTabId) void window.lucidAPI.browser.navigate(activeTabId, url);
+            setBookmarksOpen(false);
+          }}
+        />
+      ) : null}
+      {permissionsOpen ? <BrowserPermissionsList /> : null}
 
       {/* Nav bar + address-bar history dropdown */}
       <div className="relative shrink-0">
@@ -727,6 +832,37 @@ function BrowserPanel() {
               <PictureInPicture2 size={16} />
             </button>
           </Tooltip>
+          <Tooltip
+            content={
+              isActiveBookmarked ? 'Remove bookmark' : 'Bookmark this page'
+            }
+          >
+            <button
+              type="button"
+              onClick={() => {
+                if (activeTab?.url) {
+                  toggleBookmark(activeTab.url, activeTab.title || activeTab.url);
+                }
+              }}
+              disabled={!activeTab?.url || !isBookmarkableUrl(activeTab.url)}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <Star
+                size={16}
+                fill={isActiveBookmarked ? 'currentColor' : 'none'}
+              />
+            </button>
+          </Tooltip>
+          <Tooltip content="Save page as file (downloads folder)">
+            <button
+              type="button"
+              onClick={() => void saveCurrentPage()}
+              disabled={!activeTab?.url || !isBookmarkableUrl(activeTab.url)}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <FileDown size={16} />
+            </button>
+          </Tooltip>
         </form>
 
         {/* Saved-logins panel: origin + username only, with Fill /
@@ -871,6 +1007,22 @@ function BrowserPanel() {
       {/* Download shelf (Area 2): renders only while a download
           exists; finished ones stay until Gary dismisses them. */}
       <DownloadShelf />
+
+      {/* Transient notice (Area 9): e.g. where a saved page landed. */}
+      {notice ? (
+        <div className="px-3 py-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-secondary)] shrink-0 truncate">
+          {notice}
+        </div>
+      ) : null}
+
+      {/* Permission prompt (Area 9): a page wants a capability.
+          Shows the first queued request; answering it shows the next. */}
+      {permissionQueue.length > 0 ? (
+        <BrowserPermissionPrompt
+          request={permissionQueue[0]}
+          onDone={() => setPermissionQueue((prev) => prev.slice(1))}
+        />
+      ) : null}
 
       {/* HTTP-auth prompt: a page asked for basic-auth credentials.
           Shows the first queued challenge; answering it shows the next. */}

@@ -10,12 +10,16 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { browserContextMenuItems } from '../electron/services/browserContextMenu';
+import {
+  browserContextMenuItems,
+  buildCurlCommand,
+} from '../electron/services/browserContextMenu';
 
 describe('browserContextMenuItems', () => {
   it('always shows Back, Forward, Reload, Inspect', () => {
     const items = browserContextMenuItems({
       linkURL: '',
+      pageURL: 'https://example.com/',
       selectionText: '',
       canGoBack: true,
       canGoForward: false,
@@ -24,6 +28,7 @@ describe('browserContextMenuItems', () => {
       'back',
       'forward',
       'reload',
+      'copy-page-curl',
       'inspect',
     ]);
     expect(items.find((i) => i.id === 'back')?.enabled).toBe(true);
@@ -35,6 +40,7 @@ describe('browserContextMenuItems', () => {
   it('shows Copy Link Address only when right-clicking a link', () => {
     const onLink = browserContextMenuItems({
       linkURL: 'https://example.com/page',
+      pageURL: 'https://example.com/',
       selectionText: '',
       canGoBack: false,
       canGoForward: false,
@@ -42,6 +48,7 @@ describe('browserContextMenuItems', () => {
     expect(onLink.map((i) => i.id)).toContain('copy-link');
     const notOnLink = browserContextMenuItems({
       linkURL: '',
+      pageURL: 'https://example.com/',
       selectionText: '',
       canGoBack: false,
       canGoForward: false,
@@ -52,6 +59,7 @@ describe('browserContextMenuItems', () => {
   it('shows Copy only when text is selected', () => {
     const withSelection = browserContextMenuItems({
       linkURL: '',
+      pageURL: 'https://example.com/',
       selectionText: 'some text',
       canGoBack: false,
       canGoForward: false,
@@ -59,6 +67,7 @@ describe('browserContextMenuItems', () => {
     expect(withSelection.map((i) => i.id)).toContain('copy');
     const withoutSelection = browserContextMenuItems({
       linkURL: '',
+      pageURL: 'https://example.com/',
       selectionText: '',
       canGoBack: false,
       canGoForward: false,
@@ -69,6 +78,7 @@ describe('browserContextMenuItems', () => {
   it('shows both copy items when right-clicking a selected link', () => {
     const items = browserContextMenuItems({
       linkURL: 'https://example.com/page',
+      pageURL: 'https://example.com/',
       selectionText: 'link text',
       canGoBack: true,
       canGoForward: true,
@@ -78,8 +88,24 @@ describe('browserContextMenuItems', () => {
       'forward',
       'reload',
       'copy-link',
+      'copy-link-curl',
+      'copy-page-curl',
       'copy',
       'inspect',
     ]);
+  });
+});
+
+describe('buildCurlCommand', () => {
+  it('builds a curl -L command with the URL single-quoted', () => {
+    expect(buildCurlCommand('https://example.com/page?q=1')).toBe(
+      `curl -L 'https://example.com/page?q=1'`,
+    );
+  });
+
+  it('escapes embedded single quotes so the command stays safe to paste', () => {
+    expect(buildCurlCommand(`https://example.com/it's`)).toBe(
+      `curl -L 'https://example.com/it'\\''s'`,
+    );
   });
 });

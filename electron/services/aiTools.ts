@@ -283,6 +283,23 @@ export const tools: ToolDefinition[] = [
             },
         },
     },
+
+    {
+        type: 'function',
+        function: {
+            name: 'browser_history',
+            description: 'What Gary looked at in the in-panel browser recently — pages visited in the last N days, grouped by day. Use this when he asks what he looked at yesterday, or what a page he visited was.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    days: {
+                        type: 'number',
+                        description: 'How many days back to look (1-30, default 7).',
+                    },
+                },
+            },
+        },
+    },
 ];
 
 /** Browser tools the AI may call. The local chat path (local_ai.ts)
@@ -298,6 +315,7 @@ export const browserToolNames: readonly string[] = [
   'browser_search',
   'browser_run_flow',
   'browser_trusted_click',
+  'browser_history',
 ];
 
 export async function executeTool(
@@ -473,6 +491,15 @@ export async function executeTool(
                 }
                 onLog?.(`Trusted-clicking in browser: ${args.selector}`);
                 return await target.trustedClick(args.selector);
+            }
+
+
+            case 'browser_history': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                const days = typeof args.days === 'number' ? args.days : undefined;
+                onLog?.('Checking browser history...');
+                return await target.getHistory(days);
             }
 
             default:

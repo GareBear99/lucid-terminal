@@ -398,6 +398,14 @@ export interface CdpDiagnostics {
   consoleErrors: CdpConsoleError[];
 }
 
+/** A held permission request (Area 9): a page wants a
+ * capability its origin is not allowed yet. The panel asks
+ * Gary; the page waits for his answer. */
+export interface BrowserPermissionRequest {
+  origin: string;
+  permission: string;
+}
+
 export interface BrowserScreenshotResult extends BrowserActionResult {
   dataUrl?: string;
 }
@@ -514,6 +522,11 @@ declare global {
     onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
     trustedClick: (tabId: string, selector: string) => Promise<BrowserActionResult>;
     getCdpDiagnostics: (tabId: string) => Promise<{ ok: boolean; diagnostics?: CdpDiagnostics; error?: string }>;
+    savePage: (tabId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    answerPermission: (origin: string, permission: string, decision: 'once' | 'always' | 'deny') => Promise<{ ok: boolean; error?: string }>;
+    listPermissions: () => Promise<{ ok: boolean; allowlist: Record<string, string[]> }>;
+    revokePermission: (origin: string, permission: string) => Promise<{ ok: boolean; allowlist: Record<string, string[]> }>;
+    onPermissionRequested: (callback: (request: BrowserPermissionRequest) => void) => () => void;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

@@ -35,10 +35,12 @@ const EXPECTED_TOOLS = [
   'browser_run_flow',
   // Area 8: CDP trusted click.
   'browser_trusted_click',
+  // Area 9: visit history.
+  'browser_history',
 ];
 
 describe('browser tool definitions', () => {
-  it('defines all nine browser tools', () => {
+  it('defines all ten browser tools', () => {
     const names = tools.map((t) => t.function.name);
     for (const name of EXPECTED_TOOLS) {
       expect(names).toContain(name);
@@ -65,7 +67,7 @@ describe('browser tool definitions', () => {
     expect(byName.get('browser_get_state')?.parameters.required).toBeUndefined();
   });
 
-  it('the allowlist is exactly the nine browser tools', () => {
+  it('the allowlist is exactly the ten browser tools', () => {
     expect([...browserToolNames].sort()).toEqual([...EXPECTED_TOOLS].sort());
   });
 
@@ -114,6 +116,10 @@ describe('executeTool browser cases', () => {
       calls.push({ name: 'trustedClick', args: selector });
       return `Clicked ${selector} (trusted input).`;
     }),
+    getHistory: vi.fn(async (days?: number) => {
+      calls.push({ name: 'getHistory', args: days });
+      return 'Yesterday:\n- Example (https://example.com/)';
+    }),
   };
 
   beforeEach(() => {
@@ -157,6 +163,12 @@ describe('executeTool browser cases', () => {
     expect(await executeTool('browser_trusted_click', { selector: '#buy' })).toBe(
       'Clicked #buy (trusted input).',
     );
+    expect(await executeTool('browser_history', { days: 1 })).toBe(
+      'Yesterday:\n- Example (https://example.com/)',
+    );
+    expect(await executeTool('browser_history', {})).toBe(
+      'Yesterday:\n- Example (https://example.com/)',
+    );
     expect(calls.map((c) => c.name)).toEqual([
       'navigate',
       'readPage',
@@ -167,6 +179,8 @@ describe('executeTool browser cases', () => {
       'search',
       'runFlow',
       'trustedClick',
+      'getHistory',
+      'getHistory',
     ]);
   });
 

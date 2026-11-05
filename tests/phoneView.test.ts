@@ -51,7 +51,23 @@ vi.mock('electron', () => {
       // No-op in the mock.
     }
   }
-  return { BrowserView, BrowserWindow: class {}, IpcMain: class {} };
+  return {
+    BrowserView,
+    BrowserWindow: class {},
+    IpcMain: class {},
+    // Area 0: setupBrowserHandlers reads the browser session (permission
+    // handler) and app.getPath('userData') (permission allowlist file).
+    // Menu/clipboard back the right-click menu, fired only on a real
+    // 'context-menu' event.
+    app: { getPath: () => '/tmp/lucid-test-user-data' },
+    session: {
+      fromPartition: () => ({
+        setPermissionRequestHandler: () => undefined,
+      }),
+    },
+    clipboard: { writeText: () => undefined },
+    Menu: { buildFromTemplate: () => ({ popup: () => undefined }) },
+  };
 });
 import { useBrowserStore } from '../src/stores/browserStore';
 import { usePhoneStore } from '../src/stores/phoneStore';

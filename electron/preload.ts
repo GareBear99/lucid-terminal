@@ -143,6 +143,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('browser:open-url', listener);
       return () => ipcRenderer.removeListener('browser:open-url', listener);
     },
+    onAuthRequired: (callback: (request: BrowserAuthRequest) => void) => {
+      const listener = (_: any, request: BrowserAuthRequest) => callback(request);
+      ipcRenderer.on('browser:auth-required', listener);
+      return () => ipcRenderer.removeListener('browser:auth-required', listener);
+    },
+    authResponse: (requestId: string, creds: { username: string; password: string } | null) =>
+      ipcRenderer.invoke('browser:auth-response', requestId, creds),
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -591,6 +598,14 @@ export interface BrowserTabState {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+}
+
+export interface BrowserAuthRequest {
+  id: string;
+  tabId: string;
+  url: string;
+  host: string;
+  realm?: string;
 }
 
 export interface ChatMessage {

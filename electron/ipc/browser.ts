@@ -1,4 +1,27 @@
-import { BrowserView, BrowserWindow, IpcMain } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  IpcMain,
+  Menu,
+  session,
+} from 'electron';
+import path from 'path';
+import {
+  attachBrowserView,
+  createBrowserView,
+  detachBrowserView,
+  setBrowserViewBounds,
+} from '../services/browserViewAdapter';
+import type { BrowserViewBounds } from '../services/browserViewAdapter';
+import {
+  isPermissionAllowed,
+  loadPermissionAllowlist,
+  originOfUrl,
+} from '../services/browserPermissions';
+import type { BrowserPermissionAllowlist } from '../services/browserPermissions';
+import { browserContextMenuItems } from '../services/browserContextMenu';
+import type { BrowserAuthRequest } from '../../src/types';
 
 /**
  * In-panel browser: one real Chromium view (BrowserView) per browser
@@ -24,14 +47,21 @@ import { BrowserView, BrowserWindow, IpcMain } from 'electron';
  * window-relative rect (CSS px == DIP for setBounds). Main remembers
  * the last bounds so a re-attached view lands in the right place even
  * if the renderer has not reported yet.
+ *
+ * View creation/attachment goes through the adapter
+ * (`electron/services/browserViewAdapter.ts`) — the one place that
+ * knows Electron's view API — so the Electron 30 `WebContentsView`
+ * migration is a one-file swap later.
+ *
+ * Session handlers (Area 0): the browser session denies permissions
+ * by default (camera/mic/notifications only for origins on the
+ * allowlist, which is empty until the per-site memory lands in
+ * Area 9); HTTP-auth (`login`) asks Gary in the panel and never
+ * silently retries; right-click shows a native context menu
+ * (Back / Forward / Reload / Copy Link / Copy / Inspect).
  */
 
-export interface BrowserViewBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type { BrowserViewBounds };
 
 export interface BrowserTabState {
   url: string;
@@ -43,13 +73,61 @@ export interface BrowserTabState {
 
 const BROWSER_PARTITION = 'persist:lucid-browser';
 
+/** Credentials Gary typed into the panel's auth prompt, or null when
+ * he cancelled (the page then shows its own auth failure — no retry). */
+type AuthCredentials = { username: string; password: string } | null;
+
 export function setupBrowserHandlers(
   ipcMain: IpcMain,
   getMainWindow: () => BrowserWindow | null,
 ): void {
-  const views = new Map<string, BrowserView>();
+  const views = new Map<string, ReturnType<typeof createBrowserView>>();
   let activeTabId: string | null = null;
   let lastBounds: BrowserViewBounds | null = null;
+
+  // Per-site permission allowlist (deny by default; empty until the
+  // per-site memory UI lands in Area 9). Loaded once at startup.
+  let allowlist: BrowserPermissionAllowlist = {};
+  try {
+    allowlist = loadPermissionAllowlist(
+      path.join(app.getPath('userData'), 'browser-permissions.json'),
+    );
+  } catch {
+    allowlist = {};
+  }
+
+  // The session is shared by every browser view, so one permission
+  // handler covers all tabs. Deny by default; allow only origins on
+  // the allowlist.
+  const browserSession = session.fromPartition(BROWSER_PARTITION);
+  browserSession.setPermissionRequestHandler(
+    (_webContents, permission, callback, details) => {
+      const origin =
+        details.requestingUrl != null
+          ? originOfUrl(details.requestingUrl)
+          : null;
+      callback(
+        origin !== null && isPermissionAllowed(allowlist, origin, permission),
+      );
+    },
+  );
+
+  // Pending HTTP-auth requests: request id -> resolver + tab. The
+  // renderer shows Gary a prompt and answers via `browser:auth-response`.
+  const pendingAuth = new Map<
+    string,
+    { resolve: (creds: AuthCredentials) => void; tabId: string }
+  >();
+  let authCounter = 0;
+
+  const cancelPendingAuthForTab = (tabId: string) => {
+    for (const [id, pending] of pendingAuth) {
+      if (pending.tabId === tabId) {
+        pendingAuth.delete(id);
+        pending.resolve(null);
+      }
+    }
+  };
 
   const sendUpdate = (tabId: string) => {
     const view = views.get(tabId);
@@ -70,35 +148,29 @@ export function setupBrowserHandlers(
     const win = getMainWindow();
     const view = views.get(tabId);
     if (!win || win.isDestroyed() || !view) return;
-    if (win.getBrowserView() !== view) win.setBrowserView(view);
-    if (lastBounds) view.setBounds(lastBounds);
+    // No remembered bounds yet (first attach before any report):
+    // keep the view's current bounds instead of zeroing them.
+    attachBrowserView(win, view, lastBounds ?? view.getBounds());
     activeTabId = tabId;
   };
 
   const detach = () => {
     const win = getMainWindow();
-    if (win && !win.isDestroyed() && win.getBrowserView()) {
-      win.setBrowserView(null);
-    }
+    if (win && !win.isDestroyed()) detachBrowserView(win);
     activeTabId = null;
   };
 
   const createView = (tabId: string, url: string) => {
     const win = getMainWindow();
     if (!win || win.isDestroyed() || views.has(tabId)) return;
-    const view = new BrowserView({
-      webPreferences: {
-        partition: BROWSER_PARTITION,
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-        // The phone page polls on a timer. A detached/hidden page
-        // has its timers clamped to 1 wake-up/s, then 1/min under
-        // intensive throttling — the stream stalls every time Gary
-        // switches to the AI Chat tab. The view is not destroyed on
-        // hide, so its page keeps running: let its timers run.
-        backgroundThrottling: false,
-      },
+    const view = createBrowserView({
+      partition: BROWSER_PARTITION,
+      // The phone page polls on a timer. A detached/hidden page
+      // has its timers clamped to 1 wake-up/s, then 1/min under
+      // intensive throttling — the stream stalls every time Gary
+      // switches to the AI Chat tab. The view is not destroyed on
+      // hide, so its page keeps running: let its timers run.
+      backgroundThrottling: false,
     });
     views.set(tabId, view);
     const wc = view.webContents;
@@ -115,6 +187,86 @@ export function setupBrowserHandlers(
       win.webContents.send('browser:open-url', nextUrl);
       return { action: 'deny' };
     });
+    // HTTP basic auth: ask Gary in the panel, never silently retry.
+    // A second login for the same tab cancels the pending one (a page
+    // has one auth realm at a time in practice).
+    wc.on('login', (event, _webContents, _details, authInfo, callback) => {
+      event.preventDefault();
+      cancelPendingAuthForTab(tabId);
+      authCounter += 1;
+      const requestId = `browser-auth-${Date.now().toString(36)}-${authCounter}`;
+      const request: BrowserAuthRequest = {
+        id: requestId,
+        tabId,
+        url: wc.getURL(),
+        host: authInfo.host,
+        realm: authInfo.realm,
+      };
+      const promise = new Promise<AuthCredentials>((resolve) => {
+        pendingAuth.set(requestId, { resolve, tabId });
+      });
+      const mainWin = getMainWindow();
+      if (mainWin && !mainWin.isDestroyed()) {
+        mainWin.webContents.send('browser:auth-required', request);
+      } else {
+        pendingAuth.delete(requestId);
+        callback();
+        return;
+      }
+      void promise.then((creds) => {
+        if (creds) callback(creds.username, creds.password);
+        else callback();
+      });
+    });
+    // Right-click: a native context menu (Back / Forward / Reload /
+    // Copy Link / Copy / Inspect). Nothing here navigates or fills
+    // without Gary choosing the item.
+    wc.on('context-menu', (_event, params) => {
+      const mainWin = getMainWindow();
+      if (!mainWin || mainWin.isDestroyed()) return;
+      const items = browserContextMenuItems({
+        linkURL: params.linkURL,
+        selectionText: params.selectionText,
+        canGoBack: wc.canGoBack(),
+        canGoForward: wc.canGoForward(),
+      });
+      const template: Electron.MenuItemConstructorOptions[] = [];
+      const groups: Array<Array<(typeof items)[number]>> = [[], [], []];
+      for (const item of items) {
+        if (item.id === 'back' || item.id === 'forward' || item.id === 'reload') {
+          groups[0].push(item);
+        } else if (item.id === 'copy-link' || item.id === 'copy') {
+          groups[1].push(item);
+        } else {
+          groups[2].push(item);
+        }
+      }
+      const actions: Record<string, () => void> = {
+        back: () => {
+          if (wc.canGoBack()) wc.goBack();
+        },
+        forward: () => {
+          if (wc.canGoForward()) wc.goForward();
+        },
+        reload: () => wc.reload(),
+        'copy-link': () => clipboard.writeText(params.linkURL),
+        copy: () => wc.copy(),
+        inspect: () => wc.inspectElement(params.x, params.y),
+      };
+      for (const group of groups) {
+        if (group.length === 0) continue;
+        if (template.length > 0) template.push({ type: 'separator' });
+        for (const item of group) {
+          template.push({
+            label: item.label,
+            enabled: item.enabled,
+            click: actions[item.id],
+          });
+        }
+      }
+      const menu = Menu.buildFromTemplate(template);
+      menu.popup({ window: mainWin });
+    });
     void wc.loadURL(url);
   };
 
@@ -128,6 +280,7 @@ export function setupBrowserHandlers(
     // A BrowserView has no destroy of its own — its webContents is
     // destroyed, and it must be detached first.
     if (activeTabId === tabId) detach();
+    cancelPendingAuthForTab(tabId);
     views.delete(tabId);
     view.webContents.destroy();
   });
@@ -147,7 +300,7 @@ export function setupBrowserHandlers(
   ipcMain.handle('browser:setBounds', (_event, bounds: BrowserViewBounds) => {
     lastBounds = bounds;
     const view = activeTabId ? views.get(activeTabId) : undefined;
-    if (view) view.setBounds(bounds);
+    if (view) setBrowserViewBounds(view, bounds);
   });
 
   ipcMain.handle('browser:navigate', (_event, tabId: string, url: string) => {
@@ -168,4 +321,16 @@ export function setupBrowserHandlers(
   ipcMain.handle('browser:reload', (_event, tabId: string) => {
     views.get(tabId)?.webContents.reload();
   });
+
+  // Gary's answer to an HTTP-auth prompt (from the panel). Resolves
+  // the pending login; an unknown id is ignored.
+  ipcMain.handle(
+    'browser:auth-response',
+    (_event, requestId: string, creds: AuthCredentials) => {
+      const pending = pendingAuth.get(requestId);
+      if (!pending) return;
+      pendingAuth.delete(requestId);
+      pending.resolve(creds);
+    },
+  );
 }

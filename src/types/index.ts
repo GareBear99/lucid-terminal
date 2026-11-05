@@ -246,6 +246,23 @@ export interface BrowserTabState {
   canGoForward: boolean;
 }
 
+/** An HTTP-auth challenge from a page in the in-panel browser.
+ * Main sends one per `login` event; the renderer shows Gary a
+ * prompt and answers via `browser:auth-response` with the typed
+ * credentials, or null when he cancels (no silent retry). */
+export interface BrowserAuthRequest {
+  /** Unique id for this challenge (answers carry it back). */
+  id: string;
+  /** The browser tab whose page asked for auth. */
+  tabId: string;
+  /** URL of the page that asked. */
+  url: string;
+  /** Host the credentials are for. */
+  host: string;
+  /** Auth realm, when the server sent one. */
+  realm?: string;
+}
+
 export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
 
 // Extend Window interface for Electron API
@@ -314,6 +331,8 @@ declare global {
         reload: (tabId: string) => Promise<void>;
         onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
         onOpenUrl: (callback: (url: string) => void) => () => void;
+        onAuthRequired: (callback: (request: BrowserAuthRequest) => void) => () => void;
+        authResponse: (requestId: string, creds: { username: string; password: string } | null) => Promise<void>;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

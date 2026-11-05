@@ -15,7 +15,8 @@ import { usePhoneStore } from '../../stores/phoneStore';
 import PhoneView from '../Phone/PhoneView';
 import { resolveInputToUrl } from '../../stores/browserUrl';
 import { Tooltip } from '../Tooltip/Tooltip';
-import type { BrowserBounds } from '../../types';
+import { BrowserAuthPrompt } from './BrowserAuthPrompt';
+import type { BrowserAuthRequest, BrowserBounds } from '../../types';
 
 /**
  * The Browser tab of the AI panel: tab strip, nav bar, quick tabs,
@@ -161,6 +162,9 @@ function BrowserPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState(activeTab?.url ?? '');
+  // HTTP-auth challenges, queued in arrival order. The prompt shows
+  // the first one; answering it (sign in or cancel) shows the next.
+  const [authQueue, setAuthQueue] = useState<BrowserAuthRequest[]>([]);
 
   // Keep the address bar in step with the active tab — but never while
   // the user is typing in it (an in-flight navigation would clobber
@@ -184,9 +188,16 @@ function BrowserPanel() {
       // A page explicitly opening a window should be seen.
       useBrowserStore.getState().setPanelTab('browser');
     });
+    const cleanupAuth = window.lucidAPI.browser.onAuthRequired((request) => {
+      // Ignore a duplicate challenge for a request already queued.
+      setAuthQueue((prev) =>
+        prev.some((r) => r.id === request.id) ? prev : [...prev, request],
+      );
+    });
     return () => {
       cleanupUpdated();
       cleanupOpenUrl();
+      cleanupAuth();
     };
   }, [applyTabUpdate, createTab]);
 
@@ -228,7 +239,7 @@ function BrowserPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
+    <div className="relative h-full flex flex-col bg-[var(--bg-primary)]">
       {/* Browser tab strip */}
       <div className="flex items-center gap-1 px-2 pt-1.5 border-b border-[var(--border)] overflow-x-auto shrink-0">
         {tabs.map((tab) => (
@@ -347,6 +358,15 @@ function BrowserPanel() {
       ) : (
         <div ref={containerRef} className="flex-1 min-h-0 bg-white" />
       )}
+
+      {/* HTTP-auth prompt: a page asked for basic-auth credentials.
+          Shows the first queued challenge; answering it shows the next. */}
+      {authQueue.length > 0 ? (
+        <BrowserAuthPrompt
+          request={authQueue[0]}
+          onDone={() => setAuthQueue((prev) => prev.slice(1))}
+        />
+      ) : null}
     </div>
   );
 }

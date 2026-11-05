@@ -2,10 +2,9 @@
  * Renderer-side typed wrapper for `window.lucidAPI.llmbuilder`.
  *
  * This is the single place the renderer touches the Forge IPC. The
- * `lucidAPI` type lives in src/types/index.ts — that file is owned by
- * the still-running Homunculus agent, so this file reads the API via a
- * narrow cast instead of the global type (see FORGE-PATCH-types-index.md
- * for the patch that removes the cast once the types land).
+ * `lucidAPI` type lives in src/types/index.ts, which now carries the
+ * `llmbuilder` member, so this file reads the API directly off the
+ * global type — no cast.
  *
  * Contract (channels the Electron agent owns — see the design §3.1):
  * status, setup, startRun, cancelRun, listRuns, getScoreboard,
@@ -194,10 +193,5 @@ export interface LlmbuilderApi {
  */
 export function getLlmbuilderApi(): LlmbuilderApi | null {
   if (typeof window === 'undefined') return null;
-  const api = (
-    window as unknown as {
-      lucidAPI?: { llmbuilder?: LlmbuilderApi };
-    }
-  ).lucidAPI?.llmbuilder;
-  return api ?? null;
+  return window.lucidAPI?.llmbuilder ?? null;
 }

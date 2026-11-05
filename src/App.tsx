@@ -222,9 +222,7 @@ function App() {
             <div className="flex-1 flex flex-col overflow-hidden">
               {currentView === 'synth' ? (
                 <SynthView />
-              ) : (currentView as string) === 'forge' ? (
-                // 'forge' is not in the View union yet - see
-                // FORGE-PATCH-types-index.md. The cast is temporary.
+              ) : currentView === 'forge' ? (
                 <ForgeView />
               ) : currentView === 'settings' ? (
                 <SettingsPanel onClose={() => setCurrentView('terminal')} />

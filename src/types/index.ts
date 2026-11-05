@@ -6,6 +6,20 @@ import type {
   TouchMessage,
 } from '../phone/streaming';
 import type { HomunculusColor } from '../lib/homunculusColor';
+import type {
+  Homunculus,
+  ScoreboardRow,
+} from '../lib/homunculi';
+import type {
+  BrainAnswer,
+  ImportDatasetResult,
+  InstallBrainResult,
+  LlmbuilderProgressEvent,
+  LlmbuilderRunInfo,
+  LlmbuilderStatus,
+  PromotionDecision,
+  StartRunParams,
+} from '../lib/llmbuilderApi';
 import type { SynthDisclaimerChoice } from '../lib/synthDisclaimer';
 
 export interface FileEntry {
@@ -232,7 +246,7 @@ export interface BrowserTabState {
   canGoForward: boolean;
 }
 
-export type View = 'terminal' | 'editor' | 'settings' | 'synth';
+export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
 
 // Extend Window interface for Electron API
 declare global {
@@ -383,6 +397,33 @@ declare global {
         systemInfo: () => Promise<{ success: boolean; output?: string; error?: string }>;
         memoryStats: () => Promise<{ success: boolean; output?: string; error?: string }>;
         mainMenu: () => Promise<{ success: boolean; output?: string; error?: string }>;
+      };
+      llmbuilder: {
+        status: () => Promise<LlmbuilderStatus>;
+        setup: () => Promise<{ ok: boolean; message: string }>;
+        startRun: (params: StartRunParams) => Promise<LlmbuilderRunInfo>;
+        cancelRun: (runId: string) => Promise<{ ok: boolean }>;
+        listRuns: () => Promise<LlmbuilderRunInfo[]>;
+        getScoreboard: () => Promise<ScoreboardRow[] & { raw?: Record<string, unknown> }>;
+        getPromotionDecision: (candidate: string) => Promise<PromotionDecision | null>;
+        installBrain: (
+          homunculusId: string,
+          candidate: string,
+        ) => Promise<InstallBrainResult>;
+        rollback: (homunculusId: string) => Promise<InstallBrainResult>;
+        getRoster: () => Promise<Homunculus[] | null>;
+        saveRoster: (roster: Homunculus[]) => Promise<void>;
+        importDataset: (
+          name: string,
+          jsonl: string,
+        ) => Promise<ImportDatasetResult>;
+        askBrain: (
+          homunculusId: string,
+          prompt: string,
+        ) => Promise<BrainAnswer | null>;
+        onProgress: (
+          callback: (event: LlmbuilderProgressEvent) => void,
+        ) => () => void;
       };
     };
   }

@@ -267,10 +267,8 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
             <div className="flex flex-col items-center gap-1">
               {enabledPlugins.map((plugin) => {
                 const Icon = plugin.icon;
-                // 'forge' is not in the View union yet - see
-                // FORGE-PATCH-types-index.md. The cast is temporary.
-                const isActive = plugin.action === 'synth' ? currentView === 'synth' : plugin.action === 'forge' ? (currentView as string) === 'forge' : showAI;
-                const onClick = plugin.action === 'synth' ? (onToggleSynth ?? (() => onViewChange('synth'))) : plugin.action === 'forge' ? (onToggleForge ?? (() => onViewChange('forge' as View))) : onToggleAI;
+                const isActive = plugin.action === 'synth' ? currentView === 'synth' : plugin.action === 'forge' ? currentView === 'forge' : showAI;
+                const onClick = plugin.action === 'synth' ? (onToggleSynth ?? (() => onViewChange('synth'))) : plugin.action === 'forge' ? (onToggleForge ?? (() => onViewChange('forge'))) : onToggleAI;
                 return (
                   <Tooltip key={plugin.id} content={`${plugin.name} — ${plugin.description}`} placement="right">
                     <button

@@ -10,6 +10,14 @@ import { useToastStore } from '../../stores/toastStore';
 // a command at all.
 const MONACO_LOAD_TIMEOUT_MS = 8000;
 
+// How tall the prompt bubble may grow: half the page. It grows
+// upward with the input up to this cap, then scrolls - so long
+// input stays readable without swallowing the terminal.
+export const INPUT_MAX_HEIGHT_VH = 50;
+
+// One line of prompt: the floor the bubble never shrinks below.
+const INPUT_MIN_HEIGHT_PX = 40;
+
 // Monaco types
 declare global {
   interface Window {
@@ -29,6 +37,9 @@ interface InputAreaProps {
 
 export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
+  const [editorHeight, setEditorHeight] = useState(INPUT_MIN_HEIGHT_PX);
+  const fallbackRef = useRef<HTMLTextAreaElement>(null);
+  const editorDisposers = useRef<Array<() => void>>([]);
 
   // Monaco fallback: the editor is bundled locally, but if it still fails
   // to mount the prompt is stuck on "Loading..." with no way to type.
@@ -58,6 +69,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
     };
   }, []);
 
+    // Drop the editor's size/resize listeners when the input unmounts.
+    useEffect(() => {
+        return () => {
+            editorDisposers.current.forEach((dispose) => dispose());
+        };
+    }, []);
+
     // Sync external input state with editor
     useEffect(() => {
         if (editorRef.current && input !== editorRef.current.getValue()) {
@@ -72,6 +90,21 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             }
         }
     }, [input]);
+
+    // Plain-textarea fallback: grow with the content up to the cap,
+    // then scroll - long input stays readable instead of clipping.
+    useEffect(() => {
+        const el = fallbackRef.current;
+        if (!el) return;
+        const maxPx = Math.floor(
+            window.innerHeight * (INPUT_MAX_HEIGHT_VH / 100),
+        );
+        el.style.height = 'auto';
+        el.style.height = `${Math.max(
+            INPUT_MIN_HEIGHT_PX,
+            Math.min(el.scrollHeight, maxPx),
+        )}px`;
+    }, [input, monacoFailed]);
 
     // Handle Monaco Editor mount
     const handleEditorDidMount = (editor: any, monaco: any) => {
@@ -129,6 +162,27 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         
         // Focus editor
         editor.focus();
+        
+        // Grow the bubble with the content up to the cap, then scroll.
+        const syncHeight = () => {
+            const maxPx = Math.floor(
+                window.innerHeight * (INPUT_MAX_HEIGHT_VH / 100),
+            );
+            setEditorHeight(
+                Math.max(
+                    INPUT_MIN_HEIGHT_PX,
+                    Math.min(editor.getContentHeight(), maxPx),
+                ),
+            );
+        };
+        syncHeight();
+        const sizeDisposable = editor.onDidContentSizeChange(syncHeight);
+        editorDisposers.current.push(() => sizeDisposable.dispose());
+        const onResize = () => syncHeight();
+        window.addEventListener('resize', onResize);
+        editorDisposers.current.push(() =>
+            window.removeEventListener('resize', onResize),
+        );
     };
 
     // Plain-textarea fallback: same behaviour as the editor — Enter submits,
@@ -150,12 +204,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
     };
 
     return (
-        <div className="w-full h-auto min-h-[40px] flex items-center relative">
+        <div className="w-full h-auto min-h-[40px] flex items-center relative px-3">
             {/* Rainbow swirl processing glow */}
             <ProcessingGlow isProcessing={isProcessing} />
             
             {monacoFailed ? (
                 <textarea
+                    ref={fallbackRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleFallbackKeyDown}
@@ -163,12 +218,12 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     autoFocus
                     placeholder="Type a command… (plain input — Monaco unavailable)"
                     title="Monaco editor unavailable — using plain input"
-                    className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-hidden"
-                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace" }}
+                    className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-y-auto"
+                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace", maxHeight: `${INPUT_MAX_HEIGHT_VH}vh` }}
                 />
             ) : (
             <Editor
-                height="40px"
+                height={editorHeight}
                 language="shell"
                 theme="lucid-dark"
                 value={input || ''}
@@ -183,9 +238,9 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     lineDecorationsWidth: 0,
                     lineNumbersMinChars: 0,
                     scrollbar: {
-                        vertical: 'hidden',
+                        vertical: 'auto',
                         horizontal: 'hidden',
-                        handleMouseWheel: false
+                        handleMouseWheel: true
                     },
                     scrollBeyondLastLine: false,
                     wordWrap: 'on',

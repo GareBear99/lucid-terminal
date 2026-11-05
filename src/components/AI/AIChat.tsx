@@ -569,13 +569,13 @@ function AIChat({ onClose }: AIChatProps) {
           <div className="flex gap-2">
             <textarea
               ref={inputRef}
-              className="input resize-none flex-1 overflow-hidden"
+              className="input resize-none flex-1 overflow-y-auto"
               placeholder="Ask Lucid..."
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
                 e.target.style.height = 'auto';
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
+                e.target.style.height = `${Math.min(e.target.scrollHeight, Math.floor(window.innerHeight / 2))}px`;
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -586,7 +586,7 @@ function AIChat({ onClose }: AIChatProps) {
                 }
               }}
               rows={1}
-              style={{ minHeight: '40px' }}
+              style={{ minHeight: '40px', maxHeight: '50vh' }}
               disabled={isLoading}
             />
             {isLoading ? (

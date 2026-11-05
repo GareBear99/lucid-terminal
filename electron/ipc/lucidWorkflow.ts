@@ -346,32 +346,45 @@ export function setupLucidWorkflowHandlers(ipcMain: IpcMain): void {
     }
   });
   
-  // LLM list
+  // LLM list — `enabled` here is the REAL enable flag (see
+  // LucidCore.getModelList), not the server-up flag: the old code
+  // built this from getModelStatuses(), whose booleans are "server
+  // answering", so the Settings toggle showed running state.
   ipcMain.handle('lucid:llmList', async () => {
     if (!lucidCore) {
       return { success: false, error: 'LucidCore not initialized' };
     }
-    
+
     try {
-      const statuses = await lucidCore.getModelStatuses();
-      return { 
-        success: true, 
-        models: Array.from(statuses.entries()).map(([name, enabled]) => ({ name, enabled }))
+      return {
+        success: true,
+        models: lucidCore.getModelList()
       };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
   });
-  
-  // LLM enable/disable
+
+  // LLM enable/disable — success is only reported when the core
+  // confirms it (router flag + backend mirror + persisted state
+  // file). The old handler returned { success: true } unconditionally
+  // after calling an empty stub, so the UI claimed success for a
+  // change that never happened.
   ipcMain.handle('lucid:llmSetEnabled', async (_, model: string, enabled: boolean) => {
     if (!lucidCore) {
       return { success: false, error: 'LucidCore not initialized' };
     }
-    
+
+    if (typeof model !== 'string' || model.trim() === '') {
+      return { success: false, error: 'No model name given.' };
+    }
+
     try {
-      lucidCore.setModelEnabled(model, enabled);
-      return { success: true };
+      const result = lucidCore.setModelEnabled(model, enabled);
+      if (!result.success) {
+        return { success: false, model, enabled: result.enabled, error: result.message };
+      }
+      return { success: true, model, enabled: result.enabled, message: result.message };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

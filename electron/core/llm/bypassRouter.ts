@@ -134,6 +134,15 @@ export interface BypassRouterOptions {
   /** Explicit app root for model-file scanning (tests; defaults to the
    *  runtime resolution in modelFiles.ts). */
   appRoot?: string;
+  /**
+   * Called with the full disabled-model list whenever enable/disable
+   * changes it. LucidCore supplies this: it writes
+   * ~/.lucid/llm_state.json. Without a hook there is nothing to
+   * persist to — the old _saveModelState claimed persistence "is
+   * managed by backend manager"; it never was, anywhere. A hook that
+   * throws makes the toggle fail (the in-memory change is reverted).
+   */
+  onEnabledChange?: (disabledModels: string[]) => void;
 }
 
 /**
@@ -208,6 +217,12 @@ export class BypassRouter {
   private backendManager: ModelBackendManager;
   private appRoot?: string;
   /**
+   * Persistence hook for enable/disable changes (LucidCore writes
+   * ~/.lucid/llm_state.json). Absent for direct router use / tests,
+   * where the change stays in memory only.
+   */
+  private onEnabledChange?: (disabledModels: string[]) => void;
+  /**
    * The task queue routing decisions hand off to. One worker: routed
    * LLM work runs one task at a time, so concurrent terminal commands
    * no longer race the model backends. `executeWithBypass` stays
@@ -227,6 +242,7 @@ export class BypassRouter {
     this.availableModels = [];
     this.backendManager = backendManager;
     this.appRoot = options?.appRoot;
+    this.onEnabledChange = options?.onEnabledChange;
     this.taskQueue = new TaskQueue(1);
 
     this._loadModelState();
@@ -313,6 +329,53 @@ export class BypassRouter {
    */
   isModelEnabled(model: string): boolean {
     return this.modelState.get(model) ?? true;
+  }
+
+  /**
+   * Canonical enable/disable entry point — the ONE enable system.
+   * The router's modelState is the flag routing consults
+   * (isModelEnabled); the backend manager's info.enabled is kept in
+   * sync as a mirror, never a second source of truth; and the change
+   * is persisted via onEnabledChange (LucidCore → llm_state.json).
+   * Returns success:false — and leaves state untouched — when the
+   * model is unknown, not installed (enable only), or the state file
+   * cannot be written.
+   */
+  setModelEnabled(
+    model: string,
+    enabled: boolean
+  ): { success: boolean; message: string } {
+    return enabled ? this.enableModel(model) : this.disableModel(model);
+  }
+
+  /** Models currently disabled — the set that gets persisted. */
+  getDisabledModels(): string[] {
+    const disabled: string[] = [];
+    // forEach, not for..of: the node tsconfig has no target set, so
+    // iterating a Map is a type error there (pre-existing config gap —
+    // the rest of electron/ iterates Maps the same way and errors the
+    // same way; this method does not add to it).
+    this.modelState.forEach((enabled, model) => {
+      if (!enabled) disabled.push(model);
+    });
+    return disabled.sort();
+  }
+
+  /**
+   * Seed enabled state from the persisted disabled list (startup:
+   * LucidCore loads ~/.lucid/llm_state.json and calls this before
+   * anything routes). Only known models are applied; stale names in
+   * the file are ignored. This does NOT persist — it IS the persisted
+   * state being restored.
+   */
+  applyPersistedDisabledModels(disabled: Iterable<string>): void {
+    // Array.from first: for..of over a bare Iterable is a type error
+    // under the node tsconfig (see getDisabledModels).
+    for (const model of Array.from(disabled)) {
+      if (!this.backendManager.getModel(model)) continue;
+      this.modelState.set(model, false);
+      this.backendManager.setModelEnabled(model, false);
+    }
   }
 
   /**
@@ -698,18 +761,45 @@ export class BypassRouter {
   }
 
   /**
-   * Enable a model
+   * Enable a model. Fails honestly (state untouched) when the model
+   * is unknown, when no model file for it is on disk, or when the
+   * enabled state cannot be persisted.
    */
   enableModel(model: string): { success: boolean; message: string } {
-    if (!this.availableModels.includes(model)) {
+    if (!this.backendManager.getModel(model)) {
       return {
         success: false,
-        message: `${model} is not installed`
+        message: `Unknown model: ${model}`,
       };
     }
 
+    // A model installed since construction must be enableable without
+    // a restart — re-validate against disk first.
+    this.refreshAvailableModels();
+    if (!this.availableModels.includes(model)) {
+      return {
+        success: false,
+        message: `${model} is not installed`,
+      };
+    }
+
+    const previous = this.isModelEnabled(model);
     this.modelState.set(model, true);
-    this._saveModelState();
+    this.backendManager.setModelEnabled(model, true);
+    try {
+      this._saveModelState();
+    } catch (error: any) {
+      // Persistence failed: revert, so success is never claimed for a
+      // change that will not survive a restart.
+      this.modelState.set(model, previous);
+      this.backendManager.setModelEnabled(model, previous);
+      return {
+        success: false,
+        message: `Could not persist enabled state for ${model}: ${
+          error?.message ?? String(error)
+        }`,
+      };
+    }
 
     return {
       success: true,
@@ -718,11 +808,34 @@ export class BypassRouter {
   }
 
   /**
-   * Disable a model
+   * Disable a model. Fails honestly (state untouched) when the model
+   * is unknown or when the enabled state cannot be persisted. Unlike
+   * enable, disable does not require a model file on disk — a model
+   * disabled before install stays disabled when it arrives.
    */
   disableModel(model: string): { success: boolean; message: string } {
+    if (!this.backendManager.getModel(model)) {
+      return {
+        success: false,
+        message: `Unknown model: ${model}`,
+      };
+    }
+
+    const previous = this.isModelEnabled(model);
     this.modelState.set(model, false);
-    this._saveModelState();
+    this.backendManager.setModelEnabled(model, false);
+    try {
+      this._saveModelState();
+    } catch (error: any) {
+      this.modelState.set(model, previous);
+      this.backendManager.setModelEnabled(model, previous);
+      return {
+        success: false,
+        message: `Could not persist enabled state for ${model}: ${
+          error?.message ?? String(error)
+        }`,
+      };
+    }
 
     return {
       success: true,
@@ -730,10 +843,15 @@ export class BypassRouter {
     };
   }
 
+  /**
+   * Persist the disabled-model list through the hook LucidCore
+   * supplies (writes ~/.lucid/llm_state.json). Throws when the hook
+   * throws, so enable/disable can revert and report the failure.
+   * Without a hook there is nothing to persist to and the change
+   * stays in memory only (direct router use, tests).
+   */
   private _saveModelState(): void {
-    // State is managed by backend manager
-    // Model enable/disable is persisted there
-    console.log('[BypassRouter] Model state updated');
+    this.onEnabledChange?.(this.getDisabledModels());
   }
 
   /**

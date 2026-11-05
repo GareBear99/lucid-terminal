@@ -214,14 +214,24 @@ const [tiers, setTiers] = useState<ModelTier[]>([
 
   const toggleModel = async (modelName: string, enabled: boolean, tierIndex: number, modelIndex: number) => {
     try {
-      await window.lucidAPI.lucid.llmSetEnabled(modelName, !enabled);
-      setTiers(prev => {
-        const newTiers = [...prev];
-        newTiers[tierIndex].models[modelIndex].enabled = !enabled;
-        return newTiers;
-      });
-    } catch (error) {
+      const result = await window.lucidAPI.lucid.llmSetEnabled(modelName, !enabled);
+      // Flip the toggle ONLY when the backend confirms the change.
+      // The old code flipped unconditionally while the backend was a
+      // no-op, so the UI claimed success and the router never changed.
+      if (result?.success) {
+        setTiers(prev => {
+          const newTiers = [...prev];
+          newTiers[tierIndex].models[modelIndex].enabled = !enabled;
+          return newTiers;
+        });
+      } else {
+        useToastStore.getState().error(
+          `Failed to ${!enabled ? 'enable' : 'disable'} ${modelName}: ${result?.error || result?.message || 'unknown error'}`
+        );
+      }
+    } catch (error: any) {
       console.error('Failed to toggle model:', error);
+      useToastStore.getState().error(`Failed to toggle ${modelName}: ${error?.message ?? String(error)}`);
     }
   };
 

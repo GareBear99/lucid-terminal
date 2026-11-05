@@ -447,24 +447,51 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
             });
           } else if (parsed.command.startsWith('llm enable')) {
             const model = parsed.args[0];
-            await window.lucidAPI.lucid.llmSetEnabled(model, true);
+            // Print success ONLY when the backend confirms it — the
+            // old code printed success unconditionally while the
+            // backend was a no-op.
+            let output: string;
+            if (!model) {
+              output = 'Usage: llm enable <model>';
+            } else {
+              try {
+                const result = await window.lucidAPI.lucid.llmSetEnabled(model, true);
+                output = result?.success
+                  ? `✅ Enabled model: ${model}`
+                  : `❌ Failed to enable model: ${model}: ${result?.error || result?.message || 'unknown error'}`;
+              } catch (error: any) {
+                output = `❌ Failed to enable model: ${model}: ${error?.message ?? String(error)}`;
+              }
+            }
             setBlocks(prev => {
               const updated = [...prev];
               const lastBlock = updated[updated.length - 1];
               if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = `✅ Enabled model: ${model}`;
+                lastBlock.output = output;
                 lastBlock.isComplete = true;
               }
               return updated;
             });
           } else if (parsed.command.startsWith('llm disable')) {
             const model = parsed.args[0];
-            await window.lucidAPI.lucid.llmSetEnabled(model, false);
+            let output: string;
+            if (!model) {
+              output = 'Usage: llm disable <model>';
+            } else {
+              try {
+                const result = await window.lucidAPI.lucid.llmSetEnabled(model, false);
+                output = result?.success
+                  ? `❌ Disabled model: ${model}`
+                  : `❌ Failed to disable model: ${model}: ${result?.error || result?.message || 'unknown error'}`;
+              } catch (error: any) {
+                output = `❌ Failed to disable model: ${model}: ${error?.message ?? String(error)}`;
+              }
+            }
             setBlocks(prev => {
               const updated = [...prev];
               const lastBlock = updated[updated.length - 1];
               if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = `❌ Disabled model: ${model}`;
+                lastBlock.output = output;
                 lastBlock.isComplete = true;
               }
               return updated;

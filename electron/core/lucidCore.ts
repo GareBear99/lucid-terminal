@@ -17,6 +17,7 @@ import { TokenTracker } from './tracking/tokenTracker';
 import { ToolRegistry } from './tools/toolRegistry';
 import { WorkflowOrchestrator, WorkflowContext, WorkflowResult } from './workflow/workflowOrchestrator';
 import { ModelBackendManager } from './llm/modelBackend';
+import { loadDisabledModels, saveDisabledModels } from './llm/modelEnabledState';
 import { ModelTierRegistry } from './models/modelTiers';
 import { CommandDisplay, CommandBlock } from './display/commandDisplay';
 import { LlamafileManager } from './llm/llamafileManager';
@@ -38,6 +39,8 @@ export class LucidCore {
   private backendManager: ModelBackendManager;
   private llamafileManager: LlamafileManager;
   private context: WorkflowContext;
+  /** ~/.lucid (or the test override) — where llm_state.json lives. */
+  private lucidDir: string;
   /**
    * Set when FixNet started degraded (corrupt dictionary quarantined,
    * or the dictionary unusable): getFixNetStats() reports it so the
@@ -55,7 +58,8 @@ export class LucidCore {
     backendManager: ModelBackendManager,
     llamafileManager: LlamafileManager,
     context: WorkflowContext,
-    fixnetDegraded: string | null = null
+    fixnetDegraded: string | null = null,
+    lucidDir: string = ''
   ) {
     this.intentParser = intentParser;
     this.bypassRouter = bypassRouter;
@@ -67,6 +71,7 @@ export class LucidCore {
     this.llamafileManager = llamafileManager;
     this.context = context;
     this.fixnetDegraded = fixnetDegraded;
+    this.lucidDir = lucidDir;
   }
   
   /**
@@ -137,12 +142,26 @@ export class LucidCore {
       endpoint: 'http://localhost:8085'
     });
     
-    // Initialize bypass router
+    // Initialize bypass router. Its onEnabledChange hook persists
+    // every enable/disable to ~/.lucid/llm_state.json, and the router
+    // is seeded from that file right after construction — so a disable
+    // survives a restart instead of reverting to "all enabled".
     const bypassRouter = new BypassRouter(
       modelRegistry,
       tokenTracker,
-      backendManager
+      backendManager,
+      {
+        onEnabledChange: (disabled) =>
+          saveDisabledModels(lucidDir, disabled),
+      }
     );
+    const persistedDisabled = loadDisabledModels(lucidDir);
+    if (persistedDisabled.length > 0) {
+      bypassRouter.applyPersistedDisabledModels(persistedDisabled);
+      console.log(
+        `[LucidCore] Restored ${persistedDisabled.length} disabled model(s) from llm_state.json: ${persistedDisabled.join(', ')}`
+      );
+    }
     
     // Initialize FixNet. A corrupt dictionary degrades FixNet only
     // (F9) — it must never kill app startup the way it used to (the
@@ -229,7 +248,8 @@ export class LucidCore {
       backendManager,
       llamafileManager,
       context,
-      fixnetDegraded
+      fixnetDegraded,
+      lucidDir
     );
   }
   
@@ -336,11 +356,66 @@ export class LucidCore {
   }
   
   /**
-   * Enable/disable model
+   * Enable/disable a model — the canonical path. The router owns the
+   * flag (routing consults it via isModelEnabled), the backend
+   * manager mirrors it, and the change is persisted to
+   * ~/.lucid/llm_state.json by the router's onEnabledChange hook.
+   * Returns success:false — never throws for a bad model — when the
+   * model is unknown, not installed (enable only), or the state file
+   * cannot be written; in those cases the in-memory state is
+   * unchanged and the caller must report the failure, not success.
    */
-  setModelEnabled(model: string, enabled: boolean): void {
-    // Update model state
-    // TODO: Persist to ~/.lucid/llm_state.json
+  setModelEnabled(model: string, enabled: boolean): {
+    success: boolean;
+    model: string;
+    enabled: boolean;
+    message: string;
+  } {
+    const result = this.bypassRouter.setModelEnabled(model, enabled);
+    return {
+      success: result.success,
+      model,
+      enabled: this.bypassRouter.isModelEnabled(model),
+      message: result.message,
+    };
+  }
+
+  /**
+   * Whether the router will route to this model — the canonical
+   * enabled flag. (Unknown models default to true, as the router
+   * has never seen them; setModelEnabled rejects them instead.)
+   */
+  isModelEnabled(model: string): boolean {
+    return this.bypassRouter.isModelEnabled(model);
+  }
+
+  /**
+   * Full model list for the UI. `enabled` is the REAL enable flag —
+   * not the server-up flag getModelStatuses() reports. The two were
+   * conflated before: llmList used to surface "server answering" as
+   * `enabled`, so the Settings toggle showed running state, not the
+   * enable state the toggle itself was supposed to control.
+   */
+  getModelList(): Array<{
+    name: string;
+    tier: number;
+    enabled: boolean;
+    running: boolean;
+    installed: boolean;
+    corrupted: boolean;
+  }> {
+    this.bypassRouter.refreshAvailableModels();
+    return this.backendManager.listModels().map((info) => {
+      const status = this.bypassRouter.getModelStatus(info.name);
+      return {
+        name: info.name,
+        tier: info.tier,
+        enabled: status.enabled,
+        running: info.running,
+        installed: status.installed,
+        corrupted: status.corrupted,
+      };
+    });
   }
   
   /**

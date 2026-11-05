@@ -3,7 +3,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   heartbeatFrameFor,
   isTypingPaused,
-} from './heartbeat';
+} from './heartbeatLogic';
 
 interface HeartbeatProps {
   /** The LuciferAI plugin is loaded/running (the dot is 🩸, green or amber). */

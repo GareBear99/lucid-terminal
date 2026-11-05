@@ -7,7 +7,7 @@ import {
   heartbeatFrameFor,
   isTypingPaused,
   shouldShowHeartbeat,
-} from '../src/components/Terminal/heartbeat';
+} from '../src/components/Terminal/heartbeatLogic';
 
 describe('heartbeatFrameFor — the original alternation', () => {
   it('frame 0 is red with the skull & bones', () => {

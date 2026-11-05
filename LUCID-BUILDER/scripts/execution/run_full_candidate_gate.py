@@ -25,6 +25,12 @@ def main() -> None:
     parser.add_argument("--adapter", default="heuristic")
     parser.add_argument("--prompt-profile", default="minimal_doctrine")
     parser.add_argument("--model-name", default="candidate_v1")
+    # Forge addition: the exemplar adapter requires an artifact path
+    # (exemplar_model.json). Without it, both the backend check and the
+    # benchmark re-run crash with "artifact is required for exemplar
+    # adapter", so the gate could never reach a decision.
+    parser.add_argument("--artifact", default=None,
+                        help="Artifact for the exemplar adapter (path to exemplar_model.json).")
     parser.add_argument("--experiment-log", default="results/experiments.jsonl")
     parser.add_argument('--endpoint', default=None)
     parser.add_argument('--model', default=None)
@@ -47,6 +53,8 @@ def main() -> None:
             backend_cmd += ["--endpoint", args.endpoint]
         if args.model:
             backend_cmd += ["--model", args.model]
+        if args.artifact:
+            backend_cmd += ["--artifact", args.artifact]
         if args.require_live_backend:
             backend_cmd += ["--require-live-backend"]
         ok = maybe_append(backend_cmd)
@@ -56,6 +64,8 @@ def main() -> None:
             bench_cmd += ["--endpoint", args.endpoint]
         if args.model:
             bench_cmd += ["--model", args.model]
+        if args.artifact:
+            bench_cmd += ["--artifact", args.artifact]
         ok = maybe_append(bench_cmd)
     if ok:
         ok = maybe_append([py, "scripts/execution/score_benchmark_outputs.py"])

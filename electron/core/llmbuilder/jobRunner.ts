@@ -1632,6 +1632,8 @@ export class LlmbuilderJobRunner {
         [
           '--adapter',
           'exemplar',
+          '--artifact',
+          exemplar,
           '--model-name',
           actualCandidate,
           '--experiment-log',

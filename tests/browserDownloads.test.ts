@@ -5,7 +5,7 @@
  * Run with: npm test
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   sanitizeDownloadFilename,
   uniqueDownloadPath,
@@ -13,6 +13,15 @@ import {
   formatDownloadSize,
   type BrowserDownload,
 } from '../electron/services/browserDownloads';
+
+// The service under test imports { shell } from 'electron'
+// (showItemInFolder). CI installs with --ignore-scripts, so there is
+// no Electron binary and the real 'electron' package throws at
+// import — mock it, as the *Main test files do, so these pure-helper
+// tests can run without the binary.
+vi.mock('electron', () => ({
+  shell: { showItemInFolder: () => undefined },
+}));
 
 describe('sanitizeDownloadFilename', () => {
   it('keeps a plain file name', () => {

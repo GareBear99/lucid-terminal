@@ -71,6 +71,29 @@ vi.mock('electron', () => {
     Menu: { buildFromTemplate: () => ({ popup: () => undefined }) },
   };
 });
+
+vi.mock('electron-store', () => ({
+  default: class {
+    private data = new Map<string, unknown>();
+    constructor(_opts?: unknown) {}
+    get(key: string) {
+      return this.data.get(key);
+    }
+    set(key: string, value: unknown) {
+      this.data.set(key, value);
+    }
+    has(key: string) {
+      return this.data.has(key);
+    }
+    delete(key: string) {
+      this.data.delete(key);
+    }
+    get store() {
+      return Object.fromEntries(this.data);
+    }
+  },
+}));
+
 import { useBrowserStore } from '../src/stores/browserStore';
 import { usePhoneStore } from '../src/stores/phoneStore';
 import {

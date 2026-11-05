@@ -108,6 +108,28 @@ vi.mock('electron', () => {
   };
 });
 
+vi.mock('electron-store', () => ({
+  default: class {
+    private data = new Map<string, unknown>();
+    constructor(_opts?: unknown) {}
+    get(key: string) {
+      return this.data.get(key);
+    }
+    set(key: string, value: unknown) {
+      this.data.set(key, value);
+    }
+    has(key: string) {
+      return this.data.has(key);
+    }
+    delete(key: string) {
+      this.data.delete(key);
+    }
+    get store() {
+      return Object.fromEntries(this.data);
+    }
+  },
+}));
+
 type Handlers = Record<string, (...args: unknown[]) => unknown>;
 
 const setup = async () => {

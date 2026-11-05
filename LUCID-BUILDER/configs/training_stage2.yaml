@@ -1,0 +1,8 @@
+version: 1
+name: training_stage2
+objective: preference_shaping_for_revision_and_boundedness
+preferred_patterns:
+  - revise_over_bluff
+  - bounded_confidence_over_swagger
+  - minimal_change_over_destructive_rewrite
+  - tradeoff_awareness

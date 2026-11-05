@@ -13,7 +13,7 @@
  * PLUGIN_SHELLS). The Sidebar renders one button per entry that is
  * toggled on in Settings; the section grows taller per enabled plugin.
  */
-import { Orbit, Sparkles, type LucideIcon } from 'lucide-react';
+import { Orbit, Sparkles, Hammer, type LucideIcon } from 'lucide-react';
 
 export interface ToolbarPlugin {
   /** Stable id, e.g. 'synth' | 'ai-chat'. Used as the Settings key. */
@@ -25,7 +25,7 @@ export interface ToolbarPlugin {
   /** Icon for the toolbar button and the Settings row. */
   icon: LucideIcon;
   /** What clicking the toolbar button does. */
-  action: 'synth' | 'ai-chat';
+  action: 'synth' | 'ai-chat' | 'forge';
   /** Whether the button shows when Settings has no override for it.
    *  Plugins that already have a toolbar presence default ON; a plugin
    *  with no toolbar presence defaults OFF, so toggling it on is an
@@ -51,6 +51,15 @@ export const TOOLBAR_PLUGINS: ToolbarPlugin[] = [
     action: 'ai-chat',
     // No toolbar button today (it lives on the StatusBar), so it starts
     // off — turning it on is Gary's explicit choice.
+    defaultOnToolbar: false,
+  },
+  {
+    id: 'llmbuilder',
+    name: 'Forge',
+    description: 'Train your Homunculi — build, benchmark, and promote small models.',
+    icon: Hammer,
+    action: 'forge',
+    // New surface — no toolbar button until Gary turns it on.
     defaultOnToolbar: false,
   },
 ];

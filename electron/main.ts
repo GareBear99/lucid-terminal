@@ -7,6 +7,7 @@ import { setupSettingsHandlers } from './ipc/settings';
 import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
 import { setupSystemHandlers } from './ipc/system';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
+import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupBrowserHandlers } from './ipc/browser';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
@@ -93,6 +94,7 @@ app.whenReady().then(() => {
   setupLucidWorkflowHandlers(ipcMain);
   setupSystemHandlers(ipcMain);
   setupDaemonHandlers(ipcMain);
+  setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   // The in-panel browser needs the window to attach its BrowserViews to.
   setupBrowserHandlers(ipcMain, () => mainWindow);
   // Phone streaming (scrcpy) needs the window for the PhoneView canvas host.

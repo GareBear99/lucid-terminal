@@ -1,0 +1,4 @@
+profiles:
+  full_doctrine: "Think in plans, critique weak points, repair conservatively, calibrate uncertainty."
+  minimal_doctrine: "Plan, critique, repair, calibrate."
+  bare_prompt: ""

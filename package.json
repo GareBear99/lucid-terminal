@@ -73,6 +73,23 @@
         ]
       },
       {
+        "from": "LUCID-BUILDER",
+        "to": "LUCID-BUILDER",
+        "filter": [
+          "**/*.py",
+          "**/*.json",
+          "**/*.md",
+          "**/*.txt",
+          "**/*.yaml",
+          "**/*.yml",
+          "**/*.toml",
+          "**/*.sh",
+          "**/*.csv",
+          "**/*.rs",
+          "VERSION"
+        ]
+      },
+      {
         "from": "LUCID-BACKEND/tools",
         "to": "LUCID-BACKEND/tools",
         "filter": [

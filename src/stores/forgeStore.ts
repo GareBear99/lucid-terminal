@@ -1,0 +1,700 @@
+/**
+ * Forge store — the Forge view's state (zustand, same pattern as the
+ * other stores).
+ *
+ * Owns the Homunculi roster, the current training run (stages + log),
+ * the scoreboard, setup status, and the low-memory flag. All IPC goes
+ * through src/lib/llmbuilderApi.ts — the single place the renderer
+ * touches the Forge IPC. The roster is persisted via the IPC
+ * (llmbuilder:getRoster / llmbuilder:saveRoster), never via the
+ * settings store.
+ *
+ * Roster seeding: on first load with an empty roster, ONE Homunculus
+ * is seeded from the stored colour choice — read (read-only) from the
+ * settings store, correct key `homunculusColor` first, falling back to
+ * the old misspelled `hommunculusColor` (the Homunculus agent is
+ * mid-correction). If NO colour is stored, nothing is seeded — the
+ * roster starts empty with an empty-state message ("Choose your
+ * Homunculus color in the Synth view first"). A Homunculus is never
+ * invented.
+ *
+ * This store is pure state plus guarded IPC calls (no window access at
+ * module load) so it can be imported by tests in a node environment.
+ * When the preload has not exposed the Forge IPC yet, actions set
+ * lastError instead of crashing.
+ */
+
+import { create } from 'zustand';
+import {
+  appendLineageEntry,
+  emptyHomunculus,
+  parseHomunculusColorValue,
+  PIPELINE_STAGES,
+  type GateDecision,
+  type Homunculus,
+  type HomunculusBiography,
+  type HomunculusColor,
+  type HomunculusLineageEntry,
+  type PipelineStageId,
+  type ScoreboardRow,
+  type StageStatus,
+} from '../lib/homunculi';
+import {
+  buildKnowledgeRecords,
+  type CorpusSummary,
+} from '../lib/homunculusKnowledge';
+import {
+  getLlmbuilderApi,
+  type BrainAnswer,
+  type DemoCheckSummary,
+  type ImportDatasetResult,
+  type LlmbuilderRunInfo,
+  type LlmbuilderStatus,
+  type PromotionDecision,
+  type RunTier,
+} from '../lib/llmbuilderApi';
+import { useSettingsStore } from './settingsStore';
+
+export interface RunStageState {
+  status: StageStatus | 'pending';
+  message: string;
+}
+
+export interface ForgeRun {
+  runId: string;
+  homunculusId: string;
+  candidate: string;
+  tier: RunTier;
+  stages: Record<PipelineStageId, RunStageState>;
+  /** Streamed stdout from the Python job, newest last. */
+  logLines: string[];
+  done: boolean;
+  /**
+   * The run-level verdict, read from the run manifest (listRuns) —
+   * NEVER from the last progress event's stage status. A demo-proof
+   * run can have every stage 'completed' and still be a failed run
+   * (failed checks), and no single progress event carries the verdict
+   * without mislabelling a stage.
+   */
+  outcome: {
+    status: LlmbuilderRunInfo['status'];
+    decision?: string;
+    score?: number | null;
+    demoChecks?: DemoCheckSummary;
+    error?: string;
+  } | null;
+}
+
+function freshStages(): Record<PipelineStageId, RunStageState> {
+  const stages = {} as Record<PipelineStageId, RunStageState>;
+  for (const stage of PIPELINE_STAGES) {
+    stages[stage] = { status: 'pending', message: '' };
+  }
+  return stages;
+}
+
+export interface StartRunOptions {
+  tier: RunTier;
+  steps: number;
+  batchSize: number;
+  /** Corpus id: 'repo-text' (default) or an imported dataset id. */
+  corpus: string;
+  /** True for the demo-proof workflow (demo_proof_workflow.py). */
+  demoProof?: boolean;
+}
+
+interface ForgeState {
+  roster: Homunculus[];
+  selectedId: string | null;
+  currentRun: ForgeRun | null;
+  scoreboard: ScoreboardRow[];
+  /** Raw scoreboard JSON, as carried on the array by getScoreboard (.raw). */
+  scoreboardRaw: Record<string, unknown> | null;
+  setupStatus: LlmbuilderStatus | null;
+  /** Live first-run setup progress (runId 'setup', stage 'data'). */
+  setupProgress: { status: StageStatus; message: string } | null;
+  lowMemory: boolean;
+  /** Imported datasets (ChatGPT JSONL) available as corpora. */
+  datasets: ImportDatasetResult[];
+  askResult: BrainAnswer | null;
+  askError: string | null;
+  lastError: string | null;
+
+  loadRoster: () => Promise<void>;
+  saveRoster: () => Promise<void>;
+  selectHomunculus: (id: string | null) => void;
+  createHomunculus: (
+    name: string,
+    color: HomunculusColor,
+    biography?: HomunculusBiography | null,
+  ) => Promise<Homunculus>;
+  updateBiography: (
+    id: string,
+    patch: { name?: string; biography: HomunculusBiography | null },
+  ) => Promise<void>;
+  loadScoreboard: () => Promise<void>;
+  loadStatus: () => Promise<void>;
+  startRun: (homunculusId: string, options: StartRunOptions) => Promise<string | null>;
+  cancelRun: () => Promise<void>;
+  /**
+   * Read the run-level verdict from the run manifest (listRuns) and
+   * apply it to the current run. The manifest is the only source of
+   * the verdict — progress events carry stage statuses, not the
+   * run outcome.
+   */
+  refreshRunOutcome: (runId: string) => Promise<void>;
+  /** Fetch a candidate's Gate decision and, on promote, grow the lineage. */
+  applyPromotionDecision: (
+    homunculusId: string,
+    decision: PromotionDecision,
+  ) => Promise<void>;
+  refreshPromotionDecision: (
+    homunculusId: string,
+    candidate: string,
+  ) => Promise<PromotionDecision | null>;
+  installBrain: (homunculusId: string, candidate: string) => Promise<void>;
+  rollback: (homunculusId: string) => Promise<void>;
+  importDataset: (name: string, jsonl: string) => Promise<ImportDatasetResult | null>;
+  /** Ask the installed brain — verification only, not a chat surface. */
+  askBrain: (homunculusId: string, prompt: string) => Promise<BrainAnswer | null>;
+  /** Subscribe to run progress events; returns an unsubscribe function. */
+  subscribeProgress: () => () => void;
+  clearRun: () => void;
+  resetForTests: () => void;
+}
+
+function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : 'homunculus';
+}
+
+/** The stored colour choice, correct key first, misspelled key as fallback. */
+export function readStoredHomunculusColor(): HomunculusColor | null {
+  const settings = useSettingsStore.getState().settings as unknown as Record<
+    string,
+    unknown
+  >;
+  return (
+    parseHomunculusColorValue(settings?.homunculusColor) ??
+    parseHomunculusColorValue(settings?.hommunculusColor)
+  );
+}
+
+function corpusSummaryFor(
+  datasets: ImportDatasetResult[],
+  corpus: string,
+): CorpusSummary {
+  const match = datasets.find((d) => d.datasetId === corpus);
+  if (!match) return { domains: [], recordCount: 0 };
+  return { domains: match.domains, recordCount: match.recordCount };
+}
+
+export const useForgeStore = create<ForgeState>()((set, get) => ({
+  roster: [],
+  selectedId: null,
+  currentRun: null,
+  scoreboard: [],
+  scoreboardRaw: null,
+  setupStatus: null,
+  setupProgress: null,
+  lowMemory: false,
+  datasets: [],
+  askResult: null,
+  askError: null,
+  lastError: null,
+
+  loadRoster: async () => {
+    const api = getLlmbuilderApi();
+    let roster: Homunculus[] | null = null;
+    if (api) {
+      try {
+        roster = await api.getRoster();
+      } catch (error) {
+        set({ lastError: `Could not load the roster: ${String(error)}` });
+        return;
+      }
+    }
+    if (!roster || roster.length === 0) {
+      // First load with an empty roster: seed ONE Homunculus from the
+      // stored colour choice. No colour stored = seed nothing — the
+      // roster starts empty and the view says to choose a colour in
+      // the Synth view first. Never invent a Homunculus.
+      const color = readStoredHomunculusColor();
+      if (color) {
+        const seeded = emptyHomunculus('lucifer', 'Lucifer', color);
+        roster = [seeded];
+        set({ roster, selectedId: 'lucifer', lastError: null });
+        await get().saveRoster();
+        return;
+      }
+      set({ roster: [], selectedId: null, lastError: null });
+      return;
+    }
+    set({
+      roster,
+      selectedId: get().selectedId ?? roster[0]?.id ?? null,
+      lastError: null,
+    });
+  },
+
+  saveRoster: async () => {
+    const api = getLlmbuilderApi();
+    if (!api) {
+      set({ lastError: 'Forge IPC unavailable — the roster was not saved.' });
+      return;
+    }
+    try {
+      await api.saveRoster(get().roster);
+      set({ lastError: null });
+    } catch (error) {
+      set({ lastError: `Could not save the roster: ${String(error)}` });
+    }
+  },
+
+  selectHomunculus: (id) => set({ selectedId: id, askResult: null, askError: null }),
+
+  createHomunculus: async (name, color, biography = null) => {
+    const base = slugify(name);
+    let id = base;
+    let n = 2;
+    while (get().roster.some((h) => h.id === id)) {
+      id = `${base}-${n}`;
+      n += 1;
+    }
+    const homunculus: Homunculus = {
+      ...emptyHomunculus(id, name, color),
+      biography,
+    };
+    set({ roster: [...get().roster, homunculus], selectedId: id });
+    await get().saveRoster();
+    return homunculus;
+  },
+
+  updateBiography: async (id, patch) => {
+    const roster = get().roster.map((h) =>
+      h.id === id
+        ? { ...h, name: patch.name ?? h.name, biography: patch.biography }
+        : h,
+    );
+    set({ roster });
+    await get().saveRoster();
+  },
+
+  loadScoreboard: async () => {
+    const api = getLlmbuilderApi();
+    if (!api) return;
+    try {
+      const scoreboard = await api.getScoreboard();
+      // The raw scoreboard JSON rides on the array as .raw (see
+      // llmbuilderApi.ts) — keep it for callers that want the file.
+      set({ scoreboard, scoreboardRaw: scoreboard.raw ?? null });
+    } catch (error) {
+      set({ lastError: `Could not load the scoreboard: ${String(error)}` });
+    }
+  },
+
+  loadStatus: async () => {
+    const api = getLlmbuilderApi();
+    if (!api) return;
+    try {
+      const setupStatus = await api.status();
+      set({ setupStatus, lowMemory: setupStatus.lowMemory });
+    } catch (error) {
+      set({ lastError: `Could not read the Forge status: ${String(error)}` });
+    }
+  },
+
+  startRun: async (homunculusId, options) => {
+    const api = getLlmbuilderApi();
+    const homunculus = get().roster.find((h) => h.id === homunculusId);
+    if (!homunculus) {
+      set({ lastError: 'No Homunculus selected for this run.' });
+      return null;
+    }
+    if (!api) {
+      set({ lastError: 'Forge IPC unavailable — the run was not started.' });
+      return null;
+    }
+    const candidate = `${homunculus.id}-${homunculus.lineage.length + 1}`;
+    const knowledgeRecordsJsonl = buildKnowledgeRecords(
+      homunculus,
+      corpusSummaryFor(get().datasets, options.corpus),
+    );
+    try {
+      const run = await api.startRun({
+        homunculusId,
+        candidate,
+        tier: options.tier,
+        steps: options.steps,
+        batchSize: options.batchSize,
+        corpus: options.corpus,
+        knowledgeRecordsJsonl,
+        demoProof: options.demoProof,
+      });
+      set({
+        currentRun: {
+          runId: run.runId,
+          homunculusId,
+          candidate,
+          tier: options.tier,
+          stages: freshStages(),
+          logLines: [`Run ${run.runId} started — candidate ${candidate}.`],
+          done: false,
+          outcome: null,
+        },
+        roster: get().roster.map((h) =>
+          h.id === homunculusId ? { ...h, status: 'training' } : h,
+        ),
+        lastError: null,
+      });
+      return run.runId;
+    } catch (error) {
+      set({ lastError: `Could not start the run: ${String(error)}` });
+      return null;
+    }
+  },
+
+  refreshRunOutcome: async (runId) => {
+    const api = getLlmbuilderApi();
+    if (!api) return;
+    let runs: LlmbuilderRunInfo[];
+    try {
+      runs = await api.listRuns();
+    } catch (error) {
+      set({ lastError: `Could not read the run outcome: ${String(error)}` });
+      return;
+    }
+    const manifest = runs.find((r) => r.runId === runId);
+    if (!manifest) return;
+    const run = get().currentRun;
+    if (!run || run.runId !== runId) return;
+    const outcome = {
+      status: manifest.status,
+      decision: manifest.decision,
+      score: manifest.score ?? null,
+      demoChecks: manifest.demoChecks,
+      error: manifest.error,
+    };
+    const verdictLine =
+      manifest.status === 'completed'
+        ? `Run finished — Gate v2: ${manifest.decision ?? 'no decision'}` +
+          (manifest.score !== undefined && manifest.score !== null
+            ? ` (score ${manifest.score})`
+            : '') +
+          '.'
+        : manifest.status === 'failed'
+          ? `Run failed.` +
+            (manifest.demoChecks && manifest.demoChecks.failed > 0
+              ? ` Demo proof: ${manifest.demoChecks.passed}/${manifest.demoChecks.total} checks passed.`
+              : '') +
+            (manifest.error ? ` ${manifest.error}` : '')
+          : manifest.status === 'cancelled'
+            ? 'Run cancelled.'
+            : null;
+    set((state) => ({
+      currentRun: state.currentRun
+        ? {
+            ...state.currentRun,
+            done: manifest.status !== 'running',
+            outcome,
+            logLines:
+              verdictLine &&
+              !state.currentRun.logLines.includes(verdictLine)
+                ? [...state.currentRun.logLines, verdictLine]
+                : state.currentRun.logLines,
+          }
+        : null,
+      // A failed or cancelled run leaves the Homunculus where it was
+      // before the run — training is not a state it stays in.
+      roster:
+        manifest.status === 'failed' || manifest.status === 'cancelled'
+          ? state.roster.map((h) =>
+              h.id === run.homunculusId && h.status === 'training'
+                ? {
+                    ...h,
+                    status: h.modelPath
+                      ? ('installed' as const)
+                      : ('untrained' as const),
+                  }
+                : h,
+            )
+          : state.roster,
+    }));
+  },
+
+  cancelRun: async () => {
+    const api = getLlmbuilderApi();
+    const run = get().currentRun;
+    if (!run) return;
+    if (api) {
+      try {
+        await api.cancelRun(run.runId);
+      } catch (error) {
+        set({ lastError: `Could not cancel the run: ${String(error)}` });
+      }
+    }
+    set((state) => ({
+      currentRun: state.currentRun
+        ? {
+            ...state.currentRun,
+            done: true,
+            logLines: [
+              ...state.currentRun.logLines,
+              'Run cancelled.',
+            ],
+          }
+        : null,
+      roster: state.roster.map((h) =>
+        h.id === run.homunculusId && h.status === 'training'
+          ? {
+              ...h,
+              status: h.modelPath
+                ? ('installed' as const)
+                : ('untrained' as const),
+            }
+          : h,
+      ),
+    }));
+    // The manifest is the verdict — read it so the outcome (and any
+    // demo-check tally) shows honestly instead of a bare "cancelled".
+    await get().refreshRunOutcome(run.runId);
+  },
+
+  applyPromotionDecision: async (homunculusId, decision) => {
+    const homunculus = get().roster.find((h) => h.id === homunculusId);
+    if (!homunculus) return;
+    if (decision.decision !== 'promote') {
+      // archive_only / reject: no lineage entry, no birth — the
+      // candidate is kept on the scoreboard but the Homunculus does
+      // not grow from it. Status returns to untrained (or stays
+      // installed if it already has a brain).
+      set({
+        roster: get().roster.map((h) =>
+          h.id === homunculusId
+            ? {
+                ...h,
+                status:
+                  h.status === 'training' || h.status === 'candidate'
+                    ? h.modelPath
+                      ? 'installed'
+                      : 'untrained'
+                    : h.status,
+              }
+            : h,
+        ),
+      });
+      return;
+    }
+    const entry: HomunculusLineageEntry = {
+      promotion: homunculus.lineage.length + 1,
+      candidate: decision.candidate,
+      parentBase: 'arc_tiny',
+      corpus: 'repo-text',
+      gateDecision: 'promote' as GateDecision,
+      score: decision.score,
+      scoreboardRef: `results/scoreboard.json#${decision.candidate}`,
+      receiptRef: decision.receiptRef,
+      timestamp: new Date().toISOString(),
+    };
+    const grown = appendLineageEntry(homunculus, entry);
+    const roster = get().roster.map((h) =>
+      h.id === homunculusId
+        ? {
+            ...grown,
+            status: 'promoted' as const,
+            incumbentScore: decision.score ?? grown.incumbentScore,
+          }
+        : h,
+    );
+    set({ roster });
+    await get().saveRoster();
+  },
+
+  refreshPromotionDecision: async (homunculusId, candidate) => {
+    const api = getLlmbuilderApi();
+    if (!api) return null;
+    try {
+      const decision = await api.getPromotionDecision(candidate);
+      if (decision) await get().applyPromotionDecision(homunculusId, decision);
+      return decision;
+    } catch (error) {
+      set({
+        lastError: `Could not read the promotion decision: ${String(error)}`,
+      });
+      return null;
+    }
+  },
+
+  installBrain: async (homunculusId, candidate) => {
+    const api = getLlmbuilderApi();
+    if (!api) {
+      set({ lastError: 'Forge IPC unavailable — the brain was not installed.' });
+      return;
+    }
+    try {
+      const result = await api.installBrain(homunculusId, candidate);
+      // A failed install must NEVER render as installed: the main
+      // process reports { ok, modelPath, previousModelPath, error? }
+      // and ok:false means no brain was installed at all.
+      if (!result.ok) {
+        set({
+          lastError: `Could not install the brain: ${result.error ?? 'unknown error'}`,
+        });
+        return;
+      }
+      set({
+        roster: get().roster.map((h) =>
+          h.id === homunculusId
+            ? { ...h, modelPath: result.modelPath, status: 'installed' as const }
+            : h,
+        ),
+        lastError: null,
+      });
+      await get().saveRoster();
+    } catch (error) {
+      set({ lastError: `Could not install the brain: ${String(error)}` });
+    }
+  },
+
+  rollback: async (homunculusId) => {
+    const api = getLlmbuilderApi();
+    if (!api) {
+      set({ lastError: 'Forge IPC unavailable — rollback did not run.' });
+      return;
+    }
+    try {
+      const result = await api.rollback(homunculusId);
+      if (!result.ok) {
+        set({
+          lastError: `Could not roll back: ${result.error ?? 'unknown error'}`,
+        });
+        return;
+      }
+      set({
+        roster: get().roster.map((h) =>
+          h.id === homunculusId
+            ? {
+                ...h,
+                modelPath: result.modelPath,
+                status: 'installed' as const,
+              }
+            : h,
+        ),
+        lastError: null,
+      });
+      await get().saveRoster();
+    } catch (error) {
+      set({ lastError: `Could not roll back: ${String(error)}` });
+    }
+  },
+
+  importDataset: async (name, jsonl) => {
+    const api = getLlmbuilderApi();
+    if (!api) {
+      set({ lastError: 'Forge IPC unavailable — the dataset was not imported.' });
+      return null;
+    }
+    try {
+      const result = await api.importDataset(name, jsonl);
+      set({ datasets: [...get().datasets, result] });
+      return result;
+    } catch (error) {
+      set({ lastError: `Could not import the dataset: ${String(error)}` });
+      return null;
+    }
+  },
+
+  askBrain: async (homunculusId, prompt) => {
+    const homunculus = get().roster.find((h) => h.id === homunculusId);
+    if (!homunculus || !homunculus.modelPath) {
+      set({
+        askResult: null,
+        askError: 'No brain installed — install a promoted model first.',
+      });
+      return null;
+    }
+    const api = getLlmbuilderApi();
+    if (!api) {
+      set({ askResult: null, askError: 'Forge IPC unavailable.' });
+      return null;
+    }
+    try {
+      const answer = await api.askBrain(homunculusId, prompt);
+      if (!answer) {
+        set({
+          askResult: null,
+          askError: 'The brain gave no answer.',
+        });
+        return null;
+      }
+      set({ askResult: answer, askError: null });
+      return answer;
+    } catch (error) {
+      set({ askResult: null, askError: `Could not ask the brain: ${String(error)}` });
+      return null;
+    }
+  },
+
+  subscribeProgress: () => {
+    const api = getLlmbuilderApi();
+    if (!api) return () => undefined;
+    return api.onProgress((event) => {
+      // First-run setup progress rides on runId 'setup' (stage
+      // 'data') — it has no current run, so it goes to setupProgress
+      // instead of being dropped by the runId check below.
+      if (event.runId === 'setup') {
+        set({
+          setupProgress: { status: event.status, message: event.message },
+        });
+        return;
+      }
+      let justDone = false;
+      set((state) => {
+        const run = state.currentRun;
+        if (!run || run.runId !== event.runId) return state;
+        const stages = { ...run.stages };
+        stages[event.stage] = { status: event.status, message: event.message };
+        const done =
+          event.stage === 'promote' &&
+          (event.status === 'completed' ||
+            event.status === 'failed' ||
+            event.status === 'cancelled');
+        justDone = done && !run.done;
+        return {
+          currentRun: {
+            ...run,
+            stages,
+            logLines: [...run.logLines, event.message].slice(-500),
+            done: run.done || done,
+          },
+        };
+      });
+      // The stages are done — but the RUN's verdict lives in the
+      // manifest, not in this event. A demo-proof run with failed
+      // checks has every stage 'completed' and a failed run: only
+      // listRuns says so.
+      if (justDone) void get().refreshRunOutcome(event.runId);
+    });
+  },
+
+  clearRun: () => set({ currentRun: null }),
+
+  resetForTests: () =>
+    set({
+      roster: [],
+      selectedId: null,
+      currentRun: null,
+      scoreboard: [],
+      scoreboardRaw: null,
+      setupStatus: null,
+      setupProgress: null,
+      lowMemory: false,
+      datasets: [],
+      askResult: null,
+      askError: null,
+      lastError: null,
+    }),
+}));

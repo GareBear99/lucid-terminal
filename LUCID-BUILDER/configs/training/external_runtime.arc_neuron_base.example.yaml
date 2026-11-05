@@ -1,0 +1,36 @@
+version: 1
+notes:
+  - Example external runtime wiring for ARC-Neuron Base promotion.
+  - Replace placeholders with the actual trainer/exporter commands you want to run.
+stages:
+  lora_train:
+    mode: external
+    command:
+      - bash
+      - -lc
+      - >-
+        python train.py
+        --model {base_model}
+        --dataset {dataset}
+        --output {output_dir}
+  preference_train:
+    mode: scaffold
+    command: []
+  merge:
+    mode: external
+    command:
+      - bash
+      - -lc
+      - >-
+        python merge.py
+        --base {base_model}
+        --adapter {artifacts_dir}/lora_train/checkpoint
+        --output {merge_dir}
+  gguf_export:
+    mode: external
+    command:
+      - bash
+      - -lc
+      - >-
+        python convert_hf_to_gguf.py {artifacts_dir}/merge/merged-checkpoint
+        --outfile {gguf_dir}/arc-neuron-base.f16.gguf

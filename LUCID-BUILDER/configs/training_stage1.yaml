@@ -1,0 +1,10 @@
+version: 1
+name: training_stage1
+objective: supervised_cognition_shaping
+input_families:
+  - observe_infer
+  - plan
+  - critique
+  - repair
+  - compress
+  - calibrate

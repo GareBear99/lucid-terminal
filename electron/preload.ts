@@ -207,6 +207,39 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     getLogs: () => ipcRenderer.invoke('daemon:getLogs'),
   },
 
+  // Forge (LLMBuilder Homunculi trainer) operations
+  llmbuilder: {
+    status: () => ipcRenderer.invoke('llmbuilder:status'),
+    setup: (options?: { withTorch?: boolean }) =>
+      ipcRenderer.invoke('llmbuilder:setup', options),
+    startRun: (params: unknown) =>
+      ipcRenderer.invoke('llmbuilder:startRun', params),
+    cancelRun: (runId: string | { runId: string }) =>
+      ipcRenderer.invoke('llmbuilder:cancelRun', runId),
+    listRuns: () => ipcRenderer.invoke('llmbuilder:listRuns'),
+    getScoreboard: () => ipcRenderer.invoke('llmbuilder:getScoreboard'),
+    getPromotionDecision: (candidate: string | { candidate: string }) =>
+      ipcRenderer.invoke('llmbuilder:getPromotionDecision', candidate),
+    installBrain: (
+      homunculusId: string | { homunculusId: string; candidate: string },
+      candidate?: string,
+    ) => ipcRenderer.invoke('llmbuilder:installBrain', homunculusId, candidate),
+    rollback: (homunculusId: string | { homunculusId: string }) =>
+      ipcRenderer.invoke('llmbuilder:rollback', homunculusId),
+    getRoster: () => ipcRenderer.invoke('llmbuilder:getRoster'),
+    saveRoster: (homunculi: unknown) =>
+      ipcRenderer.invoke('llmbuilder:saveRoster', homunculi),
+    importDataset: (a: unknown, b?: unknown, c?: unknown) =>
+      ipcRenderer.invoke('llmbuilder:importDataset', a, b, c),
+    askBrain: (a: unknown, b?: unknown, c?: unknown) =>
+      ipcRenderer.invoke('llmbuilder:askBrain', a, b, c),
+    onProgress: (callback: (event: LlmbuilderProgressEvent) => void) => {
+      const listener = (_: any, event: LlmbuilderProgressEvent) => callback(event);
+      ipcRenderer.on('llmbuilder:progress', listener);
+      return () => ipcRenderer.removeListener('llmbuilder:progress', listener);
+    },
+  },
+
   // Lucid Workflow operations
   lucid: {
     init: () => ipcRenderer.invoke('lucid:init'),
@@ -359,6 +392,22 @@ export interface LucidAPI {
     removePath: (dirPath: string) => Promise<{ paths: string[]; restarted: boolean }>;
     getLogs: () => Promise<DaemonLogEntry[]>;
   };
+  llmbuilder: {
+    status: () => Promise<LlmbuilderStatus>;
+    setup: (options?: { withTorch?: boolean }) => Promise<{ ok: boolean; message: string; error?: string; torchVersion?: string | null }>;
+    startRun: (params: unknown) => Promise<LlmbuilderStartedRun>;
+    cancelRun: (runId: string | { runId: string }) => Promise<{ ok: boolean }>;
+    listRuns: () => Promise<LlmbuilderRunList>;
+    getScoreboard: () => Promise<LlmbuilderScoreboardRow[] | null>;
+    getPromotionDecision: (candidate: string | { candidate: string }) => Promise<LlmbuilderPromotionDecision | null>;
+    installBrain: (homunculusId: string | { homunculusId: string; candidate: string }, candidate?: string) => Promise<{ ok: boolean; modelPath?: string; previousModelPath?: string | null; error?: string }>;
+    rollback: (homunculusId: string | { homunculusId: string }) => Promise<{ ok: boolean; modelPath?: string; previousModelPath?: string | null; error?: string }>;
+    getRoster: () => Promise<unknown[]>;
+    saveRoster: (homunculi: unknown) => Promise<{ ok: boolean; error?: string }>;
+    importDataset: (a: unknown, b?: unknown, c?: unknown) => Promise<LlmbuilderImportResult>;
+    askBrain: (a: unknown, b?: unknown, c?: unknown) => Promise<LlmbuilderBrainAnswer>;
+    onProgress: (callback: (event: LlmbuilderProgressEvent) => void) => () => void;
+  };
   settings: {
     get: <T>(key: string) => Promise<T>;
     set: (key: string, value: unknown) => Promise<void>;
@@ -438,6 +487,85 @@ export interface FileStats {
   created: number;
   modified: number;
   accessed: number;
+}
+
+export interface LlmbuilderStatus {
+  ready: boolean;
+  venvReady: boolean;
+  torchReady: boolean;
+  torchInstalled: boolean;
+  pythonPath: string | null;
+  pythonAvailable: boolean;
+  builderDir: string;
+  dataDir: string;
+  freeMemMb: number;
+  lowMemory: boolean;
+  message: string | null;
+}
+
+export interface LlmbuilderStartedRun {
+  runId: string;
+  homunculusId: string;
+  candidate: string;
+  tier: string;
+  status: string;
+  startedAt: string;
+}
+
+export type LlmbuilderRunList = Array<{
+  runId: string;
+  homunculusId: string;
+  candidate: string;
+  tier: string;
+  status: string;
+  startedAt: string;
+  stages: Array<{ stage: string; status: string }>;
+  decision?: string;
+  score?: number | null;
+}>;
+
+export interface LlmbuilderScoreboardRow {
+  candidate: string;
+  score: number | null;
+  decision: string;
+  artifacts: string[];
+}
+
+export interface LlmbuilderPromotionDecision {
+  candidate: string;
+  decision: string;
+  score: number | null;
+  scoreboardRow: LlmbuilderScoreboardRow | null;
+  receiptRef: string | null;
+  raw: Record<string, unknown>;
+}
+
+export interface LlmbuilderImportResult {
+  ok: boolean;
+  records: number;
+  recordCount: number;
+  datasetId: string;
+  domains: string[];
+  errors: string[];
+}
+
+export interface LlmbuilderBrainAnswer {
+  ok: boolean;
+  text: string;
+  matches: Array<{ score: number; capability: string }>;
+  answer: string;
+  matchedCapabilities: string[];
+  confidence: string | null;
+  noMatch: boolean;
+  error?: string;
+}
+
+export interface LlmbuilderProgressEvent {
+  runId: string;
+  stage: string;
+  status: string;
+  message: string;
+  manifest?: Record<string, unknown>;
 }
 
 export interface DaemonLogEntry {

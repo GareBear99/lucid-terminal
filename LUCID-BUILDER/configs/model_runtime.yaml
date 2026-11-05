@@ -1,0 +1,5 @@
+default_adapter: heuristic
+adapters:
+  - echo
+  - heuristic
+  - openai_compatible

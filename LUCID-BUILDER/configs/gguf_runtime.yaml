@@ -1,0 +1,8 @@
+version: 1
+gguf_backends:
+  llama_cpp_server:
+    adapter: llama_cpp_http
+    env_var_base_url: COGNITION_GGUF_BASE_URL
+    default_base_url: http://127.0.0.1:8080
+    health_endpoint: /health
+    generate_endpoint: /v1/chat/completions

@@ -1,0 +1,22 @@
+version: 1
+lab_name: cognition_core_alpha_lab
+current_stage: execution_first_alpha
+required_reports:
+  - reports/validation_reports.json
+  - reports/execution_first_status.json
+  - reports/full_candidate_gate_report.json
+  - reports/promotion_decision.json
+  - reports/quantization_retention_report.json
+required_results:
+  - results/scoreboard.json
+  - results/experiments.jsonl
+required_minimums:
+  dataset_records: 120
+  benchmark_tasks: 80
+candidate_gate_sequence:
+  - validate_repo
+  - check_local_backend
+  - run_model_benchmarks
+  - score_benchmark_outputs
+  - promote_candidate
+  - run_quantization_retention

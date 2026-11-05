@@ -1,0 +1,16 @@
+{
+  "bridge_name": "omnibinary_language_truth_bridge",
+  "canonical_source": "ecosystem/arc-language-module/data/arc_language.db",
+  "omnibinary_artifact": "artifacts/omnibinary_bridge/arc_language_truth_v1.obin",
+  "manifest_artifact": "artifacts/omnibinary_bridge/arc_language_truth_v1.manifest.json",
+  "restore_target": "artifacts/omnibinary_bridge/arc_language_truth_v1.restored.db",
+  "report_artifact": "reports/omnibinary_bridge/arc_language_truth_v1_roundtrip.json",
+  "mode": "bidirectional",
+  "rules": [
+    "language-module remains canonical lexical source of truth",
+    "omnibinary stores deterministic binary mirror artifacts",
+    "binary mirror must be readable back into a structurally equivalent sqlite mirror",
+    "all roundtrips require payload hash verification before hydrate",
+    "promotion into canonical truth stays governed by language-module policy, not blind binary overwrite"
+  ]
+}

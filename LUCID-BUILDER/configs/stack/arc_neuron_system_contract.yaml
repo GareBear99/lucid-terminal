@@ -1,0 +1,43 @@
+version: 1
+family: ARC-Neuron
+canonical_artifact: ANCF
+deploy_artifact: GGUF
+layers:
+  arc_core:
+    role: spine
+    owns: [intent_routing, approvals, promotion_control, task_state]
+  cleanroom_runtime:
+    role: governed_execution
+    owns: [replay_receipts, rollback_semantics, execution_trace]
+  omnibinary:
+    role: native_binary_ledger
+    owns: [learning_ledger, durable_binary_state, native_receipts]
+  arc_rar:
+    role: archival_substrate
+    owns: [rollback_bundles, release_archives, lineage_archives]
+  arc_language_module:
+    role: canonical_lexical_truth
+    owns: [words, phrases, pronunciation, transliteration, lexical_metadata]
+  ancf:
+    role: canonical_model_container
+    owns: [tensors, tokenizer, provenance, signatures, lineage]
+  gguf:
+    role: deploy_export
+    owns: [runtime_compatible_inference_artifact]
+  arc_neuron:
+    role: learned_model_family
+    owns: [reasoning, generation, tool_use_decisions]
+promotion_contract:
+  requires:
+    - omnibinary_ledger
+    - arc_rar_bundle
+    - benchmark_gate_report
+    - model_card
+    - release_manifest
+    - canonical_ancf
+    - deployable_gguf
+current_state:
+  tiny_regression_floor: ARC-Neuron-Tiny-Integrated-0.07M-v0.2
+  base_prep: available
+  base_release_contract: available
+  stronger_external_checkpoint_required: true

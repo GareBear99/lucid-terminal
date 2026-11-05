@@ -1,0 +1,17 @@
+version: 1
+notes:
+  - Set stage mode to external and provide commands when wiring a real trainer/exporter.
+  - Commands accept Python-style format keys such as {candidate}, {base_model}, {dataset}, {output_dir}, {artifacts_dir}.
+stages:
+  lora_train:
+    mode: scaffold
+    command: []
+  preference_train:
+    mode: scaffold
+    command: []
+  merge:
+    mode: scaffold
+    command: []
+  gguf_export:
+    mode: scaffold
+    command: []

@@ -1,0 +1,13 @@
+
+version: 1
+name: gguf_export
+export_variants:
+  - f16
+  - q8_0
+  - q6_k
+  - q5_k_m
+required_reports:
+  - benchmark_report
+  - promotion_decision
+  - quantization_retention_report
+  - model_card

@@ -1,0 +1,29 @@
+
+version: 1
+name: sft_lora
+objective: supervised_distillation
+base_model_source: configs/base_model_candidates.yaml
+dataset_inputs:
+  - datasets/distillation_sft/seed_records.jsonl
+  - data/observe_infer/seed_examples.jsonl
+  - data/plan/seed_examples.jsonl
+  - data/critique/seed_examples.jsonl
+  - data/repair/seed_examples.jsonl
+  - data/compress/seed_examples.jsonl
+  - data/calibrate/seed_examples.jsonl
+target_behaviors:
+  - plan_before_commitment
+  - explicit_assumptions
+  - critique_before_finality
+  - repair_after_failure
+  - bounded_confidence
+trainer:
+  method: lora
+  rank: 64
+  alpha: 128
+  dropout: 0.05
+  micro_batch_size: 1
+  grad_accumulation: 16
+  learning_rate: 2e-4
+  epochs: 2
+  max_seq_length: 8192

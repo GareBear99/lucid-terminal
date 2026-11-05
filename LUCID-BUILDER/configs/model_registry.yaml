@@ -1,0 +1,19 @@
+version: 1
+name: model_registry
+
+models:
+  flagship_base:
+    family: open_reasoning_coder_large
+    role: flagship_training
+    context_tokens: 131072
+    precision: bf16
+  fallback_base:
+    family: open_reasoning_medium
+    role: fallback_training
+    context_tokens: 65536
+    precision: bf16
+  eval_base:
+    family: open_reasoning_small
+    role: rapid_eval
+    context_tokens: 32768
+    precision: bf16

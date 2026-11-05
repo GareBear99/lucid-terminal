@@ -1,0 +1,23 @@
+version: 1
+exports:
+  - name: core-flagship-f16
+    role: flagship
+    quant: f16
+  - name: core-flagship-q8
+    role: flagship
+    quant: q8
+  - name: core-flagship-q6
+    role: flagship
+    quant: q6
+  - name: core-flagship-q5
+    role: flagship
+    quant: q5
+  - name: core-fallback-q8
+    role: fallback
+    quant: q8
+  - name: core-fallback-q6
+    role: fallback
+    quant: q6
+  - name: core-eval-q5
+    role: eval
+    quant: q5

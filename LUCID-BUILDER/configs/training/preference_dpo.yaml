@@ -1,0 +1,19 @@
+
+version: 1
+name: preference_dpo
+objective: bounded_revision_preference_shaping
+dataset_inputs:
+  - datasets/distillation_preference/seed_pairs.jsonl
+target_behaviors:
+  - revise_over_bluff
+  - bounded_confidence_over_swagger
+  - minimal_patch_over_destructive_rewrite
+  - preserve_constraints_under_pressure
+trainer:
+  method: dpo
+  beta: 0.1
+  learning_rate: 5e-6
+  micro_batch_size: 1
+  grad_accumulation: 16
+  epochs: 1
+  max_seq_length: 8192

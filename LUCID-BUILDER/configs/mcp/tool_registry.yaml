@@ -1,0 +1,11 @@
+tools:
+  - name: repo_capsule_builder
+    entrypoint: scripts/mcp/repo_capsule_tool.py
+  - name: repo_validator
+    entrypoint: scripts/mcp/repo_validator_tool.py
+  - name: dataset_counter
+    entrypoint: scripts/mcp/dataset_counter_tool.py
+  - name: benchmark_counter
+    entrypoint: scripts/mcp/benchmark_counter_tool.py
+  - name: screenshot_attachment
+    entrypoint: scripts/mcp/screenshot_attachment_tool.py

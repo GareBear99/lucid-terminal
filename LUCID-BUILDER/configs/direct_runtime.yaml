@@ -1,0 +1,32 @@
+mode: direct_process_only
+adapters:
+  exemplar:
+    note: In-process local artifact adapter. No daemon. No server.
+  command:
+    note: One-shot subprocess adapter for local binaries such as llama-cli or llamafile. No daemon. No server.
+    runtime_guards:
+      overall_timeout_seconds: 120
+      first_output_timeout_seconds: 30
+      idle_timeout_seconds: 20
+      max_output_bytes: 262144
+      states:
+        - BOOTING
+        - MODEL_RESOLVING
+        - MODEL_LOADING
+        - TOKENIZING
+        - GENERATING
+        - STREAM_IDLE
+        - COMPLETED
+        - TIMED_OUT
+        - FAILED
+        - KILLED
+examples:
+  llama_cli_template: >-
+    /path/to/llama-cli -m {model} -f {combined_prompt_file}
+  llamafile_template: >-
+    /path/to/model.llamafile -f {combined_prompt_file}
+llamafile_build:
+  note: Build a self-contained local runtime by combining a compiled llamafile runtime binary with a GGUF artifact.
+  script: scripts/runtime/compile_llamafile_from_binary.py
+  prompt_file_note: >-
+    Use {prompt_file}, {system_prompt_file}, or {combined_prompt_file} to avoid shell-quoting failures on large prompts.

@@ -34,7 +34,7 @@ describe('TOOLBAR_PLUGINS', () => {
       // plain functions — either way they are a valid React component.
       expect(plugin.icon).toBeTruthy();
       expect(['function', 'object']).toContain(typeof plugin.icon);
-      expect(['synth', 'ai-chat']).toContain(plugin.action);
+      expect(['synth', 'ai-chat', 'forge']).toContain(plugin.action);
       expect(typeof plugin.defaultOnToolbar).toBe('boolean');
     }
   });

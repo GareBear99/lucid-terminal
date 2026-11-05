@@ -1,0 +1,14 @@
+version: 1
+flagship_candidates:
+  - qwen3_coder_480b_a35b_instruct
+  - qwen3_235b_a22b
+  - llama4_maverick
+fallback_candidates:
+  - qwen3_32b_class
+  - deepseek_coder_33b_class
+eval_candidates:
+  - small_7b_14b_eval_class
+selection_notes:
+  qwen3_coder_480b_a35b_instruct: strongest code-first target
+  qwen3_235b_a22b: strongest general reasoning target
+  llama4_maverick: reference-class open model target

@@ -34,9 +34,11 @@ interface SidebarProps {
   onToggleAI: () => void;
   /** Toggle the Synth view (the Synth toolbar button's action). */
   onToggleSynth?: () => void;
+  /** Toggle the Forge view (the Forge toolbar button's action). */
+  onToggleForge?: () => void;
 }
 
-function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onToggleSynth }: SidebarProps) {
+function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onToggleSynth, onToggleForge }: SidebarProps) {
   const {
     currentDir,
     entries,
@@ -265,8 +267,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
             <div className="flex flex-col items-center gap-1">
               {enabledPlugins.map((plugin) => {
                 const Icon = plugin.icon;
-                const isActive = plugin.action === 'synth' ? currentView === 'synth' : showAI;
-                const onClick = plugin.action === 'synth' ? (onToggleSynth ?? (() => onViewChange('synth'))) : onToggleAI;
+                // 'forge' is not in the View union yet - see
+                // FORGE-PATCH-types-index.md. The cast is temporary.
+                const isActive = plugin.action === 'synth' ? currentView === 'synth' : plugin.action === 'forge' ? (currentView as string) === 'forge' : showAI;
+                const onClick = plugin.action === 'synth' ? (onToggleSynth ?? (() => onViewChange('synth'))) : plugin.action === 'forge' ? (onToggleForge ?? (() => onViewChange('forge' as View))) : onToggleAI;
                 return (
                   <Tooltip key={plugin.id} content={`${plugin.name} — ${plugin.description}`} placement="right">
                     <button

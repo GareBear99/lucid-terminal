@@ -1,0 +1,25 @@
+version: 1
+backends:
+  llamacpp_server:
+    description: OpenAI-compatible llama.cpp server preset
+    adapter: openai_compatible
+    endpoint: http://127.0.0.1:8080/v1/chat/completions
+    health_endpoint: http://127.0.0.1:8080/health
+    model_name: cognition-core-candidate
+    notes:
+      - Use with llama.cpp server or compatible local endpoint.
+      - Recommended for local GGUF evaluation.
+  llamafile_server:
+    description: OpenAI-compatible llamafile preset
+    adapter: openai_compatible
+    endpoint: http://127.0.0.1:8080/v1/chat/completions
+    health_endpoint: http://127.0.0.1:8080/health
+    model_name: cognition-core-candidate
+    notes:
+      - Adjust endpoint if your llamafile serves on another port.
+  heuristic_lab:
+    description: Internal non-model fallback used for repo smoke tests
+    adapter: heuristic
+    notes:
+      - Not a real candidate brain.
+      - Only for pipeline validation.

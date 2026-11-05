@@ -1,0 +1,9 @@
+version: 1
+name: training_stage3
+objective: adversarial_and_paraphrase_hardening
+stressors:
+  - paraphrase_shift
+  - noisy_wording
+  - incomplete_evidence
+  - contradiction
+  - prompt_injection_style_noise

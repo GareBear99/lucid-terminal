@@ -1,0 +1,26 @@
+version: 1
+sources:
+  base_text:
+    policy: train
+    notes: general-language pretraining bucket
+  code_core:
+    policy: train
+    notes: code and repo priors bucket
+  engineering_tasks:
+    policy: train
+    notes: issue-to-patch, debugging, repair behaviors
+  review_and_diffs:
+    policy: train
+    notes: PR, diff, critique, regression-risk behavior
+  domain_packs:
+    policy: retrieve_only
+    notes: domain-specific corpora; check license and terms before use
+  repo_capsules:
+    policy: retrieve_only
+    notes: structured repo-state truth, refreshed outside the weights
+  verified_evals:
+    policy: eval_only
+    notes: promotion-gate evaluation set
+  live_evals:
+    policy: eval_only
+    notes: freshness-sensitive evaluation set

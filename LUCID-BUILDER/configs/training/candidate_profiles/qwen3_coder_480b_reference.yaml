@@ -1,0 +1,6 @@
+name: qwen3_coder_480b_reference
+base_model_ref: qwen3_coder_480b_a35b_instruct
+training_mode: reference_only
+prompt_profile: minimal_doctrine
+notes:
+  - use as aspiration/reference if local hardware cannot host this class directly

@@ -1,0 +1,11 @@
+runtime_kind: llamafile_binary_concat
+inputs:
+  runtime_binary: /path/to/llamafile_runtime_binary
+  gguf_model: /path/to/model.gguf
+output:
+  llamafile: /path/to/output/model.llamafile
+rules:
+  - runtime binary must already be present locally or built externally
+  - gguf model remains the canonical model payload
+  - resulting llamafile is local-direct, cpu-capable, and no-server
+  - browser UI may control the runtime, but execution remains native and local

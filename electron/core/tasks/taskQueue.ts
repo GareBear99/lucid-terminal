@@ -33,7 +33,7 @@
  * (router decisions, AI chat, and later FixNet consensus calls).
  */
 
-export type TaskType = 'command' | 'ai-chat' | 'fixnet';
+export type TaskType = 'command' | 'ai-chat' | 'fixnet' | 'llmbuilder';
 
 export type TaskStatus =
   | 'queued'

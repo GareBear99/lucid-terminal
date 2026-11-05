@@ -40,16 +40,18 @@ describe('Plugins tab', () => {
     expect(html).toContain('Plugins');
   });
 
-  it('renders the Core plugins section with the Synth and AI Chat toolbar toggles', () => {
+  it('renders the Core plugins section with the Synth, AI Chat, and Forge toolbar toggles', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Core plugins');
     expect(html).toContain('Synth');
     expect(html).toContain('AI Chat');
-    // The two toolbar toggles — and only those two checkboxes — live here.
-    expect(checkboxCount(html)).toBe(2);
+    expect(html).toContain('Forge');
+    // The three toolbar toggles — and only those three checkboxes — live here.
+    expect(checkboxCount(html)).toBe(3);
     // The toggles keep their descriptions from the toolbar data.
     expect(html).toContain('LuciferAI plugin shell');
     expect(html).toContain('LuciferAI chat panel');
+    expect(html).toContain('Train your Homunculi');
   });
 
   it('renders the LuciferAI row as built-in with no toggle', () => {
@@ -58,8 +60,8 @@ describe('Plugins tab', () => {
     expect(html).toContain('Built-in');
     // No backend fetch runs under SSR, so the condition reads Checking…
     expect(html).toContain('Checking…');
-    // LuciferAI has no checkbox: the only checkboxes are the two toggles.
-    expect(checkboxCount(html)).toBe(2);
+    // LuciferAI has no checkbox: the only checkboxes are the three toggles.
+    expect(checkboxCount(html)).toBe(3);
   });
 
   it('lists all four add-ons as Not installed with disabled Install buttons', () => {

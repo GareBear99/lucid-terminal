@@ -1,0 +1,9 @@
+name: qwen3_32b_lora
+base_model_ref: qwen3_32b_class
+training_mode: lora_sft
+prompt_profile: minimal_doctrine
+datasets:
+  - datasets/distillation_sft/seed_records.jsonl
+  - datasets/distillation_preference/seed_pairs.jsonl
+notes:
+  - starter candidate profile for the first real run

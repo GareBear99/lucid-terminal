@@ -15,6 +15,8 @@ import CodeEditor from './components/Editor/CodeEditor';
 import SettingsPanel from './components/Settings/SettingsPanel';
 import { SynthView } from './components/Synth/SynthView';
 import { toggleSynthView } from './lib/synthToggle';
+import { ForgeView } from './components/Forge/ForgeView';
+import { toggleForgeView } from './lib/forgeView';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
@@ -34,6 +36,10 @@ function App() {
   // second press exits back to the terminal.
   const toggleSynth = () =>
     setCurrentView((view) => toggleSynthView(view));
+  // The Forge button toggles the same way: first press opens the
+  // Forge view, a second press exits back to the terminal.
+  const toggleForge = () =>
+    setCurrentView((view) => toggleForgeView(view));
   const [showAI, setShowAI] = useState(false); // Hidden by default - use command router instead
   // The AI button always lands on AI Chat: opening the panel from the
   // Browser tab (or with the panel already open on Browser) switches to
@@ -209,12 +215,17 @@ function App() {
               showAI={showAI}
               onToggleAI={handleToggleAI}
               onToggleSynth={toggleSynth}
+              onToggleForge={toggleForge}
             />
 
             {/* Main Panel */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {currentView === 'synth' ? (
                 <SynthView />
+              ) : (currentView as string) === 'forge' ? (
+                // 'forge' is not in the View union yet - see
+                // FORGE-PATCH-types-index.md. The cast is temporary.
+                <ForgeView />
               ) : currentView === 'settings' ? (
                 <SettingsPanel onClose={() => setCurrentView('terminal')} />
               ) : currentView === 'editor' && openFiles.length > 0 ? (

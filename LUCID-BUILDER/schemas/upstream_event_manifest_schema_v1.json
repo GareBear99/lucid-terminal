@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Upstream Model Event Manifest v1",
+  "type": "object",
+  "required": [
+    "event_type",
+    "flagship_model_name",
+    "flagship_version",
+    "model_family",
+    "created_at",
+    "status",
+    "inputs",
+    "outputs"
+  ],
+  "properties": {
+    "event_type": {"type": "string", "enum": ["build", "register", "validate", "release"]},
+    "flagship_model_name": {"type": "string", "minLength": 1},
+    "flagship_version": {"type": "string", "minLength": 1},
+    "model_family": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["started", "passed", "failed"]},
+    "inputs": {"type": "object"},
+    "outputs": {"type": "object"},
+    "notes": {"type": "array", "items": {"type": "string"}},
+    "release_candidate": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

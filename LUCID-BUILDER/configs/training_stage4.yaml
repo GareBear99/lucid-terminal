@@ -1,0 +1,8 @@
+version: 1
+name: training_stage4
+objective: compression_and_long_context_retention
+focus:
+  - preserve_goal
+  - preserve_constraints
+  - preserve_blockers
+  - preserve_next_action

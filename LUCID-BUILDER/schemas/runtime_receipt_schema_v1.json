@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Runtime Receipt",
+  "type": "object",
+  "required": ["ok", "adapter", "prompt_hash", "started_at", "finished_at", "duration_ms", "finish_reason", "backend_identity"],
+  "properties": {
+    "ok": {"type": "boolean"},
+    "adapter": {"type": "string"},
+    "prompt_hash": {"type": "string"},
+    "started_at": {"type": "string"},
+    "finished_at": {"type": "string"},
+    "duration_ms": {"type": "number"},
+    "finish_reason": {"type": ["string", "null"]},
+    "backend_identity": {"type": ["string", "null"]},
+    "artifact": {"type": ["string", "null"]},
+    "command_template": {"type": ["string", "null"]},
+    "error": {"type": ["string", "null"]},
+    "meta": {"type": "object"},
+    "output_preview": {"type": "string"}
+  },
+  "additionalProperties": true
+}

@@ -265,6 +265,24 @@ export const tools: ToolDefinition[] = [
             },
         },
     },
+
+    {
+        type: 'function',
+        function: {
+            name: 'browser_trusted_click',
+            description: 'Click an element with a real (trusted) mouse event via CDP, for pages that ignore a normal click. Use this when browser_click did not work — the page may be checking that the click came from a real user.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    selector: {
+                        type: 'string',
+                        description: 'CSS selector of the element to click (e.g. "#buy-now").',
+                    },
+                },
+                required: ['selector'],
+            },
+        },
+    },
 ];
 
 /** Browser tools the AI may call. The local chat path (local_ai.ts)
@@ -279,6 +297,7 @@ export const browserToolNames: readonly string[] = [
   'browser_get_state',
   'browser_search',
   'browser_run_flow',
+  'browser_trusted_click',
 ];
 
 export async function executeTool(
@@ -443,6 +462,17 @@ export async function executeTool(
                 }
                 onLog?.(`Running browser flow: ${(definition as { name?: unknown }).name ?? '(unnamed)'}`);
                 return await target.runFlow(definition as never);
+            }
+
+
+            case 'browser_trusted_click': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                if (typeof args.selector !== 'string' || !args.selector.trim()) {
+                    return 'Error: browser_trusted_click needs a selector string.';
+                }
+                onLog?.(`Trusted-clicking in browser: ${args.selector}`);
+                return await target.trustedClick(args.selector);
             }
 
             default:

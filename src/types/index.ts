@@ -378,6 +378,26 @@ export type {
   FlowStep,
 };
 
+/** CDP Tier 2 diagnostics (Area 8): what the debugger session
+ * observed on a tab — failed requests, HTTP errors, console
+ * errors, uncaught exceptions. */
+export interface CdpNetworkFailure {
+  url: string;
+  status?: number;
+  errorText?: string;
+  at: number;
+}
+
+export interface CdpConsoleError {
+  text: string;
+  at: number;
+}
+
+export interface CdpDiagnostics {
+  networkFailures: CdpNetworkFailure[];
+  consoleErrors: CdpConsoleError[];
+}
+
 export interface BrowserScreenshotResult extends BrowserActionResult {
   dataUrl?: string;
 }
@@ -492,6 +512,8 @@ declare global {
     rejectFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
     onFlowProgress: (callback: (event: FlowProgressEvent) => void) => () => void;
     onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
+    trustedClick: (tabId: string, selector: string) => Promise<BrowserActionResult>;
+    getCdpDiagnostics: (tabId: string) => Promise<{ ok: boolean; diagnostics?: CdpDiagnostics; error?: string }>;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

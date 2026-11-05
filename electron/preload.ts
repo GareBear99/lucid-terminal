@@ -264,6 +264,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('browser:flow-approval-needed', listener);
       return () => ipcRenderer.removeListener('browser:flow-approval-needed', listener);
     },
+    // CDP Tier 2 (Area 8): trusted click (a real mouse event,
+    // for pages that ignore a synthetic click) and the debugger
+    // session's diagnostics for the tab.
+    trustedClick: (tabId: string, selector: string) =>
+      ipcRenderer.invoke('browser:action-trusted-click', tabId, selector),
+    getCdpDiagnostics: (tabId: string) =>
+      ipcRenderer.invoke('browser:cdp-diagnostics', tabId),
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -525,6 +532,8 @@ export interface LucidAPI {
     rejectFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
     onFlowProgress: (callback: (event: FlowProgressEvent) => void) => () => void;
     onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
+    trustedClick: (tabId: string, selector: string) => Promise<BrowserActionResult>;
+    getCdpDiagnostics: (tabId: string) => Promise<{ ok: boolean; diagnostics?: CdpDiagnostics; error?: string }>;
   };
   android: {
     getGpuGate: () => Promise<GpuGateStatus>;

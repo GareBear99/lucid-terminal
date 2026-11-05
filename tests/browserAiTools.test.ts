@@ -33,10 +33,12 @@ const EXPECTED_TOOLS = [
   'browser_search',
   // Area 7: scripted flows.
   'browser_run_flow',
+  // Area 8: CDP trusted click.
+  'browser_trusted_click',
 ];
 
 describe('browser tool definitions', () => {
-  it('defines all eight browser tools', () => {
+  it('defines all nine browser tools', () => {
     const names = tools.map((t) => t.function.name);
     for (const name of EXPECTED_TOOLS) {
       expect(names).toContain(name);
@@ -63,7 +65,7 @@ describe('browser tool definitions', () => {
     expect(byName.get('browser_get_state')?.parameters.required).toBeUndefined();
   });
 
-  it('the allowlist is exactly the eight browser tools', () => {
+  it('the allowlist is exactly the nine browser tools', () => {
     expect([...browserToolNames].sort()).toEqual([...EXPECTED_TOOLS].sort());
   });
 
@@ -108,6 +110,10 @@ describe('executeTool browser cases', () => {
       calls.push({ name: 'runFlow', args: definition });
       return 'Flow started: Test flow.';
     }),
+    trustedClick: vi.fn(async (selector: string) => {
+      calls.push({ name: 'trustedClick', args: selector });
+      return `Clicked ${selector} (trusted input).`;
+    }),
   };
 
   beforeEach(() => {
@@ -148,6 +154,9 @@ describe('executeTool browser cases', () => {
         },
       }),
     ).toBe('Flow started: Test flow.');
+    expect(await executeTool('browser_trusted_click', { selector: '#buy' })).toBe(
+      'Clicked #buy (trusted input).',
+    );
     expect(calls.map((c) => c.name)).toEqual([
       'navigate',
       'readPage',
@@ -157,6 +166,7 @@ describe('executeTool browser cases', () => {
       'getState',
       'search',
       'runFlow',
+      'trustedClick',
     ]);
   });
 
@@ -179,6 +189,9 @@ describe('executeTool browser cases', () => {
     );
     expect(await executeTool('browser_run_flow', { definition: 'nope' })).toMatch(
       /needs a flow definition/,
+    );
+    expect(await executeTool('browser_trusted_click', { selector: '' })).toMatch(
+      /needs a selector/,
     );
     expect(calls).toHaveLength(0);
   });

@@ -41,6 +41,7 @@ import {
 import type { BrowserToolTarget } from '../services/browserToolBridge';
 import { createBrowserFlowRunner } from '../services/browserFlows';
 import type { FlowDefinition } from '../../src/lib/browserFlows';
+import { createBrowserCdpManager } from '../services/browserCdp';
 import type {
   BrowserActionResult,
   BrowserAuthRequest,
@@ -146,6 +147,17 @@ import type {
  * leaves the page where it is for Gary to drive by hand. The AI
  * tool `browser_run_flow` can start a flow but never completes
  * a purchase unobserved.
+ *
+ * CDP Tier 2 (Area 8): built only after Tier 1 was proven
+ * insufficient (tests/browserCdpProof.test.ts — `el.click()`
+ * dispatches `isTrusted === false`, which pages can detect and
+ * ignore; no Tier 1 action can observe network failures or
+ * console errors). `electron/services/browserCdp.ts` manages one
+ * debugger session per tab (attach lazily, detach on tab close),
+ * with an explicit method allowlist (`Page`/`Runtime`/`Input`/
+ * `Network` — never `Target`): trusted mouse/keyboard input and
+ * per-tab diagnostics (failed requests, HTTP errors, console
+ * errors, uncaught exceptions).
  */
 
 export type { BrowserViewBounds };
@@ -242,6 +254,12 @@ export function setupBrowserHandlers(
   const actions = createBrowserActionsRunner();
   const actionWebContents = (tabId: string) =>
     views.get(tabId)?.webContents ?? null;
+
+  // CDP Tier 2 (Area 8): the debugger session manager — trusted
+  // input for pages that ignore synthetic clicks, and
+  // network/console observation. Sessions attach lazily on first
+  // Tier 2 use and detach when the tab closes.
+  const cdp = createBrowserCdpManager();
 
   // Flow runner (Area 7): scripted multi-step flows on one tab.
   // Progress and approval requests go to the main window (the
@@ -595,6 +613,8 @@ export function setupBrowserHandlers(
     if (activeTabId === tabId) detach();
     cancelPendingAuthForTab(tabId);
     zoomFactors.delete(tabId);
+    // CDP Tier 2 (Area 8): the debugger session dies with the tab.
+    void cdp.detach(tabId);
     views.delete(tabId);
     if (wasPoppedOut) {
       const mini = options?.mini?.get() ?? null;
@@ -988,6 +1008,23 @@ export function setupBrowserHandlers(
 
     search: async (query, timeoutMs) => searchWeb(query, timeoutMs),
 
+    // Trusted click (Area 8, CDP Tier 2): a real mouse event at
+    // the element's centre, for pages that ignore Tier 1's
+    // synthetic click. The debugger session attaches lazily.
+    trustedClick: async (selector) => {
+      if (!activeTabId) return 'No browser tab is open.';
+      const view = views.get(activeTabId);
+      if (!view) return 'No browser tab is open.';
+      const attached = await cdp.attach(activeTabId, view.webContents);
+      if (!attached.ok) {
+        return `Could not click ${selector}: the debugger could not attach (${attached.error ?? 'unknown error'}).`;
+      }
+      const result = await cdp.trustedClickAtElement(activeTabId, selector);
+      return result.ok
+        ? `Clicked ${selector} (trusted input).`
+        : `Could not click ${selector}: ${result.error ?? 'unknown error'}.`;
+    },
+
     // Start a scripted flow (Area 7) on the active tab. The flow
     // runs in the background; the AI gets a started summary, not a
     // completion — gated steps pause for Gary in the panel, so a
@@ -1030,6 +1067,28 @@ export function setupBrowserHandlers(
   ipcMain.handle('browser:flow-reject', (_event, flowId: string) =>
     flows.rejectStep(flowId),
   );
+
+  // CDP Tier 2 (Area 8): trusted click + diagnostics. Both attach
+  // the tab's debugger session lazily on first use (observation
+  // starts then); the session detaches when the tab closes.
+  ipcMain.handle(
+    'browser:action-trusted-click',
+    async (_event, tabId: string, selector: string) => {
+      const view = views.get(tabId);
+      if (!view) return { ok: false, error: 'no-such-tab' };
+      const attached = await cdp.attach(tabId, view.webContents);
+      if (!attached.ok) return { ok: false, error: attached.error };
+      return cdp.trustedClickAtElement(tabId, selector);
+    },
+  );
+
+  ipcMain.handle('browser:cdp-diagnostics', async (_event, tabId: string) => {
+    const view = views.get(tabId);
+    if (!view) return { ok: false, error: 'no-such-tab' };
+    const attached = await cdp.attach(tabId, view.webContents);
+    if (!attached.ok) return { ok: false, error: attached.error };
+    return { ok: true, diagnostics: cdp.getDiagnostics(tabId) };
+  });
 
   // Mini window (Area 6): pop a tab's view out to the floating
   // window, or back in. The mini renderer reports its container

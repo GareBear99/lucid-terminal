@@ -4,6 +4,7 @@ import { useToastStore, visibleToastNotifications } from './stores/toastStore';
 import { ErrorNotification } from './components/Terminal/ErrorNotification';
 import { useTerminalStore } from './stores/terminalStore';
 import { useFileStore } from './stores/fileStore';
+import { useBrowserStore } from './stores/browserStore';
 import TitleBar from './components/Layout/TitleBar';
 import Sidebar from './components/Layout/Sidebar';
 import StatusBar from './components/Layout/StatusBar';
@@ -28,6 +29,20 @@ function App() {
 
   const [currentView, setCurrentView] = useState<View>('terminal');
   const [showAI, setShowAI] = useState(false); // Hidden by default - use command router instead
+  // The AI button always lands on AI Chat: opening the panel from the
+  // Browser tab (or with the panel already open on Browser) switches to
+  // the chat tab first - it never reopens on Browser. Clicking it while
+  // already on AI Chat closes the panel, as before.
+  const handleToggleAI = () => {
+    if (!showAI) {
+      useBrowserStore.getState().setPanelTab('ai');
+      setShowAI(true);
+    } else if (useBrowserStore.getState().panelTab === 'browser') {
+      useBrowserStore.getState().setPanelTab('ai');
+    } else {
+      setShowAI(false);
+    }
+  };
   const [showHelp, setShowHelp] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [aiPanelWidth, setAiPanelWidth] = useState(500);
@@ -175,7 +190,7 @@ function App() {
               currentView={currentView}
               onViewChange={setCurrentView}
               showAI={showAI}
-              onToggleAI={() => setShowAI(!showAI)}
+              onToggleAI={handleToggleAI}
             />
 
             {/* Main Panel */}
@@ -264,7 +279,7 @@ function App() {
       {/* Status Bar */}
       <StatusBar
         showAI={showAI}
-        onToggleAI={() => setShowAI(!showAI)}
+        onToggleAI={handleToggleAI}
         onOpenHelp={() => setShowHelp(true)}
       />
 

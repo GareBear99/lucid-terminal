@@ -13,13 +13,17 @@
  * typing (`USER_TYPING`) and while the agent was busy (`HEART_STATE`).
  * The canonical text lives in `core/lucifer_colors.py` `IdleState.STATES[0]`.
  *
- * NOTE — deliberate departure from the original, per Gary (2026-11-04):
- * the original had the 🩸 blood drop on BOTH frames (canonical text
- * `🩸 Idle • Awaiting Commands... ☠️`). Gary moved the drop off the ☠️
- * "demon face" frame onto the 💀 "alternate skull" frame, so it now
- * appears only on the odd (purple) frame. The blood DRIP (fang-tip
- * pixels during AI chat / plugin tasks, `src/components/Synth/blood.ts`)
- * is a different feature and is untouched by this change.
+ * NOTE — deliberate departure from the original, per Gary (2026-11-04,
+ * corrected 2026-11-04 ~19:57 PST): the original had the 🩸 blood drop
+ * on BOTH frames (canonical text `🩸 Idle • Awaiting Commands... ☠️`).
+ * Gary had the demon head (☠️) REMOVED and the blood drop put where it
+ * was — so the drop now appears ONLY on the even (red) frame, at the
+ * end, and the odd (purple, 💀 "alternate skull") frame has no drop.
+ * (An earlier 2026-11-04 change kept the ☠️ and moved the drop to the
+ * 💀 frame instead — that was wrong; Gary corrected it.) The blood DRIP
+ * (fang-tip pixels during AI chat / plugin tasks,
+ * `src/components/Synth/blood.ts`) is a different feature and is
+ * untouched by this change.
  *
  * Restored here as a status line above the prompt in the Terminal view,
  * shown when the LuciferAI plugin is active and idle. When a task starts
@@ -30,7 +34,7 @@
  * HOLD — per Gary (2026-11-04): while the fangs drip (an AI-chat
  * generation or a LuciferAI plugin task — the exact `shouldDrip(...)`
  * signal from `src/components/Synth/blood.ts`), the heartbeat does NOT
- * hide. It shifts to the blood-drop frame (the odd, purple 💀 frame)
+ * hide. It shifts to the blood-drop frame (the even, red 🩸 frame)
  * next and HOLDS it there until the task finishes, in sync with the
  * fang pixel drops by construction: both are driven by the same
  * `shouldDrip(aiChatLoading, luciferTaskActive)` value. When the hold
@@ -54,26 +58,27 @@ export const HEARTBEAT_PURPLE = '#d7a0ff';
 export interface HeartbeatFrame {
   /** The frame's colour (red or purple). */
   color: string;
-  /** The frame's skull (☠️ or 💀). */
+  /** The frame's trailing glyph — 🩸 (blood drop) on even frames,
+   * 💀 (alternate skull) on odd frames. The ☠️ demon head was
+   * removed per Gary (2026-11-04). */
   skull: string;
   /** The full line text for this frame. */
   text: string;
 }
 
 /**
- * The heartbeat frame for a tick index. Even frames are red with the
- * skull & bones; odd frames are purple with the skull — the original's
- * alternation, except the 🩸 blood drop now sits ONLY on the odd
- * (purple, 💀 "alternate skull") frame: Gary moved it off the ☠️
- * "demon face" frame (2026-11-04). The original had 🩸 on both frames.
+ * The heartbeat frame for a tick index. Even frames are red; odd
+ * frames are purple with the 💀 "alternate skull" — the original's
+ * alternation, except the ☠️ "demon head" is GONE (removed per Gary,
+ * 2026-11-04 ~19:57 PST) and the 🩸 blood drop sits ONLY on the even
+ * (red) frame, at the end where the head was. The original had 🩸 on
+ * both frames and ☠️ on the even frame.
  */
 export function heartbeatFrameFor(index: number): HeartbeatFrame {
   const even = index % 2 === 0;
   const color = even ? HEARTBEAT_RED : HEARTBEAT_PURPLE;
-  const skull = even ? '☠️' : '💀';
-  const text = even
-    ? `Idle • Awaiting Commands... ${skull}`
-    : `🩸 Idle • Awaiting Commands... ${skull}`;
+  const skull = even ? '🩸' : '💀';
+  const text = `Idle • Awaiting Commands... ${skull}`;
   return { color, skull, text };
 }
 
@@ -87,12 +92,14 @@ export function shouldShowHeartbeat(active: boolean, busy: boolean, dripping = f
 
 /**
  * The frame to hold on while the fangs drip: the next blood-drop
- * (odd, purple 💀) frame at or after the current one — "shift to the
+ * (even, red 🩸) frame at or after the current one — "shift to the
  * blood drop next". If the current frame is already a blood-drop
- * frame it stays put (no jump, no reset).
+ * frame it stays put (no jump, no reset). (Before Gary's 2026-11-04
+ * correction the drop lived on the odd frame, so this targeted odd
+ * frames instead.)
  */
 export function bloodDropFrameIndex(currentFrame: number): number {
-  return currentFrame % 2 === 0 ? currentFrame + 1 : currentFrame;
+  return currentFrame % 2 === 0 ? currentFrame : currentFrame + 1;
 }
 
 /**

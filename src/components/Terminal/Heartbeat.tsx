@@ -21,7 +21,7 @@ interface HeartbeatProps {
    * Terminal so the heartbeat hold and the fang pixel drops share
    * one value and stay in sync by construction. While dripping the
    * heartbeat does NOT hide: it shifts to the blood-drop frame
-   * (odd, purple 💀) next and HOLDS it there until the task
+   * (even, red 🩸) next and HOLDS it there until the task
    * finishes, then cycling resumes from the held frame. */
   dripping: boolean;
   /** Ref holding the ms epoch of the last keystroke in the prompt. The
@@ -32,12 +32,13 @@ interface HeartbeatProps {
 }
 
 /**
- * The LuciferAI idle heartbeat — "Idle • Awaiting Commands... ☠️" /
- * "🩸 Idle • Awaiting Commands... 💀", cycling red ↔ purple every
+ * The LuciferAI idle heartbeat — "Idle • Awaiting Commands... 🩸" /
+ * "Idle • Awaiting Commands... 💀", cycling red ↔ purple every
  * second, shown directly above the prompt while the LuciferAI plugin
  * is active and idle. Restored from the original (`lucifer.py`
  * `heartbeat_animation()`, `docs/HEARTBEAT_UPDATE.md`) — with the
- * blood drop moved to the 💀 frame only, per Gary (2026-11-04).
+ * demon head removed and the blood drop only where the head was,
+ * per Gary (2026-11-04).
  *
  * While the fangs drip (AI-chat generation or LuciferAI plugin task)
  * it holds on the blood-drop frame instead of hiding, in sync with

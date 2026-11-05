@@ -11,38 +11,45 @@ import {
   shouldShowHeartbeat,
 } from '../src/components/Terminal/heartbeatLogic';
 
-describe('heartbeatFrameFor — colour/skull alternation, blood drop on the 💀 frame only', () => {
-  it('frame 0 is red with the skull & bones and NO blood drop', () => {
+describe('heartbeatFrameFor — colour alternation, blood drop only where the demon head was (red frame)', () => {
+  it('frame 0 is red with the blood drop where the demon head was', () => {
     const frame = heartbeatFrameFor(0);
     expect(frame.color).toBe(HEARTBEAT_RED);
-    expect(frame.skull).toBe('☠️');
-    expect(frame.text).toBe('Idle • Awaiting Commands... ☠️');
-    expect(frame.text).not.toContain('🩸');
+    expect(frame.skull).toBe('🩸');
+    expect(frame.text).toBe('Idle • Awaiting Commands... 🩸');
+    expect(frame.text).toContain('🩸');
+    expect(frame.text).not.toContain('☠️');
   });
 
-  it('frame 1 is purple with the skull and the blood drop', () => {
+  it('frame 1 is purple with the skull and NO blood drop', () => {
     const frame = heartbeatFrameFor(1);
     expect(frame.color).toBe(HEARTBEAT_PURPLE);
     expect(frame.skull).toBe('💀');
-    expect(frame.text).toBe('🩸 Idle • Awaiting Commands... 💀');
-    expect(frame.text).toContain('🩸');
+    expect(frame.text).toBe('Idle • Awaiting Commands... 💀');
+    expect(frame.text).not.toContain('🩸');
   });
 
-  it('the blood drop appears only on the alternate-skull (odd) frames', () => {
+  it('the blood drop appears only on the even (red) frames — where the demon head was', () => {
     for (let i = 0; i < 6; i++) {
       const frame = heartbeatFrameFor(i);
       if (i % 2 === 0) {
-        expect(frame.text).not.toContain('🩸');
-      } else {
         expect(frame.text).toContain('🩸');
+      } else {
+        expect(frame.text).not.toContain('🩸');
       }
+    }
+  });
+
+  it('the demon head is gone from every frame', () => {
+    for (let i = 0; i < 6; i++) {
+      expect(heartbeatFrameFor(i).text).not.toContain('☠️');
     }
   });
 
   it('alternates back to red on frame 2', () => {
     const frame = heartbeatFrameFor(2);
     expect(frame.color).toBe(HEARTBEAT_RED);
-    expect(frame.skull).toBe('☠️');
+    expect(frame.skull).toBe('🩸');
   });
 
   it('alternates to purple on frame 3', () => {
@@ -88,22 +95,22 @@ describe('shouldShowHeartbeat — active and idle, or dripping', () => {
 });
 
 describe('bloodDropFrameIndex — "shift to the blood drop next"', () => {
-  it('an even (demon-face) frame jumps to the next odd frame', () => {
-    expect(bloodDropFrameIndex(0)).toBe(1);
-    expect(bloodDropFrameIndex(2)).toBe(3);
-    expect(bloodDropFrameIndex(100)).toBe(101);
+  it('an even (blood-drop) frame stays put — no jump, no reset', () => {
+    expect(bloodDropFrameIndex(0)).toBe(0);
+    expect(bloodDropFrameIndex(2)).toBe(2);
+    expect(bloodDropFrameIndex(100)).toBe(100);
   });
 
-  it('an odd (blood-drop) frame stays put — no jump, no reset', () => {
-    expect(bloodDropFrameIndex(1)).toBe(1);
-    expect(bloodDropFrameIndex(3)).toBe(3);
-    expect(bloodDropFrameIndex(5)).toBe(5);
+  it('an odd (skull) frame jumps to the next even frame', () => {
+    expect(bloodDropFrameIndex(1)).toBe(2);
+    expect(bloodDropFrameIndex(3)).toBe(4);
+    expect(bloodDropFrameIndex(5)).toBe(6);
   });
 
   it('the held frame is always a blood-drop frame', () => {
     for (let i = 0; i < 10; i++) {
       const held = bloodDropFrameIndex(i);
-      expect(held % 2).toBe(1);
+      expect(held % 2).toBe(0);
       expect(heartbeatFrameFor(held).text).toContain('🩸');
     }
   });

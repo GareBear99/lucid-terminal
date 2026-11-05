@@ -771,7 +771,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
           </div>
 
           {/* Idle heartbeat — the original "Idle • Awaiting Commands..."
-              animation (blood drop on the 💀 frame only, per Gary),
+              animation (blood drop only where the demon head was, per Gary),
               restored above the prompt. Shows only while the
               LuciferAI plugin is active and idle; while the fangs
               drip it holds on the blood-drop frame instead of

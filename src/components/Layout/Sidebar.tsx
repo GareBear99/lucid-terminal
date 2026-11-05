@@ -31,9 +31,11 @@ interface SidebarProps {
   showAI: boolean;
   /** Toggle the AI chat panel (the AI Chat toolbar button's action). */
   onToggleAI: () => void;
+  /** Toggle the Synth view (the Synth toolbar button's action). */
+  onToggleSynth?: () => void;
 }
 
-function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI }: SidebarProps) {
+function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onToggleSynth }: SidebarProps) {
   const {
     currentDir,
     entries,
@@ -259,7 +261,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
               {enabledPlugins.map((plugin) => {
                 const Icon = plugin.icon;
                 const isActive = plugin.action === 'synth' ? currentView === 'synth' : showAI;
-                const onClick = plugin.action === 'synth' ? () => onViewChange('synth') : onToggleAI;
+                const onClick = plugin.action === 'synth' ? (onToggleSynth ?? (() => onViewChange('synth'))) : onToggleAI;
                 return (
                   <button
                     key={plugin.id}

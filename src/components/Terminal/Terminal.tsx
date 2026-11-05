@@ -874,13 +874,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                 />
               </div>
 
-              {/* Sentinel face — press to open the Synth view, the Sentinel's home */}
+              {/* Sentinel face — press to toggle the Synth view, the Sentinel's home */}
               {onOpenSynth && (
                 <button
                   type="button"
                   onClick={onOpenSynth}
-                  title="Open the Synth — the Sentinel's home. The horns grow the more you prompt."
-                  aria-label="Open Synth view"
+                  title="Toggle the Synth view — the Sentinel's home. The horns grow the more you prompt."
+                  aria-label="Toggle Synth view"
                   className="shrink-0 rounded-full p-0.5 hover:bg-white/10 transition-colors"
                 >
                   <SentinelFace size={32} />

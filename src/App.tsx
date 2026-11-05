@@ -14,6 +14,7 @@ import AIPanel from './components/AI/AIPanel';
 import CodeEditor from './components/Editor/CodeEditor';
 import SettingsPanel from './components/Settings/SettingsPanel';
 import { SynthView } from './components/Synth/SynthView';
+import { toggleSynthView } from './lib/synthToggle';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 // WelcomeScreen removed - always start with terminal
@@ -28,6 +29,10 @@ function App() {
   const { openFiles, currentDir, setCurrentDir } = useFileStore();
 
   const [currentView, setCurrentView] = useState<View>('terminal');
+  // The Synth button toggles: first press opens the Synth view, a
+  // second press exits back to the terminal.
+  const toggleSynth = () =>
+    setCurrentView((view) => toggleSynthView(view));
   const [showAI, setShowAI] = useState(false); // Hidden by default - use command router instead
   // The AI button always lands on AI Chat: opening the panel from the
   // Browser tab (or with the panel already open on Browser) switches to
@@ -191,6 +196,7 @@ function App() {
               onViewChange={setCurrentView}
               showAI={showAI}
               onToggleAI={handleToggleAI}
+              onToggleSynth={toggleSynth}
             />
 
             {/* Main Panel */}
@@ -215,7 +221,7 @@ function App() {
                           key={tab.id}
                           className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                         >
-                          <Terminal tabId={tab.id} onOpenHelp={() => setShowHelp(true)} onOpenSynth={() => setCurrentView('synth')} />
+                          <Terminal tabId={tab.id} onOpenHelp={() => setShowHelp(true)} onOpenSynth={toggleSynth} />
                         </div>
                       ))}
                       {tabs.length === 0 && (

@@ -46,6 +46,10 @@ describe('sanitizeDownloadFilename', () => {
     expect(sanitizeDownloadFilename('...')).toBe('...');
     expect(sanitizeDownloadFilename('///')).toBe('download');
   });
+
+  it('keeps ".." as-is (basename parity — Node basename("..") is "..")', () => {
+    expect(sanitizeDownloadFilename('..')).toBe('..');
+  });
 });
 
 describe('uniqueDownloadPath', () => {
@@ -72,6 +76,18 @@ describe('uniqueDownloadPath', () => {
 
   it('sanitises before deduping', () => {
     expect(uniqueDownloadPath('/dl', '../x.zip', never)).toBe('/dl/x.zip');
+  });
+
+  // Node-parity pins for the pure-JS path helpers (the renderer
+  // bundle cannot import Node's `path`, so the helpers in
+  // src/lib/browserDownloads.ts re-implement it — these cases are
+  // where a naive re-implementation diverges from Node).
+  it('matches Node path.join on trailing slashes and ".."', () => {
+    expect(uniqueDownloadPath('/dl/', 'a.zip', never)).toBe('/dl/a.zip');
+    // ".." has no extension in Node (extname("..") === ""), so the
+    // join resolves it against the folder — pre-existing behaviour,
+    // pinned so a future cleanup changes it deliberately.
+    expect(uniqueDownloadPath('/dl', '..', never)).toBe('/');
   });
 });
 

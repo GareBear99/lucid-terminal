@@ -17,6 +17,7 @@ import { SynthView } from './components/Synth/SynthView';
 import { toggleSynthView } from './lib/synthToggle';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
+import { SplashScreen } from './components/Splash/SplashScreen';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
@@ -49,6 +50,11 @@ function App() {
     }
   };
   const [showHelp, setShowHelp] = useState(false);
+  // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).
+  // Shows on every launch for now; a "don't show again" setting is a
+  // one-line follow-up. The dashboard mounts underneath, so the splash
+  // fading out is just the overlay going transparent.
+  const [showSplash, setShowSplash] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [aiPanelWidth, setAiPanelWidth] = useState(500);
   const [storageBannerDismissed, setStorageBannerDismissed] = useState(false);
@@ -138,12 +144,15 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[var(--bg-primary)]">
+      <>
+        {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
+        <div className="h-screen flex items-center justify-center bg-[var(--bg-primary)]">
         <div className="flex flex-col items-center gap-4">
           <div className="spinner w-8 h-8"></div>
           <span className="text-[var(--text-secondary)]">Loading Lucid Terminal...</span>
         </div>
       </div>
+      </>
     );
   }
 
@@ -152,6 +161,9 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-primary)] overflow-hidden">
+      {/* Boot splash - overlays the dashboard until it fades out. */}
+      {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
+
       {/* Title Bar */}
       <TitleBar />
 

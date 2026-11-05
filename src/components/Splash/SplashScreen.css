@@ -1,0 +1,191 @@
+/* Lucid boot splash — black smoke/mist, "Lucid" wordmark, cross-fade to the dashboard.
+ *
+ * GPU-friendly by design: every animation is transform and/or opacity only, so it
+ * runs on the compositor thread with no per-frame JS and no layout thrash. The smoke
+ * puffs are pre-blurred radial gradients (no filter: blur() at runtime), so even the
+ * 2018 Intel Mac mini renders them cheaply. Durations here mirror the timing
+ * constants in SplashScreen.tsx — keep the two in sync when tuning.
+ */
+
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 1000ms ease; /* SPLASH_FADE_OUT_MS */
+}
+
+.splash-screen.splash-phase-fade {
+  opacity: 0;
+}
+
+.splash-screen.splash-skipping {
+  transition-duration: 250ms; /* SPLASH_SKIP_FADE_MS */
+}
+
+/* ---- Smoke / mist ---- */
+.splash-smoke {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 600ms ease; /* SPLASH_SMOKE_IN_MS */
+}
+
+.splash-mounted .splash-smoke {
+  opacity: 1;
+}
+
+.splash-phase-fade .splash-smoke {
+  opacity: 0;
+  transition-duration: 1000ms; /* SPLASH_FADE_OUT_MS */
+}
+
+/* Freeze the puffs once the fade starts: they are invisible anyway as
+   the overlay goes transparent, and stopping their animations cuts the
+   per-frame compositing work during the fade — this is what keeps the
+   fade smooth on the CPU/software fallback path (measured: all dropped
+   frames were in the fade phase before this was added). */
+.splash-phase-fade .splash-puff,
+.splash-skipping .splash-puff {
+  animation-play-state: paused;
+}
+
+.splash-skipping .splash-smoke {
+  transition-duration: 250ms; /* SPLASH_SKIP_FADE_MS */
+}
+
+.splash-puff {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform, opacity;
+  background: radial-gradient(
+    closest-side,
+    rgba(148, 163, 184, 0.17),
+    rgba(100, 116, 139, 0.08) 55%,
+    transparent 75%
+  );
+  animation: splash-puff-drift 11s ease-in-out infinite alternate;
+}
+
+/* One accent puff, a touch cooler/bluer, for depth. */
+.splash-puff-accent {
+  background: radial-gradient(
+    closest-side,
+    rgba(88, 166, 255, 0.13),
+    rgba(88, 166, 255, 0.05) 55%,
+    transparent 75%
+  );
+}
+
+.splash-puff-0 { width: 62vmin; height: 62vmin; top: -12%; left: -8%; animation-duration: 12s; }
+.splash-puff-1 { width: 48vmin; height: 48vmin; top: 8%; left: 58%; animation-duration: 9s; animation-delay: -3s; animation-direction: alternate-reverse; }
+.splash-puff-2 { width: 70vmin; height: 70vmin; top: 42%; left: 22%; animation-duration: 14s; animation-delay: -6s; }
+.splash-puff-3 { width: 44vmin; height: 44vmin; top: 58%; left: 68%; animation-duration: 10s; animation-delay: -2s; animation-direction: alternate-reverse; }
+.splash-puff-4 { width: 56vmin; height: 56vmin; top: 30%; left: -14%; animation-duration: 13s; animation-delay: -8s; }
+.splash-puff-5 { width: 40vmin; height: 40vmin; top: -6%; left: 34%; animation-duration: 8s; animation-delay: -5s; }
+.splash-puff-6 { width: 66vmin; height: 66vmin; top: 64%; left: 6%; animation-duration: 15s; animation-delay: -9s; animation-direction: alternate-reverse; }
+
+@keyframes splash-puff-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.65; }
+  50% { opacity: 1; }
+  100% { transform: translate3d(5vw, -4vh, 0) scale(1.14); opacity: 0.7; }
+}
+
+/* ---- Wordmark ---- */
+.splash-wordmark {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 700ms ease, transform 700ms ease; /* SPLASH_WORDMARK_IN_MS */
+}
+
+.splash-phase-wordmark .splash-wordmark,
+.splash-phase-hold .splash-wordmark,
+.splash-phase-fade .splash-wordmark {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.splash-wordmark-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 60vmin;
+  height: 34vmin;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(88, 166, 255, 0.14), transparent 75%);
+  pointer-events: none;
+}
+
+.splash-wordmark-text {
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: clamp(56px, 12vw, 120px);
+  font-weight: 300;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  line-height: 1;
+  /* Static fill: a cool white-to-blue gradient. */
+  background: linear-gradient(90deg, #eef2ff, #93c5fd 55%, #67e8f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.splash-wordmark-letter {
+  display: inline-block;
+  opacity: 0;
+}
+
+.splash-phase-wordmark .splash-wordmark-letter,
+.splash-phase-hold .splash-wordmark-letter,
+.splash-phase-fade .splash-wordmark-letter {
+  animation: splash-letter-in 500ms ease forwards;
+  animation-delay: calc(var(--i) * 70ms);
+}
+
+@keyframes splash-letter-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.splash-wordmark-line {
+  display: block;
+  height: 1px;
+  width: 0;
+  background: linear-gradient(90deg, transparent, rgba(88, 166, 255, 0.85), transparent);
+  transition: width 700ms ease 200ms;
+}
+
+.splash-phase-hold .splash-wordmark-line,
+.splash-phase-fade .splash-wordmark-line {
+  width: min(320px, 60vw);
+}
+
+/* Reduced motion: no smoke, no letter stagger — the wordmark is just there. */
+.splash-reduced-motion .splash-wordmark {
+  transition-duration: 300ms;
+}
+
+.splash-reduced-motion .splash-wordmark-letter {
+  opacity: 1;
+  animation: none;
+}
+
+.splash-reduced-motion .splash-wordmark-line {
+  width: min(320px, 60vw);
+  transition: none;
+}

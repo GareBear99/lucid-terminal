@@ -1,4 +1,5 @@
 import { X, FileText, Plus, ChevronRight, Calendar, User } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { useState } from 'react';
 
 interface PlanningPanelProps {
@@ -58,13 +59,14 @@ export function PlanningPanel({ onClose }: PlanningPanelProps) {
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-[var(--bg-primary)] transition-colors"
-            title="Close"
-          >
-            <X size={18} className="text-[var(--text-muted)]" />
-          </button>
+          <Tooltip content="Close">
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-[var(--bg-primary)] transition-colors"
+            >
+              <X size={18} className="text-[var(--text-muted)]" />
+            </button>
+          </Tooltip>
         </div>
 
         <div className="flex-1 flex overflow-hidden">

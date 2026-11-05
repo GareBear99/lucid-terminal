@@ -20,6 +20,7 @@ import { FixNetStatus } from '../FixNet/FixNetStatus';
 import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 interface TerminalProps {
   tabId: string;
@@ -818,21 +819,29 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                   Honest states: the wrapper being up is NOT "connected" —
                   only a loaded model is. A wrapper with no model says so. */}
               {luciferAIChecking ? (
-                <span className="text-xs text-yellow-500 animate-pulse" title="Connecting to LuciferAI plugin...">
-                  ⏳
-                </span>
+                <Tooltip content="Connecting to LuciferAI plugin...">
+                  <span className="text-xs text-yellow-500 animate-pulse">
+                    ⏳
+                  </span>
+                </Tooltip>
               ) : modelAvailable ? (
-                <span className="text-xs text-green-500" title={`LuciferAI connected — model(s) ready: ${modelNames.join(', ')}`}>
-                  🩸
-                </span>
+                <Tooltip content={`LuciferAI connected — model(s) ready: ${modelNames.join(', ')}`}>
+                  <span className="text-xs text-green-500">
+                    🩸
+                  </span>
+                </Tooltip>
               ) : luciferAIAvailable ? (
-                <span className="text-xs text-amber-500" title="LuciferAI plugin loaded — no model loaded">
-                  🩸
-                </span>
+                <Tooltip content="LuciferAI plugin loaded — no model loaded">
+                  <span className="text-xs text-amber-500">
+                    🩸
+                  </span>
+                </Tooltip>
               ) : (
-                <span className="text-xs text-gray-500" title="LuciferAI plugin offline - terminal works in standalone mode">
-                  ⚪
-                </span>
+                <Tooltip content="LuciferAI plugin offline - terminal works in standalone mode">
+                  <span className="text-xs text-gray-500">
+                    ⚪
+                  </span>
+                </Tooltip>
               )}
               
               {/* Send arrow — this used to be a decorative span, so clicking it
@@ -841,21 +850,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                   read from the same `input` state both editor modes sync to,
                   so it works whether Monaco loaded or the plain-textarea
                   fallback is active. Disabled while the prompt is empty. */}
-              <button
-                type="button"
-                onClick={() => {
-                  handleSubmit(input);
-                  // Return keyboard focus to the prompt so the next command
-                  // can be typed without clicking back into the editor.
-                  inputWrapRef.current?.querySelector('textarea')?.focus();
-                }}
-                disabled={!input.trim()}
-                title="Send (Enter)"
-                aria-label="Send command"
-                className="shrink-0 rounded px-1 text-[var(--accent)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                style={{ textShadow: '0 0 8px rgba(88, 166, 255, 0.5)' }}>
-                ➜
-              </button>
+              <Tooltip content="Send" shortcut="Enter">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSubmit(input);
+                    // Return keyboard focus to the prompt so the next command
+                    // can be typed without clicking back into the editor.
+                    inputWrapRef.current?.querySelector('textarea')?.focus();
+                  }}
+                  disabled={!input.trim()}
+                  aria-label="Send command"
+                  className="shrink-0 rounded px-1 text-[var(--accent)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                  style={{ textShadow: '0 0 8px rgba(88, 166, 255, 0.5)' }}>
+                  ➜
+                </button>
+              </Tooltip>
               <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">
                 ~
               </span>
@@ -876,15 +886,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
 
               {/* Sentinel face — press to toggle the Synth view, the Sentinel's home */}
               {onOpenSynth && (
-                <button
-                  type="button"
-                  onClick={onOpenSynth}
-                  title="Toggle the Synth view — the Sentinel's home. The horns grow the more you prompt."
-                  aria-label="Toggle Synth view"
-                  className="shrink-0 rounded-full p-0.5 hover:bg-white/10 transition-colors"
-                >
-                  <SentinelFace size={32} />
-                </button>
+                <Tooltip content="Toggle the Synth view">
+                  <button
+                    type="button"
+                    onClick={onOpenSynth}
+                    aria-label="Toggle Synth view"
+                    className="shrink-0 rounded-full p-0.5 hover:bg-white/10 transition-colors"
+                  >
+                    <SentinelFace size={32} />
+                  </button>
+                </Tooltip>
               )}
             </div>
           </div>

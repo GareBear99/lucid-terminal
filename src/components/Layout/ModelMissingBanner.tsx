@@ -3,6 +3,7 @@ import { Loader } from 'lucide-react';
 import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { MODEL_TIERS } from '../../data/tiers';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 interface ModelMissingBannerProps {
   /** "Not now" — dismiss for this session only. The banner comes back
@@ -108,18 +109,19 @@ export function ModelMissingBanner({ onDismiss, onInstalled, onShowTiers }: Mode
             onMouseEnter={() => setTiersOpen(true)}
             onMouseLeave={() => setTiersOpen(false)}
           >
-            <button
-              type="button"
-              aria-label="What are the model tiers?"
-              title="What are the model tiers?"
-              onClick={() => {
-                setTiersOpen(false);
-                onShowTiers();
-              }}
-              className="inline-flex items-center justify-center w-4 h-4 -translate-y-px rounded-full border border-[#79c0ff]/60 text-[#79c0ff] text-[10px] leading-none hover:bg-[#79c0ff]/20 cursor-help align-middle"
-            >
-              ?
-            </button>
+            <Tooltip content="What are the model tiers?">
+              <button
+                type="button"
+                aria-label="What are the model tiers?"
+                onClick={() => {
+                  setTiersOpen(false);
+                  onShowTiers();
+                }}
+                className="inline-flex items-center justify-center w-4 h-4 -translate-y-px rounded-full border border-[#79c0ff]/60 text-[#79c0ff] text-[10px] leading-none hover:bg-[#79c0ff]/20 cursor-help align-middle"
+              >
+                ?
+              </button>
+            </Tooltip>
             {tiersOpen && (
               <span className="absolute left-0 top-full mt-2 z-50 w-[430px] max-w-[90vw] rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-3 text-left shadow-2xl normal-case">
                 <span className="block text-[13px] font-semibold text-[var(--text-primary)] mb-2">
@@ -145,9 +147,11 @@ export function ModelMissingBanner({ onDismiss, onInstalled, onShowTiers }: Mode
           <p className="mt-1 text-[var(--text-muted)]">
             Installing TinyLlama… (downloads about 700 MB — this can take a few minutes)
             {progressLine && (
-              <span className="block font-mono truncate" title={progressLine}>
-                {progressLine}
-              </span>
+              <Tooltip content={progressLine}>
+                <span className="block font-mono truncate">
+                  {progressLine}
+                </span>
+              </Tooltip>
             )}
           </p>
         )}
@@ -174,14 +178,15 @@ export function ModelMissingBanner({ onDismiss, onInstalled, onShowTiers }: Mode
             'Install TinyLlama'
           )}
         </button>
-        <button
-          onClick={onDismiss}
-          disabled={installing}
-          className="rounded px-2 py-1 hover:bg-white/10 disabled:opacity-60"
-          title="Dismiss for this session"
-        >
-          Not now
-        </button>
+        <Tooltip content="Dismiss for this session">
+          <button
+            onClick={onDismiss}
+            disabled={installing}
+            className="rounded px-2 py-1 hover:bg-white/10 disabled:opacity-60"
+          >
+            Not now
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

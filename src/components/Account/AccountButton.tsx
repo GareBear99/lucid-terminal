@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { User, Copy, Check, Link, AlertCircle } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 interface UserIdInfo {
   userId: string;
@@ -67,17 +68,18 @@ export function AccountButton() {
   return (
     <div className="relative" ref={menuRef}>
       {/* Account Button */}
-      <button
-        onClick={() => setIsMenuOpen(!isMenuOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all duration-200
-                   bg-[var(--bg-tertiary)]/60 backdrop-blur-md border border-[var(--border)]/50
-                   hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)]
-                   active:scale-95"
-        title={idInfo.userId}
-      >
-        <User size={14} className={idInfo.isPermanent ? 'text-[var(--success)]' : 'text-[var(--warning)]'} />
-        <span className="font-mono text-xs text-[var(--text-secondary)]">{displayId}</span>
-      </button>
+      <Tooltip content="Account — view your ID and status">
+        <button
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all duration-200
+                     bg-[var(--bg-tertiary)]/60 backdrop-blur-md border border-[var(--border)]/50
+                     hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)]
+                     active:scale-95"
+        >
+          <User size={14} className={idInfo.isPermanent ? 'text-[var(--success)]' : 'text-[var(--warning)]'} />
+          <span className="font-mono text-xs text-[var(--text-secondary)]">{displayId}</span>
+        </button>
+      </Tooltip>
 
       {/* Dropdown Menu */}
       {isMenuOpen && (
@@ -110,17 +112,18 @@ export function AccountButton() {
                   {idInfo.userId}
                 </div>
               </div>
-              <button
-                onClick={handleCopy}
-                className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--bg-primary)] transition-colors"
-                title="Copy ID"
-              >
-                {copied ? (
-                  <Check size={14} className="text-[var(--success)]" />
-                ) : (
-                  <Copy size={14} className="text-[var(--text-muted)]" />
-                )}
-              </button>
+              <Tooltip content="Copy ID">
+                <button
+                  onClick={handleCopy}
+                  className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--bg-primary)] transition-colors"
+                >
+                  {copied ? (
+                    <Check size={14} className="text-[var(--success)]" />
+                  ) : (
+                    <Copy size={14} className="text-[var(--text-muted)]" />
+                  )}
+                </button>
+              </Tooltip>
             </div>
 
             {/* GitHub Username */}

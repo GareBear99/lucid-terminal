@@ -12,6 +12,7 @@
  */
 
 import type { TokenStats } from '../../types/plugin';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 interface TokenDisplayProps {
   tokens: TokenStats;
@@ -169,9 +170,11 @@ export function TokenEfficiency({ ratio }: TokenEfficiencyProps) {
   const efficiency = getEfficiencyLevel();
   
   return (
-    <span className={`text-xs font-medium ${efficiency.color}`} title={`${ratio.toFixed(2)} chars/token`}>
-      {efficiency.emoji} {efficiency.label} efficiency
-    </span>
+    <Tooltip content={`${ratio.toFixed(2)} chars/token — ${efficiency.label} efficiency`}>
+      <span className={`text-xs font-medium ${efficiency.color}`}>
+        {efficiency.emoji} {efficiency.label} efficiency
+      </span>
+    </Tooltip>
   );
 }
 

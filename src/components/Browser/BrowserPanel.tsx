@@ -14,6 +14,7 @@ import { getPhoneEntries, type PhoneEntry } from '../../phone/streaming';
 import { usePhoneStore } from '../../stores/phoneStore';
 import PhoneView from '../Phone/PhoneView';
 import { resolveInputToUrl } from '../../stores/browserUrl';
+import { Tooltip } from '../Tooltip/Tooltip';
 import type { BrowserBounds } from '../../types';
 
 /**
@@ -51,28 +52,31 @@ export function PhoneQuickTabs({ entries, onOpenExternal, onOpenInternal }: Phon
       </span>
       {entries.map((q) =>
         q.kind === 'external' ? (
-          <button
-            key={q.id}
-            onClick={onOpenExternal}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-xs"
-            title={PHONE_CONTROL_URL}
-          >
-            <Smartphone size={13} className="text-[var(--accent)]" />
-            {q.label}
-          </button>
+          <Tooltip key={q.id} content={`Open the external phone-control app (${PHONE_CONTROL_URL})`}>
+            <button
+              onClick={onOpenExternal}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-xs"
+            >
+              <Smartphone size={13} className="text-[var(--accent)]" />
+              {q.label}
+            </button>
+          </Tooltip>
         ) : (
-          <button
+          <Tooltip
             key={q.id}
-            onClick={() => {
-              if (!q.disabled) onOpenInternal();
-            }}
-            disabled={q.disabled}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-xs disabled:opacity-40 disabled:cursor-not-allowed"
-            title={q.disabledReason ?? 'In-app phone stream (Android add-on)'}
+            content={q.disabledReason ?? 'In-app phone stream (Android add-on)'}
           >
-            <Smartphone size={13} className="text-[var(--accent)]" />
-            {q.label}
-          </button>
+            <button
+              onClick={() => {
+                if (!q.disabled) onOpenInternal();
+              }}
+              disabled={q.disabled}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Smartphone size={13} className="text-[var(--accent)]" />
+              {q.label}
+            </button>
+          </Tooltip>
         ),
       )}
     </div>
@@ -228,41 +232,43 @@ function BrowserPanel() {
       {/* Browser tab strip */}
       <div className="flex items-center gap-1 px-2 pt-1.5 border-b border-[var(--border)] overflow-x-auto shrink-0">
         {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            onClick={() => activateTab(tab.id)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-t-md text-xs cursor-pointer whitespace-nowrap max-w-[160px] ${
-              tab.id === activeTabId
-                ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] font-semibold'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
-            }`}
-            title={tab.url}
-          >
-            {tab.loading ? (
-              <Loader size={12} className="animate-spin shrink-0" />
-            ) : (
-              <Globe size={12} className="shrink-0" />
-            )}
-            <span className="truncate">{tab.title || tab.url}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                closeTab(tab.id);
-              }}
-              className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] shrink-0"
-              title="Close tab"
+          <Tooltip key={tab.id} content={tab.url || tab.title || 'Browser tab'} placement="bottom">
+            <div
+              onClick={() => activateTab(tab.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-t-md text-xs cursor-pointer whitespace-nowrap max-w-[160px] ${
+                tab.id === activeTabId
+                  ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] font-semibold'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
+              }`}
             >
-              <X size={12} />
-            </button>
-          </div>
+              {tab.loading ? (
+                <Loader size={12} className="animate-spin shrink-0" />
+              ) : (
+                <Globe size={12} className="shrink-0" />
+              )}
+              <span className="truncate">{tab.title || tab.url}</span>
+              <Tooltip content="Close tab">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                  className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              </Tooltip>
+            </div>
+          </Tooltip>
         ))}
-        <button
-          onClick={() => createTab()}
-          className="p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0"
-          title="New tab"
-        >
-          <Plus size={14} />
-        </button>
+        <Tooltip content="New tab">
+          <button
+            onClick={() => createTab()}
+            className="p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0"
+          >
+            <Plus size={14} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Nav bar */}
@@ -270,32 +276,35 @@ function BrowserPanel() {
         onSubmit={submit}
         className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border)] shrink-0"
       >
-        <button
-          type="button"
-          onClick={goBack}
-          disabled={!activeTab?.canGoBack}
-          className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
-          title="Back"
-        >
-          <ArrowLeft size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={goForward}
-          disabled={!activeTab?.canGoForward}
-          className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
-          title="Forward"
-        >
-          <ArrowRight size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={reload}
-          className="p-1.5 rounded hover:bg-[var(--bg-secondary)]"
-          title="Reload"
-        >
-          <RotateCw size={16} />
-        </button>
+        <Tooltip content="Back">
+          <button
+            type="button"
+            onClick={goBack}
+            disabled={!activeTab?.canGoBack}
+            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+          >
+            <ArrowLeft size={16} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Forward">
+          <button
+            type="button"
+            onClick={goForward}
+            disabled={!activeTab?.canGoForward}
+            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+          >
+            <ArrowRight size={16} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Reload">
+          <button
+            type="button"
+            onClick={reload}
+            className="p-1.5 rounded hover:bg-[var(--bg-secondary)]"
+          >
+            <RotateCw size={16} />
+          </button>
+        </Tooltip>
         <input
           ref={inputRef}
           value={input}

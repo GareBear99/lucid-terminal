@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Search, Copy, Check, X, ChevronRight, Terminal } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { helpCategories, searchCommands, systemStats, HelpCategory, HelpCommand } from '../../data/helpData';
 
 interface HelpPanelProps {
@@ -54,13 +55,14 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-[var(--bg-primary)] transition-colors"
-            title="Close"
-          >
-            <X size={18} className="text-[var(--text-muted)]" />
-          </button>
+          <Tooltip content="Close">
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-[var(--bg-primary)] transition-colors"
+            >
+              <X size={18} className="text-[var(--text-muted)]" />
+            </button>
+          </Tooltip>
         </div>
 
         {/* Search Bar */}
@@ -243,17 +245,18 @@ function CommandCard({
             {command.description}
           </p>
         </div>
-        <button
-          onClick={() => onCopy(command.syntax)}
-          className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
-          title="Copy syntax"
-        >
-          {copied ? (
-            <Check size={14} className="text-[var(--success)]" />
-          ) : (
-            <Copy size={14} className="text-[var(--text-muted)]" />
-          )}
-        </button>
+        <Tooltip content="Copy syntax">
+          <button
+            onClick={() => onCopy(command.syntax)}
+            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+          >
+            {copied ? (
+              <Check size={14} className="text-[var(--success)]" />
+            ) : (
+              <Copy size={14} className="text-[var(--text-muted)]" />
+            )}
+          </button>
+        </Tooltip>
       </div>
 
       {/* Syntax */}
@@ -275,13 +278,14 @@ function CommandCard({
                 <code className="flex-1 text-xs font-mono text-[var(--text-secondary)] px-2 py-1 rounded bg-[var(--bg-secondary)]">
                   {example}
                 </code>
-                <button
-                  onClick={() => onCopy(example)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--bg-secondary)] transition-all"
-                  title="Copy example"
-                >
-                  <Copy size={12} className="text-[var(--text-muted)]" />
-                </button>
+                <Tooltip content="Copy example">
+                  <button
+                    onClick={() => onCopy(example)}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--bg-secondary)] transition-all"
+                  >
+                    <Copy size={12} className="text-[var(--text-muted)]" />
+                  </button>
+                </Tooltip>
               </div>
             ))}
           </div>

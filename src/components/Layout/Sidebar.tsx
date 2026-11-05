@@ -20,6 +20,7 @@ import { useHistoryStore, EMPTY_BLOCKS, jumpToBlock } from '../../stores/history
 import { useSettingsStore } from '../../stores/settingsStore';
 import { enabledToolbarPlugins } from '../../data/toolbarPlugins';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { View, FileEntry } from '../../types';
 
 interface SidebarProps {
@@ -198,56 +199,60 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     <div className="flex h-full">
       {/* Icon Bar */}
       <div className="w-12 h-full bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-2 gap-1">
-        <button
-          onClick={() => onViewChange('terminal')}
-          className={`p-2 rounded-md transition-colors ${currentView === 'terminal'
-            ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-            }`}
-          title="Terminal"
-        >
-          <Terminal size={20} />
-        </button>
+        <Tooltip content="Terminal" placement="right">
+          <button
+            onClick={() => onViewChange('terminal')}
+            className={`p-2 rounded-md transition-colors ${currentView === 'terminal'
+              ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+              }`}
+          >
+            <Terminal size={20} />
+          </button>
+        </Tooltip>
 
-        <button
-          onClick={() => onViewChange('editor')}
-          className={`p-2 rounded-md transition-colors ${currentView === 'editor'
-            ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-            }`}
-          title="Editor"
-        >
-          <FileCode size={20} />
-        </button>
+        <Tooltip content="Editor" placement="right">
+          <button
+            onClick={() => onViewChange('editor')}
+            className={`p-2 rounded-md transition-colors ${currentView === 'editor'
+              ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+              }`}
+          >
+            <FileCode size={20} />
+          </button>
+        </Tooltip>
 
 
         {/* Sidebar panels: Explorer (file tree) and, directly under
             it, the chats (paper). These switch the sidebar panel, not
             the main view — Terminal / Editor / Synth above switch the
             view. */}
-        <button
-          onClick={() => setActivePanel('explorer')}
-          className={`p-2 rounded-md transition-colors ${activePanel === 'explorer'
-            ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-            }`}
-          title="Explorer"
-          aria-label="Explorer"
-        >
-          <FolderOpen size={20} />
-        </button>
+        <Tooltip content="Explorer" placement="right">
+          <button
+            onClick={() => setActivePanel('explorer')}
+            className={`p-2 rounded-md transition-colors ${activePanel === 'explorer'
+              ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+              }`}
+            aria-label="Explorer"
+          >
+            <FolderOpen size={20} />
+          </button>
+        </Tooltip>
 
-        <button
-          onClick={() => setActivePanel('history')}
-          className={`p-2 rounded-md transition-colors ${activePanel === 'history'
-            ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-            }`}
-          title="Chats"
-          aria-label="Chats"
-        >
-          <FileText size={20} />
-        </button>
+        <Tooltip content="Chats" placement="right" shortcut="Cmd+B">
+          <button
+            onClick={() => setActivePanel('history')}
+            className={`p-2 rounded-md transition-colors ${activePanel === 'history'
+              ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+              }`}
+            aria-label="Chats"
+          >
+            <FileText size={20} />
+          </button>
+        </Tooltip>
 
         <div className="flex-1" />
 
@@ -263,18 +268,18 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
                 const isActive = plugin.action === 'synth' ? currentView === 'synth' : showAI;
                 const onClick = plugin.action === 'synth' ? (onToggleSynth ?? (() => onViewChange('synth'))) : onToggleAI;
                 return (
-                  <button
-                    key={plugin.id}
-                    onClick={onClick}
-                    className={`p-2 rounded-md transition-colors ${isActive
-                      ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                      }`}
-                    title={plugin.name}
-                    aria-label={plugin.name}
-                  >
-                    <Icon size={20} />
-                  </button>
+                  <Tooltip key={plugin.id} content={`${plugin.name} — ${plugin.description}`} placement="right">
+                    <button
+                      onClick={onClick}
+                      className={`p-2 rounded-md transition-colors ${isActive
+                        ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                        }`}
+                      aria-label={plugin.name}
+                    >
+                      <Icon size={20} />
+                    </button>
+                  </Tooltip>
                 );
               })}
             </div>
@@ -282,16 +287,17 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           </>
         )}
 
-        <button
-          onClick={() => onViewChange('settings')}
-          className={`p-2 rounded-md transition-colors ${currentView === 'settings'
-            ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-            }`}
-          title="Settings"
-        >
-          <Settings size={20} />
-        </button>
+        <Tooltip content="Settings" placement="right">
+          <button
+            onClick={() => onViewChange('settings')}
+            className={`p-2 rounded-md transition-colors ${currentView === 'settings'
+              ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+              }`}
+          >
+            <Settings size={20} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Sidebar panel — Explorer or chats. One at a time; the icon
@@ -307,27 +313,30 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
             Explorer
           </span>
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => setIsCreatingFile(true)}
-              className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              title="New File"
-            >
-              <FilePlus size={14} />
-            </button>
-            <button
-              onClick={() => setIsCreatingFolder(true)}
-              className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              title="New Folder"
-            >
-              <FolderPlus size={14} />
-            </button>
-            <button
-              onClick={refreshDir}
-              className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              title="Refresh"
-            >
-              <RefreshCw size={14} />
-            </button>
+            <Tooltip content="New File">
+              <button
+                onClick={() => setIsCreatingFile(true)}
+                className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                <FilePlus size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content="New Folder">
+              <button
+                onClick={() => setIsCreatingFolder(true)}
+                className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                <FolderPlus size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Refresh">
+              <button
+                onClick={refreshDir}
+                className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </Tooltip>
           </div>
         </div>
 
@@ -362,13 +371,14 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
             <div className="mx-2 mb-2 rounded-md border border-red-500/40 bg-red-500/15 p-2">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-xs text-red-300 break-words">{error}</p>
-                <button
-                  onClick={clearError}
-                  className="shrink-0 rounded p-0.5 text-red-300 hover:bg-white/10"
-                  title="Dismiss"
-                >
-                  <X size={12} />
-                </button>
+                <Tooltip content="Dismiss">
+                  <button
+                    onClick={clearError}
+                    className="shrink-0 rounded p-0.5 text-red-300 hover:bg-white/10"
+                  >
+                    <X size={12} />
+                  </button>
+                </Tooltip>
               </div>
             </div>
           )}
@@ -389,12 +399,14 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
             <div className="flex flex-col items-center justify-center h-full text-center p-4">
               <FolderOpen size={32} className="text-[var(--text-muted)] mb-2" />
               <p className="text-sm text-[var(--text-muted)] mb-3">No folder open</p>
-              <button
-                onClick={handleOpenDirectory}
-                className="btn btn-primary text-sm py-1.5 px-3"
-              >
-                Open Folder
-              </button>
+              <Tooltip content="Open Folder">
+                <button
+                  onClick={handleOpenDirectory}
+                  className="btn btn-primary text-sm py-1.5 px-3"
+                >
+                  Open Folder
+                </button>
+              </Tooltip>
             </div>
           )}
         </div>

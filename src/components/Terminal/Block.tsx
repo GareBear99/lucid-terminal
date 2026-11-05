@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { TerminalBlock } from '../../types';
 import { Copy, Check, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { ansiToHtml } from '../../utils/ansiToHtml';
 import { ValidationSteps } from './ValidationIndicator';
 import { TokenDisplay } from './TokenDisplay';
@@ -54,13 +55,14 @@ export function Block({ block, isActive, onToggle }: BlockProps) {
                         <Clock size={12} />
                         <span>{new Date(block.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                     </div>
-                    <button
-                        onClick={handleCopy}
-                        className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1.5 rounded-md hover:bg-[var(--bg-primary)] active:scale-95"
-                        title="Copy Output"
-                    >
-                        {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
+                    <Tooltip content="Copy output">
+                        <button
+                            onClick={handleCopy}
+                            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1.5 rounded-md hover:bg-[var(--bg-primary)] active:scale-95"
+                        >
+                            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
 

@@ -37,6 +37,7 @@ import {
   type StreamMetricsSnapshot,
 } from '../../phone/streaming';
 import { usePhoneStore } from '../../stores/phoneStore';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 export interface PhoneViewProps {
   serial: string;
@@ -256,13 +257,14 @@ function PhoneView({ serial, onClose }: PhoneViewProps) {
             ? `${metrics.fps} fps · tap ${metrics.medianTapMs ?? '—'} ms · ${decodePath} decode · ${metrics.frames} frames`
             : 'no metrics yet'}
         </span>
-        <button
-          onClick={onClose}
-          className="ml-auto p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          title="Close phone stream"
-        >
-          <X size={14} />
-        </button>
+        <Tooltip content="Close phone stream">
+          <button
+            onClick={onClose}
+            className="ml-auto p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >
+            <X size={14} />
+          </button>
+        </Tooltip>
       </div>
       {error ? (
         <div className="px-3 py-2 text-xs text-red-300 bg-red-950">{error}</div>

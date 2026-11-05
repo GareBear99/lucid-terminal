@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Download, Loader, HardDrive, Trash2 } from 'lucide-react';
 import { useToastStore } from '../../stores/toastStore';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 interface Model {
   name: string;
@@ -357,13 +358,14 @@ const [tiers, setTiers] = useState<ModelTier[]>([
                       <span className="text-xs">Downloading...</span>
                     </div>
                   ) : model.installed ? (
-                    <button
-                      onClick={() => uninstallModel(model.name, tierIndex, modelIndex)}
-                      className="btn-ghost p-1.5 rounded text-red-500 hover:bg-red-500/10"
-                      title="Uninstall model"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <Tooltip content={`Uninstall ${model.displayName}`}>
+                      <button
+                        onClick={() => uninstallModel(model.name, tierIndex, modelIndex)}
+                        className="btn-ghost p-1.5 rounded text-red-500 hover:bg-red-500/10"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </Tooltip>
                   ) : (
                     <button
                       onClick={() => installModel(model.name, tierIndex, modelIndex)}

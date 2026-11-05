@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { 
   Eye, 
   X, 
@@ -176,35 +177,39 @@ export function DaemonLogViewer({ onClose }: DaemonLogViewerProps) {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={loadLogs}
-              disabled={isLoading}
-              className="btn-ghost p-2 rounded-lg"
-              title="Refresh logs"
-            >
-              <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
-            </button>
-            <button
-              onClick={handleExportLogs}
-              className="btn-ghost p-2 rounded-lg"
-              title="Export logs"
-            >
-              <Download size={16} />
-            </button>
-            <button
-              onClick={handleClearLogs}
-              className="btn-ghost p-2 rounded-lg text-red-500 hover:bg-red-500/10"
-              title="Clear all logs"
-            >
-              <Trash2 size={16} />
-            </button>
-            <button
-              onClick={onClose}
-              className="btn-ghost p-2 rounded-lg"
-              title="Close"
-            >
-              <X size={16} />
-            </button>
+            <Tooltip content="Refresh logs">
+              <button
+                onClick={loadLogs}
+                disabled={isLoading}
+                className="btn-ghost p-2 rounded-lg"
+              >
+                <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Export logs">
+              <button
+                onClick={handleExportLogs}
+                className="btn-ghost p-2 rounded-lg"
+              >
+                <Download size={16} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Clear all logs">
+              <button
+                onClick={handleClearLogs}
+                className="btn-ghost p-2 rounded-lg text-red-500 hover:bg-red-500/10"
+              >
+                <Trash2 size={16} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Close">
+              <button
+                onClick={onClose}
+                className="btn-ghost p-2 rounded-lg"
+              >
+                <X size={16} />
+              </button>
+            </Tooltip>
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Save } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import Editor, { loader } from '@monaco-editor/react';
 import '../../lib/monacoLoader';
 import { MONACO_LOAD_TIMEOUT_MS } from '../../lib/monacoLoader';
@@ -141,29 +142,32 @@ function CodeEditor() {
                 {file.isDirty && <span className="text-[var(--accent)]">● </span>}
                 {file.name}
               </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeFile(file.path);
-                }}
-                className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <X size={14} />
-              </button>
+              <Tooltip content={`Close ${file.name}`}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeFile(file.path);
+                  }}
+                  className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X size={14} />
+                </button>
+              </Tooltip>
             </div>
           ))}
         </div>
 
         {/* Save Button */}
         {activeFile?.isDirty && (
-          <button
-            onClick={handleSave}
-            className="h-9 px-3 flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-            title="Save (Ctrl+S)"
-          >
-            <Save size={14} />
-            <span className="text-xs">Save</span>
-          </button>
+          <Tooltip content="Save" shortcut="Ctrl+S">
+            <button
+              onClick={handleSave}
+              className="h-9 px-3 flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            >
+              <Save size={14} />
+              <span className="text-xs">Save</span>
+            </button>
+          </Tooltip>
         )}
       </div>
 
@@ -171,16 +175,17 @@ function CodeEditor() {
       {activeFile && (
         <div className="flex-1 overflow-hidden">
           {monacoFailed ? (
-            <textarea
-              aria-label="Plain text editor (Monaco unavailable)"
-              value={activeFile.content || ''}
-              onChange={(e) => updateFileContent(activeFile.path, e.target.value)}
-              spellCheck={false}
-              placeholder="Plain text editing — Monaco unavailable"
-              title="Monaco editor unavailable — using plain text editing"
-              className="w-full h-full bg-transparent text-[var(--text-primary)] font-mono text-sm p-3 outline-none resize-none overflow-auto whitespace-pre"
-              style={{ fontFamily: settings.fontFamily, fontSize: settings.fontSize }}
-            />
+            <Tooltip content="Monaco unavailable — plain text editing">
+              <textarea
+                aria-label="Plain text editor (Monaco unavailable)"
+                value={activeFile.content || ''}
+                onChange={(e) => updateFileContent(activeFile.path, e.target.value)}
+                spellCheck={false}
+                placeholder="Plain text editing — Monaco unavailable"
+                className="w-full h-full bg-transparent text-[var(--text-primary)] font-mono text-sm p-3 outline-none resize-none overflow-auto whitespace-pre"
+                style={{ fontFamily: settings.fontFamily, fontSize: settings.fontSize }}
+              />
+            </Tooltip>
           ) : (
             <Editor
               height="100%"

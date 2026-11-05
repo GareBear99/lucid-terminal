@@ -12,6 +12,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 export type NotificationType = 'error' | 'warning' | 'success' | 'info';
 
@@ -148,17 +149,18 @@ function NotificationItem({
       </div>
       
       {notification.dismissible !== false && (
-        <button
-          onClick={handleDismiss}
-          className={`
-            absolute top-2 right-2 p-1 rounded-md
-            hover:bg-white/10 transition-colors
-            ${typeStyles.text}
-          `}
-          title="Dismiss"
-        >
-          <X size={14} />
-        </button>
+        <Tooltip content="Dismiss" placement="left">
+          <button
+            onClick={handleDismiss}
+            className={`
+              absolute top-2 right-2 p-1 rounded-md
+              hover:bg-white/10 transition-colors
+              ${typeStyles.text}
+            `}
+          >
+            <X size={14} />
+          </button>
+        </Tooltip>
       )}
     </div>
   );

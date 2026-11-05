@@ -32,6 +32,7 @@ import {
 } from '../../stores/synthStore';
 import { useWindowMaximized } from '../../hooks/useWindowMaximized';
 import { synthScaleStyle } from './windowedScale';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 export function SynthView() {
   const activePluginId = useSynthStore((s) => s.activePluginId);
@@ -156,13 +157,14 @@ export function SynthView() {
             <div>eye: {eyeMode}</div>
             <div>blueprint: {shellLoaded ? 'loaded' : 'none — load one in the shell (Upload Blueprint JSON)'}</div>
           </div>
-          <button
-            onClick={reseed}
-            className="btn btn-secondary mt-2 text-xs"
-            title="Randomize the Neural Synth seed"
-          >
-            Reseed thinker
-          </button>
+          <Tooltip content="Randomize the Neural Synth seed">
+            <button
+              onClick={reseed}
+              className="btn btn-secondary mt-2 text-xs"
+            >
+              Reseed thinker
+            </button>
+          </Tooltip>
         </section>
 
         {/* Embodiment — generic: renders whichever plugin is active */}
@@ -210,12 +212,14 @@ export function SynthView() {
                       Plugin backend status unavailable in this build.
                     </p>
                   )}
-                  <button
-                    onClick={() => unmountEmbodiment(activePluginId)}
-                    className="btn btn-secondary mt-2 text-xs"
-                  >
-                    Unmount {embodiment.name}
-                  </button>
+                  <Tooltip content={`Unmount ${embodiment.name}`}>
+                    <button
+                      onClick={() => unmountEmbodiment(activePluginId)}
+                      className="btn btn-secondary mt-2 text-xs"
+                    >
+                      Unmount {embodiment.name}
+                    </button>
+                  </Tooltip>
                 </>
               ) : (
                 <>
@@ -224,12 +228,14 @@ export function SynthView() {
                     embodiment to wake the synth: the thinker appears in the
                     eye and the Sentinel sits at the heart.
                   </p>
-                  <button
-                    onClick={() => mountPlugin(activePluginId)}
-                    className="btn btn-primary mt-2 text-xs"
-                  >
-                    Mount {embodiment.name}
-                  </button>
+                  <Tooltip content={`Mount ${embodiment.name}`}>
+                    <button
+                      onClick={() => mountPlugin(activePluginId)}
+                      className="btn btn-primary mt-2 text-xs"
+                    >
+                      Mount {embodiment.name}
+                    </button>
+                  </Tooltip>
                 </>
               )}
             </>

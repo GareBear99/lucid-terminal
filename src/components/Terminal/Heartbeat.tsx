@@ -1,4 +1,5 @@
 import { useEffect, useState, type MutableRefObject } from 'react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import {
   HEARTBEAT_INTERVAL_MS,
   bloodDropFrameIndex,
@@ -75,14 +76,15 @@ export function Heartbeat({ active, busy, dripping, lastKeystrokeAt }: Heartbeat
 
   const { color, text } = heartbeatFrameFor(frame);
   return (
-    <div
-      data-heartbeat="true"
-      aria-label="LuciferAI idle — awaiting commands"
-      title="LuciferAI is idle and awaiting commands"
-      className="px-4 py-1 font-mono text-xs select-none"
-      style={{ color }}
-    >
-      {text}
-    </div>
+    <Tooltip content="LuciferAI is idle and awaiting commands">
+      <div
+        data-heartbeat="true"
+        aria-label="LuciferAI idle — awaiting commands"
+        className="px-4 py-1 font-mono text-xs select-none"
+        style={{ color }}
+      >
+        {text}
+      </div>
+    </Tooltip>
   );
 }

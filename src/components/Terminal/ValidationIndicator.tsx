@@ -14,6 +14,7 @@
  */
 
 import { Check, X, Loader2, AlertCircle } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import type { ValidationStep } from '../../types/plugin';
 
 interface ValidationIndicatorProps {
@@ -47,9 +48,11 @@ export function ValidationIndicator({ step, compact = false }: ValidationIndicat
   if (compact) {
     // Compact mode: just icon
     return (
-      <span className="inline-flex items-center" title={`${step.label}${step.message ? `: ${step.message}` : ''}`}>
-        {getIcon()}
-      </span>
+      <Tooltip content={`${step.label}${step.message ? `: ${step.message}` : ''}`}>
+        <span className="inline-flex items-center">
+          {getIcon()}
+        </span>
+      </Tooltip>
     );
   }
   

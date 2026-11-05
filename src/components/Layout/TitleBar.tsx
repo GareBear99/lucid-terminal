@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Minus, Square, X, Maximize2, Monitor } from 'lucide-react';
 import { AccountButton } from '../Account/AccountButton';
 import { useLoadingStore } from '../../stores/loadingStore';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -30,26 +31,27 @@ function TitleBar() {
             is in progress a conic-gradient ring swirls around it (spinning
             up) and a charge arc on the dot itself fills, holds, then
             reloads — looping until the work finishes. */}
-        <div
-          data-glow-anchor="titlebar-dot"
-          className="relative w-4 h-4 shrink-0"
-          title={isLoading ? 'Loading in the background…' : undefined}
-        >
-          {isLoading && <div className="titlebar-swirl-ring" aria-hidden="true" />}
-          <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500" />
-          {isLoading && (
-            <svg className="titlebar-charge-arc" viewBox="0 0 16 16" aria-hidden="true">
-              <defs>
-                <linearGradient id="titlebar-charge-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" style={{ stopColor: 'var(--accent)' }} />
-                  <stop offset="55%" style={{ stopColor: '#a855f7' }} />
-                  <stop offset="100%" style={{ stopColor: '#60a5fa' }} />
-                </linearGradient>
-              </defs>
-              <circle cx="8" cy="8" r="6.5" fill="none" stroke="url(#titlebar-charge-grad)" strokeWidth="1.75" strokeLinecap="round" />
-            </svg>
-          )}
-        </div>
+        <Tooltip content={isLoading ? 'Loading in the background…' : undefined}>
+          <div
+            data-glow-anchor="titlebar-dot"
+            className="relative w-4 h-4 shrink-0"
+          >
+            {isLoading && <div className="titlebar-swirl-ring" aria-hidden="true" />}
+            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500" />
+            {isLoading && (
+              <svg className="titlebar-charge-arc" viewBox="0 0 16 16" aria-hidden="true">
+                <defs>
+                  <linearGradient id="titlebar-charge-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" style={{ stopColor: 'var(--accent)' }} />
+                    <stop offset="55%" style={{ stopColor: '#a855f7' }} />
+                    <stop offset="100%" style={{ stopColor: '#60a5fa' }} />
+                  </linearGradient>
+                </defs>
+                <circle cx="8" cy="8" r="6.5" fill="none" stroke="url(#titlebar-charge-grad)" strokeWidth="1.75" strokeLinecap="round" />
+              </svg>
+            )}
+          </div>
+        </Tooltip>
         <span className="text-sm font-semibold text-[var(--text-primary)]">
           Lucid Terminal
         </span>
@@ -67,41 +69,45 @@ function TitleBar() {
         className="flex h-full"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        <button
-          onClick={() => window.lucidAPI.window.create()}
-          className="w-12 h-full flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
-          title="New Window"
-        >
-          <Monitor size={14} className="text-[var(--text-secondary)]" />
-        </button>
+        <Tooltip content="New Window">
+          <button
+            onClick={() => window.lucidAPI.window.create()}
+            className="w-12 h-full flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
+          >
+            <Monitor size={14} className="text-[var(--text-secondary)]" />
+          </button>
+        </Tooltip>
 
-        <button
-          onClick={() => window.lucidAPI.window.minimize()}
-          className="w-12 h-full flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
-          title="Minimize"
-        >
-          <Minus size={16} className="text-[var(--text-secondary)]" />
-        </button>
+        <Tooltip content="Minimize">
+          <button
+            onClick={() => window.lucidAPI.window.minimize()}
+            className="w-12 h-full flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
+          >
+            <Minus size={16} className="text-[var(--text-secondary)]" />
+          </button>
+        </Tooltip>
 
-        <button
-          onClick={() => window.lucidAPI.window.maximize()}
-          className="w-12 h-full flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
-          title={isMaximized ? 'Restore' : 'Maximize'}
-        >
-          {isMaximized ? (
-            <Maximize2 size={14} className="text-[var(--text-secondary)]" />
-          ) : (
-            <Square size={14} className="text-[var(--text-secondary)]" />
-          )}
-        </button>
+        <Tooltip content={isMaximized ? 'Restore' : 'Maximize'}>
+          <button
+            onClick={() => window.lucidAPI.window.maximize()}
+            className="w-12 h-full flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
+          >
+            {isMaximized ? (
+              <Maximize2 size={14} className="text-[var(--text-secondary)]" />
+            ) : (
+              <Square size={14} className="text-[var(--text-secondary)]" />
+            )}
+          </button>
+        </Tooltip>
 
-        <button
-          onClick={() => window.lucidAPI.window.close()}
-          className="w-12 h-full flex items-center justify-center hover:bg-[var(--error)] hover:text-white transition-colors"
-          title="Close"
-        >
-          <X size={16} className="text-[var(--text-secondary)] hover:text-white" />
-        </button>
+        <Tooltip content="Close">
+          <button
+            onClick={() => window.lucidAPI.window.close()}
+            className="w-12 h-full flex items-center justify-center hover:bg-[var(--error)] hover:text-white transition-colors"
+          >
+            <X size={16} className="text-[var(--text-secondary)] hover:text-white" />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

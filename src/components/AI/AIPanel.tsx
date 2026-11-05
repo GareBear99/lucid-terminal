@@ -1,6 +1,7 @@
 import { Sparkles, Globe, X } from 'lucide-react';
 import AIChat from './AIChat';
 import BrowserPanel from '../Browser/BrowserPanel';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { useBrowserStore } from '../../stores/browserStore';
 
 /**
@@ -38,28 +39,33 @@ function AIPanel({ onClose }: AIPanelProps) {
     <div className="h-full flex flex-col bg-[var(--bg-primary)]">
       {/* Panel tab bar — same header style as the "Lucid AI" header */}
       <div className="flex items-center gap-1 px-2 pt-2 border-b border-[var(--border)] shrink-0">
-        <button
-          onClick={() => setPanelTab('ai')}
-          className={tabButton(panelTab === 'ai')}
-        >
-          <Sparkles size={14} className="text-[var(--accent)]" />
-          AI Chat
-        </button>
-        <button
-          onClick={() => setPanelTab('browser')}
-          className={tabButton(panelTab === 'browser')}
-        >
-          <Globe size={14} className="text-[var(--accent)]" />
-          Browser
-        </button>
+        <Tooltip content="Switch to AI Chat">
+          <button
+            onClick={() => setPanelTab('ai')}
+            className={tabButton(panelTab === 'ai')}
+          >
+            <Sparkles size={14} className="text-[var(--accent)]" />
+            AI Chat
+          </button>
+        </Tooltip>
+        <Tooltip content="Switch to Browser">
+          <button
+            onClick={() => setPanelTab('browser')}
+            className={tabButton(panelTab === 'browser')}
+          >
+            <Globe size={14} className="text-[var(--accent)]" />
+            Browser
+          </button>
+        </Tooltip>
         <div className="flex-1" />
-        <button
-          onClick={onClose}
-          className="btn-ghost p-1 rounded"
-          title="Close panel"
-        >
-          <X size={16} />
-        </button>
+        <Tooltip content="Close panel">
+          <button
+            onClick={onClose}
+            className="btn-ghost p-1 rounded"
+          >
+            <X size={16} />
+          </button>
+        </Tooltip>
       </div>
 
       <div

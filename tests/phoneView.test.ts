@@ -97,9 +97,14 @@ describe('BrowserPanel phone entries', () => {
 
   it('the external button itself is never disabled', () => {
     const html = renderPanel();
-    const tag = html.match(/<button[^>]*title="http:\/\/127\.0\.0\.1:8090"[^>]*>/);
-    expect(tag).not.toBeNull();
-    expect(tag![0]).not.toContain('disabled');
+    // The Tooltip strips the native title — the URL is now the hover
+    // tip (asserted in tests/tooltipWiringPanels.test.tsx) — so match
+    // the button by its label instead (per-button match, so it never
+    // spans across the disabled nav buttons before it).
+    const buttons = [...html.matchAll(/<button[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0]);
+    const tag = buttons.find((b) => b.includes('Phone — External'));
+    expect(tag).not.toBeUndefined();
+    expect(tag!).not.toContain('disabled');
   });
 });
 
@@ -122,21 +127,24 @@ describe('PhoneQuickTabs', () => {
   it('greys out the internal entry with the hover reason when the gate is closed', () => {
     const html = renderTabs(true, closedGate);
     expect(html).toContain('Android — Installed');
-    expect(html).toContain(GPU_GATE_DISABLED_REASON);
-    const tag = html.match(/<button[^>]*title="[^"]*hardware video decoding[^"]*"[^>]*>/);
-    expect(tag).not.toBeNull();
-    expect(tag![0]).toContain('disabled');
+    // The gate reason is now the hover tip (asserted in
+    // tests/tooltipWiringPanels.test.tsx), not static markup.
+    const buttons = [...html.matchAll(/<button[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0]);
+    const tag = buttons.find((b) => b.includes('Android — Installed'));
+    expect(tag).not.toBeUndefined();
+    expect(tag!).toContain('disabled');
   });
 
   it('enables the internal entry when the gate is open', () => {
     const html = renderTabs(true, openGate);
     expect(html).toContain('Android — Installed');
     expect(html).not.toContain(GPU_GATE_DISABLED_REASON);
-    const tag = html.match(/<button[^>]*title="In-app phone stream[^"]*"[^>]*>/);
-    expect(tag).not.toBeNull();
+    const buttons = [...html.matchAll(/<button[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0]);
+    const tag = buttons.find((b) => b.includes('Android — Installed'));
+    expect(tag).not.toBeUndefined();
     // No disabled *attribute* (the class list still carries the
     // disabled: Tailwind variants — those are styling, not state).
-    expect(tag![0]).not.toMatch(/ disabled(="")?[\s>]/);
+    expect(tag!).not.toMatch(/ disabled(="")?[\s>]/);
   });
 });
 

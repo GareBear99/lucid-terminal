@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Clock, Terminal as TerminalIcon, Trash2, Search } from 'lucide-react';
 import { TerminalBlock } from '../../types';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 interface ConversationHistoryProps {
   blocks: TerminalBlock[];
@@ -112,40 +113,44 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
     const tickItems = [...historyItems].reverse();
     return (
       <div className="h-full w-12 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-3">
-        <button
-          onClick={() => setIsCollapsed(false)}
-          className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
-          title="Show conversation history"
-        >
-          <ChevronRight size={20} className="text-[var(--text-muted)]" />
-        </button>
-        {/* Tick track — one tick per chat, newest at the top */}
+        <Tooltip content="Show conversation history" placement="right">
+          <button
+            onClick={() => setIsCollapsed(false)}
+            className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
+          >
+            <ChevronRight size={20} className="text-[var(--text-muted)]" />
+          </button>
+        </Tooltip>
+        {/* Tick track — one tick per chat, newest at the top.
+            No Tooltip on the track itself: each tick has its own tip
+            (the command), and the count tip lives on the count span
+            below — wrapping the track too would show two tips at once. */}
         <div
           className="mt-3 flex-1 w-full overflow-y-auto custom-scrollbar flex flex-col items-center gap-[3px] py-1"
-          title={`${historyItems.length} chat${historyItems.length !== 1 ? 's' : ''}`}
         >
-          {tickItems.map(item => (
-            <button
-              key={item.id}
-              onClick={() => handleItemClick(item)}
-              title={item.command}
-              aria-label={item.command}
-              className={`shrink-0 rounded-full transition-all ${
-                selectedId === item.id
-                  ? 'w-8 h-[4px] opacity-100'
-                  : 'w-5 h-[3px] opacity-60 hover:opacity-100 hover:w-7'
-              }`}
-              style={{ backgroundColor: getTypeColor(item.type) }}
-            />
-          ))}
-        </div>
-        {historyItems.length > 0 && (
-          <span
-            className="shrink-0 mt-2 text-[10px] font-mono text-[var(--text-muted)]"
-            title={`${historyItems.length} chat${historyItems.length !== 1 ? 's' : ''}`}
-          >
-            {historyItems.length}
-          </span>
+            {tickItems.map(item => (
+              <Tooltip key={item.id} content={item.command} placement="right">
+                <button
+                  onClick={() => handleItemClick(item)}
+                  aria-label={item.command}
+                  className={`shrink-0 rounded-full transition-all ${
+                    selectedId === item.id
+                      ? 'w-8 h-[4px] opacity-100'
+                      : 'w-5 h-[3px] opacity-60 hover:opacity-100 hover:w-7'
+                  }`}
+                  style={{ backgroundColor: getTypeColor(item.type) }}
+                />
+              </Tooltip>
+            ))}
+          </div>
+          {historyItems.length > 0 && (
+          <Tooltip content={`${historyItems.length} chat${historyItems.length !== 1 ? 's' : ''}`} placement="right">
+            <span
+              className="shrink-0 mt-2 text-[10px] font-mono text-[var(--text-muted)]"
+            >
+              {historyItems.length}
+            </span>
+          </Tooltip>
         )}
       </div>
     );
@@ -164,21 +169,23 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
         </div>
         <div className="flex items-center gap-1">
           {onClearHistory && historyItems.length > 0 && (
-            <button
-              onClick={onClearHistory}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-muted)] hover:text-red-500"
-              title="Clear history"
-            >
-              <Trash2 size={16} />
-            </button>
+            <Tooltip content="Clear history">
+              <button
+                onClick={onClearHistory}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-muted)] hover:text-red-500"
+              >
+                <Trash2 size={16} />
+              </button>
+            </Tooltip>
           )}
-          <button
-            onClick={() => setIsCollapsed(true)}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
-            title="Collapse sidebar"
-          >
-            <ChevronLeft size={16} className="text-[var(--text-muted)]" />
-          </button>
+          <Tooltip content="Collapse sidebar">
+            <button
+              onClick={() => setIsCollapsed(true)}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+            >
+              <ChevronLeft size={16} className="text-[var(--text-muted)]" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 

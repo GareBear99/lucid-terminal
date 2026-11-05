@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Search, ChevronRight } from 'lucide-react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { helpCategories, HelpCategory, HelpCommand, getCategoryById } from '../../data/helpData';
 
 interface HelpModalProps {
@@ -66,12 +67,14 @@ export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
             {selectedCategory && (
-              <button
-                onClick={handleBack}
-                className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
-              >
-                <ChevronRight size={20} className="rotate-180 text-[var(--text-muted)]" />
-              </button>
+              <Tooltip content="Back to categories">
+                <button
+                  onClick={handleBack}
+                  className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+                >
+                  <ChevronRight size={20} className="rotate-180 text-[var(--text-muted)]" />
+                </button>
+              </Tooltip>
             )}
             <div>
               <h2 className="text-xl font-semibold text-[var(--text-primary)]">
@@ -84,12 +87,14 @@ export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
-          >
-            <X size={20} className="text-[var(--text-muted)]" />
-          </button>
+          <Tooltip content="Close" shortcut="Esc">
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+            >
+              <X size={20} className="text-[var(--text-muted)]" />
+            </button>
+          </Tooltip>
         </div>
 
         {/* Search Bar */}
@@ -209,16 +214,17 @@ function CommandCard({ command, categoryColor }: { command: HelpCommand; categor
           </label>
           <div className="mt-1 space-y-1">
             {command.examples.map((example, idx) => (
-              <code
-                key={idx}
-                className="block px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded text-xs font-mono text-[var(--accent)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer"
-                onClick={() => {
-                  navigator.clipboard.writeText(example);
-                }}
-                title="Click to copy"
-              >
-                {example}
-              </code>
+              <Tooltip content="Click to copy">
+                <code
+                  key={idx}
+                  className="block px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded text-xs font-mono text-[var(--accent)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer"
+                  onClick={() => {
+                    navigator.clipboard.writeText(example);
+                  }}
+                >
+                  {example}
+                </code>
+              </Tooltip>
             ))}
           </div>
         </div>

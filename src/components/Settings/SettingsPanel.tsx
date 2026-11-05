@@ -23,6 +23,7 @@ import { ModelInstaller } from './ModelInstaller';
 import { TOOLBAR_PLUGINS } from '../../data/toolbarPlugins';
 import { PLUGIN_ADDONS } from '../../data/pluginAddons';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -277,26 +278,29 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
         <h2 className="text-lg font-semibold">Settings</h2>
-        <button onClick={onClose} className="btn-ghost p-1 rounded">
-          <X size={20} />
-        </button>
+<Tooltip content="Close Settings">
+          <button onClick={onClose} className="btn-ghost p-1 rounded">
+            <X size={20} />
+          </button>
+</Tooltip>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
         <div className="w-48 border-r border-[var(--border)] p-2">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${activeTab === tab.id
-                ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
+<Tooltip key={tab.id} content={`${tab.label} settings`}>
+              <button
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${activeTab === tab.id
+                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                  }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+</Tooltip>
           ))}
         </div>
 
@@ -308,43 +312,46 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Theme</h3>
                 <div className="grid grid-cols-3 gap-3">
                   {themes.map((theme) => (
-                    <button
-                      key={theme.id}
-                      onClick={() => setTheme(theme.id)}
-                      className={`p-3 rounded-lg border transition-all ${currentTheme.id === theme.id
-                        ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] ring-opacity-50'
-                        : 'border-[var(--border)] hover:border-[var(--text-muted)]'
-                        }`}
-                    >
-                      <div
-                        className="h-16 rounded-md mb-2"
-                        style={{
-                          background: `linear-gradient(135deg, ${theme.colors.bgPrimary} 50%, ${theme.colors.bgSecondary} 50%)`,
-                          border: `1px solid ${theme.colors.border}`,
-                        }}
+<Tooltip key={theme.id} content={`Use the ${theme.name} theme`}>
+                      <button
+                        onClick={() => setTheme(theme.id)}
+                        className={`p-3 rounded-lg border transition-all ${currentTheme.id === theme.id
+                          ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] ring-opacity-50'
+                          : 'border-[var(--border)] hover:border-[var(--text-muted)]'
+                          }`}
                       >
                         <div
-                          className="w-3 h-3 rounded-full m-2"
-                          style={{ backgroundColor: theme.colors.accent }}
-                        />
-                      </div>
-                      <span className="text-sm">{theme.name}</span>
-                    </button>
+                          className="h-16 rounded-md mb-2"
+                          style={{
+                            background: `linear-gradient(135deg, ${theme.colors.bgPrimary} 50%, ${theme.colors.bgSecondary} 50%)`,
+                            border: `1px solid ${theme.colors.border}`,
+                          }}
+                        >
+                          <div
+                            className="w-3 h-3 rounded-full m-2"
+                            style={{ backgroundColor: theme.colors.accent }}
+                          />
+                        </div>
+                        <span className="text-sm">{theme.name}</span>
+                      </button>
+</Tooltip>
                   ))}
 
                   {/* Custom Theme */}
-                  <button
-                    onClick={() => setShowCustomThemeEditor(true)}
-                    className={`p-3 rounded-lg border transition-all ${currentTheme.id === 'custom'
-                      ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] ring-opacity-50'
-                      : 'border-[var(--border)] hover:border-[var(--text-muted)] border-dashed'
-                      }`}
-                  >
-                    <div className="h-16 rounded-md mb-2 flex items-center justify-center bg-[var(--bg-tertiary)]">
-                      <Palette size={24} className="text-[var(--text-muted)]" />
-                    </div>
-                    <span className="text-sm">Custom</span>
-                  </button>
+<Tooltip content="Create a custom theme">
+                    <button
+                      onClick={() => setShowCustomThemeEditor(true)}
+                      className={`p-3 rounded-lg border transition-all ${currentTheme.id === 'custom'
+                        ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] ring-opacity-50'
+                        : 'border-[var(--border)] hover:border-[var(--text-muted)] border-dashed'
+                        }`}
+                    >
+                      <div className="h-16 rounded-md mb-2 flex items-center justify-center bg-[var(--bg-tertiary)]">
+                        <Palette size={24} className="text-[var(--text-muted)]" />
+                      </div>
+                      <span className="text-sm">Custom</span>
+                    </button>
+</Tooltip>
                 </div>
               </section>
 
@@ -353,29 +360,33 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-[var(--text-muted)] mb-1">Family</label>
-                    <select
-                      className="input"
-                      value={settings.fontFamily}
-                      onChange={(e) => updateSetting('fontFamily', e.target.value)}
-                    >
-                      <option value="Consolas">Consolas</option>
-                      <option value="Monaco">Monaco</option>
-                      <option value="Fira Code">Fira Code</option>
-                      <option value="JetBrains Mono">JetBrains Mono</option>
-                      <option value="Source Code Pro">Source Code Pro</option>
-                      <option value="Cascadia Code">Cascadia Code</option>
-                    </select>
+<Tooltip content="Terminal font family">
+                      <select
+                        className="input"
+                        value={settings.fontFamily}
+                        onChange={(e) => updateSetting('fontFamily', e.target.value)}
+                      >
+                        <option value="Consolas">Consolas</option>
+                        <option value="Monaco">Monaco</option>
+                        <option value="Fira Code">Fira Code</option>
+                        <option value="JetBrains Mono">JetBrains Mono</option>
+                        <option value="Source Code Pro">Source Code Pro</option>
+                        <option value="Cascadia Code">Cascadia Code</option>
+                      </select>
+</Tooltip>
                   </div>
                   <div>
                     <label className="block text-xs text-[var(--text-muted)] mb-1">Size</label>
-                    <input
-                      type="number"
-                      className="input"
-                      value={settings.fontSize}
-                      onChange={(e) => updateSetting('fontSize', parseInt(e.target.value))}
-                      min={10}
-                      max={24}
-                    />
+<Tooltip content="Terminal font size">
+                      <input
+                        type="number"
+                        className="input"
+                        value={settings.fontSize}
+                        onChange={(e) => updateSetting('fontSize', parseInt(e.target.value))}
+                        min={10}
+                        max={24}
+                      />
+</Tooltip>
                   </div>
                 </div>
               </section>
@@ -386,16 +397,18 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
             <div className="space-y-6">
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Shell</h3>
-                <select
-                  className="input"
-                  value={settings.shell}
-                  onChange={(e) => updateSetting('shell', e.target.value)}
-                >
-                  <option value="powershell.exe">PowerShell</option>
-                  <option value="cmd.exe">Command Prompt</option>
-                  <option value="wsl.exe">WSL</option>
-                  <option value="C:\\Program Files\\Git\\bin\\bash.exe">Git Bash</option>
-                </select>
+<Tooltip content="Shell for new terminals">
+                  <select
+                    className="input"
+                    value={settings.shell}
+                    onChange={(e) => updateSetting('shell', e.target.value)}
+                  >
+                    <option value="powershell.exe">PowerShell</option>
+                    <option value="cmd.exe">Command Prompt</option>
+                    <option value="wsl.exe">WSL</option>
+                    <option value="C:\\Program Files\\Git\\bin\\bash.exe">Git Bash</option>
+                  </select>
+</Tooltip>
               </section>
 
               <section>
@@ -403,56 +416,64 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-[var(--text-muted)] mb-1">Style</label>
-                    <select
-                      className="input"
-                      value={settings.cursorStyle}
-                      onChange={(e) =>
-                        updateSetting('cursorStyle', e.target.value as 'block' | 'underline' | 'bar')
-                      }
-                    >
-                      <option value="block">Block</option>
-                      <option value="underline">Underline</option>
-                      <option value="bar">Bar</option>
-                    </select>
+<Tooltip content="Cursor shape">
+                      <select
+                        className="input"
+                        value={settings.cursorStyle}
+                        onChange={(e) =>
+                          updateSetting('cursorStyle', e.target.value as 'block' | 'underline' | 'bar')
+                        }
+                      >
+                        <option value="block">Block</option>
+                        <option value="underline">Underline</option>
+                        <option value="bar">Bar</option>
+                      </select>
+</Tooltip>
                   </div>
                   <div className="flex items-end">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.cursorBlink}
-                        onChange={(e) => updateSetting('cursorBlink', e.target.checked)}
-                        className="rounded"
-                      />
-                      <span className="text-sm">Cursor blink</span>
-                    </label>
+<Tooltip content="Blink the cursor">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.cursorBlink}
+                          onChange={(e) => updateSetting('cursorBlink', e.target.checked)}
+                          className="rounded"
+                        />
+                        <span className="text-sm">Cursor blink</span>
+                      </label>
+</Tooltip>
                   </div>
                 </div>
               </section>
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Scrollback</h3>
-                <input
-                  type="number"
-                  className="input w-32"
-                  value={settings.scrollback}
-                  onChange={(e) => updateSetting('scrollback', parseInt(e.target.value))}
-                  min={1000}
-                  max={100000}
-                  step={1000}
-                />
+<Tooltip content="Lines of history to keep">
+                  <input
+                    type="number"
+                    className="input w-32"
+                    value={settings.scrollback}
+                    onChange={(e) => updateSetting('scrollback', parseInt(e.target.value))}
+                    min={1000}
+                    max={100000}
+                    step={1000}
+                  />
+</Tooltip>
                 <p className="text-xs text-[var(--text-muted)] mt-1">Number of lines to keep in history</p>
               </section>
 
               <section>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.bellSound}
-                    onChange={(e) => updateSetting('bellSound', e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-sm">Terminal bell sound</span>
-                </label>
+<Tooltip content="Play a sound on the terminal bell">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.bellSound}
+                      onChange={(e) => updateSetting('bellSound', e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm">Terminal bell sound</span>
+                  </label>
+</Tooltip>
               </section>
             </div>
           )}
@@ -470,10 +491,12 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       <Check size={16} className="text-[var(--success)]" />
                       <span className="text-sm text-[var(--text-muted)]">API key saved</span>
                     </div>
-                    <button onClick={deleteApiKey} className="btn btn-danger">
-                      <Trash2 size={16} />
-                      Remove
-                    </button>
+<Tooltip content="Remove the saved API key">
+                      <button onClick={deleteApiKey} className="btn btn-danger">
+                        <Trash2 size={16} />
+                        Remove
+                      </button>
+</Tooltip>
                   </div>
                 ) : (
                   <div className="flex gap-2">
@@ -484,9 +507,11 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       value={apiKeyInput}
                       onChange={(e) => setApiKeyInput(e.target.value)}
                     />
-                    <button onClick={() => setApiKey(apiKeyInput)} className="btn btn-primary">
-                      Save
-                    </button>
+<Tooltip content="Save the API key">
+                      <button onClick={() => setApiKey(apiKeyInput)} className="btn btn-primary">
+                        Save
+                      </button>
+</Tooltip>
                   </div>
                 )}
               </section>
@@ -494,29 +519,33 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Model</h3>
-                <select
-                  className="input"
-                  value={settings.aiModel}
-                  onChange={(e) => updateSetting('aiModel', e.target.value)}
-                >
-                  <option value="gpt-4">GPT-4</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                </select>
+<Tooltip content="AI model used for chat">
+                  <select
+                    className="input"
+                    value={settings.aiModel}
+                    onChange={(e) => updateSetting('aiModel', e.target.value)}
+                  >
+                    <option value="gpt-4">GPT-4</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                  </select>
+</Tooltip>
               </section>
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Temperature</h3>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    className="flex-1"
-                    value={settings.aiTemperature}
-                    onChange={(e) => updateSetting('aiTemperature', parseFloat(e.target.value))}
-                    min={0}
-                    max={1}
-                    step={0.1}
-                  />
+<Tooltip content="Lower is more focused, higher is more creative">
+                    <input
+                      type="range"
+                      className="flex-1"
+                      value={settings.aiTemperature}
+                      onChange={(e) => updateSetting('aiTemperature', parseFloat(e.target.value))}
+                      min={0}
+                      max={1}
+                      step={0.1}
+                    />
+</Tooltip>
                   <span className="text-sm w-8">{settings.aiTemperature}</span>
                 </div>
                 <p className="text-xs text-[var(--text-muted)] mt-1">
@@ -528,17 +557,19 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
                   Command Execution Policy
                 </h3>
-                <select
-                  className="input"
-                  value={settings.terminalPolicy}
-                  onChange={(e) =>
-                    updateSetting('terminalPolicy', e.target.value as 'ask' | 'auto' | 'deny')
-                  }
-                >
-                  <option value="ask">Ask before executing</option>
-                  <option value="auto">Execute automatically</option>
-                  <option value="deny">Never execute</option>
-                </select>
+<Tooltip content="What the AI may run in the terminal">
+                  <select
+                    className="input"
+                    value={settings.terminalPolicy}
+                    onChange={(e) =>
+                      updateSetting('terminalPolicy', e.target.value as 'ask' | 'auto' | 'deny')
+                    }
+                  >
+                    <option value="ask">Ask before executing</option>
+                    <option value="auto">Execute automatically</option>
+                    <option value="deny">Never execute</option>
+                  </select>
+</Tooltip>
               </section>
             </div>
           )}
@@ -553,15 +584,17 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Sentinel Face — Gaze Sensitivity</h3>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    className="flex-1"
-                    value={settings.gazeSensitivity ?? 50}
-                    onChange={(e) => updateSetting('gazeSensitivity', parseInt(e.target.value, 10))}
-                    min={0}
-                    max={100}
-                    step={5}
-                  />
+<Tooltip content="How closely the Sentinel face tracks the cursor">
+                    <input
+                      type="range"
+                      className="flex-1"
+                      value={settings.gazeSensitivity ?? 50}
+                      onChange={(e) => updateSetting('gazeSensitivity', parseInt(e.target.value, 10))}
+                      min={0}
+                      max={100}
+                      step={5}
+                    />
+</Tooltip>
                   <span className="text-sm w-10">{settings.gazeSensitivity ?? 50}%</span>
                 </div>
                 <p className="text-xs text-[var(--text-muted)] mt-1">
@@ -572,48 +605,56 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Validation Display</h3>
                 <div className="space-y-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.showValidationSteps !== false}
-                      onChange={(e) => updateSetting('showValidationSteps', e.target.checked)}
-                      className="rounded"
-                    />
-                    <span className="text-sm">Show validation steps (Warp-style ✓/✗/⏳)</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.autoCollapseValidation !== false}
-                      onChange={(e) => updateSetting('autoCollapseValidation', e.target.checked)}
-                      className="rounded"
-                    />
-                    <span className="text-sm">Auto-collapse completed validations</span>
-                  </label>
+<Tooltip content="Show validation steps">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.showValidationSteps !== false}
+                        onChange={(e) => updateSetting('showValidationSteps', e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Show validation steps (Warp-style ✓/✗/⏳)</span>
+                    </label>
+</Tooltip>
+<Tooltip content="Auto-collapse completed validations">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.autoCollapseValidation !== false}
+                        onChange={(e) => updateSetting('autoCollapseValidation', e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Auto-collapse completed validations</span>
+                    </label>
+</Tooltip>
                 </div>
               </section>
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Token Display</h3>
                 <div className="space-y-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.showTokenStats !== false}
-                      onChange={(e) => updateSetting('showTokenStats', e.target.checked)}
-                      className="rounded"
-                    />
-                    <span className="text-sm">Show token statistics</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.showTokenEfficiency !== false}
-                      onChange={(e) => updateSetting('showTokenEfficiency', e.target.checked)}
-                      className="rounded"
-                    />
-                    <span className="text-sm">Show efficiency indicators</span>
-                  </label>
+<Tooltip content="Show token statistics">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.showTokenStats !== false}
+                        onChange={(e) => updateSetting('showTokenStats', e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Show token statistics</span>
+                    </label>
+</Tooltip>
+<Tooltip content="Show efficiency indicators">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.showTokenEfficiency !== false}
+                        onChange={(e) => updateSetting('showTokenEfficiency', e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Show efficiency indicators</span>
+                    </label>
+</Tooltip>
                 </div>
               </section>
             </div>
@@ -631,24 +672,26 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     const Icon = plugin.icon;
                     const onToolbar = settings.toolbarPlugins?.[plugin.id] ?? plugin.defaultOnToolbar;
                     return (
-                      <label key={plugin.id} className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={onToolbar}
-                          onChange={(e) =>
-                            updateSetting('toolbarPlugins', {
-                              ...(settings.toolbarPlugins ?? {}),
-                              [plugin.id]: e.target.checked,
-                            })
-                          }
-                          className="rounded"
-                        />
-                        <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
-                        <span className="min-w-0">
-                          <span className="block text-sm">{plugin.name}</span>
-                          <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
-                        </span>
-                      </label>
+<Tooltip key={plugin.id} content={plugin.description}>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={onToolbar}
+                            onChange={(e) =>
+                              updateSetting('toolbarPlugins', {
+                                ...(settings.toolbarPlugins ?? {}),
+                                [plugin.id]: e.target.checked,
+                              })
+                            }
+                            className="rounded"
+                          />
+                          <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
+                          <span className="min-w-0">
+                            <span className="block text-sm">{plugin.name}</span>
+                            <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
+                          </span>
+                        </label>
+</Tooltip>
                     );
                   })}
                   <div className="flex items-center gap-3">
@@ -718,42 +761,48 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">File Watching</h3>
                 <div className="space-y-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      // The toggle is the daemon switch: it reads on when the
-                      // setting says so OR the daemon is actually running
-                      // (e.g. started on launch or from the terminal).
-                      checked={settings.daemonEnabled !== false || daemonStatus?.running === true}
-                      onChange={(e) => handleDaemonEnabledChange(e.target.checked)}
-                      disabled={daemonBusy}
-                      className="rounded"
-                    />
-                    <span className="text-sm">Enable file watcher daemon</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.daemonAutoFix !== false}
-                      onChange={(e) => handleDaemonAutoFixChange(e.target.checked)}
-                      disabled={daemonBusy}
-                      className="rounded"
-                    />
-                    <span className="text-sm">Auto-fix errors on file change</span>
-                  </label>
+<Tooltip content="Start the file watcher daemon">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        // The toggle is the daemon switch: it reads on when the
+                        // setting says so OR the daemon is actually running
+                        // (e.g. started on launch or from the terminal).
+                        checked={settings.daemonEnabled !== false || daemonStatus?.running === true}
+                        onChange={(e) => handleDaemonEnabledChange(e.target.checked)}
+                        disabled={daemonBusy}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Enable file watcher daemon</span>
+                    </label>
+</Tooltip>
+<Tooltip content="Apply fixes automatically on file change">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.daemonAutoFix !== false}
+                        onChange={(e) => handleDaemonAutoFixChange(e.target.checked)}
+                        disabled={daemonBusy}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Auto-fix errors on file change</span>
+                    </label>
+</Tooltip>
                   <div className="text-xs text-[var(--text-muted)] pl-6">
                     Off = suggest fixes only (watch mode). On applies fixes automatically.
                   </div>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.daemonCommitTracking !== false}
-                      onChange={(e) => handleDaemonCommitTrackingChange(e.target.checked)}
-                      disabled={daemonBusy}
-                      className="rounded"
-                    />
-                    <span className="text-sm">GitHub-style commit tracking</span>
-                  </label>
+<Tooltip content="Log new commits in watched repos">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.daemonCommitTracking !== false}
+                        onChange={(e) => handleDaemonCommitTrackingChange(e.target.checked)}
+                        disabled={daemonBusy}
+                        className="rounded"
+                      />
+                      <span className="text-sm">GitHub-style commit tracking</span>
+                    </label>
+</Tooltip>
                   <div className="text-xs text-[var(--text-muted)] pl-6">
                     On = the watcher logs each new commit in a watched git repo (see Daemon Logs below). Off = commits are ignored. The watcher only reads HEAD — it never commits anything itself.
                   </div>
@@ -772,20 +821,23 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     watchPaths.map((dir) => (
                       <div key={dir} className="flex items-center gap-2 text-sm">
                         <span className="flex-1 truncate font-mono text-xs">{dir}</span>
-                        <button
-                          onClick={() => handleRemoveWatchDirectory(dir)}
-                          disabled={daemonBusy}
-                          className="btn-ghost p-1 rounded text-red-500 hover:bg-red-500/10"
-                          title="Stop watching this directory"
-                        >
-                          <X size={14} />
-                        </button>
+<Tooltip content="Stop watching this directory">
+                          <button
+                            onClick={() => handleRemoveWatchDirectory(dir)}
+                            disabled={daemonBusy}
+                            className="btn-ghost p-1 rounded text-red-500 hover:bg-red-500/10"
+                          >
+                            <X size={14} />
+                          </button>
+</Tooltip>
                       </div>
                     ))
                   )}
-                  <button onClick={handleAddWatchDirectory} disabled={daemonBusy} className="btn btn-secondary text-xs">
-                    Add Directory to Watch
-                  </button>
+<Tooltip content="Add a directory to watch">
+                    <button onClick={handleAddWatchDirectory} disabled={daemonBusy} className="btn btn-secondary text-xs">
+                      Add Directory to Watch
+                    </button>
+</Tooltip>
                 </div>
               </section>
 
@@ -794,27 +846,31 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-[var(--text-muted)] mb-1">Log Retention (days)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      value={settings.daemonLogRetention || 30}
-                      onChange={(e) => updateSetting('daemonLogRetention', parseInt(e.target.value))}
-                      min={1}
-                      max={365}
-                    />
+<Tooltip content="Days of daemon logs to keep">
+                      <input
+                        type="number"
+                        className="input"
+                        value={settings.daemonLogRetention || 30}
+                        onChange={(e) => updateSetting('daemonLogRetention', parseInt(e.target.value))}
+                        min={1}
+                        max={365}
+                      />
+</Tooltip>
                   </div>
                   <div>
                     <label className="block text-xs text-[var(--text-muted)] mb-1">Verbosity</label>
-                    <select
-                      className="input"
-                      value={settings.daemonLogVerbosity || 'normal'}
-                      onChange={(e) => updateSetting('daemonLogVerbosity', e.target.value)}
-                    >
-                      <option value="minimal">Minimal</option>
-                      <option value="normal">Normal</option>
-                      <option value="verbose">Verbose</option>
-                      <option value="debug">Debug</option>
-                    </select>
+<Tooltip content="How much the daemon logs">
+                      <select
+                        className="input"
+                        value={settings.daemonLogVerbosity || 'normal'}
+                        onChange={(e) => updateSetting('daemonLogVerbosity', e.target.value)}
+                      >
+                        <option value="minimal">Minimal</option>
+                        <option value="normal">Normal</option>
+                        <option value="verbose">Verbose</option>
+                        <option value="debug">Debug</option>
+                      </select>
+</Tooltip>
                   </div>
                 </div>
               </section>
@@ -832,9 +888,11 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   {daemonError && (
                     <div className="text-xs text-red-500">{daemonError}</div>
                   )}
-                  <button onClick={() => setShowDaemonLogs(true)} className="btn btn-secondary text-xs">
-                    View Daemon Logs
-                  </button>
+<Tooltip content="Open the daemon log viewer">
+                    <button onClick={() => setShowDaemonLogs(true)} className="btn btn-secondary text-xs">
+                      View Daemon Logs
+                    </button>
+</Tooltip>
                 </div>
               </section>
             </div>
@@ -854,15 +912,17 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     onChange={(e) => updateSetting('startupDirectory', e.target.value)}
                     placeholder="Default: Home directory"
                   />
-                  <button
-                    onClick={async () => {
-                      const dir = await window.lucidAPI.fs.selectDirectory();
-                      if (dir) updateSetting('startupDirectory', dir);
-                    }}
-                    className="btn btn-secondary"
-                  >
-                    Browse
-                  </button>
+<Tooltip content="Choose the startup directory">
+                    <button
+                      onClick={async () => {
+                        const dir = await window.lucidAPI.fs.selectDirectory();
+                        if (dir) updateSetting('startupDirectory', dir);
+                      }}
+                      className="btn btn-secondary"
+                    >
+                      Browse
+                    </button>
+</Tooltip>
                 </div>
               </section>
 
@@ -871,14 +931,18 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   Import / Export
                 </h3>
                 <div className="flex gap-2">
-                  <button onClick={handleExport} className="btn btn-secondary">
-                    <Download size={16} />
-                    Export Settings
-                  </button>
-                  <button onClick={handleImport} className="btn btn-secondary">
-                    <Upload size={16} />
-                    Import Settings
-                  </button>
+<Tooltip content="Download settings as JSON">
+                    <button onClick={handleExport} className="btn btn-secondary">
+                      <Download size={16} />
+                      Export Settings
+                    </button>
+</Tooltip>
+<Tooltip content="Import settings from a JSON file">
+                    <button onClick={handleImport} className="btn btn-secondary">
+                      <Upload size={16} />
+                      Import Settings
+                    </button>
+</Tooltip>
                 </div>
               </section>
             </div>
@@ -892,12 +956,14 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
           <div className="bg-[var(--bg-secondary)] rounded-lg w-[600px] max-h-[80vh] overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
               <h3 className="font-semibold">Custom Theme Editor</h3>
-              <button
-                onClick={() => setShowCustomThemeEditor(false)}
-                className="btn-ghost p-1 rounded"
-              >
-                <X size={18} />
-              </button>
+<Tooltip content="Close the theme editor">
+                <button
+                  onClick={() => setShowCustomThemeEditor(false)}
+                  className="btn-ghost p-1 rounded"
+                >
+                  <X size={18} />
+                </button>
+</Tooltip>
             </div>
             <div className="p-4 overflow-y-auto max-h-[60vh]">
               <div className="grid grid-cols-2 gap-4">
@@ -928,15 +994,19 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               </div>
             </div>
             <div className="flex justify-end gap-2 px-4 py-3 border-t border-[var(--border)]">
-              <button
-                onClick={() => setShowCustomThemeEditor(false)}
-                className="btn btn-secondary"
-              >
-                Cancel
-              </button>
-              <button onClick={handleSaveCustomTheme} className="btn btn-primary">
-                Apply Theme
-              </button>
+<Tooltip content="Discard theme changes">
+                <button
+                  onClick={() => setShowCustomThemeEditor(false)}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+</Tooltip>
+<Tooltip content="Save and apply the custom theme">
+                <button onClick={handleSaveCustomTheme} className="btn btn-primary">
+                  Apply Theme
+                </button>
+</Tooltip>
             </div>
           </div>
         </div>

@@ -169,6 +169,21 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('browser:zoom', tabId, factor),
     openExternal: (url: string) =>
       ipcRenderer.invoke('browser:open-external', url),
+    listDownloads: () =>
+      ipcRenderer.invoke('browser:list-downloads'),
+    cancelDownload: (id: string) =>
+      ipcRenderer.invoke('browser:download-cancel', id),
+    pauseDownload: (id: string) =>
+      ipcRenderer.invoke('browser:download-pause', id),
+    resumeDownload: (id: string) =>
+      ipcRenderer.invoke('browser:download-resume', id),
+    showDownloadInFolder: (id: string) =>
+      ipcRenderer.invoke('browser:show-download', id),
+    onDownloadUpdated: (callback: (update: BrowserDownload) => void) => {
+      const listener = (_: any, update: BrowserDownload) => callback(update);
+      ipcRenderer.on('browser:download-updated', listener);
+      return () => ipcRenderer.removeListener('browser:download-updated', listener);
+    },
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,

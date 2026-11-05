@@ -94,6 +94,8 @@ vi.mock('electron', () => {
     session: {
       fromPartition: () => ({
         setPermissionRequestHandler: () => undefined,
+        // Area 2 registers will-download on the same session.
+        on: () => undefined,
       }),
     },
     clipboard: { writeText: () => undefined },

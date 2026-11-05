@@ -271,6 +271,30 @@ export interface BrowserFindResult {
   matches: number;
 }
 
+/** Lifecycle of one browser download, as the shelf shows it. */
+export type BrowserDownloadState =
+  | 'progressing'
+  | 'completed'
+  | 'cancelled'
+  | 'interrupted';
+
+/** One browser download, pushed by the main process as
+ * `browser:download-updated` events. */
+export interface BrowserDownload {
+  /** `browser-download-N`, assigned in arrival order. */
+  id: string;
+  /** URL the download came from. */
+  url: string;
+  /** Sanitised file name (no path, no control characters). */
+  filename: string;
+  /** Full path the file is being written to. */
+  savePath: string;
+  receivedBytes: number;
+  /** Total bytes, or 0/-1 when the server did not send a length. */
+  totalBytes: number;
+  state: BrowserDownloadState;
+}
+
 export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
 
 // Extend Window interface for Electron API
@@ -346,6 +370,12 @@ declare global {
         onFindUpdated: (callback: (tabId: string, result: BrowserFindResult) => void) => () => void;
         setZoom: (tabId: string, factor: number) => Promise<number>;
         openExternal: (url: string) => Promise<void>;
+        listDownloads: () => Promise<BrowserDownload[]>;
+        cancelDownload: (id: string) => Promise<boolean>;
+        pauseDownload: (id: string) => Promise<boolean>;
+        resumeDownload: (id: string) => Promise<boolean>;
+        showDownloadInFolder: (id: string) => Promise<boolean>;
+        onDownloadUpdated: (callback: (update: BrowserDownload) => void) => () => void;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

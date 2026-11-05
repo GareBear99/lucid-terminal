@@ -96,7 +96,13 @@ app.whenReady().then(() => {
   setupDaemonHandlers(ipcMain);
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   // The in-panel browser needs the window to attach its BrowserViews to.
-  setupBrowserHandlers(ipcMain, () => mainWindow);
+  setupBrowserHandlers(ipcMain, () => mainWindow, {
+    // Downloads (Area 2): Gary can point the browser at a different
+    // folder with the `browserDownloadsFolder` setting; unset means
+    // the OS Downloads folder.
+    getDownloadsFolder: () =>
+      settings.get<string>('browserDownloadsFolder') ?? undefined,
+  });
   // Phone streaming (scrcpy) needs the window for the PhoneView canvas host.
   setupAndroidHandlers(ipcMain, () => mainWindow);
   // The Sentinel face follows the cursor even off-window: the

@@ -22,7 +22,8 @@ import {
 } from '../services/browserPermissions';
 import type { BrowserPermissionAllowlist } from '../services/browserPermissions';
 import { browserContextMenuItems } from '../services/browserContextMenu';
-import type { BrowserAuthRequest } from '../../src/types';
+import { setupBrowserDownloads } from '../services/browserDownloads';
+import type { BrowserAuthRequest, BrowserDownload } from '../../src/types';
 
 /**
  * In-panel browser: one real Chromium view (BrowserView) per browser
@@ -65,6 +66,12 @@ import type { BrowserAuthRequest } from '../../src/types';
  * back as `browser:find-updated`), per-tab zoom (0.25–5, remembered
  * while the tab lives), and open-in-system-browser for the current
  * page (http/https only).
+ *
+ * Downloads (Area 2): a `will-download` handler on the browser
+ * session saves straight into a Lucid downloads folder (OS Downloads
+ * by default, `browserDownloadsFolder` setting overrides it) with
+ * progress pushed back as `browser:download-updated`; the shelf
+ * offers pause / resume / cancel / show-in-folder.
  */
 
 export type { BrowserViewBounds };
@@ -103,6 +110,11 @@ export function stepZoomFactor(factor: number, direction: 1 | -1): number {
 export function setupBrowserHandlers(
   ipcMain: IpcMain,
   getMainWindow: () => BrowserWindow | null,
+  options?: {
+    /** Folder downloads go to; defaults to the OS Downloads folder.
+     * main passes the `browserDownloadsFolder` setting here. */
+    getDownloadsFolder?: () => string | undefined;
+  },
 ): void {
   const views = new Map<string, ReturnType<typeof createBrowserView>>();
   let activeTabId: string | null = null;
@@ -137,6 +149,20 @@ export function setupBrowserHandlers(
       );
     },
   );
+
+  // Downloads (Area 2): the session is shared by every browser
+  // view, so one will-download handler covers all tabs. Progress
+  // goes to the renderer as `browser:download-updated` events.
+  const downloads = setupBrowserDownloads(browserSession, {
+    downloadsFolder: () =>
+      options?.getDownloadsFolder?.() ?? app.getPath('downloads'),
+    fallbackFolder: () => app.getPath('downloads'),
+    send: (update: BrowserDownload) => {
+      const win = getMainWindow();
+      if (!win || win.isDestroyed()) return;
+      win.webContents.send('browser:download-updated', update);
+    },
+  });
 
   // Pending HTTP-auth requests: request id -> resolver + tab. The
   // renderer shows Gary a prompt and answers via `browser:auth-response`.
@@ -429,5 +455,26 @@ export function setupBrowserHandlers(
       pendingAuth.delete(requestId);
       pending.resolve(creds);
     },
+  );
+
+  // Downloads (Area 2): current list plus the shelf's controls.
+  // Unknown ids are no-ops (false) — a stale shelf button after a
+  // restart must not throw.
+  ipcMain.handle('browser:list-downloads', () => downloads.listDownloads());
+
+  ipcMain.handle('browser:download-cancel', (_event, id: string) =>
+    downloads.cancelDownload(id),
+  );
+
+  ipcMain.handle('browser:download-pause', (_event, id: string) =>
+    downloads.pauseDownload(id),
+  );
+
+  ipcMain.handle('browser:download-resume', (_event, id: string) =>
+    downloads.resumeDownload(id),
+  );
+
+  ipcMain.handle('browser:show-download', (_event, id: string) =>
+    downloads.showDownloadInFolder(id),
   );
 }

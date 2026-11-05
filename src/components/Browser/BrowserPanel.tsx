@@ -20,6 +20,8 @@ import {
   useBrowserHistory,
   matchHistoryEntries,
 } from '../../stores/browserHistory';
+import { useBrowserDownloads } from '../../stores/browserDownloads';
+import { DownloadShelf } from './DownloadShelf';
 import { getPhoneEntries, type PhoneEntry } from '../../phone/streaming';
 import { usePhoneStore } from '../../stores/phoneStore';
 import PhoneView from '../Phone/PhoneView';
@@ -117,6 +119,22 @@ function BrowserPanel() {
   const zoomOut = useBrowserStore((s) => s.zoomOut);
   const resetZoom = useBrowserStore((s) => s.resetZoom);
   const historyEntries = useBrowserHistory((s) => s.entries);
+  const applyDownloadUpdate = useBrowserDownloads((s) => s.applyUpdate);
+  const loadDownloads = useBrowserDownloads((s) => s.load);
+
+  // Downloads (Area 2): live progress from main, plus the current
+  // list on mount (a download started before the panel opened).
+  useEffect(() => {
+    loadDownloads();
+    const cleanupDownloads = window.lucidAPI.browser.onDownloadUpdated(
+      (update) => {
+        applyDownloadUpdate(update);
+      },
+    );
+    return () => {
+      cleanupDownloads();
+    };
+  }, [applyDownloadUpdate, loadDownloads]);
 
   // Phone entries: the external app always, the in-app (internal)
   // stream only when the Android add-on is installed — and greyed
@@ -702,6 +720,10 @@ function BrowserPanel() {
       ) : (
         <div ref={containerRef} className="flex-1 min-h-0 bg-white" />
       )}
+
+      {/* Download shelf (Area 2): renders only while a download
+          exists; finished ones stay until Gary dismisses them. */}
+      <DownloadShelf />
 
       {/* HTTP-auth prompt: a page asked for basic-auth credentials.
           Shows the first queued challenge; answering it shows the next. */}

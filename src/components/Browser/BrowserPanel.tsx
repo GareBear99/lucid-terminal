@@ -8,15 +8,29 @@ import {
   Globe,
   Loader,
   Smartphone,
+  Search,
+  ZoomIn,
+  ZoomOut,
+  Copy,
+  ExternalLink,
+  Undo2,
 } from 'lucide-react';
 import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
+import {
+  useBrowserHistory,
+  matchHistoryEntries,
+} from '../../stores/browserHistory';
 import { getPhoneEntries, type PhoneEntry } from '../../phone/streaming';
 import { usePhoneStore } from '../../stores/phoneStore';
 import PhoneView from '../Phone/PhoneView';
 import { resolveInputToUrl } from '../../stores/browserUrl';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { BrowserAuthPrompt } from './BrowserAuthPrompt';
-import type { BrowserAuthRequest, BrowserBounds } from '../../types';
+import type {
+  BrowserAuthRequest,
+  BrowserBounds,
+  BrowserFindResult,
+} from '../../types';
 
 /**
  * The Browser tab of the AI panel: tab strip, nav bar, quick tabs,
@@ -97,6 +111,12 @@ function BrowserPanel() {
   const reload = useBrowserStore((s) => s.reload);
   const openQuickTab = useBrowserStore((s) => s.openQuickTab);
   const applyTabUpdate = useBrowserStore((s) => s.applyTabUpdate);
+  const closedTabs = useBrowserStore((s) => s.closedTabs);
+  const restoreClosedTab = useBrowserStore((s) => s.restoreClosedTab);
+  const zoomIn = useBrowserStore((s) => s.zoomIn);
+  const zoomOut = useBrowserStore((s) => s.zoomOut);
+  const resetZoom = useBrowserStore((s) => s.resetZoom);
+  const historyEntries = useBrowserHistory((s) => s.entries);
 
   // Phone entries: the external app always, the in-app (internal)
   // stream only when the Android add-on is installed — and greyed
@@ -159,12 +179,35 @@ function BrowserPanel() {
   };
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  const panelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState(activeTab?.url ?? '');
   // HTTP-auth challenges, queued in arrival order. The prompt shows
   // the first one; answering it (sign in or cancel) shows the next.
   const [authQueue, setAuthQueue] = useState<BrowserAuthRequest[]>([]);
+
+  // Find-in-page bar (Ctrl+F). `findResult` is the last count pushed
+  // by main; null means no search is running.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [findResult, setFindResult] = useState<BrowserFindResult | null>(null);
+
+  // Address-bar history dropdown: open while the input has focus.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const suggestions = matchHistoryEntries(historyEntries, input, 8);
+
+  // "Copied" feedback on the copy-link button, cleared shortly after.
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    };
+  }, []);
 
   // Keep the address bar in step with the active tab — but never while
   // the user is typing in it (an in-flight navigation would clobber
@@ -194,12 +237,107 @@ function BrowserPanel() {
         prev.some((r) => r.id === request.id) ? prev : [...prev, request],
       );
     });
+    const cleanupFind = window.lucidAPI.browser.onFindUpdated(
+      (tabId, result) => {
+        // Only the active tab's counts belong in the find bar.
+        if (tabId === useBrowserStore.getState().activeTabId) {
+          setFindResult(result);
+        }
+      },
+    );
     return () => {
       cleanupUpdated();
       cleanupOpenUrl();
       cleanupAuth();
+      cleanupFind();
     };
   }, [applyTabUpdate, createTab]);
+
+  // Find-in-page: run the search in the active tab. A fresh query
+  // starts at the top (findNext: false); Enter steps through matches.
+  const runFind = (
+    text: string,
+    options?: { forward?: boolean; findNext?: boolean },
+  ) => {
+    if (!activeTabId || !text) return;
+    void window.lucidAPI.browser.findInPage(activeTabId, text, options);
+  };
+
+  const closeFind = () => {
+    setFindOpen(false);
+    setFindText('');
+    setFindResult(null);
+    if (activeTabId) {
+      void window.lucidAPI.browser.stopFindInPage(
+        activeTabId,
+        'clearSelection',
+      );
+    }
+  };
+
+  // Opening the find bar focuses its input; switching tabs re-runs
+  // the open search in the new tab (or clears the stale count).
+  useEffect(() => {
+    if (findOpen) findInputRef.current?.focus();
+  }, [findOpen]);
+
+  useEffect(() => {
+    if (findOpen && findText) runFind(findText);
+    else setFindResult(null);
+    // Deliberately only on tab switch: typing re-runs the search
+    // from the input handler, so it is not a dependency here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
+
+  // Panel shortcuts, only while focus is inside the browser panel —
+  // the terminal keeps its own Ctrl+F / Ctrl+T behaviour otherwise.
+  useEffect(() => {
+    if (panelTab !== 'browser') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!panelRef.current?.contains(e.target as Node)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 'f') {
+        e.preventDefault();
+        setFindOpen(true);
+      } else if (key === '=' || key === '+') {
+        e.preventDefault();
+        zoomIn();
+      } else if (key === '-') {
+        e.preventDefault();
+        zoomOut();
+      } else if (key === '0') {
+        e.preventDefault();
+        resetZoom();
+      } else if (key === 't' && e.shiftKey) {
+        e.preventDefault();
+        restoreClosedTab();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [panelTab, zoomIn, zoomOut, resetZoom, restoreClosedTab]);
+
+  // Copy the active page's URL (clipboard API, with a textarea
+  // fallback for contexts where it is unavailable).
+  const copyCurrentUrl = async () => {
+    const url = activeTab?.url;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = url;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
+    setCopied(true);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+  };
 
   // Attach the active view at the container's rect, and keep it there.
   useEffect(() => {
@@ -233,19 +371,53 @@ function BrowserPanel() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    // A highlighted history suggestion wins over the raw input.
+    if (historyOpen && historyIndex >= 0 && suggestions[historyIndex]) {
+      navigate(suggestions[historyIndex].url);
+      setHistoryOpen(false);
+      setHistoryIndex(-1);
+      inputRef.current?.blur();
+      return;
+    }
     const url = resolveInputToUrl(input);
     if (url) navigate(url);
+    setHistoryOpen(false);
     inputRef.current?.blur();
   };
 
+  // Arrow keys walk the history dropdown; Esc closes it.
+  const onAddressKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHistoryOpen(true);
+      setHistoryIndex((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHistoryIndex((i) => Math.max(i - 1, -1));
+    } else if (e.key === 'Escape') {
+      setHistoryOpen(false);
+      setHistoryIndex(-1);
+    }
+  };
+
   return (
-    <div className="relative h-full flex flex-col bg-[var(--bg-primary)]">
+    <div
+      ref={panelRef}
+      className="relative h-full flex flex-col bg-[var(--bg-primary)]"
+    >
       {/* Browser tab strip */}
       <div className="flex items-center gap-1 px-2 pt-1.5 border-b border-[var(--border)] overflow-x-auto shrink-0">
         {tabs.map((tab) => (
           <Tooltip key={tab.id} content={tab.url || tab.title || 'Browser tab'} placement="bottom">
             <div
               onClick={() => activateTab(tab.id)}
+              onMouseDown={(e) => {
+                // Middle-click closes the tab, like every other browser.
+                if (e.button === 1) {
+                  e.preventDefault();
+                  closeTab(tab.id);
+                }
+              }}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-t-md text-xs cursor-pointer whitespace-nowrap max-w-[160px] ${
                 tab.id === activeTabId
                   ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] font-semibold'
@@ -280,50 +452,222 @@ function BrowserPanel() {
             <Plus size={14} />
           </button>
         </Tooltip>
+        <Tooltip content="Reopen closed tab (Ctrl+Shift+T)">
+          <button
+            onClick={restoreClosedTab}
+            disabled={closedTabs.length === 0}
+            className="p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-30 shrink-0"
+          >
+            <Undo2 size={14} />
+          </button>
+        </Tooltip>
       </div>
 
-      {/* Nav bar */}
-      <form
-        onSubmit={submit}
-        className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border)] shrink-0"
-      >
-        <Tooltip content="Back">
-          <button
-            type="button"
-            onClick={goBack}
-            disabled={!activeTab?.canGoBack}
-            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
-          >
-            <ArrowLeft size={16} />
-          </button>
-        </Tooltip>
-        <Tooltip content="Forward">
-          <button
-            type="button"
-            onClick={goForward}
-            disabled={!activeTab?.canGoForward}
-            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
-          >
-            <ArrowRight size={16} />
-          </button>
-        </Tooltip>
-        <Tooltip content="Reload">
-          <button
-            type="button"
-            onClick={reload}
-            className="p-1.5 rounded hover:bg-[var(--bg-secondary)]"
-          >
-            <RotateCw size={16} />
-          </button>
-        </Tooltip>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Search or type a URL"
-          className="input flex-1 min-w-0 text-xs"
-        />
-      </form>
+      {/* Nav bar + address-bar history dropdown */}
+      <div className="relative shrink-0">
+        <form
+          onSubmit={submit}
+          className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border)]"
+        >
+          <Tooltip content="Back">
+            <button
+              type="button"
+              onClick={goBack}
+              disabled={!activeTab?.canGoBack}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <ArrowLeft size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Forward">
+            <button
+              type="button"
+              onClick={goForward}
+              disabled={!activeTab?.canGoForward}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <ArrowRight size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Reload">
+            <button
+              type="button"
+              onClick={reload}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)]"
+            >
+              <RotateCw size={16} />
+            </button>
+          </Tooltip>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setHistoryOpen(true);
+              setHistoryIndex(-1);
+            }}
+            onFocus={() => setHistoryOpen(true)}
+            onBlur={() => {
+              // Let a dropdown mousedown land before the list closes.
+              setTimeout(() => setHistoryOpen(false), 120);
+            }}
+            onKeyDown={onAddressKeyDown}
+            placeholder="Search or type a URL"
+            className="input flex-1 min-w-0 text-xs"
+          />
+          <Tooltip content="Find in page (Ctrl+F)">
+            <button
+              type="button"
+              onClick={() => setFindOpen((open) => !open)}
+              className={`p-1.5 rounded hover:bg-[var(--bg-secondary)] ${
+                findOpen ? 'bg-[var(--bg-tertiary)]' : ''
+              }`}
+            >
+              <Search size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Zoom out (Ctrl+-)">
+            <button
+              type="button"
+              onClick={zoomOut}
+              disabled={!activeTab}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <ZoomOut size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Zoom level — click to reset to 100% (Ctrl+0)">
+            <button
+              type="button"
+              onClick={resetZoom}
+              disabled={!activeTab}
+              className="px-1 py-1.5 rounded hover:bg-[var(--bg-secondary)] text-xs text-[var(--text-muted)] disabled:opacity-30 min-w-[42px]"
+            >
+              {Math.round((activeTab?.zoomFactor ?? 1) * 100)}%
+            </button>
+          </Tooltip>
+          <Tooltip content="Zoom in (Ctrl+=)">
+            <button
+              type="button"
+              onClick={zoomIn}
+              disabled={!activeTab}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <ZoomIn size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content={copied ? 'Copied!' : 'Copy page URL'}>
+            <button
+              type="button"
+              onClick={() => void copyCurrentUrl()}
+              disabled={!activeTab?.url || activeTab.url === 'about:blank'}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <Copy size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Open this page in the system browser">
+            <button
+              type="button"
+              onClick={() => {
+                if (activeTab?.url) {
+                  void window.lucidAPI.browser.openExternal(activeTab.url);
+                }
+              }}
+              disabled={!activeTab?.url || activeTab.url === 'about:blank'}
+              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] disabled:opacity-30"
+            >
+              <ExternalLink size={16} />
+            </button>
+          </Tooltip>
+        </form>
+
+        {/* Typed-URL history: recent pages first, filtered as Gary
+            types. Arrow keys + Enter pick one; Esc closes. */}
+        {historyOpen && suggestions.length > 0 ? (
+          <div className="absolute left-2 right-2 top-full z-20 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] shadow-lg overflow-hidden">
+            {suggestions.map((entry, i) => (
+              <div
+                key={entry.url}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  navigate(entry.url);
+                  setHistoryOpen(false);
+                  setHistoryIndex(-1);
+                  inputRef.current?.blur();
+                }}
+                className={`flex flex-col px-2.5 py-1.5 cursor-pointer text-xs ${
+                  i === historyIndex
+                    ? 'bg-[var(--bg-tertiary)]'
+                    : 'hover:bg-[var(--bg-tertiary)]'
+                }`}
+              >
+                <span className="truncate text-[var(--text-primary)]">
+                  {entry.title || entry.url}
+                </span>
+                <span className="truncate text-[var(--text-muted)]">
+                  {entry.url}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Find-in-page bar */}
+      {findOpen ? (
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border)] shrink-0">
+          <Search size={13} className="text-[var(--text-muted)] shrink-0" />
+          <input
+            ref={findInputRef}
+            value={findText}
+            onChange={(e) => {
+              const text = e.target.value;
+              setFindText(text);
+              if (text) {
+                runFind(text);
+              } else {
+                setFindResult(null);
+                if (activeTabId) {
+                  void window.lucidAPI.browser.stopFindInPage(
+                    activeTabId,
+                    'clearSelection',
+                  );
+                }
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                runFind(findText, { forward: !e.shiftKey, findNext: true });
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeFind();
+              }
+            }}
+            placeholder="Find in page"
+            className="input flex-1 min-w-0 text-xs"
+          />
+          <span className="text-xs text-[var(--text-muted)] whitespace-nowrap px-1">
+            {findResult
+              ? findResult.matches === 0
+                ? 'No matches'
+                : `${findResult.activeMatchOrdinal} / ${findResult.matches}`
+              : findText
+                ? 'Searching…'
+                : ''}
+          </span>
+          <Tooltip content="Close find bar (Esc)">
+            <button
+              type="button"
+              onClick={closeFind}
+              className="p-1 rounded hover:bg-[var(--bg-secondary)]"
+            >
+              <X size={13} />
+            </button>
+          </Tooltip>
+        </div>
+      ) : null}
 
       {/* Quick tabs — the two separate Phone entries. The external
           entry always works and is never gated; the internal entry

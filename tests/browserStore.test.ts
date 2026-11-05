@@ -5,6 +5,10 @@
  * - the first visit to the Browser tab opens the phone control app;
  * - closing the active tab activates its neighbour, and closing the
  *   last tab opens a fresh one (never zero tabs);
+ * - closing a tab remembers it (unless blank) so Ctrl+Shift+T can
+ *   reopen it, most recent first;
+ * - zoom steps 20% per action, clamped to 25–500%, and tells main;
+ * - a finished page load is recorded in browser history;
  * - switching panel tabs never drops browser tabs, and switching
  *   browser tabs never drops the panel tab;
  * - a main-process update for a closed tab must not resurrect it.
@@ -24,6 +28,7 @@ import {
   PHONE_CONTROL_URL,
   ABOUT_BLANK,
 } from '../src/stores/browserStore';
+import { useBrowserHistory } from '../src/stores/browserHistory';
 import type { BrowserTabState } from '../src/types';
 
 const browserStub = () => ({
@@ -36,6 +41,7 @@ const browserStub = () => ({
   goBack: vi.fn().mockResolvedValue(undefined),
   goForward: vi.fn().mockResolvedValue(undefined),
   reload: vi.fn().mockResolvedValue(undefined),
+  setZoom: vi.fn().mockResolvedValue(1),
   onUpdated: vi.fn().mockReturnValue(() => undefined),
   onOpenUrl: vi.fn().mockReturnValue(() => undefined),
 });
@@ -43,7 +49,13 @@ const browserStub = () => ({
 let stub: ReturnType<typeof browserStub>;
 
 const resetStore = () => {
-  useBrowserStore.setState({ panelTab: 'ai', tabs: [], activeTabId: null });
+  useBrowserStore.setState({
+    panelTab: 'ai',
+    tabs: [],
+    activeTabId: null,
+    closedTabs: [],
+  });
+  useBrowserHistory.setState({ entries: [] });
 };
 
 beforeEach(() => {
@@ -274,5 +286,110 @@ describe('useBrowserStore', () => {
     const s = useBrowserStore.getState();
     expect(s.tabs).toHaveLength(1);
     expect(s.tabs[0].url).toBe(PHONE_CONTROL_URL);
+  });
+
+  it('closing a tab remembers it for reopening', () => {
+    const api = useBrowserStore.getState();
+    api.createTab('https://one.example');
+    api.createTab('https://two.example');
+    const s = useBrowserStore.getState();
+    api.closeTab(s.tabs[0].id);
+    expect(useBrowserStore.getState().closedTabs).toEqual([
+      { url: 'https://one.example', title: 'https://one.example' },
+    ]);
+  });
+
+  it('closing a blank tab does not add to the reopen stack', () => {
+    const api = useBrowserStore.getState();
+    api.createTab();
+    const s = useBrowserStore.getState();
+    api.closeTab(s.tabs[0].id);
+    expect(useBrowserStore.getState().closedTabs).toEqual([]);
+  });
+
+  it('restoreClosedTab reopens the most recent closed tab first', () => {
+    const api = useBrowserStore.getState();
+    api.createTab('https://one.example');
+    api.createTab('https://two.example');
+    const s = useBrowserStore.getState();
+    api.closeTab(s.tabs[0].id);
+    api.closeTab(s.tabs[1].id);
+    expect(useBrowserStore.getState().closedTabs).toHaveLength(2);
+    api.restoreClosedTab();
+    const next = useBrowserStore.getState();
+    expect(next.tabs[next.tabs.length - 1].url).toBe('https://two.example');
+    expect(next.closedTabs).toHaveLength(1);
+    expect(next.closedTabs[0].url).toBe('https://one.example');
+    api.restoreClosedTab();
+    expect(useBrowserStore.getState().closedTabs).toHaveLength(0);
+  });
+
+  it('restoreClosedTab with nothing closed is a no-op', () => {
+    const api = useBrowserStore.getState();
+    api.createTab('https://one.example');
+    api.restoreClosedTab();
+    expect(useBrowserStore.getState().tabs).toHaveLength(1);
+    expect(stub.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('zoomIn steps 20% and tells main; zoomOut steps back', () => {
+    const api = useBrowserStore.getState();
+    api.createTab('https://one.example');
+    const id = useBrowserStore.getState().tabs[0].id;
+    api.zoomIn();
+    expect(useBrowserStore.getState().tabs[0].zoomFactor).toBe(1.2);
+    expect(stub.setZoom).toHaveBeenCalledWith(id, 1.2);
+    api.zoomIn();
+    expect(useBrowserStore.getState().tabs[0].zoomFactor).toBe(1.44);
+    api.zoomOut();
+    expect(useBrowserStore.getState().tabs[0].zoomFactor).toBe(1.2);
+  });
+
+  it('zoom clamps at 25% and 500%', () => {
+    const api = useBrowserStore.getState();
+    api.createTab('https://one.example');
+    for (let i = 0; i < 20; i++) api.zoomOut();
+    expect(useBrowserStore.getState().tabs[0].zoomFactor).toBe(0.25);
+    for (let i = 0; i < 40; i++) api.zoomIn();
+    expect(useBrowserStore.getState().tabs[0].zoomFactor).toBe(5);
+  });
+
+  it('resetZoom returns to 100% and tells main; at 100% it is a no-op', () => {
+    const api = useBrowserStore.getState();
+    api.createTab('https://one.example');
+    const id = useBrowserStore.getState().tabs[0].id;
+    api.resetZoom();
+    expect(stub.setZoom).not.toHaveBeenCalled();
+    api.zoomIn();
+    api.resetZoom();
+    expect(useBrowserStore.getState().tabs[0].zoomFactor).toBe(1);
+    expect(stub.setZoom).toHaveBeenLastCalledWith(id, 1);
+  });
+
+  it('a finished load is recorded in history; a loading one is not', () => {
+    const api = useBrowserStore.getState();
+    api.createTab('https://one.example');
+    const id = useBrowserStore.getState().tabs[0].id;
+    api.applyTabUpdate(id, { ...tabState('https://one.example'), loading: true });
+    expect(useBrowserHistory.getState().entries).toEqual([]);
+    api.applyTabUpdate(id, tabState('https://one.example'));
+    expect(useBrowserHistory.getState().entries).toHaveLength(1);
+    expect(useBrowserHistory.getState().entries[0].url).toBe(
+      'https://one.example',
+    );
+  });
+
+  it('a finished about:blank load is not recorded in history', () => {
+    const api = useBrowserStore.getState();
+    api.createTab();
+    const id = useBrowserStore.getState().tabs[0].id;
+    api.applyTabUpdate(id, {
+      url: ABOUT_BLANK,
+      title: 'New Tab',
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+    });
+    expect(useBrowserHistory.getState().entries).toEqual([]);
   });
 });

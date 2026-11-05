@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { resolveInputToUrl } from './browserUrl';
+import { useBrowserHistory } from './browserHistory';
 import type { BrowserTabState } from '../types';
 
 /**
@@ -32,6 +33,33 @@ export interface BrowserTab {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** Page zoom for this tab (1 = 100%). Main clamps it to 0.25–5. */
+  zoomFactor: number;
+}
+
+/** A closed tab, kept so Gary can reopen it (Ctrl+Shift+T). */
+export interface ClosedBrowserTab {
+  url: string;
+  title: string;
+}
+
+/** How many closed tabs are kept for reopening. */
+export const CLOSED_TABS_LIMIT = 10;
+
+/** Zoom limits (mirrored in electron/ipc/browser.ts, which clamps
+ * again on the main side — IPC input is never trusted). */
+export const BROWSER_ZOOM_MIN = 0.25;
+export const BROWSER_ZOOM_MAX = 5;
+
+export function clampBrowserZoom(factor: number): number {
+  if (!Number.isFinite(factor)) return 1;
+  return Math.min(BROWSER_ZOOM_MAX, Math.max(BROWSER_ZOOM_MIN, factor));
+}
+
+/** One step on the zoom buttons / shortcuts: 20% per step. */
+export function stepBrowserZoom(factor: number, direction: 1 | -1): number {
+  const next = direction === 1 ? factor * 1.2 : factor / 1.2;
+  return clampBrowserZoom(Math.round(next * 100) / 100);
 }
 
 export interface QuickTab {
@@ -85,16 +113,25 @@ interface BrowserState {
   tabs: BrowserTab[];
   /** Id of the active browser tab, or null before the first tab exists. */
   activeTabId: string | null;
+  /** Recently closed tabs, oldest first — the reopen stack. */
+  closedTabs: ClosedBrowserTab[];
 
   setPanelTab: (tab: PanelTab) => void;
   createTab: (url?: string) => void;
   closeTab: (id: string) => void;
   activateTab: (id: string) => void;
+  /** Reopen the most recently closed tab (Ctrl+Shift+T). No-op when
+   * no tab was closed — or when the last one was a blank tab. */
+  restoreClosedTab: () => void;
   /** Navigate the active tab (or `tabId`) to raw address-bar input. */
   navigate: (input: string, tabId?: string) => void;
   goBack: () => void;
   goForward: () => void;
   reload: () => void;
+  /** Zoom the active tab in / out / back to 100%. */
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetZoom: () => void;
   /** Open a pinned quick-tab URL in the active tab (or a new tab). */
   openQuickTab: (url: string) => void;
   /** Merge live state pushed by the main process (url/title/loading). */
@@ -109,6 +146,7 @@ function blankTab(url: string): BrowserTab {
     loading: false,
     canGoBack: false,
     canGoForward: false,
+    zoomFactor: 1,
   };
 }
 
@@ -116,6 +154,7 @@ export const useBrowserStore = create<BrowserState>()((set, get) => ({
   panelTab: 'ai',
   tabs: [],
   activeTabId: null,
+  closedTabs: [],
 
   setPanelTab: (tab) => {
     set({ panelTab: tab });
@@ -139,12 +178,20 @@ export const useBrowserStore = create<BrowserState>()((set, get) => ({
     const { tabs, activeTabId } = get();
     const index = tabs.findIndex((t) => t.id === id);
     if (index === -1) return;
+    const closed = tabs[index];
+    // Remember the page (not a blank tab) so Gary can reopen it.
+    const closedTabs =
+      closed.url && closed.url !== ABOUT_BLANK
+        ? [...get().closedTabs, { url: closed.url, title: closed.title }].slice(
+            -CLOSED_TABS_LIMIT,
+          )
+        : get().closedTabs;
     const nextTabs = tabs.filter((t) => t.id !== id);
     if (nextTabs.length === 0) {
       // Never zero tabs while the browser is open — a fresh tab takes
       // the closed one's place (same as Chrome).
       const fresh = blankTab(ABOUT_BLANK);
-      set({ tabs: [fresh], activeTabId: fresh.id });
+      set({ tabs: [fresh], activeTabId: fresh.id, closedTabs });
       fire(browserApi()?.close(id));
       fire(browserApi()?.create(fresh.id, ABOUT_BLANK));
       return;
@@ -155,8 +202,16 @@ export const useBrowserStore = create<BrowserState>()((set, get) => ({
       activeTabId === id
         ? nextTabs[Math.min(index, nextTabs.length - 1)].id
         : activeTabId;
-    set({ tabs: nextTabs, activeTabId: nextActive });
+    set({ tabs: nextTabs, activeTabId: nextActive, closedTabs });
     fire(browserApi()?.close(id));
+  },
+
+  restoreClosedTab: () => {
+    const { closedTabs } = get();
+    const last = closedTabs[closedTabs.length - 1];
+    if (!last) return;
+    set({ closedTabs: closedTabs.slice(0, -1) });
+    get().createTab(last.url);
   },
 
   activateTab: (id) => {
@@ -199,6 +254,44 @@ export const useBrowserStore = create<BrowserState>()((set, get) => ({
     if (activeTabId) fire(browserApi()?.reload(activeTabId));
   },
 
+  zoomIn: () => {
+    const { tabs, activeTabId } = get();
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab) return;
+    const factor = stepBrowserZoom(tab.zoomFactor, 1);
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === tab.id ? { ...t, zoomFactor: factor } : t,
+      ),
+    }));
+    fire(browserApi()?.setZoom?.(tab.id, factor));
+  },
+
+  zoomOut: () => {
+    const { tabs, activeTabId } = get();
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab) return;
+    const factor = stepBrowserZoom(tab.zoomFactor, -1);
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === tab.id ? { ...t, zoomFactor: factor } : t,
+      ),
+    }));
+    fire(browserApi()?.setZoom?.(tab.id, factor));
+  },
+
+  resetZoom: () => {
+    const { tabs, activeTabId } = get();
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab || tab.zoomFactor === 1) return;
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === tab.id ? { ...t, zoomFactor: 1 } : t,
+      ),
+    }));
+    fire(browserApi()?.setZoom?.(tab.id, 1));
+  },
+
   openQuickTab: (url) => {
     if (get().activeTabId) {
       get().navigate(url);
@@ -210,6 +303,11 @@ export const useBrowserStore = create<BrowserState>()((set, get) => ({
   applyTabUpdate: (tabId, state) => {
     // A view event arriving after its tab closed must not resurrect it.
     if (!get().tabs.some((t) => t.id === tabId)) return;
+    // A finished load is a visit: record it for the address-bar
+    // history (http(s) only — the history store filters the rest).
+    if (!state.loading && state.url) {
+      useBrowserHistory.getState().recordVisit(state.url, state.title);
+    }
     set((prev) => ({
       tabs: prev.tabs.map((t) =>
         t.id === tabId

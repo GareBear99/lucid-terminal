@@ -5,6 +5,7 @@ import {
   IpcMain,
   Menu,
   session,
+  shell,
 } from 'electron';
 import path from 'path';
 import {
@@ -59,6 +60,11 @@ import type { BrowserAuthRequest } from '../../src/types';
  * Area 9); HTTP-auth (`login`) asks Gary in the panel and never
  * silently retries; right-click shows a native context menu
  * (Back / Forward / Reload / Copy Link / Copy / Inspect).
+ *
+ * Chrome completion (Area 1): find-in-page (with match counts pushed
+ * back as `browser:find-updated`), per-tab zoom (0.25–5, remembered
+ * while the tab lives), and open-in-system-browser for the current
+ * page (http/https only).
  */
 
 export type { BrowserViewBounds };
@@ -77,6 +83,23 @@ const BROWSER_PARTITION = 'persist:lucid-browser';
  * he cancelled (the page then shows its own auth failure — no retry). */
 type AuthCredentials = { username: string; password: string } | null;
 
+/** Zoom limits: Chromium's own find/zoom range, clamped so a stray
+ * factor can never shrink a page to nothing or blow it up. */
+export const BROWSER_ZOOM_MIN = 0.25;
+export const BROWSER_ZOOM_MAX = 5;
+
+export function clampZoomFactor(factor: number): number {
+  if (!Number.isFinite(factor)) return 1;
+  return Math.min(BROWSER_ZOOM_MAX, Math.max(BROWSER_ZOOM_MIN, factor));
+}
+
+/** One step on the zoom buttons: 20% per step, rounded to 2 decimals
+ * so the label never shows a long float. */
+export function stepZoomFactor(factor: number, direction: 1 | -1): number {
+  const next = direction === 1 ? factor * 1.2 : factor / 1.2;
+  return clampZoomFactor(Math.round(next * 100) / 100);
+}
+
 export function setupBrowserHandlers(
   ipcMain: IpcMain,
   getMainWindow: () => BrowserWindow | null,
@@ -84,6 +107,9 @@ export function setupBrowserHandlers(
   const views = new Map<string, ReturnType<typeof createBrowserView>>();
   let activeTabId: string | null = null;
   let lastBounds: BrowserViewBounds | null = null;
+  // Per-tab zoom, remembered while the tab lives (closing the tab
+  // forgets it — a reopened tab starts at 100%).
+  const zoomFactors = new Map<string, number>();
 
   // Per-site permission allowlist (deny by default; empty until the
   // per-site memory UI lands in Area 9). Loaded once at startup.
@@ -181,6 +207,17 @@ export function setupBrowserHandlers(
     wc.on('did-start-loading', update);
     wc.on('did-stop-loading', update);
     wc.on('page-title-updated', update);
+    // Find-in-page: push match counts back so the panel's find bar
+    // can show "3 / 12". Every update is forwarded; the last one is
+    // the settled count.
+    wc.on('found-in-page', (_event, result) => {
+      const foundWin = getMainWindow();
+      if (!foundWin || foundWin.isDestroyed()) return;
+      foundWin.webContents.send('browser:find-updated', tabId, {
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        matches: result.matches,
+      });
+    });
     // A page asking for a new window (target=_blank, window.open)
     // gets a new Lucid browser tab instead of an external window.
     wc.setWindowOpenHandler(({ url: nextUrl }) => {
@@ -281,6 +318,7 @@ export function setupBrowserHandlers(
     // destroyed, and it must be detached first.
     if (activeTabId === tabId) detach();
     cancelPendingAuthForTab(tabId);
+    zoomFactors.delete(tabId);
     views.delete(tabId);
     view.webContents.destroy();
   });
@@ -320,6 +358,65 @@ export function setupBrowserHandlers(
 
   ipcMain.handle('browser:reload', (_event, tabId: string) => {
     views.get(tabId)?.webContents.reload();
+  });
+
+  // Find-in-page: returns Chromium's request id. An empty query
+  // clears the search instead of matching everything.
+  ipcMain.handle(
+    'browser:find',
+    (
+      _event,
+      tabId: string,
+      text: string,
+      options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean },
+    ) => {
+      const wc = views.get(tabId)?.webContents;
+      if (!wc) return -1;
+      if (!text) {
+        wc.stopFindInPage('clearSelection');
+        return -1;
+      }
+      return wc.findInPage(text, {
+        forward: options?.forward ?? true,
+        findNext: options?.findNext ?? false,
+        matchCase: options?.matchCase ?? false,
+      });
+    },
+  );
+
+  ipcMain.handle(
+    'browser:stop-find',
+    (
+      _event,
+      tabId: string,
+      action?: 'clearSelection' | 'keepSelection' | 'activateSelection',
+    ) => {
+      views.get(tabId)?.webContents.stopFindInPage(action ?? 'clearSelection');
+    },
+  );
+
+  // Per-tab zoom. Returns the factor actually applied (clamped).
+  ipcMain.handle('browser:zoom', (_event, tabId: string, factor: number) => {
+    const wc = views.get(tabId)?.webContents;
+    const clamped = clampZoomFactor(factor);
+    zoomFactors.set(tabId, clamped);
+    if (wc) wc.setZoomFactor(clamped);
+    return clamped;
+  });
+
+  // Open the given URL in Gary's system browser. Only http/https:
+  // anything else (javascript:, file:, custom schemes) is ignored
+  // rather than handed to the OS.
+  ipcMain.handle('browser:open-external', (_event, url: string) => {
+    if (typeof url !== 'string') return;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+    void shell.openExternal(url);
   });
 
   // Gary's answer to an HTTP-auth prompt (from the panel). Resolves

@@ -150,6 +150,25 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     },
     authResponse: (requestId: string, creds: { username: string; password: string } | null) =>
       ipcRenderer.invoke('browser:auth-response', requestId, creds),
+    findInPage: (
+      tabId: string,
+      text: string,
+      options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean },
+    ) => ipcRenderer.invoke('browser:find', tabId, text, options),
+    stopFindInPage: (
+      tabId: string,
+      action?: 'clearSelection' | 'keepSelection' | 'activateSelection',
+    ) => ipcRenderer.invoke('browser:stop-find', tabId, action),
+    onFindUpdated: (callback: (tabId: string, result: BrowserFindResult) => void) => {
+      const listener = (_: any, tabId: string, result: BrowserFindResult) =>
+        callback(tabId, result);
+      ipcRenderer.on('browser:find-updated', listener);
+      return () => ipcRenderer.removeListener('browser:find-updated', listener);
+    },
+    setZoom: (tabId: string, factor: number) =>
+      ipcRenderer.invoke('browser:zoom', tabId, factor),
+    openExternal: (url: string) =>
+      ipcRenderer.invoke('browser:open-external', url),
   },
 
   // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
@@ -606,6 +625,11 @@ export interface BrowserAuthRequest {
   url: string;
   host: string;
   realm?: string;
+}
+
+export interface BrowserFindResult {
+  activeMatchOrdinal: number;
+  matches: number;
 }
 
 export interface ChatMessage {

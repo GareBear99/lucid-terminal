@@ -263,6 +263,14 @@ export interface BrowserAuthRequest {
   realm?: string;
 }
 
+/** Result of a find-in-page search, pushed by the main process. */
+export interface BrowserFindResult {
+  /** 1-based ordinal of the active match (0 when there is none). */
+  activeMatchOrdinal: number;
+  /** Total matches on the page. */
+  matches: number;
+}
+
 export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
 
 // Extend Window interface for Electron API
@@ -333,6 +341,11 @@ declare global {
         onOpenUrl: (callback: (url: string) => void) => () => void;
         onAuthRequired: (callback: (request: BrowserAuthRequest) => void) => () => void;
         authResponse: (requestId: string, creds: { username: string; password: string } | null) => Promise<void>;
+        findInPage: (tabId: string, text: string, options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }) => Promise<number>;
+        stopFindInPage: (tabId: string, action?: 'clearSelection' | 'keepSelection' | 'activateSelection') => Promise<void>;
+        onFindUpdated: (callback: (tabId: string, result: BrowserFindResult) => void) => () => void;
+        setZoom: (tabId: string, factor: number) => Promise<number>;
+        openExternal: (url: string) => Promise<void>;
       };
       android: {
         getGpuGate: () => Promise<GpuGateStatus>;

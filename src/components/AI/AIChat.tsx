@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, MessageSquare, Trash2, Menu, Folder, FolderOpen } from 'lucide-react';
+import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, MessageSquare, Trash2, Menu, Folder, FolderOpen, Loader } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useFileStore } from '../../stores/fileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
+import { useToastStore } from '../../stores/toastStore';
+import { useLoadingStore } from '../../stores/loadingStore';
 import { ChatMessage } from '../../types';
 import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
 
@@ -13,7 +15,7 @@ interface AIChatProps {
 
 function AIChat({ onClose }: AIChatProps) {
 
-  const { hasLicenseKey, setLicenseKey, isLocalBackendAvailable, isLocalModelAvailable } = useSettingsStore();
+  const { hasLicenseKey, setLicenseKey, isLocalBackendAvailable, isLocalModelAvailable, checkBackendStatus } = useSettingsStore();
   const {
     sessions,
     currentSessionId,
@@ -39,11 +41,25 @@ function AIChat({ onClose }: AIChatProps) {
   const [keyInput, setKeyInput] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);
 
+  // Gate actions: install the bundled model from inside the panel, and
+  // re-check the backend. The backend/model status is only probed once
+  // at launch (settingsStore.loadSettings), so a backend that came up
+  // after launch still reads as down until something re-checks it.
+  const [installing, setInstalling] = useState(false);
+  const [progressLine, setProgressLine] = useState('');
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const { success: toastSuccess, error: toastError } = useToastStore();
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadSessions();
+    // The panel mounts when it opens — re-probe the backend/model status
+    // now, so the gate below shows the live state instead of the
+    // launch-time snapshot.
+    checkBackendStatus();
   }, []);
 
   // Sync context directory with file store current directory
@@ -143,6 +159,48 @@ function AIChat({ onClose }: AIChatProps) {
     if (!keyInput.trim()) return;
     await setLicenseKey(keyInput.trim());
     setKeyInput('');
+  };
+
+  const installTinyLlama = async () => {
+    if (installing) return;
+    setInstalling(true);
+    useLoadingStore.getState().start('model-install');
+    setInstallError(null);
+    setProgressLine('Starting installer…');
+    const unsubscribe = window.lucidAPI.lucid.onInstallTinyLlamaProgress((line) => {
+      setProgressLine(line);
+    });
+    try {
+      const result = await window.lucidAPI.lucid.installTinyLlama();
+      if (result.success) {
+        toastSuccess('TinyLlama installed — command passes and AI chat can now use the local model.');
+        // Re-probe so the gate flips to the chat now the model exists.
+        await checkBackendStatus();
+      } else {
+        const reason = result.error ?? 'Install failed for an unknown reason.';
+        setInstallError(reason);
+        toastError(`TinyLlama install failed: ${reason}`);
+      }
+    } catch (error: any) {
+      const reason = error?.message ?? String(error);
+      setInstallError(reason);
+      toastError(`TinyLlama install failed: ${reason}`);
+    } finally {
+      unsubscribe();
+      setInstalling(false);
+      useLoadingStore.getState().finish('model-install');
+      setProgressLine('');
+    }
+  };
+
+  const recheckBackend = async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      await checkBackendStatus();
+    } finally {
+      setChecking(false);
+    }
   };
 
   const handleSelectContext = async () => {
@@ -318,6 +376,49 @@ function AIChat({ onClose }: AIChatProps) {
               >
                 Activate License
               </button>
+              <div className="pt-1 border-t border-[var(--border)]">
+                <p className="text-xs text-[var(--text-muted)] mt-3 mb-2">
+                  No license key? Install the bundled local model instead — free, about 700 MB, a few minutes. No key needed.
+                </p>
+                <button
+                  onClick={installTinyLlama}
+                  disabled={installing}
+                  className="btn btn-primary w-full justify-center disabled:opacity-60"
+                >
+                  {installing ? (
+                    <>
+                      <Loader size={14} className="animate-spin" />
+                      Installing…
+                    </>
+                  ) : installError ? (
+                    'Retry install'
+                  ) : (
+                    'Install TinyLlama'
+                  )}
+                </button>
+                {installing && (
+                  <p className="mt-2 text-xs text-[var(--text-muted)]">
+                    Installing TinyLlama… (downloads about 700 MB — this can take a few minutes)
+                    {progressLine && (
+                      <span className="block font-mono truncate" title={progressLine}>
+                        {progressLine}
+                      </span>
+                    )}
+                  </p>
+                )}
+                {installError && (
+                  <p className="mt-2 text-xs text-red-300">
+                    Install failed: {installError}
+                  </p>
+                )}
+                <button
+                  onClick={recheckBackend}
+                  disabled={checking || installing}
+                  className="btn-ghost w-full justify-center mt-2 text-xs disabled:opacity-60"
+                >
+                  {checking ? 'Checking…' : 'Check again — is the local backend running?'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

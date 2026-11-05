@@ -9,19 +9,32 @@ import {
   shouldShowHeartbeat,
 } from '../src/components/Terminal/heartbeatLogic';
 
-describe('heartbeatFrameFor — the original alternation', () => {
-  it('frame 0 is red with the skull & bones', () => {
+describe('heartbeatFrameFor — colour/skull alternation, blood drop on the 💀 frame only', () => {
+  it('frame 0 is red with the skull & bones and NO blood drop', () => {
     const frame = heartbeatFrameFor(0);
     expect(frame.color).toBe(HEARTBEAT_RED);
     expect(frame.skull).toBe('☠️');
-    expect(frame.text).toBe('🩸 Idle • Awaiting Commands... ☠️');
+    expect(frame.text).toBe('Idle • Awaiting Commands... ☠️');
+    expect(frame.text).not.toContain('🩸');
   });
 
-  it('frame 1 is purple with the skull', () => {
+  it('frame 1 is purple with the skull and the blood drop', () => {
     const frame = heartbeatFrameFor(1);
     expect(frame.color).toBe(HEARTBEAT_PURPLE);
     expect(frame.skull).toBe('💀');
     expect(frame.text).toBe('🩸 Idle • Awaiting Commands... 💀');
+    expect(frame.text).toContain('🩸');
+  });
+
+  it('the blood drop appears only on the alternate-skull (odd) frames', () => {
+    for (let i = 0; i < 6; i++) {
+      const frame = heartbeatFrameFor(i);
+      if (i % 2 === 0) {
+        expect(frame.text).not.toContain('🩸');
+      } else {
+        expect(frame.text).toContain('🩸');
+      }
+    }
   });
 
   it('alternates back to red on frame 2', () => {

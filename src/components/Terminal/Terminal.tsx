@@ -763,8 +763,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
             <div ref={bottomRef} />
           </div>
 
-          {/* Idle heartbeat — the original "🩸 Idle • Awaiting Commands..."
-              animation, restored above the prompt. Shows only while the
+          {/* Idle heartbeat — the original "Idle • Awaiting Commands..."
+              animation (blood drop on the 💀 frame only, per Gary),
+              restored above the prompt. Shows only while the
               LuciferAI plugin is active and idle; a task gives way to the
               busy state (blood drip / loading swirl / generation). */}
           <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} lastKeystrokeAt={lastKeystrokeAt} />

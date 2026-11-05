@@ -3,6 +3,7 @@ import path from 'path';
 import { app } from 'electron';
 import * as readline from 'readline';
 import { TaskQueue, TaskCancelledError } from '../core/tasks/taskQueue';
+import { getPythonCommand } from '../core/pythonPath';
 
 export interface ChatMessage {
     role: 'system' | 'user' | 'assistant';
@@ -29,7 +30,12 @@ export function startBackend(): void {
 
     // Use stdio_agent.py instead of api_server.py
     const backendPath = path.join(rootDir, 'core', 'stdio_agent.py');
-    const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+    // Resolved to an absolute path: Finder-launched apps get an empty
+    // PATH from launchd, so a bare 'python3' spawn fails with ENOENT
+    // even though python3 exists on disk (see core/pythonPath.ts).
+    // When nothing resolves, this falls back to the bare command and
+    // the 'error' handler below degrades gracefully instead of crashing.
+    const pythonCommand = getPythonCommand();
 
     console.log(`Starting Local AI Backend: ${pythonCommand} ${backendPath}`);
 
@@ -38,6 +44,24 @@ export function startBackend(): void {
             cwd: path.dirname(backendPath),
             stdio: ['pipe', 'pipe', 'pipe'], // Stdin, Stdout, Stderr
             env: { ...process.env, LUCIFER_NON_INTERACTIVE: 'true' }
+        });
+
+        // A failed spawn (e.g. python3 not installed — ENOENT) does NOT
+        // throw synchronously and is NOT caught by the try/catch around
+        // this block: Node emits it async as an 'error' event, and with
+        // no listener that event is an uncaught exception — Electron
+        // shows the "A JavaScript error occurred in the main process"
+        // dialog (Gary hit this on the Mac, 2026-11-04). Handle it here
+        // and degrade to "backend down" instead of crashing: the
+        // handler clears the state, so chatLocal() fails fast with
+        // "Local backend is not running" and the AI chat shows its
+        // honest "backend unavailable" state. Attach it immediately
+        // after spawn returns, before anything else that could throw.
+        backendProcess.on('error', (err) => {
+            console.error('Local AI backend failed to spawn:', err);
+            isBackendReady = false;
+            backendProcess = null;
+            backendInterface = null;
         });
 
         if (!backendProcess.stdout) {

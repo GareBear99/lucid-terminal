@@ -19,10 +19,12 @@ interface HeartbeatProps {
 }
 
 /**
- * The LuciferAI idle heartbeat — "🩸 Idle • Awaiting Commands... ☠️/💀",
- * cycling red ↔ purple every second, shown directly above the prompt
- * while the LuciferAI plugin is active and idle. Restored from the
- * original (`lucifer.py` `heartbeat_animation()`, `docs/HEARTBEAT_UPDATE.md`).
+ * The LuciferAI idle heartbeat — "Idle • Awaiting Commands... ☠️" /
+ * "🩸 Idle • Awaiting Commands... 💀", cycling red ↔ purple every
+ * second, shown directly above the prompt while the LuciferAI plugin
+ * is active and idle. Restored from the original (`lucifer.py`
+ * `heartbeat_animation()`, `docs/HEARTBEAT_UPDATE.md`) — with the
+ * blood drop moved to the 💀 frame only, per Gary (2026-11-04).
  */
 export function Heartbeat({ active, busy, lastKeystrokeAt }: HeartbeatProps) {
   const [frame, setFrame] = useState(0);

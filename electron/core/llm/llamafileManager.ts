@@ -352,9 +352,22 @@ export class LlamafileManager {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false
       });
-      
+
+      // A failed spawn (missing llamafile binary — ENOENT) does NOT
+      // throw synchronously: Node emits it async as an 'error' event,
+      // and with no listener that is an uncaught exception in the main
+      // process — the same crash as the python3 ENOENT in local_ai
+      // (Gary hit that on the Mac, 2026-11-04). Record the failure so
+      // the readiness wait below fails fast instead of polling for
+      // 30s and then crashing on the unhandled 'error' event.
+      let spawnError: Error | null = null;
+      serverProcess.on('error', (err) => {
+        spawnError = err;
+        console.error(`[LlamafileManager] Failed to spawn server for ${modelName}:`, err);
+      });
+
       // Wait for server to be ready
-      await this._waitForServer(serverPort);
+      await this._waitForServer(serverPort, 30000, () => spawnError);
       
       this.servers.set(modelName, serverProcess);
       model.serverProcess = serverProcess;
@@ -540,10 +553,17 @@ export class LlamafileManager {
     throw new Error('No free ports available');
   }
   
-  private async _waitForServer(port: number, timeout: number = 30000): Promise<void> {
+  private async _waitForServer(port: number, timeout: number = 30000, shouldAbort?: () => Error | null): Promise<void> {
     const startTime = Date.now();
-    
+
     while (Date.now() - startTime < timeout) {
+      // Fail fast when the spawn itself failed (missing binary): the
+      // 'error' handler above records it; without this check the wait
+      // would poll a server that can never appear for the full timeout.
+      const aborted = shouldAbort?.();
+      if (aborted) {
+        throw new Error(`Server process failed to start: ${aborted.message}`);
+      }
       try {
         const { stdout } = await execAsync(`curl -s http://127.0.0.1:${port}/health`);
         if (stdout) {
@@ -552,10 +572,10 @@ export class LlamafileManager {
       } catch {
         // Server not ready yet
       }
-      
+
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-    
+
     throw new Error(`Server did not start within ${timeout}ms`);
   }
 }

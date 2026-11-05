@@ -85,7 +85,13 @@ app.whenReady().then(() => {
   // Start the file-watcher daemon when the setting says so (and watch
   // paths exist). The watcher is a background Python process; it stops
   // with the app (see will-quit below).
-  maybeAutoStartDaemon();
+  // Fire-and-forget: the promise must never reject unhandled.
+  // startDaemon() catches its own spawn failures, but a rejection
+  // here (e.g. settings read) would otherwise surface as an unhandled
+  // rejection in the main process.
+  maybeAutoStartDaemon().catch((err) => {
+    console.error('Watcher daemon auto-start failed:', err);
+  });
 
   // License Key Handlers
   ipcMain.handle('settings:setLicenseKey', (_, key) => {

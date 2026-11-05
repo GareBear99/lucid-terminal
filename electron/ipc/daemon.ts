@@ -21,6 +21,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { settings } from '../services/secureStorage';
+import { getPythonCommand } from '../core/pythonPath';
 import {
   mapWatcherEventsToLogs,
   DaemonLogEntry,
@@ -182,7 +183,12 @@ export async function startDaemon(): Promise<DaemonStartResult> {
   // Autofix only when the setting is explicitly on; default is watch
   // (suggest-only) until Gary decides autofix vs suggest.
   const mode: 'watch' | 'autofix' = autoFix ? 'autofix' : 'watch';
-  const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+  // Resolved to an absolute path: Finder-launched apps get an empty
+  // PATH from launchd, so a bare 'python3' spawn fails with ENOENT
+  // even though python3 exists on disk (see core/pythonPath.ts).
+  // When nothing resolves, this falls back to the bare command and
+  // the 'error' handler below degrades gracefully instead of crashing.
+  const pythonCommand = getPythonCommand();
 
   try {
     const logsDir = path.join(os.homedir(), 'LuciferAI', 'logs');

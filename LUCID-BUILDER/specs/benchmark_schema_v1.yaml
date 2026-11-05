@@ -1,0 +1,23 @@
+version: 1
+name: benchmark_schema_v1
+
+task_record:
+  required_fields:
+    - id
+    - capability
+    - domain
+    - difficulty
+    - prompt
+    - reference
+    - scoring
+    - tags
+
+capabilities:
+  - reasoning
+  - planning
+  - critique
+  - repair
+  - compression
+  - calibration
+  - paraphrase_stability
+  - quantization_retention

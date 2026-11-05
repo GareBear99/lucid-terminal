@@ -1,0 +1,70 @@
+version: 1
+name: cognition_contract_v1
+mission: portable cognition core
+
+capabilities:
+  observe:
+    description: Extract salient state from noisy or mixed input.
+    success_signals:
+      - extracts core goal
+      - extracts constraints
+      - flags ambiguity
+      - ignores obvious noise
+    failure_signals:
+      - misses main objective
+      - drops key constraints
+      - treats noise as central
+
+  infer:
+    description: Derive hypotheses, assumptions, and relationships from available evidence.
+    success_signals:
+      - separates evidence from inference
+      - states assumptions
+      - identifies uncertainty
+      - avoids unsupported leaps
+
+  plan:
+    description: Produce candidate paths with tradeoffs and abort conditions.
+    success_signals:
+      - proposes ordered steps
+      - offers alternatives when appropriate
+      - includes tradeoffs
+      - includes blockers or abort conditions
+
+  critique:
+    description: Challenge weaknesses of a proposed answer, plan, patch, or inference.
+    success_signals:
+      - identifies weak assumptions
+      - identifies missing evidence
+      - identifies regression risk
+      - states where confidence should drop
+
+  repair:
+    description: Revise weak or failed reasoning into a safer, stronger result.
+    success_signals:
+      - changes strategy when needed
+      - avoids repeating the same failure
+      - narrows claims after contradiction
+      - proposes conservative recovery path
+
+  compress:
+    description: Compress long context into durable summaries without losing mission truth.
+    success_signals:
+      - preserves goal
+      - preserves blockers
+      - preserves constraints
+      - preserves next action
+
+  calibrate:
+    description: Express uncertainty and confidence in a bounded way.
+    success_signals:
+      - confidence tracks evidence quality
+      - states unknowns
+      - uses conditional framing when needed
+      - avoids false certainty
+
+global_requirements:
+  - consistency_under_paraphrase
+  - minimal_prompt_dependence
+  - quantization_survivability
+  - bounded_behavior_under_ambiguity

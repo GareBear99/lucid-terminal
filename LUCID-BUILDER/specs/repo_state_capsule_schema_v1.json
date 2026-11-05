@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "repo_state_capsule_v1",
+  "type": "object",
+  "required": [
+    "repo_id",
+    "name",
+    "purpose_summary",
+    "module_map",
+    "symbol_index",
+    "dependency_graph",
+    "test_map",
+    "hot_zones",
+    "unknowns"
+  ],
+  "properties": {
+    "repo_id": { "type": "string" },
+    "name": { "type": "string" },
+    "default_branch": { "type": "string" },
+    "purpose_summary": { "type": "string" },
+    "entry_points": { "type": "array", "items": { "type": "string" } },
+    "module_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module", "summary", "files"],
+        "properties": {
+          "module": { "type": "string" },
+          "summary": { "type": "string" },
+          "files": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "symbol_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "kind", "file"],
+        "properties": {
+          "symbol": { "type": "string" },
+          "kind": { "type": "string" },
+          "file": { "type": "string" },
+          "references": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "dependency_graph": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "relation"],
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "relation": { "type": "string" }
+        }
+      }
+    },
+    "test_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test", "covers"],
+        "properties": {
+          "test": { "type": "string" },
+          "covers": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "hot_zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["surface", "reason", "risk_level"],
+        "properties": {
+          "surface": { "type": "string" },
+          "reason": { "type": "string" },
+          "risk_level": { "type": "string" }
+        }
+      }
+    },
+    "recent_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["commit", "summary"],
+        "properties": {
+          "commit": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "unknowns": { "type": "array", "items": { "type": "string" } }
+  }
+}

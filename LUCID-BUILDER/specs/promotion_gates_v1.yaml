@@ -1,0 +1,45 @@
+version: 1
+name: promotion_gates_v1
+
+policy:
+  principle: >
+    No checkpoint becomes the canonical cognition core unless it improves core cognition
+    behavior without introducing unacceptable regressions in calibration, stability, or
+    quantized retention.
+
+required_benchmarks:
+  - reasoning
+  - planning
+  - critique
+  - repair
+  - compression
+  - calibration
+  - paraphrase_stability
+  - quantization_retention
+
+score_weights:
+  reasoning: 0.20
+  planning: 0.20
+  critique: 0.15
+  repair: 0.20
+  compression: 0.10
+  calibration: 0.10
+  paraphrase_stability: 0.05
+
+minimum_requirements:
+  must_improve:
+    - reasoning_accuracy
+    - repair_success
+    - paraphrase_stability
+  must_not_regress:
+    - compression_retention
+    - calibration_error
+    - contradiction_rate
+
+hard_rejection_rules:
+  - metric: overconfidence_rate
+    condition: increase_gt
+    threshold: 0.03
+  - metric: contradiction_rate
+    condition: increase_gt
+    threshold: 0.02

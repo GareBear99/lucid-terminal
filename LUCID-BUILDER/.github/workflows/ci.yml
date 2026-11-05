@@ -1,0 +1,23 @@
+# LLMBuilder repo validation.
+#
+# Created for the Forge vendoring: upstream has no CI workflow, so
+# validate_repo.py fails its own check for .github/workflows/ci.yml
+# (the validator requires this file to exist). This workflow runs
+# the validator on every push and pull request, so the check it
+# enforces is real — the tree must stay complete.
+name: Validate repo
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate repo
+        run: python3 scripts/validate_repo.py

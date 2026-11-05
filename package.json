@@ -86,7 +86,10 @@
           "**/*.sh",
           "**/*.csv",
           "**/*.rs",
-          "VERSION"
+          "VERSION",
+          "LICENSE",
+          ".env.direct-runtime.example",
+          ".github/workflows/ci.yml"
         ]
       },
       {

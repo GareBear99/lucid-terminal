@@ -1,86 +1,44 @@
 # Known Issues
 
-## 🚨 CRITICAL ISSUES
+> Rewritten 2026-11-05. The 2026-02-28 version described a pre-llamafile
+> world and is superseded — see "Resolved" below. This file now lists only
+> items verified open as of the rewrite date. If the open list is empty,
+> that is accurate, not an omission: report new issues on GitHub (see below).
 
-### Issue #1: LLM Integration Architecture Mismatch
+## Open issues
 
-**Status**: 🔴 BLOCKING - Application non-functional for AI features  
-**Severity**: Critical  
-**Affects**: v1.0.0  
-**GitHub**: https://github.com/GareBear99/lucid-terminal/issues/1
+None currently tracked in this file.
 
-**Problem**: Lucid Terminal attempts to connect to Ollama API, but should use llamafile binaries like LuciferAI_Local.
+## Resolved (kept for the record)
 
-**Symptoms**:
-- Terminal hangs with "⏳ Connecting to LuciferAI plugin..."
-- No LLM functionality works
-- 0% offline capability (no measured target exists; the old "72%" figure was an unmeasured docs assertion, not a measurement)
-- Cannot process AI commands
+### LLM Integration Architecture Mismatch (ex-Issue #1, 2026-02-28) — RESOLVED
 
-**Root Cause**: 
-The entire LLM integration layer was built assuming Ollama, but LuciferAI_Local uses llamafile binaries assembled from split parts. This requires:
-- Binary assembly from `bin/llamafile.part.*`
-- Token generation checking
-- Subprocess management
-- Local-only operation
+The old entry said the app assumed Ollama, AI features were non-functional,
+and `electron/core/llm/ollamaClient.ts` needed deletion, with an 8–12 h fix.
+That world is gone: the llamafile migration is done, `electron/core/llm/`
+now holds `llamafileManager.ts`, `modelBackend.ts`, `bypassRouter.ts`,
+`modelFiles.ts` and `modelEnabledState.ts`, and `ollamaClient.ts` does not
+exist. Ollama survives only as one optional provider in `modelBackend.ts`
+(alongside LM Studio, OpenAI, Anthropic, llamafile, local) — not as the
+assumed architecture.
 
-**Workaround**: None - AI features completely broken
+### TypeScript Type Warnings (2026-02-28) — RESOLVED
 
-**Fix ETA**: 8-12 hours of development
+The old entry said `npm run typecheck` showed errors about missing IPC
+interface properties (`daemonLogs`, `fixnetSync`, `getStorageInfo`).
+`npx tsc --noEmit` is clean (0 errors) as of 2026-11-05. If type errors
+reappear, file them as a new issue rather than reviving this entry.
 
-**Files Affected**:
-- `electron/core/llm/ollamaClient.ts` (needs deletion)
-- `electron/core/lucidCore.ts` (needs rewrite)
-- `electron/core/routing/bypassRouter.ts` (needs update)
+## Roadmap notes (carried over UNVERIFIED from 2026-02-28)
 
----
+These were listed as planned enhancements in the old version. None has been
+verified as still planned or still wanted — they are kept here so the ideas
+are not lost, not as committed work:
 
-## ⚠️ NON-CRITICAL ISSUES
-
-### TypeScript Type Warnings
-
-**Status**: 🟡 NON-BLOCKING  
-**Severity**: Low  
-**Affects**: v1.0.0
-
-**Problem**: Some TypeScript compilation warnings about missing IPC interface properties.
-
-**Symptoms**:
-- `npm run typecheck` shows type errors
-- Application compiles and runs despite warnings
-- Properties like `daemonLogs`, `fixnetSync`, `getStorageInfo` not in IPC interface
-
-**Impact**: None - purely cosmetic type warnings
-
-**Workaround**: Ignore warnings - doesn't affect functionality
-
-**Fix ETA**: 30 minutes
-
----
-
-## 📋 Planned Enhancements
-
-These are not bugs, but planned features from the roadmap:
-
-### Phase 3: FixNet Search UI
-- Show quality grades in search results
-- Display consensus scores
-- Rank candidates by quality
-
-### Phase 4: Execution Steps UI
-- Real-time step progress component
-- Collapsible step details
-- Error states with retry indicators
-
-### Phase 5: Streaming Token Display
-- Token-by-token streaming for Tier 2+
-- Progress indicators during generation
-- Stall detection
-
-### Phase 6: Quality Metrics Dashboard
-- Fix quality distribution charts
-- Success rate analytics
-- Improvement recommendations
+- Phase 3: FixNet Search UI — quality grades in search results, consensus scores, ranked candidates
+- Phase 4: Execution Steps UI — real-time step progress, collapsible details, error states with retry
+- Phase 5: Streaming Token Display — token-by-token streaming for Tier 2+, progress indicators, stall detection
+- Phase 6: Quality Metrics Dashboard — fix quality distribution charts, success-rate analytics
 
 ---
 
@@ -100,5 +58,5 @@ Found a bug? Please report it:
 
 ---
 
-**Last Updated**: 2026-02-28  
-**Document Version**: 1.0.0
+**Last Updated**: 2026-11-05
+**Document Version**: 2.0.0 (rewritten; v1.0.0 was 2026-02-28)

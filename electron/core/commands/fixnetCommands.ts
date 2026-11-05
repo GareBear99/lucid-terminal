@@ -7,7 +7,6 @@
  * sync/stats/search, the help surfaces had fix/stats/search, and the
  * deterministic grammar had no FixNet commands at all. Every surface
  * now reads from this table:
- *   - commandRegistry registers from it,
  *   - intentParser builds its DIRECT_COMMANDS from it,
  *   - the renderer command router matches against it,
  *   - the help surfaces (commandDisplay, helpData) list from it.

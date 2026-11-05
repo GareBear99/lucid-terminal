@@ -46,6 +46,7 @@ coverage/
 tmp/
 temp/
 *.tmp
+typecheck_error*.txt
 
 # Build artifacts that exceed GitHub limits
 *.dmg

@@ -1,12 +1,11 @@
 #!/usr/bin/env ts-node
 /**
  * 🧪 Lucid Terminal - Tool Integration Test Suite
- * Tests all 24 tools and command router integration
+ * Tests all 24 tools (toolRegistry integration)
  */
 
 import * as fs from 'fs/promises';
 import { executeTool, executeCommandAsTool } from '../electron/core/tools/toolRegistry';
-import { CommandRouter } from '../electron/core/commandRouter';
 
 // Colors for output
 const PURPLE = '\x1b[35m';
@@ -193,52 +192,11 @@ async function main() {
     await testFileTool('file.find', ['*.txt', testDir]);
     
     // ═══════════════════════════════════════════════════════════
-    // TEST 6: Command Router Integration
+    // TEST 6: Performance Benchmarks
     // ═══════════════════════════════════════════════════════════
-    header('TEST 6: Command Router Integration');
+    header('TEST 6: Performance Benchmarks');
     
-    const router = new CommandRouter();
-    
-    step(23, 'Testing router route and execute...');
-    const routing = router.route('help');
-    if (routing.type === 'direct_command' && routing.confidence === 1.0) {
-      success('Router: help command routes correctly');
-    } else {
-      error('Router: help routing failed');
-    }
-    
-    step(24, 'Testing router fuzzy matching...');
-    // 'hlep' is distance 2 from 'help': parse()'s distance-1
-    // auto-correct leaves it alone, so the router suggests it.
-    const fuzzyRouting = router.route('hlep'); // typo
-    if (fuzzyRouting.type === 'typo_suggestion' && fuzzyRouting.suggestion?.includes('help')) {
-      success('Router: Fuzzy matching works (hlep → help)');
-    } else {
-      error('Router: Fuzzy matching failed');
-    }
-    
-    step(25, 'Testing router execution...');
-    const execResult = await router.execute(router.route('help'));
-    if (execResult.success) {
-      success('Router: help execution works');
-    } else {
-      error('Router: help execution failed');
-    }
-    
-    step(26, 'Testing pwd through router...');
-    const pwdExec = await router.execute(router.route('pwd'));
-    if (pwdExec.success && pwdExec.output) {
-      success(`Router: pwd = ${pwdExec.output.substring(0, 40)}`);
-    } else {
-      error('Router: pwd failed');
-    }
-    
-    // ═══════════════════════════════════════════════════════════
-    // TEST 7: Performance Benchmarks
-    // ═══════════════════════════════════════════════════════════
-    header('TEST 7: Performance Benchmarks');
-    
-    step(27, 'Testing file.read performance...');
+    step(23, 'Testing file.read performance...');
     const readStart = Date.now();
     await executeTool('file.read', `${testDir}/test.txt`);
     const readTime = Date.now() - readStart;
@@ -248,7 +206,7 @@ async function main() {
       info(`file.read: ${readTime}ms (slower than target)`);
     }
     
-    step(28, 'Testing file.list performance...');
+    step(24, 'Testing file.list performance...');
     const listStart = Date.now();
     await executeTool('file.list', testDir);
     const listTime = Date.now() - listStart;
@@ -256,16 +214,6 @@ async function main() {
       success(`file.list: ${listTime}ms (target: <50ms)`);
     } else {
       info(`file.list: ${listTime}ms (slower than target)`);
-    }
-    
-    step(29, 'Testing command routing performance...');
-    const routeStart = Date.now();
-    router.route('help');
-    const routeTime = Date.now() - routeStart;
-    if (routeTime < 10) {
-      success(`routing: ${routeTime}ms (target: <10ms)`);
-    } else {
-      info(`routing: ${routeTime}ms (slower than target)`);
     }
     
   } finally {

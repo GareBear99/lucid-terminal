@@ -528,7 +528,6 @@ describe('offline lookup is fast and model-free (F3)', () => {
 
 describe('no sync or hardcoded claims remain in user-facing text', () => {
   const USER_FACING = [
-    'electron/core/commands/commandRegistry.ts',
     'electron/core/display/commandDisplay.ts',
     'electron/core/commands/fixnetCommands.ts',
     'electron/core/workflow/workflowOrchestrator.ts',

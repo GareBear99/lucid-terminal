@@ -4,8 +4,10 @@ import {
   HEARTBEAT_PURPLE,
   HEARTBEAT_RED,
   HEARTBEAT_TYPING_PAUSE_MS,
+  bloodDropFrameIndex,
   heartbeatFrameFor,
   isTypingPaused,
+  shouldAdvanceFrame,
   shouldShowHeartbeat,
 } from '../src/components/Terminal/heartbeatLogic';
 
@@ -54,7 +56,7 @@ describe('heartbeatFrameFor — colour/skull alternation, blood drop on the 💀
   });
 });
 
-describe('shouldShowHeartbeat — active and idle only', () => {
+describe('shouldShowHeartbeat — active and idle, or dripping', () => {
   it('shows when the plugin is active and idle', () => {
     expect(shouldShowHeartbeat(true, false)).toBe(true);
   });
@@ -69,6 +71,75 @@ describe('shouldShowHeartbeat — active and idle only', () => {
 
   it('hides when the plugin is offline and busy', () => {
     expect(shouldShowHeartbeat(false, true)).toBe(false);
+  });
+
+  it('SHOWS while busy when the fangs drip — the hold, not a hide', () => {
+    expect(shouldShowHeartbeat(true, true, true)).toBe(true);
+  });
+
+  it('shows when idle and dripping', () => {
+    expect(shouldShowHeartbeat(true, false, true)).toBe(true);
+  });
+
+  it('hides when the plugin is offline even while dripping', () => {
+    expect(shouldShowHeartbeat(false, true, true)).toBe(false);
+    expect(shouldShowHeartbeat(false, false, true)).toBe(false);
+  });
+});
+
+describe('bloodDropFrameIndex — "shift to the blood drop next"', () => {
+  it('an even (demon-face) frame jumps to the next odd frame', () => {
+    expect(bloodDropFrameIndex(0)).toBe(1);
+    expect(bloodDropFrameIndex(2)).toBe(3);
+    expect(bloodDropFrameIndex(100)).toBe(101);
+  });
+
+  it('an odd (blood-drop) frame stays put — no jump, no reset', () => {
+    expect(bloodDropFrameIndex(1)).toBe(1);
+    expect(bloodDropFrameIndex(3)).toBe(3);
+    expect(bloodDropFrameIndex(5)).toBe(5);
+  });
+
+  it('the held frame is always a blood-drop frame', () => {
+    for (let i = 0; i < 10; i++) {
+      const held = bloodDropFrameIndex(i);
+      expect(held % 2).toBe(1);
+      expect(heartbeatFrameFor(held).text).toContain('🩸');
+    }
+  });
+});
+
+describe('shouldAdvanceFrame — the 1s tick, held while dripping', () => {
+  const NOW = 100000;
+  const LONG_AGO = 0; // last keystroke far outside the typing-pause window
+
+  it('advances while active, idle, not dripping, and not typing', () => {
+    expect(shouldAdvanceFrame(true, false, false, LONG_AGO, NOW)).toBe(true);
+  });
+
+  it('does NOT advance while dripping — the frame is held', () => {
+    expect(shouldAdvanceFrame(true, false, true, LONG_AGO, NOW)).toBe(false);
+    // Even busy+dripping (the hold state): no advance.
+    expect(shouldAdvanceFrame(true, true, true, LONG_AGO, NOW)).toBe(false);
+  });
+
+  it('does NOT advance while busy without dripping — plain shell hides it', () => {
+    expect(shouldAdvanceFrame(true, true, false, LONG_AGO, NOW)).toBe(false);
+  });
+
+  it('does NOT advance when the plugin is offline', () => {
+    expect(shouldAdvanceFrame(false, false, false, LONG_AGO, NOW)).toBe(false);
+  });
+
+  it('does NOT advance while paused for typing, even when otherwise cycling', () => {
+    expect(shouldAdvanceFrame(true, false, false, NOW - 100, NOW)).toBe(false);
+  });
+
+  it('resumes advancing once the hold ends — same rule, dripping false again', () => {
+    // Hold: dripping true → no advance. Release: dripping false → advance.
+    expect(shouldAdvanceFrame(true, true, true, LONG_AGO, NOW)).toBe(false);
+    expect(shouldAdvanceFrame(true, true, false, LONG_AGO, NOW)).toBe(false); // still busy: hidden, no advance
+    expect(shouldAdvanceFrame(true, false, false, LONG_AGO, NOW)).toBe(true); // idle again: cycling resumes
   });
 });
 

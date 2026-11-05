@@ -1,20 +1,33 @@
 import { useEffect, useState, type MutableRefObject } from 'react';
 import {
   HEARTBEAT_INTERVAL_MS,
+  bloodDropFrameIndex,
   heartbeatFrameFor,
-  isTypingPaused,
+  shouldAdvanceFrame,
+  shouldShowHeartbeat,
 } from './heartbeatLogic';
 
 interface HeartbeatProps {
   /** The LuciferAI plugin is loaded/running (the dot is 🩸, green or amber). */
   active: boolean;
   /** A task is running — a terminal command, an AI-chat generation, or a
-   * plugin task. While busy the heartbeat gives way to the busy state
-   * (the blood drip / the loading swirl / the generation indicator). */
+   * plugin task. While busy WITHOUT dripping the heartbeat hides and
+   * gives way to the busy state (the loading swirl / the generation
+   * indicator). While busy WITH dripping it holds instead — see below. */
   busy: boolean;
+  /** The fangs are dripping — an AI-chat generation or a LuciferAI
+   * plugin task is running. This is the exact `shouldDrip(...)`
+   * signal from `src/components/Synth/blood.ts`, passed in from
+   * Terminal so the heartbeat hold and the fang pixel drops share
+   * one value and stay in sync by construction. While dripping the
+   * heartbeat does NOT hide: it shifts to the blood-drop frame
+   * (odd, purple 💀) next and HOLDS it there until the task
+   * finishes, then cycling resumes from the held frame. */
+  dripping: boolean;
   /** Ref holding the ms epoch of the last keystroke in the prompt. The
    * heartbeat pauses while the user is typing (the original's smart
-   * pausing) and resumes once typing stops. */
+   * pausing) and resumes once typing stops. Typing is irrelevant
+   * while holding — the frame is held regardless. */
   lastKeystrokeAt: MutableRefObject<number>;
 }
 
@@ -25,21 +38,39 @@ interface HeartbeatProps {
  * is active and idle. Restored from the original (`lucifer.py`
  * `heartbeat_animation()`, `docs/HEARTBEAT_UPDATE.md`) — with the
  * blood drop moved to the 💀 frame only, per Gary (2026-11-04).
+ *
+ * While the fangs drip (AI-chat generation or LuciferAI plugin task)
+ * it holds on the blood-drop frame instead of hiding, in sync with
+ * the fang pixel drops (same `shouldDrip(...)` signal) — per Gary
+ * (2026-11-04). While busy without dripping (plain shell command)
+ * it still hides.
  */
-export function Heartbeat({ active, busy, lastKeystrokeAt }: HeartbeatProps) {
+export function Heartbeat({ active, busy, dripping, lastKeystrokeAt }: HeartbeatProps) {
   const [frame, setFrame] = useState(0);
 
+  // Jump to the blood-drop frame the moment the fangs start dripping —
+  // "shift to the blood drop next" — whatever frame was current. If
+  // the frame is already a blood-drop frame this is a no-op (same
+  // value, React bails out), so no render loop.
   useEffect(() => {
-    if (!active || busy) return;
+    if (active && dripping) setFrame((f) => bloodDropFrameIndex(f));
+  }, [active, dripping]);
+
+  // The 1-second cycle. Torn down while dripping (the frame is held
+  // and must not advance) and while busy without dripping (hidden).
+  // Re-created when the hold ends, so cycling resumes from the held
+  // frame — no reset to frame 0.
+  useEffect(() => {
+    if (!active || busy || dripping) return;
     const timer = setInterval(() => {
-      // Pause while typing — the frame only advances once typing stops.
-      if (isTypingPaused(lastKeystrokeAt.current, Date.now())) return;
-      setFrame((f) => f + 1);
+      if (shouldAdvanceFrame(active, busy, dripping, lastKeystrokeAt.current, Date.now())) {
+        setFrame((f) => f + 1);
+      }
     }, HEARTBEAT_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [active, busy, lastKeystrokeAt]);
+  }, [active, busy, dripping, lastKeystrokeAt]);
 
-  if (!active || busy) return null;
+  if (!shouldShowHeartbeat(active, busy, dripping)) return null;
 
   const { color, text } = heartbeatFrameFor(frame);
   return (

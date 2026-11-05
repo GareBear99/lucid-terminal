@@ -26,6 +26,17 @@
  * it gives way to the busy state (the blood drip / the loading swirl /
  * the generation indicator); when the task finishes and the plugin is
  * idle again, the heartbeat returns.
+ *
+ * HOLD — per Gary (2026-11-04): while the fangs drip (an AI-chat
+ * generation or a LuciferAI plugin task — the exact `shouldDrip(...)`
+ * signal from `src/components/Synth/blood.ts`), the heartbeat does NOT
+ * hide. It shifts to the blood-drop frame (the odd, purple 💀 frame)
+ * next and HOLDS it there until the task finishes, in sync with the
+ * fang pixel drops by construction: both are driven by the same
+ * `shouldDrip(aiChatLoading, luciferTaskActive)` value. When the hold
+ * ends, cycling resumes from the held frame (no reset to frame 0).
+ * While busy WITHOUT dripping (e.g. a plain shell command) it still
+ * hides, as before.
  */
 
 /** The original's 1-second colour/emoji cycle. */
@@ -66,9 +77,41 @@ export function heartbeatFrameFor(index: number): HeartbeatFrame {
   return { color, skull, text };
 }
 
-/** The heartbeat shows only while the plugin is active and not busy. */
-export function shouldShowHeartbeat(active: boolean, busy: boolean): boolean {
-  return active && !busy;
+/** The heartbeat shows only while the plugin is active — and while
+ *  idle, OR while the fangs drip (see the HOLD note above). It hides
+ *  only while busy WITHOUT dripping (a plain shell command sets
+ *  neither drip input) or when the plugin is offline. */
+export function shouldShowHeartbeat(active: boolean, busy: boolean, dripping = false): boolean {
+  return active && (!busy || dripping);
+}
+
+/**
+ * The frame to hold on while the fangs drip: the next blood-drop
+ * (odd, purple 💀) frame at or after the current one — "shift to the
+ * blood drop next". If the current frame is already a blood-drop
+ * frame it stays put (no jump, no reset).
+ */
+export function bloodDropFrameIndex(currentFrame: number): number {
+  return currentFrame % 2 === 0 ? currentFrame + 1 : currentFrame;
+}
+
+/**
+ * Whether the 1-second interval may advance the frame on this tick.
+ * The frame advances only while cycling — active, idle, not dripping —
+ * and not paused for typing. While dripping the frame is held (the
+ * interval is torn down, so it cannot advance); while busy without
+ * dripping the line is hidden. Pure so tests can drive it with fake
+ * timestamps; the component's interval callback calls this.
+ */
+export function shouldAdvanceFrame(
+  active: boolean,
+  busy: boolean,
+  dripping: boolean,
+  lastKeystrokeAt: number,
+  now: number,
+): boolean {
+  if (!active || busy || dripping) return false;
+  return !isTypingPaused(lastKeystrokeAt, now);
 }
 
 /**

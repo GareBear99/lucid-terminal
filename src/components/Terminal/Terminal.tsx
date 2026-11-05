@@ -18,6 +18,7 @@ import { ValidationStepFactory } from './ValidationIndicator';
 import { parseTokenStatsFromResponse } from './TokenDisplay';
 import { FixNetStatus } from '../FixNet/FixNetStatus';
 import { SentinelFace } from '../Synth/SentinelFace';
+import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 
 interface TerminalProps {
@@ -64,10 +65,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
   const [modelNames, setModelNames] = useState<string[]>([]);
   // Busy signals for the idle heartbeat: it shows only while the
   // plugin is active AND idle. A terminal command, an AI-chat
-  // generation, or a plugin task all count as busy.
+  // generation, or a plugin task all count as busy. EXCEPT: while
+  // the fangs drip (AI-chat generation or LuciferAI plugin task)
+  // the heartbeat does NOT hide — it shifts to the blood-drop
+  // frame and holds it (per Gary, 2026-11-04). The hold is driven
+  // by the exact same shouldDrip(...) signal as the fang pixels,
+  // computed here once and shared, so the two stay in sync.
   const aiChatLoading = useAIStore((s) => s.isLoading);
   const luciferTaskActive = useLoadingStore((s) => s.active['lucifer-task'] > 0);
   const heartbeatBusy = isProcessing || aiChatLoading || luciferTaskActive;
+  const heartbeatDripping = shouldDrip(aiChatLoading, luciferTaskActive);
 
   // Terminal failed to start (shell would not spawn). Set when the shell
   // exits non-zero shortly after this tab was created.
@@ -766,9 +773,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
           {/* Idle heartbeat — the original "Idle • Awaiting Commands..."
               animation (blood drop on the 💀 frame only, per Gary),
               restored above the prompt. Shows only while the
-              LuciferAI plugin is active and idle; a task gives way to the
-              busy state (blood drip / loading swirl / generation). */}
-          <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} lastKeystrokeAt={lastKeystrokeAt} />
+              LuciferAI plugin is active and idle; while the fangs
+              drip it holds on the blood-drop frame instead of
+              hiding (same shouldDrip signal as the fang pixels);
+              busy WITHOUT dripping (plain shell) still hides it. */}
+          <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
 
           {/* Input Area - Glass Effect */}
           <div className="input-container backdrop-blur-xl border-t border-[var(--border)] pb-safe"

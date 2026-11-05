@@ -10,6 +10,7 @@ import { promisify } from 'util';
 import * as os from 'os';
 import * as path from 'path';
 import { ToolResult } from './fileTools';
+import { getPythonCommand, resolvePythonPath } from '../pythonPath';
 
 const execAsync = promisify(exec);
 
@@ -158,18 +159,21 @@ export async function runPythonCode(
 ): Promise<ToolResult> {
   // Escape quotes in code
   const escapedCode = code.replace(/"/g, '\\"').replace(/\n/g, '\\n');
-  
-  // Check if python3 exists
-  const hasPython = await checkCommandExists('python3');
-  if (!hasPython) {
+
+  // Resolved to an absolute path, not a PATH lookup: Finder-launched
+  // apps get an empty PATH from launchd, so `which python3` fails
+  // even though python3 exists on disk (see core/pythonPath.ts).
+  // The resolver checks PATH first, then the well-known locations.
+  const pythonCommand = resolvePythonPath();
+  if (!pythonCommand) {
     return {
       success: false,
-      error: 'Python 3 not found in PATH',
+      error: 'Python 3 not found (not on PATH and not at any well-known location)',
       metadata: { code }
     };
   }
-  
-  return runCommand(`python3 -c "${escapedCode}"`, { timeout });
+
+  return runCommand(`"${pythonCommand}" -c "${escapedCode}"`, { timeout });
 }
 
 /**
@@ -315,7 +319,12 @@ export async function runScript(
   let command: string;
   switch (ext) {
     case '.py':
-      command = `python3 ${scriptPath} ${args.join(' ')}`;
+      // Resolved to an absolute path: Finder-launched apps get an
+      // empty PATH from launchd, so a bare 'python3' fails with
+      // ENOENT even though python3 exists on disk (see
+      // core/pythonPath.ts). Falls back to the bare command when
+      // nothing resolves; runCommand reports the failure honestly.
+      command = `"${getPythonCommand()}" ${scriptPath} ${args.join(' ')}`;
       break;
     case '.js':
       command = `node ${scriptPath} ${args.join(' ')}`;

@@ -18,6 +18,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { FixNetRouter } from '../fixnet/fixnetRouter';
+import { getPythonCommand } from '../pythonPath';
 
 export interface ExecutionStep {
   id: number;
@@ -247,7 +248,13 @@ export class ScriptExecutor {
     
     switch (request.language) {
       case 'python':
-        command = 'python3';
+        // Resolved to an absolute path: Finder-launched apps get an
+        // empty PATH from launchd, so a bare 'python3' spawn fails
+        // with ENOENT even though python3 exists on disk (see
+        // core/pythonPath.ts). Falls back to the bare command when
+        // nothing resolves; the 'error' handler in _runCommand
+        // degrades gracefully instead of crashing.
+        command = getPythonCommand();
         args = ['-m', 'py_compile', filePath];
         break;
         
@@ -292,7 +299,7 @@ export class ScriptExecutor {
     
     switch (request.language) {
       case 'python':
-        command = 'python3';
+        command = getPythonCommand();
         args = [filePath];
         break;
         

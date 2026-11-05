@@ -21,6 +21,7 @@
 
 import * as fs from 'fs';
 import { spawn } from 'child_process';
+import { getPythonCommand } from '../pythonPath';
 
 export interface RunResult {
   /** True when the file ran with exit code 0. */
@@ -37,7 +38,12 @@ export function interpreterFor(filePath: string): {
   args: string[];
 } | null {
   if (filePath.endsWith('.py')) {
-    return { command: 'python3', args: [filePath] };
+    // Resolved to an absolute path: Finder-launched apps get an empty
+    // PATH from launchd, so a bare 'python3' spawn fails with ENOENT
+    // even though python3 exists on disk (see core/pythonPath.ts).
+    // Falls back to the bare command when nothing resolves; runFile's
+    // 'error' handler degrades gracefully instead of crashing.
+    return { command: getPythonCommand(), args: [filePath] };
   }
   if (filePath.endsWith('.js')) {
     return { command: 'node', args: [filePath] };

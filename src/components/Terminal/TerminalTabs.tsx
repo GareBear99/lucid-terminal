@@ -94,6 +94,15 @@ export function TerminalTabsView({
         </button>
       </div>
 
+      {/* Divider - mirrors the line that separates the plugin icons
+          from Settings in the icon bar (Sidebar.tsx): the same 1px
+          var(--border) line with the same 4px spacing, turned
+          vertical because this bar is horizontal. The icon-bar line
+          is 32px long in a 48px rail (2/3, 8px inset each side);
+          this one is 24px (h-6) in the 36px bar - the same 2/3.
+          It sits between the tabs and the bell. */}
+      <div className="h-6 border-l border-[var(--border)] mx-1 shrink-0" aria-hidden="true" />
+
       {/* Notifications Button */}
       <button
         onClick={onToggleNotifications}

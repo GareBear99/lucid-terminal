@@ -206,3 +206,29 @@ describe('TerminalTabs — notifications panel', () => {
     expect(html).toContain('Disk full');
   });
 });
+
+describe('TerminalTabs — divider between tabs and bell', () => {
+  /**
+   * Mirrors the line that separates the plugin icons from Settings in
+   * the icon bar (Sidebar.tsx): the same 1px var(--border) line with
+   * the same 4px spacing, turned vertical because this bar is
+   * horizontal. It sits between the tabs and the bell.
+   */
+  const DIVIDER = 'border-l border-[var(--border)]';
+
+  it('renders the divider between the tab strip and the notifications bell', () => {
+    const html = renderView({});
+    const { end } = stripHtml(html);
+    const dividerIdx = html.indexOf(DIVIDER);
+    expect(dividerIdx).toBeGreaterThan(-1);
+    // After the tab strip (which holds the tabs and the + button) ...
+    expect(dividerIdx).toBeGreaterThan(end);
+    // ... and before the bell.
+    expect(dividerIdx).toBeLessThan(html.indexOf('title="Notifications"'));
+  });
+
+  it('renders the divider even with no tabs', () => {
+    const html = renderView({ tabs: [] });
+    expect(html.indexOf(DIVIDER)).toBeGreaterThan(-1);
+  });
+});

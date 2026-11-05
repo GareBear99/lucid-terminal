@@ -38,15 +38,24 @@ export interface QuickTab {
   id: string;
   label: string;
   url: string;
+  /** Which Phone entry this is ('external' = the 127.0.0.1:8090 app). */
+  kind?: 'external' | 'internal';
 }
 
 /** The phone control app — a local Node server Gary runs on his Mac. */
 export const PHONE_CONTROL_URL = 'http://127.0.0.1:8090';
 export const ABOUT_BLANK = 'about:blank';
 
-/** Anchored pinned pages. The first quick tab is always Phone. */
+/**
+ * Anchored pinned pages. The first quick tab is always Phone —
+ * the EXTERNAL entry (the standalone phone-control app). It is
+ * never gated: the GPU gate applies only to Lucid's in-app
+ * (internal) stream, and the internal entry is rendered from the
+ * phone store only when the Android add-on is installed (see
+ * src/phone/streaming.ts getPhoneEntries).
+ */
 export const QUICK_TABS: QuickTab[] = [
-  { id: 'phone', label: 'Phone', url: PHONE_CONTROL_URL },
+  { id: 'phone-external', label: 'Phone — External', url: PHONE_CONTROL_URL, kind: 'external' },
 ];
 
 let tabCounter = 0;

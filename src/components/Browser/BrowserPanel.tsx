@@ -9,7 +9,10 @@ import {
   Loader,
   Smartphone,
 } from 'lucide-react';
-import { useBrowserStore, QUICK_TABS } from '../../stores/browserStore';
+import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
+import { getPhoneEntries, type PhoneEntry } from '../../phone/streaming';
+import { usePhoneStore } from '../../stores/phoneStore';
+import PhoneView from '../Phone/PhoneView';
 import { resolveInputToUrl } from '../../stores/browserUrl';
 import type { BrowserBounds } from '../../types';
 
@@ -27,6 +30,55 @@ import type { BrowserBounds } from '../../types';
  * The view is not destroyed on hide, so the page keeps running.
  */
 
+export interface PhoneQuickTabsProps {
+  entries: PhoneEntry[];
+  onOpenExternal: () => void;
+  onOpenInternal: () => void;
+}
+
+/**
+ * The two separate Phone entries. The external entry always works
+ * and is never gated; the internal entry only exists when the
+ * Android add-on is installed, and is greyed out with its hover
+ * reason when the GPU gate is closed. Kept as its own component
+ * so the entry -> button mapping is testable on its own.
+ */
+export function PhoneQuickTabs({ entries, onOpenExternal, onOpenInternal }: PhoneQuickTabsProps) {
+  return (
+    <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border)] shrink-0">
+      <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mr-1">
+        Quick
+      </span>
+      {entries.map((q) =>
+        q.kind === 'external' ? (
+          <button
+            key={q.id}
+            onClick={onOpenExternal}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-xs"
+            title={PHONE_CONTROL_URL}
+          >
+            <Smartphone size={13} className="text-[var(--accent)]" />
+            {q.label}
+          </button>
+        ) : (
+          <button
+            key={q.id}
+            onClick={() => {
+              if (!q.disabled) onOpenInternal();
+            }}
+            disabled={q.disabled}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            title={q.disabledReason ?? 'In-app phone stream (Android add-on)'}
+          >
+            <Smartphone size={13} className="text-[var(--accent)]" />
+            {q.label}
+          </button>
+        ),
+      )}
+    </div>
+  );
+}
+
 function BrowserPanel() {
   const panelTab = useBrowserStore((s) => s.panelTab);
   const tabs = useBrowserStore((s) => s.tabs);
@@ -40,6 +92,66 @@ function BrowserPanel() {
   const reload = useBrowserStore((s) => s.reload);
   const openQuickTab = useBrowserStore((s) => s.openQuickTab);
   const applyTabUpdate = useBrowserStore((s) => s.applyTabUpdate);
+
+  // Phone entries: the external app always, the in-app (internal)
+  // stream only when the Android add-on is installed — and greyed
+  // out with its hover reason when the GPU gate is closed.
+  const androidAddonInstalled = usePhoneStore((s) => s.androidAddonInstalled);
+  const gpuGate = usePhoneStore((s) => s.gpuGate);
+  const activeInternalSerial = usePhoneStore((s) => s.activeInternalSerial);
+  const setActiveInternalSerial = usePhoneStore((s) => s.setActiveInternalSerial);
+  const refreshGpuGate = usePhoneStore((s) => s.refreshGpuGate);
+  const phoneEntries = getPhoneEntries({ androidAddonInstalled, gpuGate });
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+
+  // Ask main for the real GPU check once the panel mounts.
+  useEffect(() => {
+    void refreshGpuGate();
+  }, [refreshGpuGate]);
+
+  // Opening the internal stream hides the BrowserView; closing it
+  // re-attaches the active browser tab at the container's rect.
+  useEffect(() => {
+    if (activeInternalSerial) {
+      void window.lucidAPI.browser.hide();
+      return;
+    }
+    if (panelTab !== 'browser' || !activeTabId) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    void window.lucidAPI.browser.activate(activeTabId, {
+      x: Math.round(r.x),
+      y: Math.round(r.y),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+    });
+  }, [activeInternalSerial, panelTab, activeTabId]);
+
+  // Internal entry: stream the first connected device. The serial
+  // comes from adb, not from a guess — no device, no stream.
+  const openInternalPhone = async () => {
+    const android = window.lucidAPI?.android;
+    if (!android) {
+      setPhoneError('Phone streaming IPC is not available in this build');
+      return;
+    }
+    setPhoneError(null);
+    const result = await android.listDevices().catch(() => ({
+      devices: [],
+      error: 'could not list devices',
+    }));
+    if (result.error) {
+      setPhoneError(result.error);
+      return;
+    }
+    const device = result.devices.find((d) => d.state === 'device');
+    if (!device) {
+      setPhoneError('No Android device connected — start the emulator or plug a phone in');
+      return;
+    }
+    setActiveInternalSerial(device.serial);
+  };
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -193,28 +305,39 @@ function BrowserPanel() {
         />
       </form>
 
-      {/* Quick tabs — anchored pinned pages */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border)] shrink-0">
-        <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mr-1">
-          Quick
-        </span>
-        {QUICK_TABS.map((q) => (
-          <button
-            key={q.id}
-            onClick={() => openQuickTab(q.url)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-xs"
-            title={q.url}
-          >
-            <Smartphone size={13} className="text-[var(--accent)]" />
-            {q.label}
-          </button>
-        ))}
-      </div>
+      {/* Quick tabs — the two separate Phone entries. The external
+          entry always works and is never gated; the internal entry
+          only exists when the Android add-on is installed, and is
+          greyed out with its hover reason when the GPU gate is
+          closed. */}
+      <PhoneQuickTabs
+        entries={phoneEntries}
+        onOpenExternal={() => {
+          setActiveInternalSerial(null);
+          openQuickTab(PHONE_CONTROL_URL);
+        }}
+        onOpenInternal={() => void openInternalPhone()}
+      />
+      {phoneError ? (
+        <div className="px-3 py-1.5 text-xs text-red-300 bg-red-950 shrink-0">
+          {phoneError}
+        </div>
+      ) : null}
 
-      {/* The BrowserView is positioned over this container by the main
-          process. White underneath so the viewport reads as a browser
-          while a page loads. */}
-      <div ref={containerRef} className="flex-1 min-h-0 bg-white" />
+      {/* The in-app stream replaces the BrowserView container while
+          it is open; otherwise the BrowserView is positioned over
+          this container by the main process. White underneath so
+          the viewport reads as a browser while a page loads. */}
+      {activeInternalSerial ? (
+        <div className="flex-1 min-h-0">
+          <PhoneView
+            serial={activeInternalSerial}
+            onClose={() => setActiveInternalSerial(null)}
+          />
+        </div>
+      ) : (
+        <div ref={containerRef} className="flex-1 min-h-0 bg-white" />
+      )}
     </div>
   );
 }

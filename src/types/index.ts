@@ -1,4 +1,11 @@
 // Re-export preload types
+import type {
+  DecodePath,
+  GpuGateStatus,
+  StreamMetricsSnapshot,
+  TouchMessage,
+} from '../phone/streaming';
+
 export interface FileEntry {
   name: string;
   path: string;
@@ -281,6 +288,21 @@ declare global {
         reload: (tabId: string) => Promise<void>;
         onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
         onOpenUrl: (callback: (url: string) => void) => () => void;
+      };
+      android: {
+        getGpuGate: () => Promise<GpuGateStatus>;
+        listDevices: () => Promise<{ devices: { serial: string; state: string }[]; error?: string }>;
+        getCapacity: () => Promise<{ internalLoaded: number; externalConnected: number; summary: string }>;
+        connectExternal: (serial: string) => Promise<{ ok: boolean; reason?: string; error?: string }>;
+        loadInternal: (serial: string) => Promise<{ ok: boolean; reason?: string; error?: string }>;
+        disconnect: (serial: string) => Promise<boolean>;
+        startStream: (serial: string) => Promise<{ ok: boolean; error?: string }>;
+        stopStream: (serial: string) => Promise<{ ok: boolean; error?: string }>;
+        touch: (serial: string, msg: TouchMessage) => Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
+        getMetrics: (serial?: string) => Promise<StreamMetricsSnapshot | null>;
+        reportDecodePath: (serial: string, decodePath: DecodePath) => Promise<void>;
+        onFrame: (callback: (serial: string, chunk: Uint8Array) => void) => () => void;
+        onDeviceState: (callback: (serial: string, state: string, error?: string) => void) => () => void;
       };
       cursor: {
         onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;

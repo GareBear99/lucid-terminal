@@ -1,4 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  DecodePath,
+  GpuGateStatus,
+  StreamMetricsSnapshot,
+  TouchMessage,
+} from '../src/phone/streaming';
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('lucidAPI', {
@@ -136,6 +142,45 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const listener = (_: any, url: string) => callback(url);
       ipcRenderer.on('browser:open-url', listener);
       return () => ipcRenderer.removeListener('browser:open-url', listener);
+    },
+  },
+
+  // Phone streaming (Phase 0 spike): scrcpy H.264 + WebCodecs,
+  // owned by main. The in-app (internal) entry is the only one
+  // gated on hardware decode; the external entry never calls this.
+  android: {
+    getGpuGate: () => ipcRenderer.invoke('android:getGpuGate'),
+    listDevices: () => ipcRenderer.invoke('android:listDevices'),
+    getCapacity: () => ipcRenderer.invoke('android:getCapacity'),
+    connectExternal: (serial: string) =>
+      ipcRenderer.invoke('android:connectExternal', serial),
+    loadInternal: (serial: string) =>
+      ipcRenderer.invoke('android:loadInternal', serial),
+    disconnect: (serial: string) =>
+      ipcRenderer.invoke('android:disconnect', serial),
+    startStream: (serial: string) =>
+      ipcRenderer.invoke('android:startStream', serial),
+    stopStream: (serial: string) =>
+      ipcRenderer.invoke('android:stopStream', serial),
+    touch: (serial: string, msg: TouchMessage) =>
+      ipcRenderer.invoke('android:touch', serial, msg),
+    getMetrics: (serial?: string) =>
+      ipcRenderer.invoke('android:getMetrics', serial),
+    reportDecodePath: (serial: string, decodePath: DecodePath) =>
+      ipcRenderer.invoke('android:reportDecodePath', serial, decodePath),
+    onFrame: (callback: (serial: string, chunk: Uint8Array) => void) => {
+      const listener = (_: any, serial: string, chunk: Uint8Array) =>
+        callback(serial, chunk);
+      ipcRenderer.on('android:frame', listener);
+      return () => ipcRenderer.removeListener('android:frame', listener);
+    },
+    onDeviceState: (
+      callback: (serial: string, state: string, error?: string) => void,
+    ) => {
+      const listener = (_: any, serial: string, state: string, error?: string) =>
+        callback(serial, state, error);
+      ipcRenderer.on('android:device-state', listener);
+      return () => ipcRenderer.removeListener('android:device-state', listener);
     },
   },
 
@@ -286,6 +331,21 @@ export interface LucidAPI {
     reload: (tabId: string) => Promise<void>;
     onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
     onOpenUrl: (callback: (url: string) => void) => () => void;
+  };
+  android: {
+    getGpuGate: () => Promise<GpuGateStatus>;
+    listDevices: () => Promise<{ devices: { serial: string; state: string }[]; error?: string }>;
+    getCapacity: () => Promise<{ internalLoaded: number; externalConnected: number; summary: string }>;
+    connectExternal: (serial: string) => Promise<{ ok: boolean; reason?: string; error?: string }>;
+    loadInternal: (serial: string) => Promise<{ ok: boolean; reason?: string; error?: string }>;
+    disconnect: (serial: string) => Promise<boolean>;
+    startStream: (serial: string) => Promise<{ ok: boolean; error?: string }>;
+    stopStream: (serial: string) => Promise<{ ok: boolean; error?: string }>;
+    touch: (serial: string, msg: TouchMessage) => Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
+    getMetrics: (serial?: string) => Promise<StreamMetricsSnapshot | null>;
+    reportDecodePath: (serial: string, decodePath: DecodePath) => Promise<void>;
+    onFrame: (callback: (serial: string, chunk: Uint8Array) => void) => () => void;
+    onDeviceState: (callback: (serial: string, state: string, error?: string) => void) => () => void;
   };
   cursor: {
     onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;

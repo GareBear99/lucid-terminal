@@ -92,6 +92,12 @@ export function setupBrowserHandlers(
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
+        // The phone page polls on a timer. A detached/hidden page
+        // has its timers clamped to 1 wake-up/s, then 1/min under
+        // intensive throttling — the stream stalls every time Gary
+        // switches to the AI Chat tab. The view is not destroyed on
+        // hide, so its page keeps running: let its timers run.
+        backgroundThrottling: false,
       },
     });
     views.set(tabId, view);

@@ -8,6 +8,7 @@ import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
 import { setupSystemHandlers } from './ipc/system';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupBrowserHandlers } from './ipc/browser';
+import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
 import { apiKeyStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
@@ -94,6 +95,8 @@ app.whenReady().then(() => {
   setupDaemonHandlers(ipcMain);
   // The in-panel browser needs the window to attach its BrowserViews to.
   setupBrowserHandlers(ipcMain, () => mainWindow);
+  // Phone streaming (scrcpy) needs the window for the PhoneView canvas host.
+  setupAndroidHandlers(ipcMain, () => mainWindow);
   // The Sentinel face follows the cursor even off-window: the
   // main process polls the global cursor position and pushes it
   // to the renderer (see electron/ipc/cursor.ts).

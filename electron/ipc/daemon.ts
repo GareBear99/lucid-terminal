@@ -12,8 +12,13 @@
  * `daemonAutoFix` setting is explicitly true — Gary has not decided
  * autofix vs suggest yet, so the default must stay watch.
  *
- * `daemonCommitTracking` is NOT wired: nothing in the watcher tracks
- * commits, so the toggle has no consumer yet.
+ * Commit tracking: when the `daemonCommitTracking` setting is on, the
+ * watcher is started with --commit-tracking and logs a `watch_commit`
+ * event each time HEAD advances in a watched git repo (read-only —
+ * the watcher never commits anything itself). When the setting is off,
+ * the flag is not passed and no commits are tracked. Toggling the
+ * setting restarts a running daemon so the flag takes effect, the same
+ * way the autofix toggle does.
  */
 import { spawn, spawnSync, execFile, ChildProcess } from 'child_process';
 import { IpcMain, app } from 'electron';
@@ -37,6 +42,8 @@ export interface DaemonStatus {
   pids: string[];
   mode: 'watch' | 'autofix' | null;
   paths: string[];
+  /** True when the (running or next) watcher tracks commits. */
+  commitTracking: boolean;
 }
 
 export interface DaemonStartResult {
@@ -45,11 +52,13 @@ export interface DaemonStartResult {
   pid?: number;
   mode?: 'watch' | 'autofix';
   paths?: string[];
+  commitTracking?: boolean;
   error?: string;
 }
 
 let watcherProc: ChildProcess | null = null;
 let watcherMode: 'watch' | 'autofix' | null = null;
+let watcherCommitTracking: boolean | null = null;
 
 function resolveBackendDir(): string | null {
   const packaged = app.isPackaged
@@ -90,6 +99,7 @@ function getStdoutLogPath(): string {
 function readDaemonSettings(): {
   enabled: boolean;
   autoFix: boolean;
+  commitTracking: boolean;
   paths: string[];
   retention: number;
   verbosity: DaemonVerbosity;
@@ -99,6 +109,7 @@ function readDaemonSettings(): {
   return {
     enabled: settings.get<boolean>('daemonEnabled') ?? false,
     autoFix: settings.get<boolean>('daemonAutoFix') ?? false,
+    commitTracking: settings.get<boolean>('daemonCommitTracking') ?? false,
     paths: Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : [],
     retention: settings.get<number>('daemonLogRetention') ?? 30,
     verbosity:
@@ -109,6 +120,28 @@ function readDaemonSettings(): {
         ? verbosity
         : 'normal',
   };
+}
+
+/**
+ * The argv for the watcher process. Pure — no spawn, so the flag wiring
+ * is unit-tested directly. `--commit-tracking` is passed only when the
+ * setting is on; the watcher tracks no commits without it.
+ */
+export function buildWatcherArgs(
+  script: string,
+  paths: string[],
+  mode: 'watch' | 'autofix',
+  commitTracking: boolean,
+): string[] {
+  return [
+    '-u',
+    script,
+    '--paths',
+    ...paths,
+    '--mode',
+    mode,
+    ...(commitTracking ? ['--commit-tracking'] : []),
+  ];
 }
 
 function isWatcherProcessAlive(): boolean {
@@ -138,11 +171,15 @@ async function pgrepWatcher(): Promise<string[]> {
 export async function getDaemonStatus(): Promise<DaemonStatus> {
   const pids = await pgrepWatcher();
   const running = isWatcherProcessAlive() || pids.length > 0;
+  const { commitTracking } = readDaemonSettings();
   return {
     running,
     pids,
     mode: running ? watcherMode : null,
     paths: readDaemonSettings().paths,
+    // While running, report the flag the live process was started with;
+    // when stopped, the setting is what the next start will use.
+    commitTracking: running ? (watcherCommitTracking ?? commitTracking) : commitTracking,
   };
 }
 
@@ -155,6 +192,7 @@ export async function startDaemon(): Promise<DaemonStartResult> {
       pid: watcherProc?.pid,
       mode: status.mode ?? undefined,
       paths: status.paths,
+      commitTracking: status.commitTracking,
     };
   }
 
@@ -167,7 +205,7 @@ export async function startDaemon(): Promise<DaemonStartResult> {
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
 
-  const { autoFix, paths } = readDaemonSettings();
+  const { autoFix, commitTracking, paths } = readDaemonSettings();
   if (paths.length === 0) {
     return {
       success: false,
@@ -207,7 +245,7 @@ export async function startDaemon(): Promise<DaemonStartResult> {
     try {
       proc = spawn(
         pythonCommand,
-        ['-u', script, '--paths', ...paths, '--mode', mode],
+        buildWatcherArgs(script, paths, mode, commitTracking),
         {
           cwd: path.dirname(script),
           stdio: ['ignore', logFd, logFd],
@@ -221,12 +259,14 @@ export async function startDaemon(): Promise<DaemonStartResult> {
     }
     watcherProc = proc;
     watcherMode = mode;
+    watcherCommitTracking = commitTracking;
 
     proc.on('error', (err) => {
       console.error('Watcher daemon failed to spawn:', err);
       if (watcherProc === proc) {
         watcherProc = null;
         watcherMode = null;
+        watcherCommitTracking = null;
       }
     });
     proc.on('exit', (code) => {
@@ -234,6 +274,7 @@ export async function startDaemon(): Promise<DaemonStartResult> {
       if (watcherProc === proc) {
         watcherProc = null;
         watcherMode = null;
+        watcherCommitTracking = null;
       }
     });
 
@@ -242,13 +283,15 @@ export async function startDaemon(): Promise<DaemonStartResult> {
     if (proc.exitCode !== null) {
       watcherProc = null;
       watcherMode = null;
+      watcherCommitTracking = null;
       return { success: false, error: `Watcher exited immediately (code ${proc.exitCode}). See ~/LuciferAI/logs/watcher.log.` };
     }
 
-    return { success: true, pid: proc.pid, mode, paths };
+    return { success: true, pid: proc.pid, mode, paths, commitTracking };
   } catch (error) {
     watcherProc = null;
     watcherMode = null;
+    watcherCommitTracking = null;
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
@@ -263,6 +306,7 @@ export function stopDaemonSync(): void {
       watcherProc.kill('SIGTERM');
       watcherProc = null;
       watcherMode = null;
+      watcherCommitTracking = null;
     }
   } catch {
     // Already gone.
@@ -292,6 +336,7 @@ export async function stopDaemon(): Promise<{ success: boolean; error?: string }
       }
       watcherProc = null;
       watcherMode = null;
+      watcherCommitTracking = null;
     }
 
     // Orphan cleanup (fan-daemon pkill pattern): if a watcher is still
@@ -315,6 +360,21 @@ async function restartDaemonIfRunning(): Promise<void> {
 
 export function getWatchPaths(): string[] {
   return readDaemonSettings().paths;
+}
+
+/**
+ * The Settings checkbox path for commit tracking: save the setting
+ * (persisted through the settings store, so it survives a restart) and
+ * restart a running daemon so the watcher picks up the new flag. A
+ * stopped daemon needs no restart — the next start reads the setting.
+ */
+export async function setCommitTracking(
+  enabled: boolean,
+): Promise<{ commitTracking: boolean; restarted: boolean }> {
+  settings.set('daemonCommitTracking', enabled);
+  const wasRunning = (await getDaemonStatus()).running;
+  if (wasRunning) await restartDaemonIfRunning();
+  return { commitTracking: enabled, restarted: wasRunning };
 }
 
 export async function addWatchPath(dirPath: string): Promise<{ paths: string[]; restarted: boolean }> {
@@ -368,6 +428,7 @@ export function setupDaemonHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('daemon:start', async (): Promise<DaemonStartResult> => startDaemon());
   ipcMain.handle('daemon:stop', async (): Promise<{ success: boolean; error?: string }> => stopDaemon());
   ipcMain.handle('daemon:status', async (): Promise<DaemonStatus> => getDaemonStatus());
+  ipcMain.handle('daemon:setCommitTracking', async (_, enabled: boolean) => setCommitTracking(enabled));
   ipcMain.handle('daemon:getPaths', async (): Promise<string[]> => getWatchPaths());
   ipcMain.handle('daemon:addPath', async (_, dirPath: string) => addWatchPath(dirPath));
   ipcMain.handle('daemon:removePath', async (_, dirPath: string) => removeWatchPath(dirPath));

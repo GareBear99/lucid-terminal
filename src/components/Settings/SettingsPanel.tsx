@@ -55,7 +55,7 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 
   // File-watcher daemon state (Daemon tab). Loaded when the tab opens.
   const [watchPaths, setWatchPaths] = useState<string[]>([]);
-  const [daemonStatus, setDaemonStatus] = useState<{ running: boolean; mode: 'watch' | 'autofix' | null; pids: string[] } | null>(null);
+  const [daemonStatus, setDaemonStatus] = useState<{ running: boolean; mode: 'watch' | 'autofix' | null; pids: string[]; commitTracking?: boolean } | null>(null);
   const [daemonBusy, setDaemonBusy] = useState(false);
   const [daemonError, setDaemonError] = useState<string | null>(null);
   const [showDaemonLogs, setShowDaemonLogs] = useState(false);
@@ -157,6 +157,27 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
         setDaemonBusy(false);
         await refreshDaemon();
       }
+    }
+  };
+
+  const handleDaemonCommitTrackingChange = async (commitTracking: boolean) => {
+    // The setting is saved through the daemon IPC so a running daemon
+    // restarts with the new flag; a stopped daemon picks it up on its
+    // next start. The value persists in the settings store.
+    if (!window.lucidAPI.daemon) {
+      await updateSetting('daemonCommitTracking', commitTracking);
+      return;
+    }
+    setDaemonBusy(true);
+    setDaemonError(null);
+    try {
+      const result = await window.lucidAPI.daemon.setCommitTracking(commitTracking);
+      await updateSetting('daemonCommitTracking', result.commitTracking);
+    } catch (error) {
+      setDaemonError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDaemonBusy(false);
+      await refreshDaemon();
     }
   };
 
@@ -724,13 +745,14 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     <input
                       type="checkbox"
                       checked={settings.daemonCommitTracking !== false}
-                      onChange={(e) => updateSetting('daemonCommitTracking', e.target.checked)}
+                      onChange={(e) => handleDaemonCommitTrackingChange(e.target.checked)}
+                      disabled={daemonBusy}
                       className="rounded"
                     />
                     <span className="text-sm">GitHub-style commit tracking</span>
                   </label>
                   <div className="text-xs text-[var(--text-muted)] pl-6">
-                    Not wired to anything yet — the watcher tracks no commits.
+                    On = the watcher logs each new commit in a watched git repo (see Daemon Logs below). Off = commits are ignored. The watcher only reads HEAD — it never commits anything itself.
                   </div>
                 </div>
               </section>
@@ -800,7 +822,7 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   <div>
                     {daemonStatus
                       ? daemonStatus.running
-                        ? `Running in ${daemonStatus.mode ?? 'watch'} mode${daemonStatus.pids.length > 0 ? ` (PID ${daemonStatus.pids.join(', ')})` : ''}`
+                        ? `Running in ${daemonStatus.mode ?? 'watch'} mode${daemonStatus.commitTracking ? ' with commit tracking' : ''}${daemonStatus.pids.length > 0 ? ` (PID ${daemonStatus.pids.join(', ')})` : ''}`
                         : 'Not running'
                       : 'Status unknown'}
                   </div>

@@ -156,6 +156,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     start: () => ipcRenderer.invoke('daemon:start'),
     stop: () => ipcRenderer.invoke('daemon:stop'),
     status: () => ipcRenderer.invoke('daemon:status'),
+    setCommitTracking: (enabled: boolean) => ipcRenderer.invoke('daemon:setCommitTracking', enabled),
     getPaths: () => ipcRenderer.invoke('daemon:getPaths'),
     addPath: (dirPath: string) => ipcRenderer.invoke('daemon:addPath', dirPath),
     removePath: (dirPath: string) => ipcRenderer.invoke('daemon:removePath', dirPath),

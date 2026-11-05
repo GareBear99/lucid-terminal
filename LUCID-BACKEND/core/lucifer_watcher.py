@@ -35,6 +35,12 @@ class LuciferWatcher:
         self.thread = None
         self.user_id = user_id
         self.mode = "watch"  # "watch" (suggest only) or "autofix" (apply fixes)
+        # Commit tracking: off unless --commit-tracking is passed. When on,
+        # the watch loop records HEAD per watched git repo and logs a
+        # watch_commit event each time it advances. Read-only — the watcher
+        # never creates a commit itself.
+        self.commit_tracking = False
+        self.repo_heads: Dict[str, str] = {}
         
         # Initialize components
         self.dictionary = RelevanceDictionary(user_id)
@@ -89,6 +95,18 @@ class LuciferWatcher:
         mode_desc = "suggesting fixes" if mode == "watch" else "auto-applying fixes"
         print(c(f"{Emojis.GHOST} Mode changed: {old_mode.upper()} → {mode.upper()} ({mode_desc})", mode_color))
         self.logger.log_event("watcher_mode_change", "-", f"Mode changed to {mode}")
+
+    def set_commit_tracking(self, enabled: bool):
+        """Turn git commit tracking on/off. On: new commits in watched
+        repos are logged as watch_commit events. Off: HEAD is ignored."""
+        self.commit_tracking = bool(enabled)
+        # Dropping the baselines means the next commit after re-enabling
+        # is logged instead of being swallowed as a baseline.
+        if not self.commit_tracking:
+            self.repo_heads.clear()
+        state = "on" if self.commit_tracking else "off"
+        print(c(f"{Emojis.GHOST} Commit tracking {state}", "cyan"))
+        self.logger.log_event("watcher_commit_tracking", "-", f"Commit tracking {state}")
     
     def start(self, mode: Optional[str] = None):
         """Start the file watcher."""
@@ -112,6 +130,8 @@ class LuciferWatcher:
         mode_color = "cyan" if self.mode == "watch" else "green"
         print_success(f"LuciferWatcher started - {mode_desc} for {len(self.watch_paths)} path(s)")
         print(c(f"{Emojis.GHOST} Active mode: {self.mode.upper()}", mode_color))
+        if self.commit_tracking:
+            print(c(f"{Emojis.GHOST} Commit tracking: on", "cyan"))
         self.logger.log_event("watcher_start", "-", f"Started {self.mode} mode on {len(self.watch_paths)} paths")
     
     def stop(self):
@@ -137,8 +157,66 @@ class LuciferWatcher:
                             if f.endswith('.py'):  # Only watch Python files
                                 full = os.path.join(root, f)
                                 self._check_file(full)
-            
+
+            if self.commit_tracking:
+                self._check_commits()
+
             time.sleep(2)  # Check every 2 seconds
+
+    # ─────────────────────────────── COMMIT TRACKING ─────────────────────────────── #
+    def _git_root(self, path: str) -> Optional[str]:
+        """Repo root containing path, or None when it is not in a git repo.
+        Local `git rev-parse` only — no network, no writes."""
+        target = path if os.path.isdir(path) else os.path.dirname(path)
+        try:
+            result = subprocess.run(
+                ["git", "-C", target, "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+
+    def _git_head(self, repo_root: str) -> Optional[tuple]:
+        """(full sha, subject) of HEAD, or None when the repo has no commits."""
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_root, "log", "-1", "--format=%H%x00%s"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            return None
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        parts = result.stdout.strip().split("\x00", 1)
+        if len(parts) != 2:
+            return None
+        return parts[0], parts[1]
+
+    def _check_commits(self):
+        """Log a watch_commit event for each watched repo whose HEAD moved
+        since the last check. The first sighting of a repo only records
+        the baseline — existing history is not reported as new commits."""
+        seen_roots: Set[str] = set()
+        for path in list(self.watch_paths):
+            root = self._git_root(path)
+            if not root or root in seen_roots:
+                continue
+            seen_roots.add(root)
+            head = self._git_head(root)
+            if not head:
+                continue
+            sha, subject = head
+            prev = self.repo_heads.get(root)
+            if prev is None:
+                self.repo_heads[root] = sha
+                continue
+            if prev != sha:
+                self.repo_heads[root] = sha
+                print(c(f"\n{Emojis.SPARKLE} Commit detected: {sha[:7]} {subject}", "green"))
+                self.logger.log_event("watch_commit", root, f"Commit {sha[:7]} {subject}")
     
     def _check_file(self, file_path: str):
         """Check if a file has changed and auto-fix if needed."""
@@ -344,11 +422,13 @@ class LuciferWatcher:
 
 
 # Run as a long-lived background daemon:
-#   python3 core/lucifer_watcher.py --paths <dir...> --mode watch [--user-id ID]
+#   python3 core/lucifer_watcher.py --paths <dir...> --mode watch [--user-id ID] [--commit-tracking]
 # The Electron app manages this process (see electron/ipc/daemon.ts): it
 # starts it with --mode watch by default and stops it on quit. Autofix mode
 # is only entered when --mode autofix is passed explicitly — the Electron
 # default is watch (suggest-only) until Gary decides autofix vs suggest.
+# --commit-tracking logs a watch_commit event each time HEAD advances in a
+# watched git repo (read-only); without it the watcher tracks no commits.
 if __name__ == "__main__":
     import argparse
     import hashlib
@@ -360,6 +440,8 @@ if __name__ == "__main__":
                          help="Files or directories to watch")
     _parser.add_argument("--mode", choices=["watch", "autofix"], default="watch",
                          help="watch = suggest fixes only (default); autofix = apply fixes")
+    _parser.add_argument("--commit-tracking", action="store_true",
+                         help="Log a watch_commit event when HEAD advances in a watched git repo")
     _parser.add_argument("--user-id", default=None,
                          help="User id for the fix dictionary (default: device hash)")
     _args = _parser.parse_args()
@@ -372,6 +454,7 @@ if __name__ == "__main__":
         _user_id = hashlib.sha256(f"{_device_id}-{_username}".encode()).hexdigest()[:16].upper()
 
     _watcher = LuciferWatcher(_user_id)
+    _watcher.set_commit_tracking(_args.commit_tracking)
 
     for _p in _args.paths:
         _watcher.add_path(_p)

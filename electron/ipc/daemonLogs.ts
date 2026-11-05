@@ -43,10 +43,12 @@ const NORMAL_EVENTS = new Set([
   'watcher_add',
   'watcher_remove',
   'watcher_mode_change',
+  'watcher_commit_tracking',
   'watcher_start',
   'watcher_stop',
   'watch_suggest',
   'watch_fix_success',
+  'watch_commit',
 ]);
 
 /** Does this verbosity level include this event? Verbose/debug show all. */
@@ -59,7 +61,7 @@ export function verbosityIncludes(verbosity: DaemonVerbosity, event: string): bo
 function typeForEvent(event: string): DaemonLogEntry['type'] {
   if (event === 'watch_suggest' || event.startsWith('watch_fix_')) return 'auto_fix';
   if (event === 'watch_no_fix') return 'error';
-  if (event === 'watch_check_success') return 'success';
+  if (event === 'watch_check_success' || event === 'watch_commit') return 'success';
   return 'file_change';
 }
 
@@ -67,6 +69,7 @@ function statusForEvent(event: string): DaemonLogEntry['status'] {
   if (
     event === 'watch_fix_success' ||
     event === 'watch_check_success' ||
+    event === 'watch_commit' ||
     event === 'watcher_add' ||
     event === 'watcher_start'
   ) {

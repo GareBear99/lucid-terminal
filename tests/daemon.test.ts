@@ -105,6 +105,40 @@ describe('verbosityIncludes', () => {
   });
 });
 
+describe('watch_commit events (commit tracking)', () => {
+  it('is a watcher event and shows at normal verbosity', () => {
+    expect(isWatcherEvent('watch_commit')).toBe(true);
+    expect(verbosityIncludes('normal', 'watch_commit')).toBe(true);
+    expect(verbosityIncludes('minimal', 'watch_commit')).toBe(false);
+  });
+
+  it('maps to a success entry with the repo directory and the commit message', () => {
+    const entry = mapWatcherEventToLog(
+      event({ event: 'watch_commit', target: '/home/gary/FreeEQ8', message: 'Commit abc1234 Fix shelf' }),
+      0,
+    );
+    expect(entry).not.toBeNull();
+    expect(entry!.type).toBe('success');
+    expect(entry!.status).toBe('success');
+    expect(entry!.file).toBe('FreeEQ8');
+    expect(entry!.directory).toBe('/home/gary');
+    expect(entry!.action).toBe('Commit abc1234 Fix shelf');
+  });
+
+  it('includes commit events in the mapped log list', () => {
+    const entries = mapWatcherEventsToLogs(
+      [
+        event({ event: 'watch_commit', target: '/home/gary/FreeEQ8', message: 'Commit abc1234 Fix shelf' }),
+        event({ event: 'watch_check_success', target: '/tmp/a.py' }),
+      ],
+      30,
+      'normal',
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].action).toContain('abc1234');
+  });
+});
+
 describe('mapWatcherEventsToLogs', () => {
   it('drops non-watcher events and sorts oldest-first', () => {
     const entries = mapWatcherEventsToLogs(

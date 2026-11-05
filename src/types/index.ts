@@ -286,9 +286,10 @@ declare global {
         onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;
       };
       daemon: {
-        start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; error?: string }>;
+        start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; commitTracking?: boolean; error?: string }>;
         stop: () => Promise<{ success: boolean; error?: string }>;
-        status: () => Promise<{ running: boolean; pids: string[]; mode: 'watch' | 'autofix' | null; paths: string[] }>;
+        status: () => Promise<{ running: boolean; pids: string[]; mode: 'watch' | 'autofix' | null; paths: string[]; commitTracking: boolean }>;
+        setCommitTracking: (enabled: boolean) => Promise<{ commitTracking: boolean; restarted: boolean }>;
         getPaths: () => Promise<string[]>;
         addPath: (dirPath: string) => Promise<{ paths: string[]; restarted: boolean }>;
         removePath: (dirPath: string) => Promise<{ paths: string[]; restarted: boolean }>;

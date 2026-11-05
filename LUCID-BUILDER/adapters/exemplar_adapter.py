@@ -13,6 +13,18 @@ from adapters.base import ModelAdapter, ModelResponse
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9_']+")
 
 
+# Forge: minimum match score. A brain must not answer from a weak
+# match — intended matches score 1.0, while a question that shares
+# only generic words with a record (e.g. "What is the weather on
+# Mars?" matching the self record on "what"/"is") scores 0.36-0.53.
+# Below this threshold the brain falls back honestly instead of
+# answering with the wrong record. Stop-word filtering was considered
+# and rejected: the self/lineage questions ("Who are you?",
+# "Where did you come from?") are themselves made of those same
+# function words, so filtering them would break legitimate matches.
+# The threshold is what separates the two.
+MIN_MATCH_SCORE = 0.7
+
 
 def _tokenize(text: str) -> list[str]:
     return _TOKEN_RE.findall((text or "").lower())
@@ -140,6 +152,11 @@ class ExemplarAdapter(ModelAdapter):
         else:
             chosen = scored[: self.top_k]
 
+        # Forge: minimum-score threshold (see MIN_MATCH_SCORE). A weak
+        # best match is not a match — fall back honestly instead of
+        # answering with the wrong record.
+        if chosen and chosen[0][0] < MIN_MATCH_SCORE:
+            chosen = []
 
         lines: list[str] = []
         if system_prompt:

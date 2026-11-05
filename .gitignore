@@ -15,6 +15,10 @@ out/
 # Vendored Monaco bundle (public/monaco/vs) — shipped with the app so the
 # editor works with no CDN. Keep it in git; re-copy it on monaco upgrades.
 !public/monaco/**
+# Vendored v67 synth shell siblings (public/synth/arc_*.js) — kept in
+# git so the synth test passes in CI (the blanket *.js above would
+# otherwise ignore them).
+!public/synth/arc_*.js
 
 # IDE
 .vscode/

@@ -9,7 +9,7 @@ import Sidebar from './components/Layout/Sidebar';
 import StatusBar from './components/Layout/StatusBar';
 import Terminal from './components/Terminal/Terminal';
 import TerminalTabs from './components/Terminal/TerminalTabs';
-import AIChat from './components/AI/AIChat';
+import AIPanel from './components/AI/AIPanel';
 import CodeEditor from './components/Editor/CodeEditor';
 import SettingsPanel from './components/Settings/SettingsPanel';
 import { SynthView } from './components/Synth/SynthView';
@@ -245,12 +245,12 @@ function App() {
                           }}
                         />
 
-                        {/* AI Chat Panel */}
+                        {/* AI Panel — tabbed: AI Chat + Browser */}
                         <div
                           className="h-full border-l border-[var(--border)]"
                           style={{ width: aiPanelWidth }}
                         >
-                          <AIChat onClose={() => setShowAI(false)} />
+                          <AIPanel onClose={() => setShowAI(false)} />
                         </div>
                       </>
                     )}

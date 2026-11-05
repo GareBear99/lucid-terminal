@@ -7,6 +7,7 @@ import { setupSettingsHandlers } from './ipc/settings';
 import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
 import { setupSystemHandlers } from './ipc/system';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
+import { setupBrowserHandlers } from './ipc/browser';
 import { apiKeyStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
@@ -81,6 +82,8 @@ app.whenReady().then(() => {
   setupLucidWorkflowHandlers(ipcMain);
   setupSystemHandlers(ipcMain);
   setupDaemonHandlers(ipcMain);
+  // The in-panel browser needs the window to attach its BrowserViews to.
+  setupBrowserHandlers(ipcMain, () => mainWindow);
 
   // Start the file-watcher daemon when the setting says so (and watch
   // paths exist). The watcher is a background Python process; it stops

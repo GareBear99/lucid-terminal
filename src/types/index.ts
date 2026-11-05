@@ -196,6 +196,23 @@ export interface DaemonLogEntry {
   status: 'success' | 'failed' | 'pending';
 }
 
+/** Window-relative rect (CSS px) of the BrowserView container. */
+export interface BrowserBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Live state of one browser tab, pushed by the main process. */
+export interface BrowserTabState {
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
 export type View = 'terminal' | 'editor' | 'settings' | 'synth';
 
 // Extend Window interface for Electron API
@@ -251,6 +268,19 @@ declare global {
       };
       system: {
         checkNetwork: () => Promise<{ online: boolean }>;
+      };
+      browser: {
+        create: (tabId: string, url: string) => Promise<void>;
+        close: (tabId: string) => Promise<void>;
+        activate: (tabId: string, bounds: BrowserBounds) => Promise<void>;
+        hide: () => Promise<void>;
+        setBounds: (bounds: BrowserBounds) => Promise<void>;
+        navigate: (tabId: string, url: string) => Promise<void>;
+        goBack: (tabId: string) => Promise<void>;
+        goForward: (tabId: string) => Promise<void>;
+        reload: (tabId: string) => Promise<void>;
+        onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
+        onOpenUrl: (callback: (url: string) => void) => () => void;
       };
       daemon: {
         start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; error?: string }>;

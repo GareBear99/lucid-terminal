@@ -111,6 +111,35 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     import: (data: string) => ipcRenderer.invoke('settings:import', data),
   },
 
+  // In-panel browser (BrowserView tabs in the main process)
+  browser: {
+    create: (tabId: string, url: string) =>
+      ipcRenderer.invoke('browser:create', tabId, url),
+    close: (tabId: string) => ipcRenderer.invoke('browser:close', tabId),
+    activate: (tabId: string, bounds: BrowserBounds) =>
+      ipcRenderer.invoke('browser:activate', tabId, bounds),
+    hide: () => ipcRenderer.invoke('browser:hide'),
+    setBounds: (bounds: BrowserBounds) =>
+      ipcRenderer.invoke('browser:setBounds', bounds),
+    navigate: (tabId: string, url: string) =>
+      ipcRenderer.invoke('browser:navigate', tabId, url),
+    goBack: (tabId: string) => ipcRenderer.invoke('browser:goBack', tabId),
+    goForward: (tabId: string) =>
+      ipcRenderer.invoke('browser:goForward', tabId),
+    reload: (tabId: string) => ipcRenderer.invoke('browser:reload', tabId),
+    onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => {
+      const listener = (_: any, tabId: string, state: BrowserTabState) =>
+        callback(tabId, state);
+      ipcRenderer.on('browser:updated', listener);
+      return () => ipcRenderer.removeListener('browser:updated', listener);
+    },
+    onOpenUrl: (callback: (url: string) => void) => {
+      const listener = (_: any, url: string) => callback(url);
+      ipcRenderer.on('browser:open-url', listener);
+      return () => ipcRenderer.removeListener('browser:open-url', listener);
+    },
+  },
+
   // File-watcher daemon (LuciferWatcher) operations
   daemon: {
     start: () => ipcRenderer.invoke('daemon:start'),
@@ -234,6 +263,19 @@ export interface LucidAPI {
   system: {
     checkNetwork: () => Promise<{ online: boolean }>;
   };
+  browser: {
+    create: (tabId: string, url: string) => Promise<void>;
+    close: (tabId: string) => Promise<void>;
+    activate: (tabId: string, bounds: BrowserBounds) => Promise<void>;
+    hide: () => Promise<void>;
+    setBounds: (bounds: BrowserBounds) => Promise<void>;
+    navigate: (tabId: string, url: string) => Promise<void>;
+    goBack: (tabId: string) => Promise<void>;
+    goForward: (tabId: string) => Promise<void>;
+    reload: (tabId: string) => Promise<void>;
+    onUpdated: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
+    onOpenUrl: (callback: (url: string) => void) => () => void;
+  };
   daemon: {
     start: () => Promise<{ success: boolean; alreadyRunning?: boolean; pid?: number; mode?: 'watch' | 'autofix'; paths?: string[]; error?: string }>;
     stop: () => Promise<{ success: boolean; error?: string }>;
@@ -332,6 +374,21 @@ export interface DaemonLogEntry {
   directory: string;
   action: string;
   status: 'success' | 'failed' | 'pending';
+}
+
+export interface BrowserBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserTabState {
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
 }
 
 export interface ChatMessage {

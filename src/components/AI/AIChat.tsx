@@ -66,8 +66,8 @@ function AIChat({ onClose }: AIChatProps) {
   const { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight } =
     useDraggableInputHeight();
 
-  // Size the chat input: default cap 33.33vh, dragged floor + resnap to
-  // content up to the 50vh drag max. The height is reset to 'auto'
+  // Size the chat input: default cap 33.33vh; the dragged height is a
+  // cap — the bubble regresses to fit the content. The height is reset to 'auto'
   // first so scrollHeight shrinks when content is deleted.
   const syncChatInputHeight = useCallback(() => {
     const el = inputRef.current;
@@ -83,7 +83,7 @@ function AIChat({ onClose }: AIChatProps) {
     noteHeight(heightPx);
   }, [draggedHeightPx, isDragging, noteHeight]);
 
-  // Re-sync when the text, the dragged floor, or the drag state changes
+  // Re-sync when the text, the dragged cap, or the drag state changes
   // (typing, deleting, dragging, and sending all flow through here).
   useEffect(() => {
     syncChatInputHeight();

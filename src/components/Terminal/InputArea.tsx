@@ -43,15 +43,16 @@ interface InputAreaProps {
 export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // Content height from the editor (Monaco) or the fallback textarea;
-  // the bubble height derives from it plus the dragged floor (below).
+  // the bubble height derives from it plus the dragged cap (below).
   const [contentHeightPx, setContentHeightPx] = useState(INPUT_MIN_HEIGHT_PX);
   const [viewportHeightPx, setViewportHeightPx] = useState(
     () => window.innerHeight,
   );
   const { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight } =
     useDraggableInputHeight();
-  // The bubble height: default cap 33.33vh, dragged floor + resnap to
-  // content up to the 50vh drag max, direct pointer follow while dragging.
+  // The bubble height: default cap 33.33vh; the dragged height is a
+  // cap — the bubble regresses to fit the content and is never stuck
+  // tall — direct pointer follow while dragging.
   const editorHeight = resolveInputHeightPx(
     contentHeightPx,
     draggedHeightPx,
@@ -125,8 +126,8 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
 
     // Plain-textarea fallback: grow with the content up to the cap,
     // then scroll - long input stays readable instead of clipping.
-    // The dragged floor holds (no shrink on delete); content outgrowing
-    // it resnaps up to the 50vh drag max.
+    // The dragged height caps how tall the bubble may grow; the
+    // bubble regresses to fit the content when it shrinks.
     useEffect(() => {
         const el = fallbackRef.current;
         if (!el) return;
@@ -199,7 +200,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         editor.focus();
         
         // Record the content height; the bubble height derives from it
-        // (default cap, dragged floor + resnap, drag follow). Window
+        // (default cap, dragged cap, drag follow). Window
         // resizes are tracked by the viewport effect above.
         const syncHeight = () => {
             setContentHeightPx(editor.getContentHeight());

@@ -10,12 +10,13 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
  *
  * Drag: a handle on the bubble's top edge lets the user drag it
  * taller or shorter, up to the drag max of half the page (50vh).
- * The dragged height is a persistent floor: it stays put on the
- * next keystroke and when content is deleted; only dragging it
- * smaller shrinks it. When the content outgrows the dragged height,
- * the bubble resnaps to fit the content (up to the 50vh drag max),
- * then scrolls past that. During an active drag the bubble follows
- * the pointer directly.
+ * The dragged height is a cap: it sets how tall the bubble is
+ * allowed to grow. The bubble hugs the content in both directions —
+ * it grows with the content up to the dragged cap, then scrolls, and
+ * it regresses to fit the content when the content shrinks, so it is
+ * never stuck tall after deleting text. Dragging shorter than the
+ * 33.33vh default lowers the cap accordingly. During an active drag
+ * the bubble follows the pointer directly.
  */
 export const INPUT_DEFAULT_HEIGHT_VH = 33.33;
 export const INPUT_DRAG_MAX_HEIGHT_VH = 50;
@@ -39,9 +40,11 @@ export function clampDraggedHeightPx(
  * Resolve the bubble height in pixels.
  *
  * - Never dragged: grow with the content up to the 33.33vh default cap.
- * - Dragged: the dragged height is a floor — the bubble stays there
- *   while typing a little or deleting; when the content outgrows it,
- *   resnap to fit the content, up to the 50vh drag max, then scroll.
+ * - Dragged: the dragged height is a cap (ceiling) — the bubble fits
+ *   the content up to it, and regresses to fit the content when the
+ *   content shrinks, so it is never stuck tall. Dragging sets how tall
+ *   it may grow (up to the 50vh drag max); dragging shorter than the
+ *   default cap lowers the cap. Then scroll past the cap.
  * - While dragging: the bubble follows the pointer directly (clamped).
  */
 export function resolveInputHeightPx(
@@ -54,13 +57,16 @@ export function resolveInputHeightPx(
     return clampDraggedHeightPx(draggedHeightPx, viewportHeightPx);
   }
   if (draggedHeightPx !== null) {
-    const dragMaxPx = inputCapPx(
+    // Dragged height is a cap, not a floor: fit the content up to it,
+    // and regress to the content when the content shrinks, so the
+    // bubble is never stuck tall after deleting text.
+    const draggedCapPx = clampDraggedHeightPx(
+      draggedHeightPx,
       viewportHeightPx,
-      INPUT_DRAG_MAX_HEIGHT_VH,
     );
     return Math.max(
-      draggedHeightPx,
-      Math.min(contentHeightPx, dragMaxPx),
+      INPUT_MIN_HEIGHT_PX,
+      Math.min(contentHeightPx, draggedCapPx),
     );
   }
   const defaultCapPx = inputCapPx(
@@ -77,7 +83,7 @@ export function resolveInputHeightPx(
  * Drag state for an input bubble. The handle's pointerdown starts a
  * drag; pointermove resizes (dragging up grows the bubble, dragging
  * down shrinks it); pointerup ends it. The dragged height persists
- * as a floor after the drag ends. Pointer events cover mouse and
+ * as a cap after the drag ends. Pointer events cover mouse and
  * touch; the handle sets touch-action: none so the browser does not
  * scroll while dragging.
  */

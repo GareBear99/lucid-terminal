@@ -4,10 +4,11 @@
  * Gary's sizing (2026-11-05): the default cap is one-third of the page
  * (33.33vh); a drag handle on the bubble's top edge lets the user drag
  * it taller or shorter, up to the 50vh drag max. The dragged height is
- * a persistent floor — it stays put while typing a little or deleting;
- * when the content outgrows it, the bubble resnaps to fit the content
- * (up to 50vh), then scrolls. During an active drag the bubble follows
- * the pointer directly (clamped to the one-line floor / 50vh max).
+ * a cap, not a floor — it sets how tall the bubble may grow; the bubble
+ * hugs the content in both directions and regresses to fit it when the
+ * content shrinks, so it is never stuck tall after deleting text.
+ * During an active drag the bubble follows the pointer directly
+ * (clamped to the one-line floor / 50vh max).
  *
  * All values below are hand-checked against a 768px viewport (jsdom).
  */
@@ -53,27 +54,36 @@ describe('resolveInputHeightPx — never dragged', () => {
   });
 });
 
-describe('resolveInputHeightPx — dragged floor + resnap', () => {
-  test('typing a little stays at the dragged height', () => {
-    expect(resolveInputHeightPx(100, 200, VH)).toBe(200);
+describe('resolveInputHeightPx — dragged cap + regress', () => {
+  test('content shorter than the dragged cap regresses to fit it', () => {
+    expect(resolveInputHeightPx(100, 200, VH)).toBe(100);
   });
 
-  test('typing past the dragged height resnaps to fit the content', () => {
-    expect(resolveInputHeightPx(300, 200, VH)).toBe(300);
+  test('content taller than the dragged cap caps at the dragged height', () => {
+    expect(resolveInputHeightPx(300, 200, VH)).toBe(200);
   });
 
-  test('resnap caps at the 50vh drag max, then scrolls', () => {
-    expect(resolveInputHeightPx(2000, 200, VH)).toBe(384);
+  test('very long content caps at the dragged height, then scrolls', () => {
+    expect(resolveInputHeightPx(2000, 200, VH)).toBe(200);
   });
 
-  test('deleting never shrinks below the dragged height', () => {
-    expect(resolveInputHeightPx(40, 200, VH)).toBe(200);
+  test('dragged to the 50vh max + content shrinks → regresses to fit content', () => {
+    expect(resolveInputHeightPx(100, 384, VH)).toBe(100);
+    expect(resolveInputHeightPx(40, 384, VH)).toBe(40);
   });
 
-  test('dragging smaller than the content still resnaps to the content', () => {
-    // A drag down to 100px with 300px of content: the floor is 100,
-    // but the content needs 300, so the bubble sits at 300.
-    expect(resolveInputHeightPx(300, 100, VH)).toBe(300);
+  test('deleting never leaves the bubble stuck tall', () => {
+    expect(resolveInputHeightPx(40, 200, VH)).toBe(40);
+  });
+
+  test('dragging shorter than the content lowers the cap', () => {
+    // A drag down to 100px with 300px of content: the cap is 100,
+    // so the bubble sits at 100 and scrolls.
+    expect(resolveInputHeightPx(300, 100, VH)).toBe(100);
+  });
+
+  test('a dragged cap past the 50vh max still clamps at 50vh', () => {
+    expect(resolveInputHeightPx(2000, 500, VH)).toBe(384);
   });
 });
 

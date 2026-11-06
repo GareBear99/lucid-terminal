@@ -3,15 +3,17 @@
  *
  * The Plugins tab is the single home for plugin toggles: the
  * "Toolbar plugins" section moved out of the Customization tab into
- * the Plugins tab's Core plugins section, and the Add-ons section
- * lists the four anchored add-ons as Not installed with disabled
+ * the Plugins tab's Core plugins section, the LuciferAI row carries
+ * its own disable toggle (default ON), and the Add-ons section
+ * lists Android Connect as anchor-installed with the Devices
+ * plugin while the other three read Not installed with disabled
  * Install buttons (no install flow exists yet).
  *
- * There is no @testing-library / jsdom in this repo, so these tests
- * render with react-dom/server's renderToStaticMarkup (effects never
- * run under SSR, so the LuciferAI backend fetch does not fire and the
- * row reads "Built-in · Checking…"). The component takes an
- * optional initialTab prop so a tab's content is renderable.
+ * These tests render with react-dom/server's renderToStaticMarkup
+ * (effects never run under SSR, so the LuciferAI backend fetch does
+ * not fire and the row reads "Built-in · Checking…"). The
+ * component takes an optional initialTab prop so a tab's content
+ * is renderable.
  *
  * Run with: npm test
  */
@@ -29,8 +31,10 @@ const renderSettings = (initialTab?: 'appearance' | 'customization' | 'plugins')
     }),
   );
 
-const checkboxCount = (html: string) =>
-  (html.match(/type="checkbox"/g) || []).length;
+const switchCount = (html: string) =>
+  (html.match(/role="switch"/g) || []).length;
+const switchesOnCount = (html: string) =>
+  (html.match(/aria-checked="true"/g) || []).length;
 const disabledButtonCount = (html: string) =>
   (html.match(/<button[^>]*\bdisabled\b[^>]*>/g) || []).length;
 
@@ -46,38 +50,43 @@ describe('Plugins tab', () => {
     expect(html).toContain('Synth');
     expect(html).toContain('AI Chat');
     expect(html).toContain('Forge');
-    // The three toolbar toggles — and only those three checkboxes — live here.
-    expect(checkboxCount(html)).toBe(3);
+    // Four switches on the tab: the three toolbar toggles plus the
+    // LuciferAI disable toggle on its own row.
+    expect(switchCount(html)).toBe(4);
     // The toggles keep their descriptions from the toolbar data.
     expect(html).toContain('LuciferAI plugin shell');
     expect(html).toContain('LuciferAI chat panel');
     expect(html).toContain('Train your Homunculi');
   });
 
-  it('renders the LuciferAI row as built-in with no toggle', () => {
+  it('renders the LuciferAI row as built-in with its own disable toggle', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('LuciferAI');
     expect(html).toContain('Built-in');
     // No backend fetch runs under SSR, so the condition reads Checking…
     expect(html).toContain('Checking…');
-    // LuciferAI has no checkbox: the only checkboxes are the three toggles.
-    expect(checkboxCount(html)).toBe(3);
+    // The disable toggle is ON by default (Synth is the other ON
+    // switch; AI Chat and Forge default off).
+    expect(switchCount(html)).toBe(4);
+    expect(switchesOnCount(html)).toBe(2);
+    expect(html).toContain('turning it off removes the plugin entirely');
   });
 
-  it('lists all four add-ons as Not installed with disabled Install buttons', () => {
+  it('lists the add-ons: Android Connect anchor-installed, the other three Not installed with disabled Install buttons', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Add-ons');
-    for (const name of ['Persona Plex', 'MCP Tools', 'gh-ai-operator', 'Android emulator']) {
+    for (const name of ['Persona Plex', 'MCP Tools', 'gh-ai-operator', 'Android Connect']) {
       expect(html).toContain(name);
     }
-    expect((html.match(/Not installed/g) || []).length).toBe(4);
-    expect(disabledButtonCount(html)).toBe(4);
+    expect((html.match(/Not installed/g) || []).length).toBe(3);
+    expect(html).toContain('Installed · Anchored with Devices');
+    expect(disabledButtonCount(html)).toBe(3);
     expect(html).toContain('Install');
     expect(html).toContain('Install flow not built yet');
     expect(html).toContain('The install flow is not built yet');
   });
 
-  it('notes the Android emulator is removable once installed', () => {
+  it('notes Android Connect is removable once installed', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Removable once installed.');
   });

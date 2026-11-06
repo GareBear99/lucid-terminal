@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
+import { isLuciferAiEnabled } from './lib/luciferAi';
 import { useToastStore, visibleToastNotifications } from './stores/toastStore';
 import { ErrorNotification } from './components/Terminal/ErrorNotification';
 import { useTerminalStore } from './stores/terminalStore';
@@ -26,7 +27,11 @@ import { SplashScreen } from './components/Splash/SplashScreen';
 import { View } from './types';
 
 function App() {
-  const { loadSettings, isLoading, storageDegraded } = useSettingsStore();
+  const { loadSettings, isLoading, storageDegraded, settings } = useSettingsStore();
+  // The LuciferAI disable rule (Gary, 2026-11-05): when this is
+  // false the plugin is completely gone - its surfaces, its Help,
+  // its commands. Every gate in this file reads this value.
+  const luciferAiEnabled = isLuciferAiEnabled(settings);
   const { notifications, dismissToast } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
   const { openFiles, currentDir, setCurrentDir } = useFileStore();
@@ -46,6 +51,10 @@ function App() {
   // the chat tab first - it never reopens on Browser. Clicking it while
   // already on AI Chat closes the panel, as before.
   const handleToggleAI = () => {
+    // Disabled: the AI Chat surface is a LuciferAI surface, so the
+    // AI button does nothing while the plugin is off. (The button
+    // itself is hidden in the StatusBar too - this is the backstop.)
+    if (!luciferAiEnabled) return;
     if (!showAI) {
       useBrowserStore.getState().setPanelTab('ai');
       setShowAI(true);
@@ -56,6 +65,28 @@ function App() {
     }
   };
   const [showHelp, setShowHelp] = useState(false);
+  // Help is bound to LuciferAI: when the plugin is off, Help is
+  // inaccessible. Every Help opener (the StatusBar button, the
+  // terminal `help` command, the model banner's tiers link) goes
+  // through this guard and does nothing while disabled. It reads
+  // the LIVE setting so the once-registered keyboard shortcut
+  // below never closes over a stale value.
+  const openHelp = () => {
+    if (isLuciferAiEnabled(useSettingsStore.getState().settings)) setShowHelp(true);
+  };
+  // When LuciferAI is disabled, its surfaces close: the AI panel,
+  // the Synth view, the Help modal. They cannot be reopened while
+  // off (the buttons, the shortcut and the `help` command are all
+  // gated), so this only fires on the toggle itself.
+  useEffect(() => {
+    if (luciferAiEnabled) return;
+    if (showAI) setShowAI(false);
+    if (useBrowserStore.getState().panelTab === 'ai') {
+      useBrowserStore.getState().setPanelTab('browser');
+    }
+    if (currentView === 'synth') setCurrentView('terminal');
+    if (showHelp) setShowHelp(false);
+  }, [luciferAiEnabled, showAI, currentView, showHelp]);
   // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).
   // Shows on every launch for now; a "don't show again" setting is a
   // one-line follow-up. The dashboard mounts underneath, so the splash
@@ -98,7 +129,7 @@ function App() {
 
   // Setup help modal keyboard shortcuts (Cmd+/ and F1)
   useEffect(() => {
-    return useHelpModalShortcut(() => setShowHelp(true));
+    return useHelpModalShortcut(openHelp);
   }, []);
 
   // Instant startup - terminal first, everything else loads in background
@@ -176,7 +207,7 @@ function App() {
       {/* No local model installed — command passes and AI chat need one.
           Session-only dismiss: it comes back on the next launch while no
           model is installed. */}
-      {modelCheck && !modelCheck.installed && !modelBannerDismissed && (
+      {luciferAiEnabled && modelCheck && !modelCheck.installed && !modelBannerDismissed && (
         <ModelMissingBanner
           onDismiss={() => setModelBannerDismissed(true)}
           onInstalled={() => void checkModels()}
@@ -242,7 +273,7 @@ function App() {
                           key={tab.id}
                           className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                         >
-                          <Terminal tabId={tab.id} onOpenHelp={() => setShowHelp(true)} onOpenSynth={toggleSynth} />
+                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} />
                         </div>
                       ))}
                       {tabs.length === 0 && (
@@ -307,7 +338,7 @@ function App() {
       <StatusBar
         showAI={showAI}
         onToggleAI={handleToggleAI}
-        onOpenHelp={() => setShowHelp(true)}
+        onOpenHelp={openHelp}
       />
 
       {/* Help Modal */}

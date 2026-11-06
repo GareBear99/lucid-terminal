@@ -19,6 +19,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useHistoryStore, EMPTY_BLOCKS, jumpToBlock } from '../../stores/historyStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { enabledToolbarPlugins } from '../../data/toolbarPlugins';
+import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { View, FileEntry } from '../../types';
@@ -80,7 +81,13 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // Editor: it is the LuciferAI plugin's shell, so it belongs with
   // the plugins, not the core view buttons.
   const toolbarPlugins = useSettingsStore((s) => s.settings.toolbarPlugins);
-  const enabledPlugins = enabledToolbarPlugins(toolbarPlugins);
+  const luciferAiEnabled = useSettingsStore((s) => isLuciferAiEnabled(s.settings));
+  // Disabled: the Synth and AI Chat buttons are LuciferAI surfaces,
+  // so they leave the toolbar with the plugin. Forge is a different
+  // plugin (LLMBuilder) and stays.
+  const enabledPlugins = enabledToolbarPlugins(toolbarPlugins).filter(
+    (plugin) => luciferAiEnabled || (plugin.action !== 'synth' && plugin.action !== 'ai-chat'),
+  );
 
   // Cmd+B / Ctrl+B toggles the chats panel. This was the History
   // toggle inside the Terminal; the panel lives here now, so the

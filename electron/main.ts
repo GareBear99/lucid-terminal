@@ -18,6 +18,7 @@ import { setupGlobalCursorPolling } from './ipc/cursor';
 import { apiKeyStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
+import { setupDevicesHandlers } from './ipc/devices';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (process.platform === 'win32') {
@@ -115,6 +116,8 @@ app.whenReady().then(() => {
   });
   // Phone streaming (scrcpy) needs the window for the PhoneView canvas host.
   setupAndroidHandlers(ipcMain, () => mainWindow);
+  // Devices (detection-only): USB via system_profiler, Android via adb, plus the host.
+  setupDevicesHandlers(ipcMain);
   // The Sentinel face follows the cursor even off-window: the
   // main process polls the global cursor position and pushes it
   // to the renderer (see electron/ipc/cursor.ts).

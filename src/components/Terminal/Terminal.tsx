@@ -20,6 +20,8 @@ import { FixNetStatus } from '../FixNet/FixNetStatus';
 import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
+import { LuciferStatusIndicator } from './LuciferStatusIndicator';
+import { isLuciferAiEnabled, LUCIFER_AI_DISABLED_MESSAGE } from '../../lib/luciferAi';
 import { Tooltip } from '../Tooltip/Tooltip';
 
 interface TerminalProps {
@@ -30,7 +32,11 @@ interface TerminalProps {
 }
 
 function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
-  const { currentTheme } = useSettingsStore();
+  const { currentTheme, settings } = useSettingsStore();
+  // The LuciferAI disable rule (Gary, 2026-11-05): when this is
+  // false the plugin is completely gone. Every gate below reads
+  // this value, never the raw setting (missing key = ON).
+  const luciferAiEnabled = isLuciferAiEnabled(settings);
   const { createTab, closeTab, createErrors, clearCreateError } = useTerminalStore();
   // Command blocks live in the history store, keyed by this tab — the
   // chats (Conversation History) render in the main Sidebar, outside
@@ -98,6 +104,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
   // The wrapper alone (stdio agent with no model) must not read as
   // "connected" — that is the state that produced raw Python errors.
   useEffect(() => {
+    // DISABLED: never probe the plugin, never mark it available -
+    // the heartbeat, the blood drop and the plugin routing all read
+    // luciferAIAvailable, so staying false here is what makes the
+    // plugin completely gone. No retry interval is started either.
+    if (!luciferAiEnabled) {
+      setLuciferAIAvailable(false);
+      setModelAvailable(false);
+      setModelNames([]);
+      setLuciferAIChecking(false);
+      return;
+    }
     const initLuciferAI = async () => {
       // Probing the plugin/model status is real background loading — the
       // top-left dot swirls while it runs.
@@ -116,8 +133,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
           return;
         }
         
-        // The wrapper being up is not enough — check for a real model.
+        // The wrapper being up is not enough - check for a real model.
         const statuses = await window.lucidAPI.lucid.getModelStatuses();
+        // The setting may have flipped off mid-probe: re-check the
+        // LIVE setting (not the effect closure) before marking the
+        // plugin available, or a stale probe resurrects it after disable.
+        if (!isLuciferAiEnabled(useSettingsStore.getState().settings)) {
+          setLuciferAIAvailable(false);
+          setModelAvailable(false);
+          setModelNames([]);
+          return;
+        }
         const available = Object.entries(statuses || {})
           .filter(([, up]) => up)
           .map(([name]) => name);
@@ -153,7 +179,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
     }, 30000);
     
     return () => clearInterval(retryInterval);
-  }, [luciferAIAvailable, modelAvailable]);
+  }, [luciferAIAvailable, modelAvailable, luciferAiEnabled]);
 
   // Initialize first block or listen to PTY
   useEffect(() => {
@@ -303,14 +329,21 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
 
     // 3. Handle HELP command - open help modal instead of creating block
     if (parsed.type === 'help') {
-      console.log('[Help] Opening help modal');
-      if (onOpenHelp) {
-        onOpenHelp();
+      if (!luciferAiEnabled) {
+        // Help is bound to LuciferAI: when the plugin is off, Help
+        // stays closed. No return here — the command falls through
+        // to the switch below, whose disabled refusal answers it
+        // in a block instead of opening anything.
       } else {
-        // Fallback to old panel if callback not provided
-        setShowHelpPanel(true);
+        console.log('[Help] Opening help modal');
+        if (onOpenHelp) {
+          onOpenHelp();
+        } else {
+          // Fallback to old panel if callback not provided
+          setShowHelpPanel(true);
+        }
+        return;
       }
-      return;
     }
 
     // 4. Handle PLAN command - open planning panel instead of creating block
@@ -515,7 +548,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                 const updated = [...prev];
                 const lastBlock = updated[updated.length - 1];
                 if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = '⚠️  LuciferAI plugin required for LLM commands.\nSee "help" for available commands.';
+                  lastBlock.output = luciferAiEnabled
+                    ? '⚠️  LuciferAI plugin required for LLM commands.\nSee "help" for available commands.'
+                    : LUCIFER_AI_DISABLED_MESSAGE;
                   lastBlock.isComplete = true;
                 }
                 return updated;
@@ -596,7 +631,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
               }
               return updated;
             });
-          } else if (parsed.command === 'history') {
+          }
+          break;
+
+        case 'history':
+          // `history` / `clear history` - the router returns type
+          // 'history' for both (see MULTI_WORD_COMMANDS). These
+          // branches used to live under case 'workflow', where they
+          // could never run.
+          console.log('[History] Processing:', parsed.command);
+          if (parsed.command === 'history') {
             const hist = await window.lucidAPI.lucid.getHistory();
             setBlocks(prev => {
               const updated = [...prev];
@@ -690,6 +734,28 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
           } else {
             // LuciferAI plugin not available - use fallback system
             console.log('[Fallback] Plugin unavailable, checking alternatives');
+
+            if (!luciferAiEnabled) {
+              // DISABLED, not just down: refuse outright. The fallback
+              // below would write the command to the shell PTY - a back
+              // door that must not run plugin commands (`install ...`
+              // is a real Unix command). No activation while off.
+              const refusal =
+                LUCIFER_AI_DISABLED_MESSAGE +
+                (parsed.type === 'help'
+                  ? '\n\nHelp is part of LuciferAI and is unavailable while the plugin is disabled.'
+                  : '');
+              setBlocks(prev => {
+                const updated = [...prev];
+                const lastBlock = updated[updated.length - 1];
+                if (lastBlock?.id === newBlock.id) {
+                  lastBlock.output = refusal;
+                  lastBlock.isComplete = true;
+                }
+                return updated;
+              });
+              break;
+            }
             
             const commandRequiresLLM = requiresLLM(parsed.type);
             
@@ -862,34 +928,19 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                  boxShadow: '0 -4px 24px rgba(0, 0, 0, 0.2)',
                }}>
             <div className="flex items-center gap-3 px-4 py-3">
-              {/* LuciferAI Plugin Status Indicator.
-                  Honest states: the wrapper being up is NOT "connected" —
-                  only a loaded model is. A wrapper with no model says so. */}
-              {luciferAIChecking ? (
-                <Tooltip content="Connecting to LuciferAI plugin...">
-                  <span className="text-xs text-yellow-500 animate-pulse">
-                    ⏳
-                  </span>
-                </Tooltip>
-              ) : modelAvailable ? (
-                <Tooltip content={`LuciferAI connected — model(s) ready: ${modelNames.join(', ')}`}>
-                  <span className="text-xs text-green-500">
-                    🩸
-                  </span>
-                </Tooltip>
-              ) : luciferAIAvailable ? (
-                <Tooltip content="LuciferAI plugin loaded — no model loaded">
-                  <span className="text-xs text-amber-500">
-                    🩸
-                  </span>
-                </Tooltip>
-              ) : (
-                <Tooltip content="LuciferAI plugin offline - terminal works in standalone mode">
-                  <span className="text-xs text-gray-500">
-                    ⚪
-                  </span>
-                </Tooltip>
-              )}
+              {/* LuciferAI Plugin Status Indicator (the blood drop).
+                  Honest states: the wrapper being up is NOT "connected" -
+                  only a loaded model is. A wrapper with no model says so.
+                  When the plugin is DISABLED the indicator renders
+                  nothing at all - the flex row reflows and the input
+                  stretches to fill the gap. */}
+              <LuciferStatusIndicator
+                enabled={luciferAiEnabled}
+                checking={luciferAIChecking}
+                modelAvailable={modelAvailable}
+                modelNames={modelNames}
+                available={luciferAIAvailable}
+              />
               
               {/* Send arrow — this used to be a decorative span, so clicking it
                   did nothing and the prompt could only be sent with Enter.
@@ -931,8 +982,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                 />
               </div>
 
-              {/* Sentinel face — press to toggle the Synth view, the Sentinel's home */}
-              {onOpenSynth && (
+              {/* Sentinel face — press to toggle the Synth view, the Sentinel's home.
+                  A LuciferAI surface: gone while the plugin is disabled, so the
+                  input stretches into the space it leaves too. */}
+              {onOpenSynth && luciferAiEnabled && (
                 <Tooltip content="Toggle the Synth view">
                   <button
                     type="button"

@@ -70,6 +70,8 @@ const defaultSettings: Settings = {
   synthDisclaimerChoice: null,
   synthVersion: null,
   toolbarPlugins: {},
+  customPlugins: {},
+  luciferAiEnabled: true,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

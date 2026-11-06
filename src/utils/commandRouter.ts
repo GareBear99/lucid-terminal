@@ -36,7 +36,7 @@ export interface ParsedCommand {
 }
 
 // Shell commands that should be executed directly (not routed to agent)
-const SHELL_COMMANDS = new Set([
+export const SHELL_COMMANDS = new Set([
   'ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'touch',
   'grep', 'find', 'which', 'whoami', 'date', 'clear', 'exit', 'git',
   'npm', 'node', 'python', 'python3', 'pip', 'pip3', 'cargo', 'go',
@@ -45,10 +45,47 @@ const SHELL_COMMANDS = new Set([
 ]);
 
 // LuciferAI /commands (slash commands)
-const LUCIFERAI_COMMANDS = new Set([
+export const LUCIFERAI_COMMANDS = new Set([
   'help', 'plan', 'fix', 'fixnet', 'llm', 'build', 'create', 
   'workflow', 'tokens', 'history', 'agent'
 ]);
+
+/**
+ * Multi-word commands, matched as a phrase BEFORE the single-word
+ * sets: the old code checked the single first word first, so
+ * 'fixnet stats' returned command='fixnet' (the first word only)
+ * and the Terminal's `parsed.command === 'fixnet stats'` branch
+ * could never match — every direct-IPC branch in the Terminal was
+ * dead. The full matched phrase is the command now.
+ *
+ * `command` / `args` override the defaults (command = the phrase,
+ * args = the words after it) for the two phrases whose Terminal
+ * branch expects a fixed shape.
+ */
+export interface MultiWordCommand {
+  phrase: string;
+  type: CommandType;
+  command?: string;
+  args?: string[];
+}
+
+export const MULTI_WORD_COMMANDS: MultiWordCommand[] = [
+  { phrase: 'fixnet stats', type: 'fixnet' },
+  { phrase: 'fixnet search', type: 'fixnet' },
+  { phrase: 'fixnet report', type: 'fixnet' },
+  { phrase: 'fixnet apply', type: 'fixnet' },
+  { phrase: 'fixnet delete', type: 'fixnet' },
+  { phrase: 'fixnet sync', type: 'fixnet' },
+  { phrase: 'llm list', type: 'llm' },
+  { phrase: 'llm status', type: 'llm' },
+  { phrase: 'llm enable', type: 'llm' },
+  { phrase: 'llm disable', type: 'llm' },
+  // `browser diagnose` — where the active BrowserView is attached,
+  // its bounds, and a screenshot of what the page actually renders.
+  { phrase: 'browser diagnose', type: 'browser' },
+  { phrase: 'workflow status', type: 'workflow', command: 'workflow', args: ['status'] },
+  { phrase: 'clear history', type: 'history', command: 'history', args: ['clear'] },
+];
 
 /**
  * Parse user input and determine command type
@@ -78,48 +115,15 @@ export function parseCommand(input: string): ParsedCommand {
   const words = trimmed.split(/\s+/);
   const twoWords = words.slice(0, 2).join(' ').toLowerCase();
 
-  // Multi-word commands FIRST: the old order checked the single first
-  // word first, so 'fixnet stats' returned command='fixnet' (the first
-  // word only) and the Terminal's `parsed.command === 'fixnet stats'`
-  // branch could never match — every direct-IPC branch in the Terminal
-  // was dead. The full matched phrase is the command now.
-  if (
-    twoWords === 'fixnet stats' ||
-    twoWords === 'fixnet search' ||
-    twoWords === 'fixnet report' ||
-    twoWords === 'fixnet apply' ||
-    twoWords === 'fixnet delete' ||
-    twoWords === 'fixnet sync'
-  ) {
+  // Multi-word commands FIRST — matched as a phrase from
+  // MULTI_WORD_COMMANDS, before the single-word sets (see the
+  // table's comment for why the order matters).
+  const multiWord = MULTI_WORD_COMMANDS.find((m) => m.phrase === twoWords);
+  if (multiWord) {
     return {
-      type: 'fixnet',
-      command: twoWords,
-      args: words.slice(2),
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-
-  if (twoWords === 'llm list' || twoWords === 'llm status' ||
-      twoWords === 'llm enable' || twoWords === 'llm disable') {
-    return {
-      type: 'llm',
-      command: twoWords,
-      args: words.slice(2),
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-
-  // `browser diagnose` — where the active BrowserView is attached,
-  // its bounds, and a screenshot of what the page actually renders.
-  if (twoWords === 'browser diagnose') {
-    return {
-      type: 'browser',
-      command: twoWords,
-      args: words.slice(2),
+      type: multiWord.type,
+      command: multiWord.command ?? twoWords,
+      args: multiWord.args ?? words.slice(2),
       raw: input,
       isSlashCommand: false,
       shouldShowHelp: false
@@ -164,27 +168,9 @@ export function parseCommand(input: string): ParsedCommand {
     };
   }
   
-  if (twoWords === 'workflow status') {
-    return {
-      type: 'workflow',
-      command: 'workflow',
-      args: ['status'],
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-  
-  if (twoWords === 'clear history') {
-    return {
-      type: 'history',
-      command: 'history',
-      args: ['clear'],
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
+  // (No multi-word fallbacks here — 'workflow status' and
+  // 'clear history' are in MULTI_WORD_COMMANDS above and matched
+  // first, so the blocks that used to live here were dead code.)
 
   // Default: route to agent (natural language)
   return {

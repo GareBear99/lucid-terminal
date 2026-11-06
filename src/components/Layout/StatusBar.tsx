@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MessageSquare, Terminal, HelpCircle } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { Tooltip } from '../Tooltip/Tooltip';
 
 interface StatusBarProps {
@@ -12,7 +13,10 @@ interface StatusBarProps {
 
 function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
   const { tabs, activeTabId } = useTerminalStore();
-  const { hasApiKey, currentTheme } = useSettingsStore();
+  const { hasApiKey, currentTheme, settings } = useSettingsStore();
+  // Disabled: the AI button (a LuciferAI surface) and the Help button
+  // (Help is bound to LuciferAI) leave the status bar with the plugin.
+  const luciferAiEnabled = isLuciferAiEnabled(settings);
 
   // Network reachability, probed from the main process (short-timeout
   // CDN check). This is actual reachability — not the FixNet offline %,
@@ -79,8 +83,8 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
           </div>
         </Tooltip>
 
-        {/* Help Button */}
-        {onOpenHelp && (
+        {/* Help Button — hidden while LuciferAI is disabled */}
+        {luciferAiEnabled && onOpenHelp && (
           <Tooltip content="Command Reference" shortcut="Cmd+/">
             <button
               onClick={onOpenHelp}
@@ -91,7 +95,8 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
           </Tooltip>
         )}
 
-        {/* AI Status */}
+        {/* AI Status — hidden while LuciferAI is disabled */}
+        {luciferAiEnabled && (
         <Tooltip content={showAI ? 'Hide AI Panel' : 'Show AI Panel'}>
           <button
             onClick={onToggleAI}
@@ -104,6 +109,7 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
             <span>AI {hasApiKey ? '' : '(No Key)'}</span>
           </button>
         </Tooltip>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   X,
   Palette,
@@ -14,6 +14,9 @@ import {
   Eye,
   Puzzle,
   Bot,
+  Usb,
+  Smartphone,
+  Monitor,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { themes, createDefaultCustomTheme } from '../../themes/themes';
@@ -21,7 +24,13 @@ import { Theme } from '../../types';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
 import { TOOLBAR_PLUGINS } from '../../data/toolbarPlugins';
-import { PLUGIN_ADDONS } from '../../data/pluginAddons';
+import { PLUGIN_ADDONS, isAddonInstalled, addonAnchorLabel } from '../../data/pluginAddons';
+import { DEVICES_PLUGIN } from '../../data/devices';
+import { CUSTOM_PLUGINS, CUSTOM_PLUGIN_FALLBACK_ICON, resolvePluginIcon, isCustomPluginEnabled } from '../../data/customPlugins';
+import { COMMAND_CATEGORIES, searchCommandCatalogue } from '../../data/commands';
+import { useDevicesStore } from '../../stores/devicesStore';
+import { isLuciferAiEnabled } from '../../lib/luciferAi';
+import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 
@@ -31,7 +40,7 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
-type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins';
+type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices';
 
 function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const {
@@ -46,9 +55,25 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     exportSettings,
     importSettings,
   } = useSettingsStore();
+  // The LuciferAI disable rule: the Synth / AI Chat toolbar toggles
+  // below cannot be switched on while the plugin is off, and the
+  // LuciferAI row's own switch is what turns it off.
+  const luciferAiEnabled = isLuciferAiEnabled(settings);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'appearance');
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [commandFilter, setCommandFilter] = useState('');
+  // Devices tab: the store behind it. The first time the tab opens
+  // it scans once; Refresh re-scans after that. No hotplug events
+  // in v1 - detection is on demand only.
+  const devicesState = useDevicesStore();
+  const devicesTabOpened = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'devices' || devicesTabOpened.current) return;
+    devicesTabOpened.current = true;
+    void devicesState.refresh();
+  }, [activeTab]);
+
   const [customTheme, setCustomThemeState] = useState<Theme>(
     settings.customTheme || createDefaultCustomTheme()
   );
@@ -266,6 +291,7 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
     { id: 'customization', label: 'Customization', icon: <Sliders size={18} /> },
     { id: 'plugins', label: 'Plugins', icon: <Puzzle size={18} /> },
+    { id: 'devices', label: 'Devices', icon: <Usb size={18} /> },
     { id: 'models', label: 'Models', icon: <Package size={18} /> },
     { id: 'terminal', label: 'Terminal', icon: <Terminal size={18} /> },
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} /> },
@@ -433,11 +459,9 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   <div className="flex items-end">
 <Tooltip content="Blink the cursor">
                       <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
+                        <Toggle
                           checked={settings.cursorBlink}
-                          onChange={(e) => updateSetting('cursorBlink', e.target.checked)}
-                          className="rounded"
+                          onChange={(checked) => updateSetting('cursorBlink', checked)}
                         />
                         <span className="text-sm">Cursor blink</span>
                       </label>
@@ -465,15 +489,47 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               <section>
 <Tooltip content="Play a sound on the terminal bell">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
+                    <Toggle
                       checked={settings.bellSound}
-                      onChange={(e) => updateSetting('bellSound', e.target.checked)}
-                      className="rounded"
+                      onChange={(checked) => updateSetting('bellSound', checked)}
                     />
                     <span className="text-sm">Terminal bell sound</span>
                   </label>
 </Tooltip>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Commands</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Every command the terminal understands, grouped by kind. The same catalogue the Help screen is built from — what the router actually routes, plus what Help documents.
+                </p>
+                <input
+                  type="text"
+                  className="input w-full mb-3"
+                  placeholder="Filter commands…"
+                  value={commandFilter}
+                  onChange={(e) => setCommandFilter(e.target.value)}
+                />
+                {(() => {
+                  const filtered = searchCommandCatalogue(commandFilter);
+                  return COMMAND_CATEGORIES.map((category) => {
+                    const entries = category.entries.filter((entry) => filtered.includes(entry));
+                    if (entries.length === 0) return null;
+                    return (
+                      <div key={category.id} className="mb-4">
+                        <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">{category.title}</h4>
+                        <div className="space-y-2">
+                          {entries.map((entry) => (
+                            <div key={entry.name} className="flex items-start gap-2">
+                              <code className="text-xs font-mono shrink-0 bg-[var(--bg-tertiary)] rounded px-1.5 py-0.5">{entry.syntax}</code>
+                              <span className="text-xs text-[var(--text-muted)]">{entry.description}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </section>
             </div>
           )}
@@ -607,22 +663,18 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="space-y-3">
 <Tooltip content="Show validation steps">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
+                      <Toggle
                         checked={settings.showValidationSteps !== false}
-                        onChange={(e) => updateSetting('showValidationSteps', e.target.checked)}
-                        className="rounded"
+                        onChange={(checked) => updateSetting('showValidationSteps', checked)}
                       />
                       <span className="text-sm">Show validation steps (Warp-style ✓/✗/⏳)</span>
                     </label>
 </Tooltip>
 <Tooltip content="Auto-collapse completed validations">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
+                      <Toggle
                         checked={settings.autoCollapseValidation !== false}
-                        onChange={(e) => updateSetting('autoCollapseValidation', e.target.checked)}
-                        className="rounded"
+                        onChange={(checked) => updateSetting('autoCollapseValidation', checked)}
                       />
                       <span className="text-sm">Auto-collapse completed validations</span>
                     </label>
@@ -635,22 +687,18 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="space-y-3">
 <Tooltip content="Show token statistics">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
+                      <Toggle
                         checked={settings.showTokenStats !== false}
-                        onChange={(e) => updateSetting('showTokenStats', e.target.checked)}
-                        className="rounded"
+                        onChange={(checked) => updateSetting('showTokenStats', checked)}
                       />
                       <span className="text-sm">Show token statistics</span>
                     </label>
 </Tooltip>
 <Tooltip content="Show efficiency indicators">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
+                      <Toggle
                         checked={settings.showTokenEfficiency !== false}
-                        onChange={(e) => updateSetting('showTokenEfficiency', e.target.checked)}
-                        className="rounded"
+                        onChange={(checked) => updateSetting('showTokenEfficiency', checked)}
                       />
                       <span className="text-sm">Show efficiency indicators</span>
                     </label>
@@ -671,19 +719,24 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   {TOOLBAR_PLUGINS.map((plugin) => {
                     const Icon = plugin.icon;
                     const onToolbar = settings.toolbarPlugins?.[plugin.id] ?? plugin.defaultOnToolbar;
+                    // Synth and AI Chat are LuciferAI surfaces: their
+                    // toolbar buttons cannot be switched on while the
+                    // plugin is off.
+                    const isLuciferSurface = plugin.action === 'synth' || plugin.action === 'ai-chat';
+                    const surfaceDisabled = isLuciferSurface && !luciferAiEnabled;
                     return (
 <Tooltip key={plugin.id} content={plugin.description}>
                         <label className="flex items-center gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
+                          <Toggle
                             checked={onToolbar}
-                            onChange={(e) =>
+                            onChange={(checked) =>
                               updateSetting('toolbarPlugins', {
                                 ...(settings.toolbarPlugins ?? {}),
-                                [plugin.id]: e.target.checked,
+                                [plugin.id]: checked,
                               })
                             }
-                            className="rounded"
+                            disabled={surfaceDisabled}
+                            title={surfaceDisabled ? 'Disabled while LuciferAI is off — these are its surfaces' : undefined}
                           />
                           <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
                           <span className="min-w-0">
@@ -694,55 +747,222 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 </Tooltip>
                     );
                   })}
-                  <div className="flex items-center gap-3">
-                    <Bot size={18} className="text-[var(--text-muted)] shrink-0" />
+                  <div className="flex items-start gap-3">
+                    <Bot size={18} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm">LuciferAI</span>
                       <span className="block text-xs text-[var(--text-muted)]">
                         The plugin itself — local AI backend, command passes, FixNet. The Synth shell and AI Chat above are its two surfaces.
                       </span>
+                      <label className="flex items-center gap-2 cursor-pointer mt-2">
+                        <Toggle
+                          checked={luciferAiEnabled}
+                          onChange={(checked) => updateSetting('luciferAiEnabled', checked)}
+                        />
+                        <span className="text-xs text-[var(--text-muted)]">
+                          {luciferAiEnabled
+                            ? 'Enabled — turning it off removes the plugin entirely (blood drop, heartbeat, Help, AI Chat and Synth all go with it).'
+                            : 'Disabled — the plugin is completely gone. Turn it back on to restore it.'}
+                        </span>
+                      </label>
                     </span>
                     <span className="text-xs text-[var(--text-muted)] shrink-0">
                       Built-in ·{' '}
-                      {luciferCondition === 'checking'
-                        ? 'Checking…'
-                        : luciferCondition === 'awake'
-                          ? 'Awake'
-                          : luciferCondition === 'dormant'
-                            ? 'Dormant'
-                            : 'Status unavailable'}
+                      {!luciferAiEnabled
+                        ? 'Disabled'
+                        : luciferCondition === 'checking'
+                          ? 'Checking…'
+                          : luciferCondition === 'awake'
+                            ? 'Awake'
+                            : luciferCondition === 'dormant'
+                              ? 'Dormant'
+                              : 'Status unavailable'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Usb size={18} className="text-[var(--text-muted)] shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm">{DEVICES_PLUGIN.name}</span>
+                      <span className="block text-xs text-[var(--text-muted)]">
+                        {DEVICES_PLUGIN.description}
+                      </span>
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)] shrink-0">
+                      Built-in · Anchored
                     </span>
                   </div>
                 </div>
                 <p className="text-xs text-[var(--text-muted)] mt-2">
-                  Toggled-on plugins show as buttons in the icon bar, in the section above Settings. Applies right away, no restart needed. LuciferAI has no toggle — it is always built in.
+                  Toggled-on plugins show as buttons in the icon bar, in the section above Settings. Applies right away, no restart needed. LuciferAI is always built in — its switch is on its row above: turning it off disables the plugin entirely.
                 </p>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Custom plugins</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  User-registered plugins (see src/data/customPlugins.ts). A plugin appears here once it is registered — give it an id, a name, a description and an icon (a lucide icon, an emoji, or an image file/URL).
+                </p>
+                <div className="space-y-3">
+                  {CUSTOM_PLUGINS.length === 0 ? (
+                    <p className="text-xs text-[var(--text-muted)]">
+                      No custom plugins registered yet. Add one to src/data/customPlugins.ts and it appears here with its own toggle.
+                    </p>
+                  ) : (
+                    CUSTOM_PLUGINS.map((plugin) => {
+                      const resolvedIcon = resolvePluginIcon(plugin.icon);
+                      const FallbackIcon = CUSTOM_PLUGIN_FALLBACK_ICON;
+                      return (
+                        <label key={plugin.id} className="flex items-center gap-3 cursor-pointer">
+                          <Toggle
+                            checked={isCustomPluginEnabled(plugin, settings.customPlugins)}
+                            onChange={(checked) =>
+                              updateSetting('customPlugins', {
+                                ...(settings.customPlugins ?? {}),
+                                [plugin.id]: checked,
+                              })
+                            }
+                          />
+                          {resolvedIcon?.type === 'lucide' ? (
+                            <resolvedIcon.icon size={18} className="text-[var(--text-muted)] shrink-0" />
+                          ) : resolvedIcon?.type === 'emoji' ? (
+                            <span className="text-lg leading-none shrink-0" aria-hidden="true">{resolvedIcon.char}</span>
+                          ) : resolvedIcon?.type === 'image' ? (
+                            <img src={resolvedIcon.src} alt="" className="h-[18px] w-[18px] shrink-0 rounded-sm object-contain" />
+                          ) : (
+                            <FallbackIcon size={18} className="text-[var(--text-muted)] shrink-0" />
+                          )}
+                          <span className="min-w-0">
+                            <span className="block text-sm">{plugin.name}</span>
+                            <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
               </section>
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Add-ons</h3>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
-                  Installed on demand — nothing is pre-installed. The install flow is not built yet, so the Install buttons stay disabled until it exists.
+                  Installed on demand — nothing is pre-installed, except Android Connect, which is installed automatically with the Devices anchor plugin. The install flow is not built yet, so the other Install buttons stay disabled until it exists.
                 </p>
                 <div className="space-y-3">
-                  {PLUGIN_ADDONS.map((addon) => (
+                  {PLUGIN_ADDONS.map((addon) => {
+                    const installed = isAddonInstalled(addon);
+                    const anchorLabel = addonAnchorLabel(addon);
+                    return (
+                      <div key={addon.id} className="flex items-center gap-3">
+                        <Puzzle size={18} className="text-[var(--text-muted)] shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm">{addon.name}</span>
+                          <span className="block text-xs text-[var(--text-muted)]">
+                            {addon.description}
+                            {addon.removable ? ' Removable once installed.' : ''}
+                          </span>
+                        </span>
+                        {installed ? (
+                          <span className="text-xs text-[var(--text-muted)] shrink-0">
+                            Installed{anchorLabel ? ` · ${anchorLabel}` : ''}
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-xs text-[var(--text-muted)] shrink-0">Not installed</span>
+                            <button
+                              disabled
+                              title={addon.installBlockedReason ?? 'Install flow not built yet'}
+                              className="btn btn-secondary text-xs shrink-0 opacity-50 cursor-not-allowed"
+                            >
+                              Install
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'devices' && (
+            <div className="space-y-6">
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Detected devices</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Detection only — Lucid lists and identifies devices. It never controls them or talks to them. USB via system_profiler, Android via adb, plus this Mac itself.
+                </p>
+                <div className="flex items-center gap-2 mb-3">
+                  <button
+                    onClick={() => void devicesState.refresh()}
+                    disabled={devicesState.loading}
+                    className="btn btn-secondary text-xs disabled:opacity-50"
+                  >
+                    Refresh
+                  </button>
+                  {devicesState.loading && <span className="text-xs text-[var(--text-muted)]">Scanning…</span>}
+                  {devicesState.lastRefreshedAt && !devicesState.loading && (
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Last scanned {new Date(devicesState.lastRefreshedAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+                {devicesState.errors.map((message) => (
+                  <p key={message} className="text-xs text-red-500 mb-2">{message}</p>
+                ))}
+                <div className="space-y-3">
+                  {devicesState.host && (
+                    <div className="flex items-center gap-3">
+                      <Monitor size={18} className="text-[var(--text-muted)] shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm">{devicesState.host.name}</span>
+                        <span className="block text-xs text-[var(--text-muted)]">
+                          This Mac · host{devicesState.host.detail ? ` · ${devicesState.host.detail}` : ''}
+                        </span>
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)] shrink-0">{devicesState.host.status}</span>
+                    </div>
+                  )}
+                  {devicesState.devices.map((device) => (
+                    <div key={device.id} className="flex items-center gap-3">
+                      {device.kind === 'android' ? (
+                        <Smartphone size={18} className="text-[var(--text-muted)] shrink-0" />
+                      ) : (
+                        <Usb size={18} className="text-[var(--text-muted)] shrink-0" />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm">{device.name}</span>
+                        <span className="block text-xs text-[var(--text-muted)]">
+                          {device.kind === 'android'
+                            ? `Android · ${device.id}`
+                            : `USB${device.vendorName ? ` · ${device.vendorName}` : ''}${device.vendorId ? ` · ${device.vendorId}` : ''}${device.productId ? ` / ${device.productId}` : ''}`}
+                        </span>
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)] shrink-0">{device.status}</span>
+                    </div>
+                  ))}
+                  {!devicesState.loading && devicesState.devices.length === 0 && (
+                    <p className="text-xs text-[var(--text-muted)]">
+                      No USB or Android devices detected. Connect one and press Refresh.
+                    </p>
+                  )}
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Add-ons</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Android Connect is installed automatically with the Devices anchor plugin — it is how Android devices are detected.
+                </p>
+                <div className="space-y-3">
+                  {PLUGIN_ADDONS.filter((addon) => addon.anchor === 'devices').map((addon) => (
                     <div key={addon.id} className="flex items-center gap-3">
                       <Puzzle size={18} className="text-[var(--text-muted)] shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm">{addon.name}</span>
-                        <span className="block text-xs text-[var(--text-muted)]">
-                          {addon.description}
-                          {addon.removable ? ' Removable once installed.' : ''}
-                        </span>
+                        <span className="block text-xs text-[var(--text-muted)]">{addon.description}</span>
                       </span>
-                      <span className="text-xs text-[var(--text-muted)] shrink-0">Not installed</span>
-                      <button
-                        disabled
-                        title="Install flow not built yet"
-                        className="btn btn-secondary text-xs shrink-0 opacity-50 cursor-not-allowed"
-                      >
-                        Install
-                      </button>
+                      <span className="text-xs text-[var(--text-muted)] shrink-0">Installed · Anchored with Devices</span>
                     </div>
                   ))}
                 </div>
@@ -763,27 +983,23 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="space-y-3">
 <Tooltip content="Start the file watcher daemon">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
+                      <Toggle
                         // The toggle is the daemon switch: it reads on when the
                         // setting says so OR the daemon is actually running
                         // (e.g. started on launch or from the terminal).
                         checked={settings.daemonEnabled !== false || daemonStatus?.running === true}
-                        onChange={(e) => handleDaemonEnabledChange(e.target.checked)}
+                        onChange={(checked) => handleDaemonEnabledChange(checked)}
                         disabled={daemonBusy}
-                        className="rounded"
                       />
                       <span className="text-sm">Enable file watcher daemon</span>
                     </label>
 </Tooltip>
 <Tooltip content="Apply fixes automatically on file change">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
+                      <Toggle
                         checked={settings.daemonAutoFix !== false}
-                        onChange={(e) => handleDaemonAutoFixChange(e.target.checked)}
+                        onChange={(checked) => handleDaemonAutoFixChange(checked)}
                         disabled={daemonBusy}
-                        className="rounded"
                       />
                       <span className="text-sm">Auto-fix errors on file change</span>
                     </label>
@@ -793,12 +1009,10 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   </div>
 <Tooltip content="Log new commits in watched repos">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
+                      <Toggle
                         checked={settings.daemonCommitTracking !== false}
-                        onChange={(e) => handleDaemonCommitTrackingChange(e.target.checked)}
+                        onChange={(checked) => handleDaemonCommitTrackingChange(checked)}
                         disabled={daemonBusy}
-                        className="rounded"
                       />
                       <span className="text-sm">GitHub-style commit tracking</span>
                     </label>

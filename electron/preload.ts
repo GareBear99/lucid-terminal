@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { DevicesListResult } from '../src/lib/deviceDetection';
 import type {
   DecodePath,
   GpuGateStatus,
@@ -335,6 +336,12 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     },
   },
 
+  // Devices (detection-only) — USB via system_profiler, Android via
+  // adb, plus the host. Read-only: list + identify, no control.
+  devices: {
+    list: () => ipcRenderer.invoke('devices:list'),
+  },
+
   // Global cursor (off-window gaze) — the main process polls
   // screen.getCursorScreenPoint() and pushes points here; the
   // Sentinel face converts them to client coordinates.
@@ -579,6 +586,9 @@ export interface LucidAPI {
     reportDecodePath: (serial: string, decodePath: DecodePath) => Promise<void>;
     onFrame: (callback: (serial: string, chunk: Uint8Array) => void) => () => void;
     onDeviceState: (callback: (serial: string, state: string, error?: string) => void) => () => void;
+  };
+  devices: {
+    list: () => Promise<DevicesListResult>;
   };
   cursor: {
     onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;

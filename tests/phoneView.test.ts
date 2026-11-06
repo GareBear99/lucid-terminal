@@ -126,14 +126,17 @@ beforeEach(() => {
 
 describe('BrowserPanel phone entries', () => {
   // Note: renderToStaticMarkup serves zustand's initial state, so
-  // the panel itself is only asserted in its default (add-on not
-  // installed) state here. The entry -> button mapping is asserted
+  // the panel itself is only asserted in its default state here.
+  // The default is now anchor-installed — the Devices anchor
+  // installs Android Connect — so the internal entry reads
+  // "Android — Installed". The entry -> button mapping is asserted
   // on PhoneQuickTabs directly, with entries built by the same
   // getPhoneEntries the panel uses.
   it('shows the external entry in its default state', () => {
     const html = renderPanel();
     expect(html).toContain('Phone — External');
-    expect(html).not.toContain('Android — Installed');
+    // Anchor-installed by default now: the internal entry is present.
+    expect(html).toContain('Android — Installed');
   });
 
   it('the external button itself is never disabled', () => {

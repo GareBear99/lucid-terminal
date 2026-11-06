@@ -10,6 +10,7 @@ import type {
   Homunculus,
   ScoreboardRow,
 } from '../lib/homunculi';
+import type { DevicesListResult } from '../lib/deviceDetection';
 import type {
   BrainAnswer,
   ImportDatasetResult,
@@ -222,6 +223,16 @@ export interface Settings {
   // build yet. null = no version recorded (choice predates the
   // drop-down, or explore was chosen): Iteration 8 is the fallback.
   synthVersion: SynthVersion | null;
+  // LuciferAI plugin enabled state. Default ON (true). When false the
+  // plugin is completely gone — blood drop, heartbeat, Help, AI chat,
+  // Synth surfaces, plugin commands — see src/lib/luciferAi.ts.
+  // Missing keys in older persisted settings count as ON.
+  luciferAiEnabled: boolean;
+  // Custom plugins — which user-registered plugins (see
+  // src/data/customPlugins.ts) are enabled. Keyed by custom plugin id;
+  // a missing key means disabled (custom plugins are opt-in, unlike
+  // the built-in toolbar plugins below). Empty = none enabled.
+  customPlugins: Record<string, boolean>;
   // Toolbar plugins — which plugins show as buttons in the icon bar,
   // in the plugins section above Settings. Keyed by plugin id; a missing
   // key falls back to that plugin's defaultOnToolbar. Empty = all defaults.
@@ -577,6 +588,9 @@ declare global {
         reportDecodePath: (serial: string, decodePath: DecodePath) => Promise<void>;
         onFrame: (callback: (serial: string, chunk: Uint8Array) => void) => () => void;
         onDeviceState: (callback: (serial: string, state: string, error?: string) => void) => () => void;
+      };
+      devices: {
+        list: () => Promise<DevicesListResult>;
       };
       cursor: {
         onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;

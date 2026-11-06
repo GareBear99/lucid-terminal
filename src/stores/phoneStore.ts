@@ -15,7 +15,7 @@
  */
 
 import { create } from 'zustand';
-import { PLUGIN_ADDONS } from '../data/pluginAddons';
+import { PLUGIN_ADDONS, isAddonInstalled } from '../data/pluginAddons';
 import {
   decodePathFromMediaCapabilities,
   getPhoneEntries,
@@ -28,7 +28,12 @@ import {
 } from '../phone/streaming';
 
 function androidAddonInstalledFromData(): boolean {
-  return PLUGIN_ADDONS.find((a) => a.id === 'android-emulator')?.installed ?? false;
+  // Anchor-install is REAL, not just UI text: Android Connect is an
+  // add-on of the Devices anchor plugin, so it counts as installed
+  // by virtue of the anchor (isAddonInstalled) — the internal Phone
+  // entry appears without anyone installing anything.
+  const addon = PLUGIN_ADDONS.find((a) => a.id === 'android-emulator');
+  return addon ? isAddonInstalled(addon) : false;
 }
 
 interface PhoneState {

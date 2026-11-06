@@ -13,6 +13,7 @@ import {
   attachBrowserView,
   createBrowserView,
   detachBrowserView,
+  getAttachedBrowserView,
   setBrowserViewBounds,
 } from '../services/browserViewAdapter';
 import type { BrowserViewBounds } from '../services/browserViewAdapter';
@@ -39,6 +40,7 @@ import {
   buildSearchResultsScript,
   formatSearchResults,
 } from '../../src/lib/browserActions';
+import { isFocusAddressBarKeyInput } from '../../src/lib/browserAddressBar';
 import type { SearchResultItem } from '../../src/lib/browserActions';
 import {
   registerBrowserToolTarget,
@@ -535,6 +537,30 @@ export function setupBrowserHandlers(
     activeTabId = null;
   };
 
+  // Cmd+L / Ctrl+L typed inside a page: the renderer's window
+  // keydown listener never sees it (the BrowserView is a separate
+  // webContents), so the view's `before-input-event` handler calls
+  // this. The forward goes to whichever window the view is
+  // attached to — the main window's panel, or the mini window for
+  // a popped-out tab. Returns true when a window took the
+  // shortcut; a detached view has no focused window to forward
+  // to, so it returns false and the keystroke is left alone.
+  const forwardFocusAddressBar = (tabId: string): boolean => {
+    const view = views.get(tabId);
+    if (!view) return false;
+    const win = getMainWindow();
+    if (win && !win.isDestroyed() && getAttachedBrowserView(win) === view) {
+      win.webContents.send('browser:focus-address-bar');
+      return true;
+    }
+    const mini = options?.mini?.get() ?? null;
+    if (mini && !mini.isDestroyed() && getAttachedBrowserView(mini) === view) {
+      mini.webContents.send('browser:focus-address-bar');
+      return true;
+    }
+    return false;
+  };
+
   const createView = (tabId: string, url: string) => {
     const win = getMainWindow();
     if (!win || win.isDestroyed() || views.has(tabId)) return;
@@ -599,6 +625,18 @@ export function setupBrowserHandlers(
     wc.setWindowOpenHandler(({ url: nextUrl }) => {
       win.webContents.send('browser:open-url', nextUrl);
       return { action: 'deny' };
+    });
+    // Cmd+L / Ctrl+L inside the page: the renderer's window
+    // keydown listener never sees keys typed into the BrowserView,
+    // so main intercepts the shortcut here and asks whichever
+    // window owns the view to focus its address bar. Every other
+    // key passes through untouched; the shortcut itself is only
+    // swallowed when a window actually took it (below).
+    wc.on('before-input-event', (event, input) => {
+      if (!isFocusAddressBarKeyInput(input)) return;
+      // Only swallow the keystroke when a window actually took
+      // the shortcut; otherwise the page keeps it.
+      if (forwardFocusAddressBar(tabId)) event.preventDefault();
     });
     // HTTP basic auth: ask Gary in the panel, never silently retry.
     // A second login for the same tab cancels the pending one (a page
@@ -1194,6 +1232,67 @@ export function setupBrowserHandlers(
     const attached = await cdp.attach(tabId, view.webContents);
     if (!attached.ok) return { ok: false, error: attached.error };
     return { ok: true, diagnostics: cdp.getDiagnostics(tabId) };
+  });
+
+  // Browser diagnostics (no tab id — the ACTIVE tab): where the
+  // view is attached, its bounds, the window's bounds and focus,
+  // and a capturePage screenshot saved to disk. Built to answer
+  // "the page loaded but the view shows blank white": the
+  // screenshot shows whether the page renders in the compositor
+  // (content here, blank on screen = a presentation/attachment
+  // problem; blank here too = the view's renderer produces no
+  // frames). Invoked from the terminal (`browser diagnose`).
+  ipcMain.handle('browser:diagnose', async () => {
+    const win = getMainWindow();
+    const tabId = activeTabId;
+    const view = tabId ? views.get(tabId) : undefined;
+    const wc = view?.webContents;
+    const mini = options?.mini?.get() ?? null;
+    const attachedToMain = !!(
+      win &&
+      !win.isDestroyed() &&
+      view &&
+      getAttachedBrowserView(win) === view
+    );
+    const attachedToMini = !!(
+      mini &&
+      !mini.isDestroyed() &&
+      view &&
+      getAttachedBrowserView(mini) === view
+    );
+    let screenshotPath: string | undefined;
+    let screenshotError: string | undefined;
+    if (wc) {
+      const shot = await actions.screenshot(wc);
+      if (shot.ok && shot.dataUrl) {
+        screenshotPath = saveScreenshot(shot.dataUrl) ?? undefined;
+        if (!screenshotPath) screenshotError = 'save-failed';
+      } else {
+        screenshotError = shot.error ?? 'capture-failed';
+      }
+    } else {
+      screenshotError = 'no-active-tab';
+    }
+    return {
+      ok: true,
+      diagnose: {
+        tabId: tabId ?? null,
+        url: wc?.getURL() ?? null,
+        title: wc?.getTitle() ?? null,
+        loading: wc?.isLoading() ?? false,
+        attachedToMain,
+        attachedToMini,
+        bounds: view ? view.getBounds() : null,
+        lastBounds,
+        windowBounds:
+          win && !win.isDestroyed() ? win.getBounds() : null,
+        windowFocused: win ? win.isFocused() : false,
+        windowVisible: win ? win.isVisible() : false,
+        viewCount: views.size,
+      },
+      screenshotPath,
+      screenshotError,
+    };
   });
 
   // Per-site permission memory (Area 9): answer a held request,

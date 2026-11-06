@@ -13,6 +13,7 @@ import { PHONE_CONTROL_URL } from '../../stores/browserStore';
 import { getPhoneEntries } from '../../phone/streaming';
 import { usePhoneStore } from '../../stores/phoneStore';
 import { resolveInputToUrl } from '../../stores/browserUrl';
+import { focusAddressBar } from '../../lib/browserAddressBar';
 import { Tooltip } from '../Tooltip/Tooltip';
 import type { BrowserBounds, BrowserTabState } from '../../types';
 
@@ -65,6 +66,19 @@ function MiniBrowser() {
       if (document.activeElement !== inputRef.current) {
         setInput(state.url);
       }
+    });
+    return () => {
+      cleanup();
+    };
+  }, []);
+
+  // Cmd+L / Ctrl+L typed INSIDE the page: the BrowserView is a
+  // separate webContents, so this window's keydown listener never
+  // sees it — main intercepts it (before-input-event) and forwards
+  // it here, since this window owns the popped-out view.
+  useEffect(() => {
+    const cleanup = window.lucidAPI.browser.onFocusAddressBar(() => {
+      focusAddressBar(inputRef.current);
     });
     return () => {
       cleanup();

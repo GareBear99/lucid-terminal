@@ -244,6 +244,14 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('browser:open-internal-phone', listener);
       return () => ipcRenderer.removeListener('browser:open-internal-phone', listener);
     },
+    // Cmd+L / Ctrl+L typed inside the page: main intercepts it
+    // (before-input-event) and forwards it here — the renderer's
+    // own keydown listener never sees keys typed into the view.
+    onFocusAddressBar: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('browser:focus-address-bar', listener);
+      return () => ipcRenderer.removeListener('browser:focus-address-bar', listener);
+    },
     // Flows (Area 7): start / stop / approve / reject, and the
     // progress + approval events the panel shows.
     startFlow: (definition: FlowDefinition, tabId: string) =>
@@ -271,6 +279,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('browser:action-trusted-click', tabId, selector),
     getCdpDiagnostics: (tabId: string) =>
       ipcRenderer.invoke('browser:cdp-diagnostics', tabId),
+    diagnoseActive: () =>
+      ipcRenderer.invoke('browser:diagnose'),
     // Save page + per-site permission memory (Area 9).
     savePage: (tabId: string) =>
       ipcRenderer.invoke('browser:save-page', tabId),
@@ -539,6 +549,7 @@ export interface LucidAPI {
     onMiniState: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
     onMiniClosed: (callback: (tabId: string) => void) => () => void;
     onOpenInternalPhone: (callback: () => void) => () => void;
+    onFocusAddressBar: (callback: () => void) => () => void;
     startFlow: (definition: FlowDefinition, tabId: string) => Promise<{ ok: boolean; flowId?: string; error?: string; errors?: string[] }>;
     stopFlow: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
     approveFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -547,6 +558,7 @@ export interface LucidAPI {
     onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
     trustedClick: (tabId: string, selector: string) => Promise<BrowserActionResult>;
     getCdpDiagnostics: (tabId: string) => Promise<{ ok: boolean; diagnostics?: CdpDiagnostics; error?: string }>;
+    diagnoseActive: () => Promise<BrowserDiagnoseResult>;
     savePage: (tabId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
     answerPermission: (origin: string, permission: string, decision: 'once' | 'always' | 'deny') => Promise<{ ok: boolean; error?: string }>;
     listPermissions: () => Promise<{ ok: boolean; allowlist: Record<string, string[]> }>;

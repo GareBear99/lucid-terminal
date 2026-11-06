@@ -51,6 +51,7 @@ import { resolveInputToUrl } from '../../stores/browserUrl';
 import {
   focusAddressBar,
   isFocusAddressBarShortcut,
+  scheduleAddressBarFocus,
 } from '../../lib/browserAddressBar';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { BrowserAuthPrompt } from './BrowserAuthPrompt';
@@ -257,12 +258,21 @@ function BrowserPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState(activeTab?.url ?? '');
-  // Focus the address bar on the next tick, so a new tab's activation
-  // (and, for a window opened by a page, the panel switching to the
-  // Browser tab) has landed before the focus lands. Stable across
-  // renders: it only touches the input ref and the module helper.
-  const focusAddressBarSoon = useCallback(() => {
-    setTimeout(() => focusAddressBar(inputRef.current), 0);
+  // Focus the address bar for a new tab: immediately, and again
+  // after short delays. A single setTimeout(0) is not enough —
+  // attaching the new tab's BrowserView yanks focus to its webarea
+  // after the first focus lands. The attach effect below schedules
+  // a second round once main has attached the view, so the focus
+  // lands after the steal either way. Stable across renders: it
+  // only touches refs and the module helper.
+  const cancelAddressBarRetryRef = useRef<(() => void) | null>(null);
+  const focusAfterAttachRef = useRef(false);
+  const focusAddressBarForNewTab = useCallback(() => {
+    focusAfterAttachRef.current = true;
+    cancelAddressBarRetryRef.current?.();
+    cancelAddressBarRetryRef.current = scheduleAddressBarFocus(
+      () => inputRef.current,
+    );
   }, []);
   // HTTP-auth challenges, queued in arrival order. The prompt shows
   // the first one; answering it (sign in or cancel) shows the next.
@@ -306,6 +316,7 @@ function BrowserPanel() {
     return () => {
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      cancelAddressBarRetryRef.current?.();
     };
   }, []);
 
@@ -331,7 +342,7 @@ function BrowserPanel() {
       // A page explicitly opening a window should be seen.
       useBrowserStore.getState().setPanelTab('browser');
       // And the new tab's address bar should be ready to type in.
-      focusAddressBarSoon();
+      focusAddressBarForNewTab();
     });
     const cleanupAuth = window.lucidAPI.browser.onAuthRequired((request) => {
       // Ignore a duplicate challenge for a request already queued.
@@ -379,6 +390,14 @@ function BrowserPanel() {
             : [...prev, request],
         );
       });
+    // Cmd+L / Ctrl+L typed INSIDE the page: the BrowserView is a
+    // separate webContents, so the renderer's keydown listener
+    // never sees it — main intercepts it (before-input-event) and
+    // forwards it here.
+    const cleanupFocusAddressBar =
+      window.lucidAPI.browser.onFocusAddressBar(() => {
+        focusAddressBar(inputRef.current);
+      });
     return () => {
       cleanupUpdated();
       cleanupOpenUrl();
@@ -387,8 +406,9 @@ function BrowserPanel() {
       cleanupMiniClosed();
       cleanupOpenInternal();
       cleanupPermission();
+      cleanupFocusAddressBar();
     };
-  }, [applyTabUpdate, createTab, focusAddressBarSoon]);
+  }, [applyTabUpdate, createTab, focusAddressBarForNewTab]);
 
   // Find-in-page: run the search in the active tab. A fresh query
   // starts at the top (findNext: false); Enter steps through matches.
@@ -428,19 +448,28 @@ function BrowserPanel() {
 
   // Panel shortcuts, only while focus is inside the browser panel —
   // the terminal keeps its own Ctrl+F / Ctrl+T behaviour otherwise.
+  // Cmd+L / Ctrl+L is the exception: it is window-wide while the
+  // browser tab is active, so Gary can hit it from the terminal
+  // prompt or the document body too. The terminal keeps no Cmd+L
+  // binding of its own, so nothing is stolen. (Keys typed INSIDE
+  // the page never reach this listener — the BrowserView is a
+  // separate webContents — so main forwards those via
+  // `browser:focus-address-bar`, subscribed in the effect above.)
   useEffect(() => {
     if (panelTab !== 'browser') return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!panelRef.current?.contains(e.target as Node)) return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      const key = e.key.toLowerCase();
       if (isFocusAddressBarShortcut(e)) {
         // Cmd+L (macOS) / Ctrl+L: focus the address bar and select
         // its text, like every other browser.
         e.preventDefault();
         focusAddressBar(inputRef.current);
-      } else if (key === 'f') {
+        return;
+      }
+      if (!panelRef.current?.contains(e.target as Node)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 'f') {
         e.preventDefault();
         setFindOpen(true);
       } else if (key === '=' || key === '+') {
@@ -543,7 +572,19 @@ function BrowserPanel() {
         height: Math.round(r.height),
       };
     };
-    void window.lucidAPI.browser.activate(activeTabId, bounds());
+    void window.lucidAPI.browser.activate(activeTabId, bounds()).then(() => {
+      // A new tab asked for the address bar: the view has just
+      // attached — and attaching yanks focus to its webarea — so
+      // re-assert the focus now. The retry helper covers any steal
+      // that lands after this round too.
+      if (focusAfterAttachRef.current) {
+        focusAfterAttachRef.current = false;
+        cancelAddressBarRetryRef.current?.();
+        cancelAddressBarRetryRef.current = scheduleAddressBarFocus(
+          () => inputRef.current,
+        );
+      }
+    });
     const observer = new ResizeObserver(() => {
       void window.lucidAPI.browser.setBounds(bounds());
     });
@@ -640,7 +681,7 @@ function BrowserPanel() {
           <button
             onClick={() => {
               createTab();
-              focusAddressBarSoon();
+              focusAddressBarForNewTab();
             }}
             className="p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0"
           >

@@ -524,6 +524,53 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
           }
           break;
 
+        case 'browser':
+          // `browser diagnose` — where the active BrowserView is
+          // attached, its bounds, the window's bounds and focus,
+          // and a capturePage screenshot saved to disk. Built to
+          // answer "the page loaded but the view shows blank white".
+          console.log('[Browser] Processing:', parsed.command);
+          if (parsed.command === 'browser diagnose') {
+            let output: string;
+            try {
+              const result =
+                await window.lucidAPI.browser.diagnoseActive();
+              if (!result?.ok || !result.diagnose) {
+                output = `❌ Browser diagnose failed: ${result?.error ?? result?.screenshotError ?? 'unknown error'}`;
+              } else {
+                const d = result.diagnose;
+                output =
+                  `Browser diagnose (active tab ${d.tabId ?? 'none'}):\n` +
+                  JSON.stringify(d, null, 2) +
+                  (result.screenshotPath
+                    ? `\nScreenshot: ${result.screenshotPath}`
+                    : `\nScreenshot: failed (${result.screenshotError ?? 'unknown error'})`);
+              }
+            } catch (error: any) {
+              output = `❌ Browser diagnose failed: ${error?.message ?? String(error)}`;
+            }
+            setBlocks(prev => {
+              const updated = [...prev];
+              const lastBlock = updated[updated.length - 1];
+              if (lastBlock?.id === newBlock.id) {
+                lastBlock.output = output;
+                lastBlock.isComplete = true;
+              }
+              return updated;
+            });
+          } else {
+            setBlocks(prev => {
+              const updated = [...prev];
+              const lastBlock = updated[updated.length - 1];
+              if (lastBlock?.id === newBlock.id) {
+                lastBlock.output = 'Usage: browser diagnose';
+                lastBlock.isComplete = true;
+              }
+              return updated;
+            });
+          }
+          break;
+
         case 'workflow':
           // Workflow status commands
           console.log('[Workflow] Processing:', parsed.command);

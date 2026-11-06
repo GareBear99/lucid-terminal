@@ -19,10 +19,12 @@
  *
  * Run with: npm test
  */
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   focusAddressBar,
+  isFocusAddressBarKeyInput,
   isFocusAddressBarShortcut,
+  scheduleAddressBarFocus,
 } from '../src/lib/browserAddressBar';
 
 describe('isFocusAddressBarShortcut', () => {
@@ -78,5 +80,118 @@ describe('focusAddressBar', () => {
 
   test('a null input is a no-op, not a throw', () => {
     expect(() => focusAddressBar(null)).not.toThrow();
+  });
+});
+
+describe('isFocusAddressBarKeyInput', () => {
+  test('Cmd+L key-down inside the page matches', () => {
+    expect(
+      isFocusAddressBarKeyInput({ type: 'keyDown', key: 'l', meta: true }),
+    ).toBe(true);
+  });
+
+  test('Ctrl+L key-down matches', () => {
+    expect(
+      isFocusAddressBarKeyInput({
+        type: 'keyDown',
+        key: 'L',
+        control: true,
+      }),
+    ).toBe(true);
+  });
+
+  test('key-up never matches — the page keeps its own keystrokes', () => {
+    expect(
+      isFocusAddressBarKeyInput({ type: 'keyUp', key: 'l', meta: true }),
+    ).toBe(false);
+  });
+
+  test('char events never match', () => {
+    expect(
+      isFocusAddressBarKeyInput({ type: 'char', key: 'l', meta: true }),
+    ).toBe(false);
+  });
+
+  test('other Cmd/Ctrl letters never match', () => {
+    expect(
+      isFocusAddressBarKeyInput({ type: 'keyDown', key: 'f', meta: true }),
+    ).toBe(false);
+    expect(
+      isFocusAddressBarKeyInput({ type: 'keyDown', key: 't', control: true }),
+    ).toBe(false);
+  });
+
+  test('bare L with no modifier never matches', () => {
+    expect(
+      isFocusAddressBarKeyInput({ type: 'keyDown', key: 'l' }),
+    ).toBe(false);
+  });
+});
+
+describe('scheduleAddressBarFocus', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  test('focuses the input on the first attempt and selects its text', () => {
+    const input = document.createElement('input');
+    input.value = 'https://example.com';
+    document.body.appendChild(input);
+    scheduleAddressBarFocus(() => input);
+    vi.advanceTimersByTime(0);
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+  });
+
+  test('re-focuses after the BrowserView steals focus to the page', () => {
+    const input = document.createElement('input');
+    input.value = 'https://example.com';
+    document.body.appendChild(input);
+    scheduleAddressBarFocus(() => input);
+    vi.advanceTimersByTime(0);
+    expect(document.activeElement).toBe(input);
+    // The newly attached view yanks focus to its webarea (the body,
+    // from the renderer's point of view).
+    input.blur();
+    expect(document.activeElement).toBe(document.body);
+    vi.advanceTimersByTime(100);
+    expect(document.activeElement).toBe(input);
+  });
+
+  test('does not yank focus out of the terminal prompt', () => {
+    const input = document.createElement('input');
+    input.value = 'https://example.com';
+    const prompt = document.createElement('textarea');
+    document.body.appendChild(input);
+    document.body.appendChild(prompt);
+    prompt.focus();
+    scheduleAddressBarFocus(() => input);
+    vi.advanceTimersByTime(1000);
+    expect(document.activeElement).toBe(prompt);
+  });
+
+  test('cancel stops the later attempts', () => {
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    const cancel = scheduleAddressBarFocus(() => input);
+    vi.advanceTimersByTime(0);
+    expect(document.activeElement).toBe(input);
+    input.blur();
+    cancel();
+    vi.advanceTimersByTime(1000);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  test('a null input is a no-op, not a throw', () => {
+    expect(() =>
+      scheduleAddressBarFocus(() => null),
+    ).not.toThrow();
+    vi.advanceTimersByTime(1000);
   });
 });

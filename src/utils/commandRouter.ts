@@ -9,6 +9,7 @@ export type CommandType =
   | 'fix'
   | 'fixnet'
   | 'llm'
+  | 'browser'
   | 'build'
   | 'create'
   | 'workflow'
@@ -104,6 +105,19 @@ export function parseCommand(input: string): ParsedCommand {
       twoWords === 'llm enable' || twoWords === 'llm disable') {
     return {
       type: 'llm',
+      command: twoWords,
+      args: words.slice(2),
+      raw: input,
+      isSlashCommand: false,
+      shouldShowHelp: false
+    };
+  }
+
+  // `browser diagnose` — where the active BrowserView is attached,
+  // its bounds, and a screenshot of what the page actually renders.
+  if (twoWords === 'browser diagnose') {
+    return {
+      type: 'browser',
       command: twoWords,
       args: words.slice(2),
       raw: input,

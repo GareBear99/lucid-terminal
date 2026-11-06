@@ -419,6 +419,30 @@ export interface BrowserScreenshotResult extends BrowserActionResult {
   dataUrl?: string;
 }
 
+/** Browser diagnostics for the active tab (no tab id needed):
+ * where the view is attached, its bounds, the window's bounds
+ * and focus, plus a capturePage screenshot saved to disk. */
+export interface BrowserDiagnoseResult {
+  ok: boolean;
+  diagnose?: {
+    tabId: string | null;
+    url: string | null;
+    title: string | null;
+    loading: boolean;
+    attachedToMain: boolean;
+    attachedToMini: boolean;
+    bounds: { x: number; y: number; width: number; height: number } | null;
+    lastBounds: { x: number; y: number; width: number; height: number } | null;
+    windowBounds: { x: number; y: number; width: number; height: number } | null;
+    windowFocused: boolean;
+    windowVisible: boolean;
+    viewCount: number;
+  };
+  screenshotPath?: string;
+  screenshotError?: string;
+  error?: string;
+}
+
 export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
 
 // Extend Window interface for Electron API
@@ -523,6 +547,7 @@ declare global {
         onMiniState: (callback: (tabId: string, state: BrowserTabState) => void) => () => void;
         onMiniClosed: (callback: (tabId: string) => void) => () => void;
         onOpenInternalPhone: (callback: () => void) => () => void;
+        onFocusAddressBar: (callback: () => void) => () => void;
     startFlow: (definition: FlowDefinition, tabId: string) => Promise<{ ok: boolean; flowId?: string; error?: string; errors?: string[] }>;
     stopFlow: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
     approveFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -531,6 +556,7 @@ declare global {
     onFlowApprovalNeeded: (callback: (request: FlowApprovalRequest) => void) => () => void;
     trustedClick: (tabId: string, selector: string) => Promise<BrowserActionResult>;
     getCdpDiagnostics: (tabId: string) => Promise<{ ok: boolean; diagnostics?: CdpDiagnostics; error?: string }>;
+    diagnoseActive: () => Promise<BrowserDiagnoseResult>;
     savePage: (tabId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
     answerPermission: (origin: string, permission: string, decision: 'once' | 'always' | 'deny') => Promise<{ ok: boolean; error?: string }>;
     listPermissions: () => Promise<{ ok: boolean; allowlist: Record<string, string[]> }>;

@@ -239,6 +239,19 @@ export interface Settings {
   toolbarPlugins: Record<string, boolean>;
 }
 
+/** Daily quota for the Lucid ping server (Cloudflare Worker).
+ * limit = 100 requests/day per user; reset = unix seconds at the next
+ * UTC midnight; reset_in_seconds = seconds until then. The Worker sends
+ * it as x-ratelimit-* headers on chat responses and in the /ping body.
+ * Defined once here; the main-process client, preload, and renderer all
+ * import this type. */
+export interface PingQuota {
+  limit: number;
+  remaining: number;
+  reset: number;
+  reset_in_seconds: number;
+}
+
 export interface DaemonLogEntry {
   id: string;
   timestamp: number;

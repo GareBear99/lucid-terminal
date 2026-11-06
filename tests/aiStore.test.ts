@@ -287,6 +287,31 @@ describe('streaming — stable start time and stamped completion', () => {
     expect((reply.timestamp as number) >= 1000).toBe(true);
     expect(reply.ritualTick).toBe(1);
   });
+
+  it('completeStream clears isLoading even when the stream delivered nothing', () => {
+    const chat = session('a', 'Chat A', [msg('u1', 1000, 'hi', 'user', 0)], 1);
+    useAIStore.setState({
+      sessions: [chat],
+      currentSessionId: 'a',
+      messages: [...chat.messages],
+    });
+    const store = useAIStore.getState();
+    // A generation started (setLoading ties it to chat A) but no
+    // token ever arrived — the exact stuck case: the old code only
+    // cleared isLoading inside `if (streamingMessage)`, so the UI
+    // stayed generating forever behind a red stop button.
+    store.setLoading(true);
+    store.completeStream();
+
+    const state = useAIStore.getState();
+    expect(state.isLoading).toBe(false);
+    expect(state.generatingSessionId).toBeNull();
+    expect(state.streamingMessage).toBe('');
+    expect(state.streamStartedAt).toBeNull();
+    expect(state.lastTokenAt).toBeNull();
+    // No phantom reply was invented from an empty stream.
+    expect(state.messages).toHaveLength(1);
+  });
 });
 
 describe('generation timeout — mid-generation switch carries over', () => {

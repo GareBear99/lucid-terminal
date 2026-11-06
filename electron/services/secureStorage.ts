@@ -289,3 +289,24 @@ export const apiKeyStorage = {
   },
 
 };
+
+// Ping server key (test path) — the shared secret for the Cloudflare
+// ping server Worker, stored encrypted like the API key.
+export const pingKeyStorage = {
+  setPingKey(key: string): void {
+    secureStorage.setSecret('ping-server-key', key);
+  },
+
+  getPingKey(): string | null {
+    return secureStorage.getSecret('ping-server-key');
+  },
+
+  hasPingKey(): boolean {
+    return secureStorage.hasSecret('ping-server-key');
+  },
+
+  deletePingKey(): void {
+    secureStorage.deleteSecret('ping-server-key');
+  },
+
+};

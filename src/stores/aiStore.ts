@@ -433,17 +433,24 @@ export const useAIStore = create<AIState>((set, get) => {
                 timestamp: Date.now(),
             };
             addMessage(message);
-            set({
-                streamingMessage: '',
-                streamStartedAt: null,
-                lastTokenAt: null,
-                isLoading: false,
-                generatingSessionId: null,
-            });
             // The generation completed — the Sentinel face's horns
             // wiggle inward once.
             useHornWiggleStore.getState().wiggle();
         }
+        // Always release the generation state — even when the stream
+        // delivered nothing (empty stream / chunks that parsed to no
+        // content). This set() used to live inside the `if` above, so
+        // an empty stream left isLoading true forever and the UI
+        // stayed stuck generating (red stop button) with no reply and
+        // no way out. Nothing is invented here: with no streamed text
+        // there is no message to add, only state to release.
+        set({
+            streamingMessage: '',
+            streamStartedAt: null,
+            lastTokenAt: null,
+            isLoading: false,
+            generatingSessionId: null,
+        });
     },
 
     setContextDirectory: (dir: string | null) => {

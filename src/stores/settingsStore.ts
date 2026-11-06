@@ -68,6 +68,7 @@ const defaultSettings: Settings = {
   gazeSensitivity: 50,
   homunculusColor: null,
   synthDisclaimerChoice: null,
+  synthVersion: null,
   toolbarPlugins: {},
 };
 

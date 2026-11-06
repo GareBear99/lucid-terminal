@@ -15,6 +15,13 @@
  * the choice and names Iteration 8 as the creator builder in the
  * inspector — it does not fake a builder UI.
  *
+ * Synth versions (Gary, 2026-11-05): starting a new build asks for a
+ * synth version in a drop-down, starting with Iteration 8 for now —
+ * Lucid is the demo, not a live working build yet. Choosing "Build my
+ * own" opens the version step (Iteration 8 selected); confirming
+ * records the choice and the version together. "Explore the demo
+ * still" is unchanged and records no version.
+ *
  * These are DOM/state tests — the flow is asserted through the store
  * and the dialogs, not pixels.
  */
@@ -26,7 +33,9 @@ import {
   SynthDemoDisclaimerErrorBoundary,
 } from '../src/components/Synth/SynthDemoDisclaimer';
 import {
+  DEFAULT_SYNTH_VERSION,
   parseSynthDisclaimerChoice,
+  parseSynthVersion,
   shouldShowSynthDisclaimer,
 } from '../src/lib/synthDisclaimer';
 import { SynthView } from '../src/components/Synth/SynthView';
@@ -55,6 +64,12 @@ function seedHomunculusColor(value: unknown) {
 function seedSynthDisclaimerChoice(value: unknown) {
   useSettingsStore.setState((s) => ({
     settings: { ...s.settings, synthDisclaimerChoice: value as never },
+  }));
+}
+
+function seedSynthVersion(value: unknown) {
+  useSettingsStore.setState((s) => ({
+    settings: { ...s.settings, synthVersion: value as never },
   }));
 }
 
@@ -92,6 +107,30 @@ describe('parseSynthDisclaimerChoice / shouldShowSynthDisclaimer', () => {
   });
 });
 
+describe('parseSynthVersion', () => {
+  test('accepts exactly the known versions, Iteration 8 for now', () => {
+    expect(parseSynthVersion('iteration-8')).toBe('iteration-8');
+    expect(DEFAULT_SYNTH_VERSION).toBe('iteration-8');
+  });
+
+  test('rejects everything else as unset', () => {
+    for (const bad of [
+      null,
+      undefined,
+      '',
+      'Iteration 8',
+      'iteration-9',
+      'lucid',
+      8,
+      true,
+      {},
+      [],
+    ]) {
+      expect(parseSynthVersion(bad)).toBeNull();
+    }
+  });
+});
+
 describe('SynthDemoDisclaimer', () => {
   test('states the demo and names Iteration 8 as the creator builder', () => {
     render(<SynthDemoDisclaimer onChoose={() => undefined} />);
@@ -112,12 +151,44 @@ describe('SynthDemoDisclaimer', () => {
     expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
-  test('choosing build my own calls onChoose with build', () => {
+  test('choosing build my own opens the version step, not the choice', () => {
+    const onChoose = vi.fn();
+    render(<SynthDemoDisclaimer onChoose={onChoose} />);
+    // No version drop-down on the first step.
+    expect(screen.queryByLabelText('Synth version')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Build my own' }));
+    // Choosing build does not record anything yet — it opens the
+    // version step, Iteration 8 selected.
+    expect(onChoose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Synth version')).toBeTruthy();
+    expect(
+      (screen.getByLabelText('Synth version') as HTMLSelectElement).value,
+    ).toBe('iteration-8');
+  });
+
+  test('confirming the version step records build with Iteration 8', () => {
     const onChoose = vi.fn();
     render(<SynthDemoDisclaimer onChoose={onChoose} />);
     fireEvent.click(screen.getByRole('button', { name: 'Build my own' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start with Iteration 8' }),
+    );
     expect(onChoose).toHaveBeenCalledTimes(1);
-    expect(onChoose).toHaveBeenCalledWith('build');
+    expect(onChoose).toHaveBeenCalledWith('build', 'iteration-8');
+  });
+
+  test('back from the version step returns to the choice, recording nothing', () => {
+    const onChoose = vi.fn();
+    render(<SynthDemoDisclaimer onChoose={onChoose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Build my own' }));
+    expect(screen.getByLabelText('Synth version')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(onChoose).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Synth version')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Build my own' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Explore the demo still' }),
+    ).toBeTruthy();
   });
 
   test('choosing explore the demo still calls onChoose with explore', () => {
@@ -152,6 +223,7 @@ describe('SynthView disclaimer flow', () => {
     restoreWindow = stubSettingsIpc();
     seedHomunculusColor(null);
     seedSynthDisclaimerChoice(null);
+    seedSynthVersion(null);
   });
 
   afterEach(() => {
@@ -159,6 +231,7 @@ describe('SynthView disclaimer flow', () => {
     restoreWindow = undefined;
     seedHomunculusColor(null);
     seedSynthDisclaimerChoice(null);
+    seedSynthVersion(null);
   });
 
   test('after choosing a colour the disclaimer appears', async () => {
@@ -171,17 +244,29 @@ describe('SynthView disclaimer flow', () => {
     });
   });
 
-  test('choosing build my own persists it and never asks again', async () => {
+  test('choosing build my own persists choice and version, never asks again', async () => {
     const { unmount } = render(<SynthView />);
     fireEvent.click(screen.getByRole('button', { name: 'Choose pink' }));
     await waitFor(() => expect(disclaimerDialog()).not.toBeNull(), {
       timeout: 5000,
     });
     fireEvent.click(screen.getByRole('button', { name: 'Build my own' }));
+    // The version step appears, Iteration 8 selected — nothing is
+    // persisted until the version is confirmed.
+    expect(screen.getByLabelText('Synth version')).toBeTruthy();
+    expect(
+      useSettingsStore.getState().settings.synthDisclaimerChoice,
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start with Iteration 8' }),
+    );
     await waitFor(() =>
       expect(
         useSettingsStore.getState().settings.synthDisclaimerChoice,
       ).toBe('build'),
+    );
+    expect(useSettingsStore.getState().settings.synthVersion).toBe(
+      'iteration-8',
     );
     expect(disclaimerDialog()).toBeNull();
     // The inspector names Iteration 8 as the creator builder — the
@@ -209,6 +294,8 @@ describe('SynthView disclaimer flow', () => {
         useSettingsStore.getState().settings.synthDisclaimerChoice,
       ).toBe('explore'),
     );
+    // Explore records no version.
+    expect(useSettingsStore.getState().settings.synthVersion).toBeNull();
     expect(disclaimerDialog()).toBeNull();
     // No build landing for the explore choice.
     expect(screen.queryByText(/build: your own/)).toBeNull();

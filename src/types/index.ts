@@ -20,7 +20,10 @@ import type {
   PromotionDecision,
   StartRunParams,
 } from '../lib/llmbuilderApi';
-import type { SynthDisclaimerChoice } from '../lib/synthDisclaimer';
+import type {
+  SynthDisclaimerChoice,
+  SynthVersion,
+} from '../lib/synthDisclaimer';
 
 export interface FileEntry {
   name: string;
@@ -213,6 +216,12 @@ export interface Settings {
   // answered yet: the disclaimer asks once. Either stored choice
   // means it never asks again.
   synthDisclaimerChoice: SynthDisclaimerChoice | null;
+  // Synth version a new build starts from, chosen in the version
+  // drop-down when "build my own" is picked (Gary, 2026-11-05).
+  // Iteration 8 only, for now — Lucid is the demo, not a live working
+  // build yet. null = no version recorded (choice predates the
+  // drop-down, or explore was chosen): Iteration 8 is the fallback.
+  synthVersion: SynthVersion | null;
   // Toolbar plugins — which plugins show as buttons in the icon bar,
   // in the plugins section above Settings. Keyed by plugin id; a missing
   // key falls back to that plugin's defaultOnToolbar. Empty = all defaults.

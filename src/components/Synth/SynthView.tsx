@@ -43,8 +43,11 @@ import {
   type HomunculusColor,
 } from '../../lib/homunculusColor';
 import {
+  SYNTH_VERSION_LABELS,
+  parseSynthVersion,
   shouldShowSynthDisclaimer,
   type SynthDisclaimerChoice,
+  type SynthVersion,
 } from '../../lib/synthDisclaimer';
 import {
   HomunculusColorPicker,
@@ -201,12 +204,34 @@ export function SynthView() {
     !synthDisclaimerDone &&
     chosenHomunculusColor !== null &&
     synthDisclaimerDelayDone;
-  const chooseSynthDisclaimer = useCallback((choice: SynthDisclaimerChoice) => {
-    void useSettingsStore
-      .getState()
-      .updateSetting('synthDisclaimerChoice', choice);
-    setSynthDisclaimerDone(true);
-  }, []);
+  const chooseSynthDisclaimer = useCallback(
+    (choice: SynthDisclaimerChoice, version?: SynthVersion) => {
+      const store = useSettingsStore.getState();
+      void store.updateSetting('synthDisclaimerChoice', choice);
+      // Build only: record the synth version from the drop-down.
+      // Only exact known values are stored; anything else leaves the
+      // version unset (Iteration 8 is the fallback).
+      if (choice === 'build') {
+        const parsed = parseSynthVersion(version);
+        if (parsed !== null) {
+          void store.updateSetting('synthVersion', parsed);
+        }
+      }
+      setSynthDisclaimerDone(true);
+    },
+    [],
+  );
+  // The version the build starts from — the drop-down choice, or
+  // Iteration 8 when nothing was recorded (choice predates the
+  // drop-down, or explore was chosen).
+  const storedSynthVersion = useSettingsStore(
+    (s) => s.settings?.synthVersion,
+  );
+  const parsedStoredVersion = parseSynthVersion(storedSynthVersion);
+  const buildVersionLabel =
+    parsedStoredVersion !== null
+      ? SYNTH_VERSION_LABELS[parsedStoredVersion]
+      : 'Iteration 8';
 
   return (
     <div className="relative flex-1 overflow-hidden bg-[var(--bg-primary)]">
@@ -244,10 +269,11 @@ export function SynthView() {
             <div>eye: {eyeMode}</div>
             <div>blueprint: {shellLoaded ? 'loaded' : 'none — load one in the shell (Upload Blueprint JSON)'}</div>
             {/* "Build my own" (Iteration 8, the creator builder) — the
-                choice is recorded; Iteration 8 itself is not built yet,
-                so this names it rather than faking a builder. */}
+                choice and the drop-down version are recorded;
+                Iteration 8 itself is not built yet, so this names it
+                rather than faking a builder. */}
             {storedSynthDisclaimerChoice === 'build' && (
-              <div>build: your own — Iteration 8, the creator builder (coming soon)</div>
+              <div>build: your own — {buildVersionLabel}, the creator builder (coming soon)</div>
             )}
           </div>
           <Tooltip content="Randomize the Neural Synth seed">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -48,6 +48,10 @@ import { getPhoneEntries, type PhoneEntry } from '../../phone/streaming';
 import { usePhoneStore } from '../../stores/phoneStore';
 import PhoneView from '../Phone/PhoneView';
 import { resolveInputToUrl } from '../../stores/browserUrl';
+import {
+  focusAddressBar,
+  isFocusAddressBarShortcut,
+} from '../../lib/browserAddressBar';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { BrowserAuthPrompt } from './BrowserAuthPrompt';
 import type {
@@ -253,6 +257,13 @@ function BrowserPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState(activeTab?.url ?? '');
+  // Focus the address bar on the next tick, so a new tab's activation
+  // (and, for a window opened by a page, the panel switching to the
+  // Browser tab) has landed before the focus lands. Stable across
+  // renders: it only touches the input ref and the module helper.
+  const focusAddressBarSoon = useCallback(() => {
+    setTimeout(() => focusAddressBar(inputRef.current), 0);
+  }, []);
   // HTTP-auth challenges, queued in arrival order. The prompt shows
   // the first one; answering it (sign in or cancel) shows the next.
   const [authQueue, setAuthQueue] = useState<BrowserAuthRequest[]>([]);
@@ -319,6 +330,8 @@ function BrowserPanel() {
       createTab(url);
       // A page explicitly opening a window should be seen.
       useBrowserStore.getState().setPanelTab('browser');
+      // And the new tab's address bar should be ready to type in.
+      focusAddressBarSoon();
     });
     const cleanupAuth = window.lucidAPI.browser.onAuthRequired((request) => {
       // Ignore a duplicate challenge for a request already queued.
@@ -375,7 +388,7 @@ function BrowserPanel() {
       cleanupOpenInternal();
       cleanupPermission();
     };
-  }, [applyTabUpdate, createTab]);
+  }, [applyTabUpdate, createTab, focusAddressBarSoon]);
 
   // Find-in-page: run the search in the active tab. A fresh query
   // starts at the top (findNext: false); Enter steps through matches.
@@ -422,7 +435,12 @@ function BrowserPanel() {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
       const key = e.key.toLowerCase();
-      if (key === 'f') {
+      if (isFocusAddressBarShortcut(e)) {
+        // Cmd+L (macOS) / Ctrl+L: focus the address bar and select
+        // its text, like every other browser.
+        e.preventDefault();
+        focusAddressBar(inputRef.current);
+      } else if (key === 'f') {
         e.preventDefault();
         setFindOpen(true);
       } else if (key === '=' || key === '+') {
@@ -620,7 +638,10 @@ function BrowserPanel() {
         ))}
         <Tooltip content="New tab">
           <button
-            onClick={() => createTab()}
+            onClick={() => {
+              createTab();
+              focusAddressBarSoon();
+            }}
             className="p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0"
           >
             <Plus size={14} />
@@ -674,11 +695,16 @@ function BrowserPanel() {
       ) : null}
       {permissionsOpen ? <BrowserPermissionsList /> : null}
 
-      {/* Nav bar + address-bar history dropdown */}
+      {/* Nav bar + address-bar history dropdown.
+          The bar wraps: at the default panel width (~465px) the
+          nav buttons + address input take the first row and the
+          secondary actions flow to a second row, so the input is
+          never squeezed to a sliver. At wider panel widths the
+          buttons stop wrapping and it is one row again. */}
       <div className="relative shrink-0">
         <form
           onSubmit={submit}
-          className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border)]"
+          className="flex flex-wrap items-center gap-1 px-2 py-1.5 border-b border-[var(--border)]"
         >
           <Tooltip content="Back">
             <button
@@ -724,7 +750,8 @@ function BrowserPanel() {
             }}
             onKeyDown={onAddressKeyDown}
             placeholder="Search or type a URL"
-            className="input flex-1 min-w-0 text-xs"
+            title="Search or type a URL (Cmd+L / Ctrl+L to focus)"
+            className="input flex-1 min-w-[320px] text-xs"
           />
           <Tooltip content="Find in page (Ctrl+F)">
             <button

@@ -14,6 +14,7 @@ words. The button on the plugin's page plays it, never auto-play.
 | `devices-explanation.mp3` | Devices tab (Settings) — the one good one | ~31s |
 | `persona-plex-view.mp3` | Persona Plex view | ~27s |
 | `modules-main.mp3` | Modules tab (Settings) | ~30s |
+| `plugins-explanation.mp3` | Plugins tab (Settings) — the flagship | ~32s |
 
 Already voiced elsewhere (not in this folder): the Forge
 (`public/forge/*.mp3` — main, dual-unison, tail-generator,
@@ -65,6 +66,17 @@ remount.
 > installed automatically with Modules. Nothing here needs
 > installing. It is all built in.
 
+### plugins-explanation.mp3 — Plugins tab (the flagship)
+
+> This is Plugins. Core plugins are built in and always installed
+> — Synth, Help, A I Chat, and Forge. The toggles put a plugin's
+> button on the icon bar. Lucifer A I is the plugin itself — Synth
+> and Help are its surfaces, and turning it off removes them. A I
+> Chat is its own plugin now, and it stays. Devices and Modules
+> are anchored plugins, built in too. Add-ons install below —
+> installing just switches one on, it is already built in. An
+> installed add-on gets a Settings button.
+
 ## Wiring
 
 `src/lib/pluginVoice.ts` maps a voice id to its path
@@ -72,4 +84,7 @@ remount.
 is the play/pause toggle used on each plugin page. The Devices
 button is `src/components/Settings/DevicesVoiceButton.tsx` — wire
 it into the Devices tab in SettingsPanel.tsx with one import and
-`<DevicesVoiceButton />` next to "Detected devices".
+`<DevicesVoiceButton />` next to "Detected devices". The Plugins
+button is `src/components/Settings/PluginsVoiceButton.tsx` — wire
+it into the Plugins tab in SettingsPanel.tsx with one import and
+`<PluginsVoiceButton />` next to "Core plugins".

@@ -22,12 +22,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pluginVoiceSrc } from '../src/lib/pluginVoice';
 import { PluginVoiceButton } from '../src/components/PluginVoiceButton';
 import { DevicesVoiceButton } from '../src/components/Settings/DevicesVoiceButton';
+import { PluginsVoiceButton } from '../src/components/Settings/PluginsVoiceButton';
 import { SynthView } from '../src/components/Synth/SynthView';
 import { PersonaPlexView } from '../src/components/PersonaPlex/PersonaPlexView';
 import { ModulesTab } from '../src/components/Modules/ModulesTab';
@@ -35,7 +36,7 @@ import SettingsPanel from '../src/components/Settings/SettingsPanel';
 
 // Vitest runs from the repo root, so the voice files are read from
 // there (same pattern as tests/packaging.test.ts).
-const PLUGIN_VOICES = ['synth-main', 'devices-explanation', 'persona-plex-view', 'modules-main'];
+const PLUGIN_VOICES = ['synth-main', 'devices-explanation', 'persona-plex-view', 'modules-main', 'plugins-explanation'];
 
 describe('plugin voice messages', () => {
   it('every plugin voice has a path named after its id', () => {
@@ -74,6 +75,12 @@ describe('plugin voice messages', () => {
     const html = renderToStaticMarkup(React.createElement(DevicesVoiceButton));
     expect(html).toContain('data-plugin-voice="devices-explanation"');
     expect(html).toContain('Play Devices explanation');
+  });
+
+  it('the Plugins voice button renders its voice play button', () => {
+    const html = renderToStaticMarkup(React.createElement(PluginsVoiceButton));
+    expect(html).toContain('data-plugin-voice="plugins-explanation"');
+    expect(html).toContain('Play Plugins explanation');
   });
 
   it('the generic voice button renders the mp3 path for its voice', () => {
@@ -118,5 +125,57 @@ describe('Devices voice wiring (Settings > Devices)', () => {
     const button = document.querySelector('[data-plugin-voice="devices-explanation"]');
     expect(button).not.toBeNull();
     expect(button?.getAttribute('aria-label')).toBe('Play Devices explanation');
+  });
+});
+
+describe('Plugins voice wiring (Settings > Plugins)', () => {
+  const mockSet = vi.fn(async (_key: string, _value: unknown) => undefined);
+  let prevLucidAPI: unknown;
+
+  beforeEach(() => {
+    const win = window as unknown as Record<string, unknown>;
+    prevLucidAPI = win.lucidAPI;
+    win.lucidAPI = {
+      settings: {
+        set: mockSet,
+        getAll: vi.fn(async () => ({})),
+        hasApiKey: vi.fn(async () => false),
+        hasPingKey: vi.fn(async () => false),
+        getStorageStatus: vi.fn(async () => ({ degraded: false, reason: null })),
+      },
+    };
+    mockSet.mockClear();
+  });
+
+  afterEach(() => {
+    const win = window as unknown as Record<string, unknown>;
+    win.lucidAPI = prevLucidAPI;
+    vi.restoreAllMocks();
+  });
+
+  it('the Plugins tab shows the voice button next to "Core plugins"', () => {
+    render(<SettingsPanel onClose={() => undefined} initialTab="plugins" />);
+    expect(screen.getByText('Core plugins')).toBeTruthy();
+    const button = document.querySelector('[data-plugin-voice="plugins-explanation"]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('aria-label')).toBe('Play Plugins explanation');
+  });
+
+  it('clicking the button plays plugins-explanation.mp3 and it does not auto-play', () => {
+    const playedSrcs: string[] = [];
+    vi.spyOn(window.HTMLAudioElement.prototype, 'play').mockImplementation(function (
+      this: HTMLAudioElement,
+    ) {
+      playedSrcs.push(this.src);
+      return Promise.resolve();
+    });
+    render(<SettingsPanel onClose={() => undefined} initialTab="plugins" />);
+    // Never auto-plays: no audio before the click.
+    expect(playedSrcs).toHaveLength(0);
+    const button = document.querySelector('[data-plugin-voice="plugins-explanation"]');
+    expect(button).not.toBeNull();
+    fireEvent.click(button!);
+    expect(playedSrcs).toHaveLength(1);
+    expect(playedSrcs[0]).toContain('plugins-explanation.mp3');
   });
 });

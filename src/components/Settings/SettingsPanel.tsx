@@ -53,6 +53,7 @@ import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PermissionsTab } from './PermissionsTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
+import { PluginsVoiceButton } from './PluginsVoiceButton';
 import { AppearanceVoiceButton } from './AppearanceVoiceButton';
 import { CustomizationVoiceButton } from './CustomizationVoiceButton';
 
@@ -1067,7 +1068,13 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'plugins' && (
             <div className="space-y-6">
               <section>
-                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Core plugins</h3>
+                {/* Voice explanation (Gary, 2026-11-07 ~05:38 PST):
+                    plugins needs one flagship voice recording too,
+                    like Devices has. */}
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Core plugins</h3>
+                  <PluginsVoiceButton />
+                </div>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
                   Built in — always installed.
                 </p>

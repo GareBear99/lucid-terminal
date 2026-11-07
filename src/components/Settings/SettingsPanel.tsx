@@ -53,6 +53,8 @@ import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PermissionsTab } from './PermissionsTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
+import { AppearanceVoiceButton } from './AppearanceVoiceButton';
+import { CustomizationVoiceButton } from './CustomizationVoiceButton';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -591,7 +593,13 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'appearance' && (
             <div className="space-y-6">
               <section>
-                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Theme</h3>
+                {/* Voice explanation (Gary, 2026-11-07 ~05:38 PST):
+                    Appearance gets one flagship voice recording,
+                    like Devices has. */}
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Theme</h3>
+                  <AppearanceVoiceButton />
+                </div>
                 <div className="grid grid-cols-3 gap-3">
                   {themes.map((theme) => (
 <Tooltip key={theme.id} content={`Use the ${theme.name} theme`}>
@@ -975,7 +983,13 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'customization' && (
             <div className="space-y-6">
               <section>
-                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Processing Animation</h3>
+                {/* Voice explanation (Gary, 2026-11-07 ~05:38 PST):
+                    Customization gets one flagship voice recording,
+                    like Devices has. */}
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Processing Animation</h3>
+                  <CustomizationVoiceButton />
+                </div>
                 <ProcessingGlowSettings onSave={() => console.log('Processing glow settings saved')} />
               </section>
 

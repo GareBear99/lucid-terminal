@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Plugin voice message tests (Gary, 2026-11-07 ~02:54 PST):
  * plugins should have voice recordings all throughout — every
@@ -10,17 +11,18 @@
  * (effects never run under SSR). The voice button creates its
  * Audio element lazily on click, so it renders safely here.
  *
- * Devices is wired separately: the Devices tab lives in
- * SettingsPanel.tsx (owned by the permissions work), so the
- * Devices voice button is tested as its own component here, and
- * the one-line wiring into the Devices tab is documented in
- * public/plugins/README.md.
+ * Devices is wired into the Devices tab in SettingsPanel.tsx
+ * (Settings > Devices, next to "Detected devices") — the wiring
+ * test below renders that tab and asserts the button is there.
+ * The Devices tab itself lives in SettingsPanel.tsx, owned by
+ * the permissions work.
  *
  * Run with: npm test
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { render, screen } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pluginVoiceSrc } from '../src/lib/pluginVoice';
@@ -29,6 +31,7 @@ import { DevicesVoiceButton } from '../src/components/Settings/DevicesVoiceButto
 import { SynthView } from '../src/components/Synth/SynthView';
 import { PersonaPlexView } from '../src/components/PersonaPlex/PersonaPlexView';
 import { ModulesTab } from '../src/components/Modules/ModulesTab';
+import SettingsPanel from '../src/components/Settings/SettingsPanel';
 
 // Vitest runs from the repo root, so the voice files are read from
 // there (same pattern as tests/packaging.test.ts).
@@ -82,5 +85,38 @@ describe('plugin voice messages', () => {
       }),
     );
     expect(html).toContain('data-plugin-voice="synth-main"');
+  });
+});
+
+describe('Devices voice wiring (Settings > Devices)', () => {
+  const mockSet = vi.fn(async (_key: string, _value: unknown) => undefined);
+  let prevLucidAPI: unknown;
+
+  beforeEach(() => {
+    const win = window as unknown as Record<string, unknown>;
+    prevLucidAPI = win.lucidAPI;
+    win.lucidAPI = {
+      settings: {
+        set: mockSet,
+        getAll: vi.fn(async () => ({})),
+        hasApiKey: vi.fn(async () => false),
+        hasPingKey: vi.fn(async () => false),
+        getStorageStatus: vi.fn(async () => ({ degraded: false, reason: null })),
+      },
+    };
+    mockSet.mockClear();
+  });
+
+  afterEach(() => {
+    const win = window as unknown as Record<string, unknown>;
+    win.lucidAPI = prevLucidAPI;
+  });
+
+  it('the Devices tab shows the voice button next to "Detected devices"', () => {
+    render(<SettingsPanel onClose={() => undefined} initialTab="devices" />);
+    expect(screen.getByText('Detected devices')).toBeTruthy();
+    const button = document.querySelector('[data-plugin-voice="devices-explanation"]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('aria-label')).toBe('Play Devices explanation');
   });
 });

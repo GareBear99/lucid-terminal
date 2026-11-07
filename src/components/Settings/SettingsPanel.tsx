@@ -46,6 +46,7 @@ import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PermissionsTab } from './PermissionsTab';
+import { DevicesVoiceButton } from './DevicesVoiceButton';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -1213,7 +1214,12 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'devices' && (
             <div className="space-y-6">
               <section>
-                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Detected devices</h3>
+                {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST):
+                    plugins have voice recordings all throughout. */}
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Detected devices</h3>
+                  <DevicesVoiceButton />
+                </div>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
                   Detection only — Lucid lists and identifies devices. It never controls them or talks to them. USB via system_profiler, Android via adb, plus this Mac itself.
                 </p>

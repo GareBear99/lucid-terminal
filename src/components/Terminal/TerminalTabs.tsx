@@ -65,8 +65,21 @@ export function TerminalTabsView({
   const [editValue, setEditValue] = useState('');
   const cancelEditRef = useRef(false);
 
+  // Black portal splashscreen glass (Gary, 2026-11-07): the tab strip
+  // carries the splashscreen's own look — pure black, frosted
+  // translucent, squared (no rounded bubble chrome) — so the terminal
+  // feels like Warp. The splash is #000 with a cool-blue accent line
+  // (rgba(88,166,255,0.85), the wordmark line); the active tab is the
+  // open portal, a deeper black with that blue line along its bottom
+  // edge. Inactive tabs are glass, not solid — hover is a white sheen,
+  // never a solid tertiary fill. The bar renders in both LuciferAI-on
+  // and flat states (App renders the same <TerminalTabs/> either way),
+  // so this glass is identical in both.
   return (
-    <div className="relative h-9 flex items-center bg-[var(--bg-secondary)] border-b border-[var(--border)]">
+    <div
+      data-testid="terminal-tabs-bar"
+      className="relative h-9 flex items-center rounded-none border-b border-[var(--border)] bg-black/50 backdrop-blur-md"
+    >
       {/* Tabs */}
       <div className="flex-1 flex items-center overflow-x-auto">
         {tabs.map((tab) => (
@@ -74,8 +87,8 @@ export function TerminalTabsView({
             key={tab.id}
             className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] cursor-pointer transition-colors ${
               tab.id === activeTabId
-                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] tab-active'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
             }`}
             onClick={() => onSelectTab(tab.id)}
             onDoubleClick={() => {
@@ -121,7 +134,7 @@ export function TerminalTabsView({
                 e.stopPropagation();
                 onCloseTab(tab.id);
               }}
-              className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+              className="p-0.5 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               <X size={14} />
             </button>
@@ -131,7 +144,7 @@ export function TerminalTabsView({
         {/* New Tab Button — directly after the last tab */}
         <button
           onClick={onCreateTab}
-          className="h-9 px-3 shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+          className="h-9 px-3 shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors"
           title="New Terminal"
         >
           <Plus size={18} />
@@ -150,7 +163,7 @@ export function TerminalTabsView({
       {/* Notifications Button */}
       <button
         onClick={onToggleNotifications}
-        className="relative h-9 px-3 shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+        className="relative h-9 px-3 shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors"
         title="Notifications"
       >
         <Bell size={18} />
@@ -169,7 +182,7 @@ export function TerminalTabsView({
 
       {/* Notifications panel */}
       {notificationsOpen && (
-        <div className="absolute right-0 top-9 z-50 w-80 max-w-[90vw] bg-[var(--bg-secondary)] border border-[var(--border)] rounded-b-lg shadow-xl">
+        <div className="absolute right-0 top-9 z-50 w-80 max-w-[90vw] rounded-none border border-[var(--border)] bg-black/70 backdrop-blur-md shadow-xl">
           <div className="flex items-center justify-between px-3 h-9 border-b border-[var(--border)]">
             <span className="text-sm font-medium text-[var(--text-primary)]">Notifications</span>
             {notifications.length > 0 && (

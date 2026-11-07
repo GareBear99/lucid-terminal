@@ -133,6 +133,12 @@ describe('parseCommand round-trips the catalogue commands', () => {
     expect(parsed.args).toEqual(['status']);
   });
 
+  it("routes 'tokens' and '/tokens' to the tokens type (its own case)", () => {
+    expect(parseCommand('tokens').type).toBe('tokens');
+    expect(parseCommand('/tokens').type).toBe('tokens');
+    expect(parseCommand('/tokens').command).toBe('tokens');
+  });
+
   it("routes 'browser diagnose' as a browser command", () => {
     const parsed = parseCommand('browser diagnose');
     expect(parsed.type).toBe('browser');

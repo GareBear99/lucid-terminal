@@ -34,13 +34,18 @@ describe('TOOLBAR_PLUGINS', () => {
       // plain functions — either way they are a valid React component.
       expect(plugin.icon).toBeTruthy();
       expect(['function', 'object']).toContain(typeof plugin.icon);
-      expect(['synth', 'ai-chat', 'forge']).toContain(plugin.action);
+      expect(['synth', 'help', 'ai-chat', 'forge']).toContain(plugin.action);
       expect(typeof plugin.defaultOnToolbar).toBe('boolean');
     }
   });
 
   it('the Synth plugin is on by default — it already has a toolbar button', () => {
     expect(byId('synth').defaultOnToolbar).toBe(true);
+  });
+
+  it('the Help plugin is on by default — the blood drop already has a toolbar button', () => {
+    expect(byId('help').defaultOnToolbar).toBe(true);
+    expect(byId('help').action).toBe('help');
   });
 
   it('the AI Chat plugin is off by default — it has no toolbar button today', () => {
@@ -75,25 +80,28 @@ describe('isPluginOnToolbar', () => {
 
 describe('enabledToolbarPlugins', () => {
   it('returns only the enabled plugins, in list order', () => {
-    // Defaults: Synth on, AI Chat off — the section has exactly one button.
-    expect(enabledToolbarPlugins(undefined).map((p) => p.id)).toEqual(['synth']);
-    expect(enabledToolbarPlugins({}).map((p) => p.id)).toEqual(['synth']);
-    // Toggling AI Chat on grows the section to two buttons.
+    // Defaults: Synth and Help on, AI Chat off — the section has two buttons.
+    expect(enabledToolbarPlugins(undefined).map((p) => p.id)).toEqual(['synth', 'help']);
+    expect(enabledToolbarPlugins({}).map((p) => p.id)).toEqual(['synth', 'help']);
+    // Toggling AI Chat on grows the section to three buttons.
     expect(enabledToolbarPlugins({ 'ai-chat': true }).map((p) => p.id)).toEqual([
       'synth',
+      'help',
       'ai-chat',
     ]);
-    // Toggling Synth off leaves only AI Chat.
+    // Toggling Synth off leaves Help and AI Chat.
     expect(enabledToolbarPlugins({ synth: false, 'ai-chat': true }).map((p) => p.id)).toEqual([
+      'help',
       'ai-chat',
     ]);
     // Everything off: the section is empty (no buttons, no divider).
-    expect(enabledToolbarPlugins({ synth: false, 'ai-chat': false })).toEqual([]);
+    expect(enabledToolbarPlugins({ synth: false, help: false, 'ai-chat': false })).toEqual([]);
   });
 
   it('ignores unknown ids in the Settings map', () => {
     expect(enabledToolbarPlugins({ 'not-a-plugin': true }).map((p) => p.id)).toEqual([
       'synth',
+      'help',
     ]);
   });
 });

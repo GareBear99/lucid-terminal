@@ -4,16 +4,28 @@
  *
  * The plugin system today is the PLUGIN_SHELLS registry
  * (src/types/synth.ts): LuciferAI is the only plugin, embodied as
- * Lucifer the Sentinel in the synth shell. It has two surfaces a toolbar
- * button can open: the Synth view (its shell) and the AI chat panel
- * (its chat). Each surface is one toolbar-plugin entry below — they are
- * two buttons for the same plugin, not two plugins.
+ * Lucifer the Sentinel in the synth shell. It has three surfaces a
+ * toolbar button can open: the Synth view (its shell), the AI chat
+ * panel (its chat), and the Help modal (its command reference, on
+ * the blood drop — Gary, 2026-11-06). Each surface is one
+ * toolbar-plugin entry below — they are three buttons for the same
+ * plugin, not three plugins. The Synth and Help buttons are
+ * separate: the Synth button (Orbit) opens the Synth view, the
+ * blood drop opens Help (the two were one button until 2026-11-06,
+ * when the drop was repurposed to Help and the Synth lost its icon
+ * entirely — Gary reported it absent, so it gets its own button
+ * back here).
  *
  * A future plugin adds one entry here (and, for a shell, one entry in
  * PLUGIN_SHELLS). The Sidebar renders one button per entry that is
  * toggled on in Settings; the section grows taller per enabled plugin.
  */
-import { Orbit, Sparkles, Hammer, type LucideIcon } from 'lucide-react';
+import { Orbit, Sparkles, Hammer } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { BloodDropIcon } from '../components/Layout/BloodDropIcon';
+
+/** An icon a toolbar button can render — a lucide icon or a custom one. */
+export type ToolbarIcon = ComponentType<{ size?: number | string; className?: string }>;
 
 export interface ToolbarPlugin {
   /** Stable id, e.g. 'synth' | 'ai-chat'. Used as the Settings key. */
@@ -23,9 +35,9 @@ export interface ToolbarPlugin {
   /** One short line for the Settings list. */
   description: string;
   /** Icon for the toolbar button and the Settings row. */
-  icon: LucideIcon;
+  icon: ToolbarIcon;
   /** What clicking the toolbar button does. */
-  action: 'synth' | 'ai-chat' | 'forge';
+  action: 'synth' | 'ai-chat' | 'forge' | 'help';
   /** Whether the button shows when Settings has no override for it.
    *  Plugins that already have a toolbar presence default ON; a plugin
    *  with no toolbar presence defaults OFF, so toggling it on is an
@@ -41,6 +53,16 @@ export const TOOLBAR_PLUGINS: ToolbarPlugin[] = [
     icon: Orbit,
     action: 'synth',
     // Already has a toolbar button (the Orbit button), so it stays on.
+    defaultOnToolbar: true,
+  },
+  {
+    id: 'help',
+    name: 'Help',
+    description: 'LuciferAI help — the command reference modal.',
+    icon: BloodDropIcon,
+    action: 'help',
+    // The blood drop opens Help (Gary, 2026-11-06) — it is a
+    // toolbar button of its own, so it stays on.
     defaultOnToolbar: true,
   },
   {

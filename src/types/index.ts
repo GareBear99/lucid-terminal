@@ -6,6 +6,7 @@ import type {
   TouchMessage,
 } from '../phone/streaming';
 import type { HomunculusColor } from '../lib/homunculusColor';
+import type { StopColorDuration } from '../lib/dualUnison';
 import type {
   Homunculus,
   ScoreboardRow,
@@ -87,6 +88,36 @@ export interface ChatSession {
    * another.
    */
   nextTick?: number;
+  /**
+   * The model this chat answers with, chosen in the header dropdown
+   * (Gary, 2026-11-06: each chat has a model choice for the next
+   * prompted reply, and each chat remembers its model). The choice
+   * is read at send time - it picks the model for the NEXT reply,
+   * it does not re-route replies already sent. Persisted with the
+   * session (it round-trips through sessions.json like nextTick).
+   *
+   * The value depends on `modelSource`: a canonical local key the
+   * Python backend honors (e.g. 'tinyllama'), an OpenAI name
+   * ('gpt-4' / 'gpt-4-turbo' / 'gpt-3.5-turbo'), or a ping server
+   * model id (a Workers AI id, e.g.
+   * '@cf/meta/llama-3.2-1b-instruct' — the dropdown lists only
+   * ping models now, Gary 2026-11-06). Absent = Auto: no explicit
+   * model, the reply takes today's fixed cascade (ping -> local ->
+   * OpenAI), re-decided per reply. A new chat inherits the current
+   * chat's model, else Auto - there is no global model default
+   * beyond the cascade.
+   */
+  model?: string;
+  /**
+   * Which route answers when `model` is set: 'local' (the Python
+   * backend cold-loads that GGUF), 'openai' (that API model), or
+   * 'ping' (the ping server — the model is sent as body.model and
+   * the worker serves it).
+   * Absent together with `model` (Auto). The source is stored
+   * alongside the value so routing never has to guess a model name's
+   * route - a local key and an OpenAI name can never be confused.
+   */
+  modelSource?: 'local' | 'openai' | 'ping';
 }
 
 export interface TerminalTab {
@@ -211,6 +242,12 @@ export interface Settings {
   // first entry to the Synth view. null = no choice yet: the picker
   // shows on entry.
   homunculusColor: HomunculusColor | null;
+  // Forge stop-colour duration - how long the action face colours to
+  // a stop colour when the stop is hit (Gary, 2026-11-06): a chosen
+  // duration of 1-9 seconds, or until the next action. The default
+  // (3 seconds) is also the Dual Unison stop-setup form default.
+  // Set in Settings > Forge.
+  forgeStopColorDuration: StopColorDuration;
   // Demo disclaimer choice (after the Homunculus colour) - 'build'
   // = commence building your own with Iteration 8, the creator
   // builder; 'explore' = explore the demo still. null = not
@@ -237,11 +274,64 @@ export interface Settings {
   // in the plugins section above Settings. Keyed by plugin id; a missing
   // key falls back to that plugin's defaultOnToolbar. Empty = all defaults.
   toolbarPlugins: Record<string, boolean>;
+  // Toolbar icon order — the drag-reorderable order of the icon bar
+  // (Gary, 2026-11-06): an array of icon ids ('terminal', 'editor',
+  // 'explorer', 'chats', 'synth', 'ai-chat', 'llmbuilder', 'settings')
+  // plus the 'spacer' gap entry (see src/lib/toolbarOrder.ts). Written
+  // IMMEDIATELY on drop (updated AND stored, not updated-only) via
+  // updateSetting, and loaded on startup. Empty = the default order.
+  toolbarOrder: string[];
+  // Settings tab order — the drag-reorderable order of the Settings
+  // panel tabs (Gary, 2026-11-06): an array of tab ids
+  // ('appearance', 'customization', 'plugins', 'devices', 'forge',
+  // 'modules', 'models', 'terminal', 'ai', 'daemon', 'general')
+  // (see src/lib/settingsTabOrder.ts). Written IMMEDIATELY on drop
+  // (updated AND stored, not updated-only) via updateSetting, and
+  // loaded on startup. Empty = the default order.
+  settingsTabOrder: string[];
+  // Settings tab lock — when true the Settings tabs cannot be dragged
+  // to reorder (Gary, 2026-11-06). The lock only prevents accidental
+  // drags: the order is still persisted whenever it changes, locked
+  // or not. Default false (unlocked) so a new user can reorder.
+  settingsTabsLocked: boolean;
+  // User-installed add-ons (Gary, 2026-11-06) — the ids of the add-ons
+  // the user installed from Settings > Plugins (see
+  // src/data/pluginAddons.ts). Written immediately on Install via
+  // updateSetting (updated AND stored, not updated-only) and loaded
+  // on startup. Empty = none installed. Anchor-installed add-ons
+  // (Android Connect, Segments) are NOT listed here — their installed
+  // state derives from their anchor, not from this list.
+  installedAddons: string[];
+  // Persona Plex (Gary, 2026-11-06) — personas + Speak. All local,
+  // no servers. Custom personas created on the Persona Plex setup
+  // page (full records — they have no Python source). Per-persona
+  // setup for soul-derived personas (voice + tool allowlist, keyed
+  // by soul id — the name/rarity/level come from the Python soul
+  // config at read time, never stored here). The active persona
+  // (whose voice Speak uses). The Speak toggle (right-click Speak
+  // in AI chat shows only when this is ON and Persona Plex is
+  // installed). All written immediately via updateSetting (updated
+  // AND stored) and loaded on startup. Empty = no custom personas,
+  // no overrides, no active persona, Speak off.
+  personaPlexCustomPersonas: Persona[];
+  personaPlexConfig: Record<string, PersonaConfig>;
+  personaPlexActiveId: string | null;
+  personaPlexSpeakEnabled: boolean;
+  // Ping server (test path) — the Cloudflare Worker that fronts a
+  // free Workers AI model for Lucid's API streams
+  // (ARC-Neuron-LLMBuilder/cloudflare/ping-server). Disabled by
+  // default; when enabled, AI chat routes to the Worker instead of the
+  // local backend / OpenAI. pingServerUserId is the per-install id the
+  // quota (SP balance) keys off — generated once, stored here.
+  pingServerEnabled: boolean;
+  pingServerEndpoint: string;
+  pingServerUserId: string;
 }
 
-/** Daily quota for the Lucid ping server (Cloudflare Worker).
- * limit = 100 requests/day per user; reset = unix seconds at the next
- * UTC midnight; reset_in_seconds = seconds until then. The Worker sends
+/** SP balance for the Lucid ping server (Cloudflare Worker).
+ * limit = SP cap (200, or 250 once the balance reaches 200);
+ * remaining = SP left; reset = unix seconds of the next SP refill;
+ * reset_in_seconds = seconds until then. The Worker sends
  * it as x-ratelimit-* headers on chat responses and in the /ping body.
  * Defined once here; the main-process client, preload, and renderer all
  * import this type. */
@@ -467,7 +557,66 @@ export interface BrowserDiagnoseResult {
   error?: string;
 }
 
-export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge';
+/** A Persona Plex persona — one identity inside the Plex (Gary,
+ *  2026-11-06). A persona is either a Python soul (source 'soul',
+ *  read live from the Python soul config ~/.luciferai/data/souls.json
+ *  — the name, rarity and level come from the soul, never stored in
+ *  TS) or a custom persona created on the Persona Plex setup page
+ *  (source 'custom', stored in the `personaPlexCustomPersonas`
+ *  setting). The voice and tool allowlist are the persona's own
+ *  setup, stored per persona (see PersonaConfig). */
+export interface Persona {
+  /** Stable id — the Python soul id for a soul persona, or a
+   *  `custom-…` id for a custom persona. */
+  id: string;
+  name: string;
+  description: string;
+  source: 'soul' | 'custom';
+  /** The Python soul id, when source is 'soul'. */
+  soulId?: string;
+  /** Soul rarity (common / uncommon / angelic / demonic / celestial),
+   *  when from a soul. */
+  rarity?: string;
+  /** Soul level, when from a soul. */
+  level?: number;
+  /** Voice for Speak (TTS) — a voice name, e.g. 'Lily'. */
+  voice: string;
+  /** Which Homunculus this persona is paired to (the persona's
+   *  voice is that Homunculus's voice). Null = not paired; the
+   *  Homunculus falls back to the default voice. */
+  homunculusId: string | null;
+  /** Whether this persona's messages can be spoken (Speak). When
+   *  false, Speak does not appear for this persona's messages even
+   *  when the global Speak toggle is on. */
+  speakEnabled: boolean;
+  /** Whether this persona's messages speak automatically when they
+   *  arrive (auto-speak). When false, they only speak on right-click
+   *  Speak. */
+  autoSpeak: boolean;
+  /** TTS volume for this persona's voice (0-1). */
+  volume: number;
+  /** TTS rate (speed) for this persona's voice (0.5-2). */
+  rate: number;
+  /** Tool ids this persona may use (see src/lib/personaPlex.ts
+   *  PERSONA_TOOLS). Enforced locally by isToolAllowedForPersona. */
+  allowedTools: string[];
+}
+
+/** Per-persona setup for a soul-derived persona — the voice and
+ *  tool allowlist, stored in the `personaPlexConfig` setting keyed
+ *  by soul id. The name, rarity and level are NOT stored here; they
+ *  come from the Python soul config at read time. */
+export interface PersonaConfig {
+  voice: string;
+  allowedTools: string[];
+  homunculusId: string | null;
+  speakEnabled: boolean;
+  autoSpeak: boolean;
+  volume: number;
+  rate: number;
+}
+
+export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge' | 'persona-plex';
 
 // Extend Window interface for Electron API
 declare global {
@@ -507,14 +656,15 @@ declare global {
         executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
       };
       ai: {
-        chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean) => Promise<string>;
+        chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;
         onStream: (callback: (chunk: string) => void) => () => void;
-        onStreamEnd: (callback: () => void) => () => void;
+        onStreamEnd: (callback: (quota?: PingQuota) => void) => () => void;
         onStreamError: (callback: (error: string) => void) => () => void;
 
         cancelStream: () => void;
         hasApiKey: () => Promise<boolean>;
         checkLocalBackend: () => Promise<boolean>;
+        pingServerHealth: () => Promise<{ ok: boolean; service?: string; model?: string; mode?: string; quota: PingQuota | null }>;
         getSessions: () => Promise<ChatSession[]>;
         saveSession: (session: ChatSession) => Promise<void>;
         deleteSession: (id: string) => Promise<void>;
@@ -625,6 +775,9 @@ declare global {
         setApiKey: (key: string) => Promise<void>;
         hasApiKey: () => Promise<boolean>;
         deleteApiKey: () => Promise<void>;
+        setPingKey: (key: string) => Promise<void>;
+        hasPingKey: () => Promise<boolean>;
+        deletePingKey: () => Promise<void>;
         getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;

@@ -6,8 +6,11 @@
  * the Plugins tab's Core plugins section, the LuciferAI row carries
  * its own disable toggle (default ON), and the Add-ons section
  * lists Android Connect as anchor-installed with the Devices
- * plugin while the other three read Not installed with disabled
- * Install buttons (no install flow exists yet).
+ * plugin and Segments as anchor-installed with the Modules plugin,
+ * while Persona Plex reads Not installed with an enabled Install
+ * button (it is installable now, Gary 2026-11-06) and gh-ai-operator and
+ * Desktop Commander read Not installed with enabled Install
+ * buttons (the install flow exists now; MCP Tools was removed).
  *
  * These tests render with react-dom/server's renderToStaticMarkup
  * (effects never run under SSR, so the LuciferAI backend fetch does
@@ -44,17 +47,19 @@ describe('Plugins tab', () => {
     expect(html).toContain('Plugins');
   });
 
-  it('renders the Core plugins section with the Synth, AI Chat, and Forge toolbar toggles', () => {
+  it('renders the Core plugins section with the Synth, Help, AI Chat, and Forge toolbar toggles', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Core plugins');
     expect(html).toContain('Synth');
+    expect(html).toContain('Help');
     expect(html).toContain('AI Chat');
     expect(html).toContain('Forge');
-    // Four switches on the tab: the three toolbar toggles plus the
+    // Five switches on the tab: the four toolbar toggles plus the
     // LuciferAI disable toggle on its own row.
-    expect(switchCount(html)).toBe(4);
+    expect(switchCount(html)).toBe(5);
     // The toggles keep their descriptions from the toolbar data.
     expect(html).toContain('LuciferAI plugin shell');
+    expect(html).toContain('LuciferAI help');
     expect(html).toContain('LuciferAI chat panel');
     expect(html).toContain('Train your Homunculi');
   });
@@ -65,25 +70,29 @@ describe('Plugins tab', () => {
     expect(html).toContain('Built-in');
     // No backend fetch runs under SSR, so the condition reads Checking…
     expect(html).toContain('Checking…');
-    // The disable toggle is ON by default (Synth is the other ON
-    // switch; AI Chat and Forge default off).
-    expect(switchCount(html)).toBe(4);
-    expect(switchesOnCount(html)).toBe(2);
+    // The disable toggle is ON by default (Synth and Help are the
+    // other ON switches; AI Chat and Forge default off).
+    expect(switchCount(html)).toBe(5);
+    expect(switchesOnCount(html)).toBe(3);
     expect(html).toContain('turning it off removes the plugin entirely');
   });
 
-  it('lists the add-ons: Android Connect anchor-installed, the other three Not installed with disabled Install buttons', () => {
+  it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator and Desktop Commander installable', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Add-ons');
-    for (const name of ['Persona Plex', 'MCP Tools', 'gh-ai-operator', 'Android Connect']) {
+    for (const name of ['Persona Plex', 'gh-ai-operator', 'Desktop Commander', 'Android Connect', 'Segments']) {
       expect(html).toContain(name);
     }
+    expect(html).not.toContain('MCP Tools');
+    // Persona Plex, gh-ai-operator and Desktop Commander are all
+    // not installed (but installable).
     expect((html.match(/Not installed/g) || []).length).toBe(3);
     expect(html).toContain('Installed · Anchored with Devices');
-    expect(disabledButtonCount(html)).toBe(3);
+    expect(html).toContain('Installed · Anchored with Modules');
+    // No add-on is blocked now — no disabled Install button.
+    expect(disabledButtonCount(html)).toBe(0);
     expect(html).toContain('Install');
-    expect(html).toContain('Install flow not built yet');
-    expect(html).toContain('The install flow is not built yet');
+    expect(html).not.toContain('six decisions');
   });
 
   it('notes Android Connect is removable once installed', () => {

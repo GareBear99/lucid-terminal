@@ -116,6 +116,52 @@ const MODIFIER_NAMES: Record<string, string> = {
   shift: 'shift down',
 };
 
+/**
+ * The two permission probes, as module-level functions so the
+ * central permissions service (electron/services/permissions.ts)
+ * reuses them instead of duplicating the probe logic — one probe
+ * per permission, used by both the driver and the tracker.
+ *
+ * Accessibility probe — System Events must answer. When it does
+ * not, the reason is honest about the platform limit: macOS does
+ * not tell the app whether Access was denied or never asked, so
+ * the reason says "not granted" and where to grant it, not "denied
+ * by the user" (which would claim knowledge Lucid does not have).
+ */
+export async function probeAccessibility(): Promise<{ granted: boolean; reason: string | null }> {
+  if (process.platform !== 'darwin') {
+    return { granted: false, reason: 'Accessibility is macOS-only' };
+  }
+  try {
+    await runOsascript('tell application "System Events" to get name of first process whose frontmost is true');
+    return { granted: true, reason: null };
+  } catch {
+    return {
+      granted: false,
+      reason: 'Accessibility permission not granted — grant Lucid access in System Settings → Privacy & Security → Accessibility',
+    };
+  }
+}
+
+/** Screen Recording probe — screencapture must produce a file. */
+export async function probeScreenRecording(): Promise<{ granted: boolean; reason: string | null }> {
+  if (process.platform !== 'darwin') {
+    return { granted: false, reason: 'Screen Recording is macOS-only' };
+  }
+  const probeFile = join(tmpdir(), `lucid-cc-probe-${process.pid}.png`);
+  try {
+    await runWithTimeout('screencapture', ['-x', '-t', 'png', probeFile], SPAWN_TIMEOUT_MS);
+    return { granted: true, reason: null };
+  } catch {
+    return {
+      granted: false,
+      reason: 'Screen Recording permission not granted — grant Lucid access in System Settings → Privacy & Security → Screen Recording',
+    };
+  } finally {
+    await unlink(probeFile).catch(() => undefined);
+  }
+}
+
 export function createMacComputerControlDriver(): ComputerControlDriver {
   let availabilityCache: { at: number; available: boolean; reason: string | null } | null = null;
 
@@ -127,29 +173,18 @@ export function createMacComputerControlDriver(): ComputerControlDriver {
       return { available: availabilityCache.available, reason: availabilityCache.reason };
     }
     // Accessibility probe — System Events must answer.
-    try {
-      await runOsascript('tell application "System Events" to get name of first process whose frontmost is true');
-    } catch {
-      const result = {
-        available: false,
-        reason: 'Accessibility permission missing — grant Lucid access in System Settings → Privacy & Security → Accessibility',
-      };
+    const accessibility = await probeAccessibility();
+    if (!accessibility.granted) {
+      const result = { available: false, reason: accessibility.reason };
       availabilityCache = { at: Date.now(), ...result };
       return result;
     }
     // Screen Recording probe — screencapture must produce a file.
-    const probeFile = join(tmpdir(), `lucid-cc-probe-${process.pid}.png`);
-    try {
-      await runWithTimeout('screencapture', ['-x', '-t', 'png', probeFile], SPAWN_TIMEOUT_MS);
-    } catch {
-      const result = {
-        available: false,
-        reason: 'Screen Recording permission missing — grant Lucid access in System Settings → Privacy & Security → Screen Recording',
-      };
+    const screenRecording = await probeScreenRecording();
+    if (!screenRecording.granted) {
+      const result = { available: false, reason: screenRecording.reason };
       availabilityCache = { at: Date.now(), ...result };
       return result;
-    } finally {
-      await unlink(probeFile).catch(() => undefined);
     }
     const result = { available: true, reason: null };
     availabilityCache = { at: Date.now(), ...result };

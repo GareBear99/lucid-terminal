@@ -27,14 +27,14 @@ describe('resolveSettingsTabOrder', () => {
   });
 
   test('a stored order is respected as-is', () => {
-    const stored = ['general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon'];
+    const stored = ['general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'permissions'];
     expect(resolveSettingsTabOrder(stored)).toEqual(stored);
   });
 
   test('a default tab missing from the stored order is appended at the end', () => {
     const stored = ['appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general'];
-    // 'customization' is in the defaults but not stored.
-    expect(resolveSettingsTabOrder(stored)).toEqual([...stored, 'customization']);
+    // 'customization' and 'permissions' are in the defaults but not stored.
+    expect(resolveSettingsTabOrder(stored)).toEqual([...stored, 'customization', 'permissions']);
   });
 
   test('stale/unknown ids are dropped and duplicates keep the first', () => {
@@ -48,13 +48,13 @@ describe('moveSettingsTab', () => {
 
   test('move before a target', () => {
     expect(moveSettingsTab(order, 'general', 'appearance')).toEqual([
-      'general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+      'general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'permissions',
     ]);
   });
 
   test('move to the very end (end zone, null target)', () => {
     expect(moveSettingsTab(order, 'appearance', null)).toEqual([
-      'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'appearance',
+      'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'permissions', 'appearance',
     ]);
   });
 
@@ -65,7 +65,7 @@ describe('moveSettingsTab', () => {
     // (insert-before the next tab is the order you already have),
     // which reads as "the tabs don't move".
     expect(moveSettingsTab(order, 'appearance', 'customization', true)).toEqual([
-      'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general',
+      'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'permissions',
     ]);
   });
 
@@ -73,7 +73,7 @@ describe('moveSettingsTab', () => {
     expect(moveSettingsTab(order, 'plugins', 'plugins')).toEqual(order);
     expect(moveSettingsTab(order, 'nope', 'appearance')).toEqual(order);
     expect(moveSettingsTab(order, 'appearance', 'nope')).toEqual([
-      'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'appearance',
+      'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'permissions', 'appearance',
     ]);
   });
 
@@ -86,7 +86,7 @@ describe('moveSettingsTab', () => {
 
 describe('persistence round-trip', () => {
   test('a stored order reloads to the same order', () => {
-    const stored = ['general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon'];
+    const stored = ['general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'permissions'];
     // Resolving the stored order (as a reload would) returns it unchanged.
     expect(resolveSettingsTabOrder(stored)).toEqual(stored);
     // And after a move, the moved order also reloads unchanged.

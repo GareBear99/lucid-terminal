@@ -107,6 +107,10 @@ const defaultSettings: Settings = {
   personaPlexSpeakEnabled: false,
   customPlugins: {},
   luciferAiEnabled: true,
+  // Permission grants — empty = nothing recorded yet (see
+  // src/types/index.ts). The live probe is the truth; this is
+  // only a memory of what the user once allowed.
+  permissionGrants: {},
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

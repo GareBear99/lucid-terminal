@@ -7,6 +7,7 @@ import { setupSettingsHandlers } from './ipc/settings';
 import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
 import { setupSystemHandlers } from './ipc/system';
 import { setupComputerControlHandlers } from './ipc/computerControl';
+import { setupPermissionsHandlers } from './ipc/permissions';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupBrowserHandlers } from './ipc/browser';
@@ -100,6 +101,7 @@ app.whenReady().then(() => {
   setupLucidWorkflowHandlers(ipcMain);
   setupSystemHandlers(ipcMain);
   setupComputerControlHandlers(ipcMain);
+  setupPermissionsHandlers(ipcMain);
   setupDaemonHandlers(ipcMain);
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   // The in-panel browser needs the window to attach its BrowserViews to.

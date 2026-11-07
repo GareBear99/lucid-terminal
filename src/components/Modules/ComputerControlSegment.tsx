@@ -37,7 +37,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Lock, MousePointerClick, RefreshCw, ShieldCheck, Unlock } from 'lucide-react';
 import type { ComputerControlSegmentState } from '../../lib/computerControl';
+import { permissionStatusLabel } from '../../lib/permissions';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { usePermissionsStore } from '../../stores/permissionsStore';
 
 export function ComputerControlSegment() {
   const locked = useSettingsStore((s) => s.settings.computerControlLocked ?? false);
@@ -47,6 +49,13 @@ export function ComputerControlSegment() {
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   const [segmentState, setSegmentState] = useState<ComputerControlSegmentState | null>(null);
   const [stateError, setStateError] = useState<string | null>(null);
+  // Availability now reads from the central permission tracker
+  // (Settings → Permissions, Gary 2026-11-07 ~02:47 PST) — one
+  // source of truth for what the user allows, not a second probe
+  // here. The driver still checks before acting (its own gate in
+  // the core); this line is the display.
+  const permSnapshot = usePermissionsStore((s) => s.snapshot);
+  const permRefresh = usePermissionsStore((s) => s.refresh);
 
   const refreshState = useCallback(async () => {
     const api = (window as unknown as { lucidAPI?: { computerControl?: { getState: () => Promise<ComputerControlSegmentState> } } }).lucidAPI?.computerControl;
@@ -60,7 +69,10 @@ export function ComputerControlSegment() {
     } catch (e) {
       setStateError(e instanceof Error ? e.message : 'Could not read the segment state.');
     }
-  }, []);
+    // Refresh the central permission tracker too, so the line
+    // below is a live probe, not a stale memory.
+    await permRefresh(false).catch(() => undefined);
+  }, [permRefresh]);
 
   useEffect(() => {
     void refreshState();
@@ -121,17 +133,27 @@ export function ComputerControlSegment() {
         action. Focus is re-checked immediately before typing. No passwords are ever typed.
       </p>
 
-      {/* Availability — the macOS permissions gate. */}
+      {/* Availability — the macOS permissions gate, read from the
+          central permission tracker (Settings → Permissions), one
+          permission at a time so a missing one is named, not
+          hidden behind a single "unavailable". */}
       <div className="flex items-center gap-2 text-xs">
         <ShieldCheck size={14} className="text-[var(--text-muted)] shrink-0" />
-        {segmentState ? (
-          segmentState.available ? (
-            <span className="text-[var(--text-muted)]">Available — Accessibility + Screen Recording granted.</span>
-          ) : (
-            <span className="text-[var(--text-muted)]">
-              Unavailable — {segmentState.availabilityReason ?? 'macOS permissions missing.'}
-            </span>
-          )
+        {permSnapshot ? (
+          <span className="text-[var(--text-muted)]">
+            Accessibility:{' '}
+            {permissionStatusLabel(
+              permSnapshot.find((s) => s.id === 'accessibility')?.status ?? 'unknown',
+            )}
+            {' · '}Screen Recording:{' '}
+            {permissionStatusLabel(
+              permSnapshot.find((s) => s.id === 'screen-recording')?.status ?? 'unknown',
+            )}
+            {segmentState && !segmentState.available
+              ? ` — ${segmentState.availabilityReason ?? 'Unavailable.'}`
+              : ''}
+            {' '}See Settings → Permissions.
+          </span>
         ) : (
           <span className="text-[var(--text-muted)]">
             {stateError ?? 'Checking availability…'}

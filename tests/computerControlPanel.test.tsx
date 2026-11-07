@@ -19,7 +19,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SettingsPanel from '../src/components/Settings/SettingsPanel';
 import { SegmentsPanel } from '../src/components/Modules/SegmentsPanel';
 import { useSettingsStore } from '../src/stores/settingsStore';
+import { usePermissionsStore } from '../src/stores/permissionsStore';
 import type { ComputerControlSegmentState } from '../src/lib/computerControl';
+import type { PermissionSnapshot } from '../src/lib/permissions';
+
+const MOCK_PERMISSION_SNAPSHOT: PermissionSnapshot[] = [
+  { id: 'accessibility', status: 'granted', detail: null, verified: true, checkedAt: 1 },
+  { id: 'screen-recording', status: 'granted', detail: null, verified: true, checkedAt: 1 },
+  { id: 'full-disk-access', status: 'granted', detail: null, verified: true, checkedAt: 1 },
+  { id: 'microphone', status: 'not-determined', detail: null, verified: false, checkedAt: 1 },
+  { id: 'camera', status: 'not-determined', detail: null, verified: false, checkedAt: 1 },
+];
 
 const renderSettings = (initialTab?: 'modules') =>
   renderToStaticMarkup(
@@ -116,9 +126,15 @@ describe('Computer-control segment panel (interactive)', () => {
         observe: vi.fn(async () => null),
         action: vi.fn(async () => ({})),
       },
+      permissions: {
+        getSnapshot: vi.fn(async () => MOCK_PERMISSION_SNAPSHOT),
+        request: vi.fn(async () => false),
+        openSettings: vi.fn(async () => true),
+      },
     };
     mockSet.mockClear();
     mockGetState.mockClear();
+    usePermissionsStore.setState({ snapshot: null, lastCheckedAt: null, checking: false, error: null });
     const base = useSettingsStore.getState().settings;
     useSettingsStore.setState({
       settings: {
@@ -158,10 +174,17 @@ describe('Computer-control segment panel (interactive)', () => {
     });
   });
 
-  test('availability is shown from the segment state', async () => {
+  test('availability is shown from the central permission tracker, one permission at a time', async () => {
+    // Gary, 2026-11-07 ~02:47 PST: the segment's availability line
+    // reads from the central permission tracker (Settings →
+    // Permissions), not from a second probe here — one source of
+    // truth for what the user allows.
     render(<SegmentsPanel />);
     await waitFor(() => {
-      expect(document.body.textContent).toContain('Available — Accessibility + Screen Recording granted.');
+      expect(document.body.textContent).toContain('Accessibility:');
+      expect(document.body.textContent).toContain('Screen Recording:');
+      expect(document.body.textContent).toContain('Granted');
+      expect(document.body.textContent).toContain('See Settings → Permissions.');
     });
   });
 });

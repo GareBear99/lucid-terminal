@@ -265,6 +265,14 @@ export interface Settings {
   // Synth surfaces, plugin commands — see src/lib/luciferAi.ts.
   // Missing keys in older persisted settings count as ON.
   luciferAiEnabled: boolean;
+  // Permission grants (Gary, 2026-11-07 ~02:47 PST) — the record
+  // of what the user once allowed (see src/lib/permissions.ts).
+  // MEMORY, NOT TRUTH: the live probe is what counts; a recorded
+  // 'granted' never overrides a live 'denied' (the user may have
+  // revoked it in System Settings since). Written whenever a probe
+  // runs; shown in the UI only marked stale, never as current.
+  // Empty = nothing recorded yet.
+  permissionGrants: import('../lib/permissions').PermissionGrants;
   // Custom plugins — which user-registered plugins (see
   // src/data/customPlugins.ts) are enabled. Keyed by custom plugin id;
   // a missing key means disabled (custom plugins are opt-in, unlike

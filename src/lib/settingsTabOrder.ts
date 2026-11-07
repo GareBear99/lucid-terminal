@@ -47,6 +47,7 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   'ai',
   'daemon',
   'general',
+  'permissions',
 ];
 
 /**

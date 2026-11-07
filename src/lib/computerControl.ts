@@ -491,6 +491,29 @@ export async function runComputerControlAction(
     return refuse('computer-control segment is locked — unlock it to let a trained agent drive', 423);
   }
 
+  // 2.5 Availability — CHECK BEFORE ACTING (Gary, 2026-11-07
+  //    ~02:48 PST: "everything has to be like you"). The driver
+  //    needs macOS Accessibility + Screen Recording; when either
+  //    is not granted the action is refused here, before the slot
+  //    is touched and before the driver is called — with the honest
+  //    reason and how to grant it — instead of letting the driver
+  //    throw mid-action. The permission tracker (Settings >
+  //    Permissions) shows the same state.
+  try {
+    const check = await core.driver.checkAvailability();
+    if (!check.available) {
+      return refuse(
+        check.reason ?? 'computer control is unavailable — macOS Accessibility + Screen Recording are required (see Settings → Permissions)',
+        403,
+      );
+    }
+  } catch (e) {
+    return refuse(
+      e instanceof Error ? e.message : 'computer-control availability check failed',
+      403,
+    );
+  }
+
   // 3. The single-flight slot — one request at a time. The action
   //    waits for the slot; the wait itself times out.
   const slotWait = core.queue.then(() => undefined);

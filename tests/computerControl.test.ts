@@ -222,6 +222,24 @@ describe('the segment lock', () => {
     expect(driver.calls).toEqual([]);
   });
 
+  it('refuses with a 403 when the macOS permissions are not granted — CHECK BEFORE ACTING', async () => {
+    // Gary, 2026-11-07 ~02:48 PST ("like you"): Lucid checks a
+    // permission before it acts on it, never assumes it. When
+    // Accessibility / Screen Recording are not granted, the action
+    // is refused here — before the slot is touched and before the
+    // driver is called — with the honest reason and how to grant
+    // it, instead of letting the driver throw mid-action.
+    const { core, driver } = createCore({ available: false });
+    const result = await runComputerControlAction(core, clickAction());
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(403);
+    expect(result.outcome).toBe('refused');
+    expect(result.reason).toContain('permissions missing');
+    // The driver action was never called — only the availability
+    // probe ran (which is not recorded in driver.calls).
+    expect(driver.calls).toEqual([]);
+  });
+
   it('refuses a lock toggle made while the action waited for the slot', async () => {
     const { core, setLocked } = createCore(
       { hangAction: true },

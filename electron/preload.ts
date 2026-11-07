@@ -118,6 +118,21 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('computer-control:action', action),
   },
 
+  // Permission tracking (Gary, 2026-11-07 ~02:47 PST) — Lucid
+  // tracks everything the user allows. The renderer never probes
+  // the OS directly; every state comes from the main process, in
+  // one place. The snapshot is the live probe — the truth — while
+  // the persisted grants in Settings are only a memory of what
+  // the user once allowed.
+  permissions: {
+    getSnapshot: (force?: boolean) =>
+      ipcRenderer.invoke('permissions:getSnapshot', force),
+    request: (id: import('../src/lib/permissions').PermissionId) =>
+      ipcRenderer.invoke('permissions:request', id),
+    openSettings: (id: import('../src/lib/permissions').PermissionId) =>
+      ipcRenderer.invoke('permissions:openSettings', id),
+  },
+
   // Settings operations
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
@@ -529,6 +544,11 @@ export interface LucidAPI {
   };
   system: {
     checkNetwork: () => Promise<{ online: boolean }>;
+  };
+  permissions: {
+    getSnapshot: (force?: boolean) => Promise<import('../src/lib/permissions').PermissionSnapshot[]>;
+    request: (id: import('../src/lib/permissions').PermissionId) => Promise<boolean>;
+    openSettings: (id: import('../src/lib/permissions').PermissionId) => Promise<boolean>;
   };
   browser: {
     create: (tabId: string, url: string) => Promise<void>;

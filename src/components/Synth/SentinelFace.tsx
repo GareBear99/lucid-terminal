@@ -66,6 +66,7 @@ import { usePromptPaceStore, hornScaleForLevel } from '../../stores/promptPaceSt
 import { useAIStore } from '../../stores/aiStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useForgeStore } from '../../stores/forgeStore';
 import {
   HOMUNCULUS_EYE_FADE_MS,
   HOMUNCULUS_LINE_DRAW_MS,
@@ -73,6 +74,7 @@ import {
   HOMUNCULUS_THEMES,
   HOMUNCULUS_UNFORMED_THEME,
   parseHomunculusColor,
+  stopColorTheme,
   type HomunculusColor,
 } from '../../lib/homunculusColor';
 import './SentinelFace.css';
@@ -314,9 +316,26 @@ export function SentinelFace({
   );
   const chosenHomunculusColor =
     color !== undefined ? color : settingsHomunculusColor;
-  const homunculusTheme = chosenHomunculusColor
-    ? HOMUNCULUS_THEMES[chosenHomunculusColor]
-    : HOMUNCULUS_UNFORMED_THEME;
+  // Stop colour (Gary, 2026-11-06): when a stop is hit, the action
+  // face colours to the stop's colour. The override applies only to
+  // faces that read the setting (the main displayed face) — a face
+  // with an explicit `color` prop (a Forge roster card) wears its own
+  // Homunculus's colour and is never recoloured by a stop. The
+  // override is theme-only: it never changes `chosenHomunculusColor`,
+  // so the wake-up reveal and the eyes are untouched, and when the
+  // colour expires the face regresses to the last validated solid
+  // (the active Homunculus's colour) simply by the override clearing.
+  const stopFaceColor = useForgeStore((s) =>
+    s.unison.stopFaceColorActive && color === undefined
+      ? s.unison.stopColor
+      : null,
+  );
+  const homunculusTheme =
+    stopFaceColor !== null
+      ? stopColorTheme(stopFaceColor)
+      : chosenHomunculusColor
+        ? HOMUNCULUS_THEMES[chosenHomunculusColor]
+        : HOMUNCULUS_UNFORMED_THEME;
 
   // --- Wake-up reveal ---------------------------------------------------
   // The face starts unformed (black, no eyes). The moment a colour is
@@ -403,6 +422,15 @@ export function SentinelFace({
   // the mousemove path writes — most recent write wins, and the
   // priority, sensitivity, idle timeout, and smoothing all apply
   // unchanged. No lucidAPI in tests/SSR: skip quietly.
+  //
+  // The listeners re-attach on every face switch (Gary, 2026-11-06):
+  // the eyes followed the mouse on the first face and stopped on the
+  // main face after switching faces. A face switch re-renders the
+  // face with a new colour, and the gaze wiring must be re-established
+  // fresh on that switch — depending on the chosen colour makes the
+  // effect tear down and re-attach the listeners (and the global
+  // cursor subscription) whenever the face swaps, so a dropped
+  // listener or a stale subscription can never survive a switch.
   useEffect(() => {
     const schedule = () => {
       cancelAnimationFrame(rafRef.current);
@@ -428,7 +456,7 @@ export function SentinelFace({
       unsubscribeGlobal?.();
       cancelAnimationFrame(rafRef.current);
     };
-  }, [updateGaze]);
+  }, [updateGaze, chosenHomunculusColor]);
 
   // Re-evaluate regularly: attention expires, the pointer goes idle,
   // and a glow's anchor can move — the eyes release back to wandering
@@ -458,10 +486,13 @@ export function SentinelFace({
 
   // Attention, glow, and sensitivity changes take effect at once —
   // the eyes look at a fresh prompt / glow without waiting for the
-  // next tick, and a slider change re-aims them live.
+  // next tick, and a slider change re-aims them live. A face switch
+  // re-aims them too (Gary, 2026-11-06): the eyes must pick up the
+  // cursor on the new face at once, not wait for the next pointer
+  // move or the 500ms tick.
   useEffect(() => {
     updateGaze();
-  }, [attention, activeKeys, sensitivity, updateGaze]);
+  }, [attention, activeKeys, sensitivity, chosenHomunculusColor, updateGaze]);
 
   const transitionMs = focusTransitionMs(sensitivity);
   const tiltStyle: CSSProperties = {

@@ -327,4 +327,24 @@ describe('synth HUD panels are solid and borderless', () => {
     expect(style![1]).not.toContain('backdrop-filter');
     expect(style![1]).toContain('background:#000000;');
   });
+
+  // No scroll-edge highlights (Gary 2026-11-06): the panels had
+  // horizontal gradient strips at their top and bottom edges
+  // (::before top / ::after bottom, sticky, 8px) that faded in while
+  // scrolling (.edge-top / .edge-bottom). They are removed — no edge
+  // highlight on any panel, top or bottom.
+  test('no scroll-edge top/bottom gradient highlights on any panel', () => {
+    expect(shellSrc).not.toContain('.edge-top::before');
+    expect(shellSrc).not.toContain('.edge-bottom::after');
+    expect(shellSrc).not.toContain('#vpanel::before,#vpanel::after');
+    expect(shellSrc).not.toContain(
+      '#probePanel::before,#probePanel::after,#probeQueueList::before,#probeQueueList::after',
+    );
+    expect(shellSrc).not.toContain(
+      '#microReceiptPanel::before,#microReceiptPanel::after,#microReceiptList::before,#microReceiptList::after',
+    );
+    expect(shellSrc).not.toContain(
+      '#writebackPanel::before,#writebackPanel::after,#commandHistoryPanel::before',
+    );
+  });
 });

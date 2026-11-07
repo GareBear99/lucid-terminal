@@ -227,6 +227,22 @@ button {
   box-shadow: 0 -4px 32px rgba(88, 166, 255, 0.15), 0 -2px 8px rgba(88, 166, 255, 0.1) !important;
 }
 
+/* Flat prompt (LuciferAI disabled, Gary 2026-11-06): no bubble, no
+   backwall — the prompt sits directly on the terminal background,
+   Warp-style. Kills the glass blur, the translucent bar, and the
+   focus glow the bubble carries. */
+.input-container-flat {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: transparent;
+  box-shadow: none;
+  border-top-color: transparent;
+}
+
+.input-container-flat:focus-within {
+  box-shadow: none !important;
+}
+
 /* Smooth cursor animation */
 .monaco-editor .cursor {
   animation: blink 1s step-end infinite;

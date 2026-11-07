@@ -89,3 +89,107 @@ export function parseHomunculusColor(value: unknown): HomunculusColor | null {
 export function shouldShowHomunculusPicker(stored: unknown): boolean {
   return parseHomunculusColor(stored) === null;
 }
+
+/**
+ * Forge rules — Gary's design, 2026-11-06 (main chat).
+ *
+ * IMPLEMENTED — the opposite-colour rule (09:37 PST). When making a
+ * new Homunculus, only the OPPOSITE colour of the active one is
+ * allowed. The exception: no colour chosen anywhere yet (the face is
+ * still black / unformed — no active Homunculus) means free choice of
+ * either colour. Because a new Homunculus becomes the selected one,
+ * colours alternate with each creation. Enforced in
+ * forgeStore.createHomunculus and offered in the ForgeView picker;
+ * the helpers below are the single source of truth for the rule.
+ *
+ * NAMING (09:57 PST) — background lore. The FIRST Homunculus is
+ * Lucifer (already the seed behaviour in forgeStore.loadRoster). The
+ * SECOND is EVE, if pink — implemented as a pre-filled name default
+ * in the ForgeView creation form, which the user can still change.
+ * The second Homunculus's name if it is purple is NOT given — do not
+ * invent one; leave it to Gary / the user's own name. OPEN: the
+ * purple-second name.
+ *
+ * IMPLEMENTED — dual unison, the third type, the stop, and the tail
+ * (11:00–11:28 PST; see src/lib/dualUnison.ts for the model). Binary
+ * 1 is the two equal, separate states (pink and purple); binary 2 is
+ * the united state — dual unison, the third type, the one whole —
+ * unlocked by creating the pair. The stop is built into the dual
+ * unison type: no more singles until the first stop action is input,
+ * verified, and detected in the unison detect, which fully unlocks
+ * the tail page. The tail is the immutable DNA, rooted cryptographically
+ * and causally; its exact cryptographic mechanism is still an OPEN
+ * placeholder (see tailEntryHash in dualUnison.ts).
+ *
+ * OPEN — not built, do not guess:
+ * - The final STOP COLOURS (which colours stops get) are to be
+ *   figured out later. For now a colour is assigned to a stop by the
+ *   user (see `stopColorTheme`); that assignment is the placeholder.
+ * - The GREEN ACTION for completion on a stop is LATER — do not add
+ *   it. (It is distinct from the green "online" indicator on the
+ *   active Homunculus.)
+ * - TRI UNISON's effect, and how intelligence is gauged, are open
+ *   (see TriUnisonState in dualUnison.ts). Only the acquirable /
+ *   acquired state is implemented.
+ * - The DISPLAY MESSAGES the active Homunculus will report as a live
+ *   reporting buddy are not finished — do not invent them. The
+ *   reporting hook is a placeholder (see forgeStore).
+ */
+
+/** The opposite of a colour — the two colours are each other's opposite. */
+export function oppositeHomunculusColor(color: HomunculusColor): HomunculusColor {
+  return color === 'purple' ? 'pink' : 'purple';
+}
+
+/**
+ * Which colours a new Homunculus may take, given the active one's
+ * colour. Null active colour = no colour chosen anywhere (black /
+ * unformed face) — free choice of either. Otherwise only the
+ * opposite.
+ */
+export function allowedNewHomunculusColors(
+  activeColor: HomunculusColor | null,
+): HomunculusColor[] {
+  return activeColor === null
+    ? [...HOMUNCULUS_COLORS]
+    : [oppositeHomunculusColor(activeColor)];
+}
+
+/**
+ * A face theme from an arbitrary stop colour (Gary, 2026-11-06:
+ * for now a colour is assigned to a stop, and when the stop is hit
+ * the action face colours to that stop's colour). The stop colour is
+ * a free CSS colour — the final stop colours are still to be figured
+ * out later, so this takes any string and wears it as-is. Primary,
+ * light, and bright all take the colour (the face's horns, head
+ * outline, and eyes all colour to the stop); the glow is the colour
+ * at 45% alpha when it parses as hex, otherwise transparent — a
+ * named or functional colour has no safe alpha to derive, and a
+ * wrong glow is worse than none.
+ */
+export function stopColorTheme(color: string): HomunculusTheme {
+  return {
+    primary: color,
+    light: color,
+    bright: color,
+    glow: hexToRgba(color, 0.45) ?? 'rgba(0, 0, 0, 0)',
+  };
+}
+
+/** Parse #rgb / #rrggbb to rgba; anything else returns null. */
+export function hexToRgba(hex: string, alpha: number): string | null {
+  const match = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!match) return null;
+  const raw = match[1];
+  const full =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : raw;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}

@@ -996,12 +996,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
               busy WITHOUT dripping (plain shell) still hides it. */}
           <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
 
-          {/* Input Area - glass bubble while LuciferAI is on, FLAT
-              while it is off (Gary, 2026-11-06): with the plugin out,
-              inputs are flat - no bubble, no backwall. The glass bar
-              (backdrop blur, translucent background, shadow, top
-              border) is LuciferAI-on chrome; with it off the prompt
-              sits directly on the terminal background, Warp-style. */}
+          {/* Input Area - glass bar while LuciferAI is on, FLAT while
+              it is off (Gary, 2026-11-06): with the plugin out, the
+              outer bar carries no glass. The prompt panel itself,
+              though, is a squared glass backwall in BOTH states
+              (Gary, 2026-11-07) — Warp-AI-terminal style, square
+              corners, frosted translucent glass. The backwall is the
+              prompt's own panel, not bubble chrome; the rainbow
+              processing glow stays off while flat. */}
           <div className={luciferAiEnabled ? 'input-container backdrop-blur-xl border-t border-[var(--border)] pb-safe' : 'input-container input-container-flat pb-safe'}
                onKeyDown={() => { lastKeystrokeAt.current = Date.now(); }}
                style={luciferAiEnabled ? {
@@ -1048,12 +1050,19 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
               <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">
                 ~
               </span>
+              {/* Squared glass backwall behind the prompt (Gary,
+                  2026-11-07) — Warp-AI-terminal style: frosted
+                  translucent glass, subtle border, SQUARE corners
+                  (no rounding). The backwall is the prompt's own
+                  panel, not bubble chrome, so it shows in BOTH
+                  states: LuciferAI on and flat (plugin off).
+                  Segregation (Gary, 2026-11-07): Warp marks where
+                  the output ends and the input begins. The panel's
+                  top edge is that divider — thicker (2px) and
+                  brighter than the other sides, so the boundary is
+                  unmistakable, not just a background change. */}
               <div ref={inputWrapRef} data-glow-anchor="prompt-input" data-testid="prompt-input-wrap"
-                   className={luciferAiEnabled ? 'flex-1 rounded-lg overflow-hidden' : 'flex-1 overflow-hidden'}
-                   style={luciferAiEnabled ? {
-                     background: 'rgba(33, 38, 45, 0.5)',
-                     border: '1px solid rgba(48, 54, 61, 0.6)',
-                   } : undefined}>
+                   className="flex-1 overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-[var(--bg-tertiary)]/50 backdrop-blur-md">
                 <InputArea
                   flat={!luciferAiEnabled}
                   input={input}

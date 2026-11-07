@@ -90,6 +90,12 @@ const defaultSettings: Settings = {
   // Settings tab lock — false = unlocked, tabs can be dragged
   // (see src/types/index.ts).
   settingsTabsLocked: false,
+  // Computer-control segment — the lock is the kill-switch (false =
+  // unlocked, the phone finger's pattern: a finger starts enabled,
+  // Gary locks it explicitly). Protected targets default to Gary's
+  // ChatGPT tab (see src/lib/computerControl.ts).
+  computerControlLocked: false,
+  computerControlProtectedTargets: ['Next Starship Steps'],
   // User-installed add-ons — empty = none installed (see
   // src/types/index.ts). Written immediately on Install.
   installedAddons: [],

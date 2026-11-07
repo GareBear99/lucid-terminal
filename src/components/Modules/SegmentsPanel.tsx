@@ -27,6 +27,7 @@ import {
 } from '../../data/pluginAddons';
 import { detectStarship } from '../../lib/starshipDetection';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { ComputerControlSegment } from './ComputerControlSegment';
 import { ForgePersonaPlexSegment } from './ForgePersonaPlexSegment';
 
 export function SegmentsPanel() {
@@ -65,6 +66,16 @@ export function SegmentsPanel() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* Computer control — the pre-installed, agent-only segment
+          (Gary, 2026-11-06). No starship, no install step, no
+          server: it ships inside Lucid and lets a trained,
+          user-directed agent drive the Mac one verified action at a
+          time, failsafed like the phone setup. */}
+      <section>
+        <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Computer control</h3>
+        <ComputerControlSegment />
       </section>
 
       <section>

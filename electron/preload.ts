@@ -104,6 +104,20 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     checkNetwork: () => ipcRenderer.invoke('system:checkNetwork'),
   },
 
+  // Computer-control segment (Gary, 2026-11-06) — the pre-installed,
+  // agent-only segment. The renderer never touches the OS directly;
+  // every action crosses this bridge, so it can be logged, locked,
+  // and audited in one place (main process). Read-only calls are
+  // never blocked by the segment lock.
+  computerControl: {
+    getState: () => ipcRenderer.invoke('computer-control:getState'),
+    listApps: () => ipcRenderer.invoke('computer-control:listApps'),
+    observe: (targetId: string | null) =>
+      ipcRenderer.invoke('computer-control:observe', targetId),
+    action: (action: import('../src/lib/computerControl').ComputerControlAction) =>
+      ipcRenderer.invoke('computer-control:action', action),
+  },
+
   // Settings operations
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),

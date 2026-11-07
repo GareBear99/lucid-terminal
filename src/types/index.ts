@@ -294,6 +294,21 @@ export interface Settings {
   // drags: the order is still persisted whenever it changes, locked
   // or not. Default false (unlocked) so a new user can reorder.
   settingsTabsLocked: boolean;
+  // Computer-control segment lock (Gary, 2026-11-06) — the
+  // kill-switch for the pre-installed, agent-only computer-control
+  // segment (see src/lib/computerControl.ts). When true, every
+  // action is refused BEFORE anything runs (a 423-style refusal);
+  // observing the screen still works. The toggle itself is never
+  // blocked — it is always the way back out. The main process reads
+  // this fresh from the persisted settings on every action, so the
+  // renderer cannot spoof it. Default false (unlocked) — the phone
+  // finger's pattern: a finger starts enabled, Gary locks it
+  // explicitly.
+  computerControlLocked: boolean;
+  // Computer-control protected targets — window/tab title substrings
+  // that are off-limits (never navigated, closed, or typed into).
+  // Default: Gary's ChatGPT tab ("Next Starship Steps").
+  computerControlProtectedTargets: string[];
   // User-installed add-ons (Gary, 2026-11-06) — the ids of the add-ons
   // the user installed from Settings > Plugins (see
   // src/data/pluginAddons.ts). Written immediately on Install via
@@ -672,6 +687,20 @@ declare global {
       };
       system: {
         checkNetwork: () => Promise<{ online: boolean }>;
+      };
+      computerControl: {
+        getState: () => Promise<
+          import('../lib/computerControl').ComputerControlSegmentState
+        >;
+        listApps: () => Promise<
+          import('../lib/computerControl').ComputerControlAppWindow[]
+        >;
+        observe: (
+          targetId: string | null,
+        ) => Promise<import('../lib/computerControl').ComputerControlObservation>;
+        action: (
+          action: import('../lib/computerControl').ComputerControlAction,
+        ) => Promise<import('../lib/computerControl').ComputerControlActionResult>;
       };
       browser: {
         create: (tabId: string, url: string) => Promise<void>;

@@ -6,7 +6,7 @@ interface InputDragHandleProps {
 }
 
 /**
- * Drag handle for an input bubble. Sits on the bubble's top edge;
+ * Drag handle for the prompt input. Sits on the input's top edge;
  * dragging it up grows the bubble, dragging it down shrinks it.
  * Pointer events cover mouse and touch; touch-action: none stops
  * the browser from scrolling while dragging. The grip brightens

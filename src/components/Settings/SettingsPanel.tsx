@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type DragEvent as ReactDragEvent } from 'react';
 import {
   X,
   Palette,
@@ -12,24 +12,35 @@ import {
   Sliders,
   Package,
   Eye,
+  Boxes,
   Puzzle,
   Bot,
   Usb,
   Smartphone,
   Monitor,
+  Hammer,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useAIStore } from '../../stores/aiStore';
 import { themes, createDefaultCustomTheme } from '../../themes/themes';
 import { Theme } from '../../types';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
+import { ModulesTab } from '../Modules/ModulesTab';
+import { ForgeView } from '../Forge/ForgeView';
 import { TOOLBAR_PLUGINS } from '../../data/toolbarPlugins';
 import { PLUGIN_ADDONS, isAddonInstalled, addonAnchorLabel } from '../../data/pluginAddons';
+import { AddonVoiceButton } from './AddonVoiceButton';
 import { DEVICES_PLUGIN } from '../../data/devices';
+import { MODULES_PLUGIN } from '../../data/modules';
 import { CUSTOM_PLUGINS, CUSTOM_PLUGIN_FALLBACK_ICON, resolvePluginIcon, isCustomPluginEnabled } from '../../data/customPlugins';
 import { COMMAND_CATEGORIES, searchCommandCatalogue } from '../../data/commands';
 import { useDevicesStore } from '../../stores/devicesStore';
+import { useToastStore } from '../../stores/toastStore';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
+import { resolveSettingsTabOrder, moveSettingsTab, SETTINGS_TAB_HOLD_TO_DRAG_MS } from '../../lib/settingsTabOrder';
 import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -38,11 +49,15 @@ interface SettingsPanelProps {
   onClose: () => void;
   /** Which tab opens first. Defaults to 'appearance'. */
   initialTab?: SettingsTab;
+  /** Open the Persona Plex setup page (the add-on's settings).
+   *  Passed by App; absent in tests, where the settings button
+   *  falls back to a toast. */
+  onOpenPersonaPlex?: () => void;
 }
 
-type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices';
+type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules';
 
-function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
+function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
     settings,
     currentTheme,
@@ -52,6 +67,9 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     hasApiKey,
     setApiKey,
     deleteApiKey,
+    hasPingKey,
+    setPingKey,
+    deletePingKey,
     exportSettings,
     importSettings,
   } = useSettingsStore();
@@ -59,9 +77,34 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   // below cannot be switched on while the plugin is off, and the
   // LuciferAI row's own switch is what turns it off.
   const luciferAiEnabled = isLuciferAiEnabled(settings);
+  // Add-on settings (Gary, 2026-11-06): every installed add-on gets
+  // a Settings button that opens that add-on's settings. Persona Plex
+  // opens its setup page; Android Connect and Segments open their
+  // anchor plugin's tab (Devices / Modules); an add-on with no
+  // settings page yet just says so (no invented page).
+  const { info: toastInfo } = useToastStore();
+  const handleAddonSettings = (addonId: string, addonName: string) => {
+    if (addonId === 'persona-plex') {
+      if (onOpenPersonaPlex) onOpenPersonaPlex();
+      else toastInfo('Open Persona Plex from the sidebar icon.');
+      return;
+    }
+    if (addonId === 'android-emulator') {
+      setActiveTab('devices');
+      return;
+    }
+    if (addonId === 'segments') {
+      setActiveTab('modules');
+      return;
+    }
+    toastInfo(`No settings yet for ${addonName}.`);
+  };
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'appearance');
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [pingKeyInput, setPingKeyInput] = useState('');
+  const [pingTesting, setPingTesting] = useState(false);
+  const [pingTestResult, setPingTestResult] = useState<string | null>(null);
   const [commandFilter, setCommandFilter] = useState('');
   // Devices tab: the store behind it. The first time the tab opens
   // it scans once; Refresh re-scans after that. No hotplug events
@@ -74,6 +117,35 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     void devicesState.refresh();
   }, [activeTab]);
 
+  // Ping server health check — POST /ping is unmetered and reports the
+  // remaining SP balance, so this shows the balance for free.
+  const testPingServer = async () => {
+    setPingTesting(true);
+    setPingTestResult(null);
+    try {
+      const health = await window.lucidAPI.ai.pingServerHealth();
+      if (health.quota) {
+        const reset = new Date(health.quota.reset * 1000);
+        const hh = String(reset.getUTCHours()).padStart(2, '0');
+        const mm = String(reset.getUTCMinutes()).padStart(2, '0');
+        // The health check is a quota source too: a restock the
+        // server reports here resets the restock timer.
+        useAIStore.getState().setPingQuota(health.quota);
+        setPingTestResult(`Connected — ${health.quota.remaining}/${health.quota.limit} left, next SP refill ${hh}:${mm} UTC.`);
+      } else {
+        setPingTestResult('Connected — SP balance unknown (no user id sent).');
+      }
+    } catch (error) {
+      // The server is unreachable — the SP balance is the KNOWN
+      // base 100 (a non-connected user carries a temp, and through
+      // that temp their SP is base 100), not an error and not a
+      // stale balance. The restock timer clears with it.
+      useAIStore.getState().setPingQuotaBase();
+      setPingTestResult('Not connected — SP is base 100 (known).');
+    } finally {
+      setPingTesting(false);
+    }
+  };
   const [customTheme, setCustomThemeState] = useState<Theme>(
     settings.customTheme || createDefaultCustomTheme()
   );
@@ -292,6 +364,8 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     { id: 'customization', label: 'Customization', icon: <Sliders size={18} /> },
     { id: 'plugins', label: 'Plugins', icon: <Puzzle size={18} /> },
     { id: 'devices', label: 'Devices', icon: <Usb size={18} /> },
+    { id: 'forge', label: 'Forge', icon: <Hammer size={18} /> },
+    { id: 'modules', label: 'Modules', icon: <Boxes size={18} /> },
     { id: 'models', label: 'Models', icon: <Package size={18} /> },
     { id: 'terminal', label: 'Terminal', icon: <Terminal size={18} /> },
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} /> },
@@ -299,35 +373,226 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     { id: 'general', label: 'General', icon: <Settings size={18} /> },
   ];
 
+  // --- Settings tab order + drag-reorder (Gary, 2026-11-06) --------
+  // The tabs are drag-reorderable, same pattern as the toolbar icons
+  // (see src/lib/settingsTabOrder.ts): press-and-hold a tab for the
+  // hold threshold, then drag it onto another tab to move it before
+  // that tab (or onto the end zone to move it last). The hold is
+  // enforced at the DROP, not dragstart — cancelling dragstart for
+  // a short press killed the drag for the whole press, so a normal
+  // press-and-drag never reordered at all. A plain click still
+  // switches to the tab. The drop is midpoint-aware: the pointer's
+  // half of the target decides whether the tab lands before or
+  // after it, so dragging DOWN one slot onto the next tab swaps
+  // them instead of silently doing nothing. The order is stored
+  // immediately on drop via updateSetting('settingsTabOrder', ...) — updated AND
+  // stored — so it survives a reload/restart. The lock
+  // (settingsTabsLocked) only prevents dragging; the order is
+  // persisted whenever it changes, locked or not.
+  const settingsTabsLocked = settings.settingsTabsLocked ?? false;
+  const orderedTabs = resolveSettingsTabOrder(settings.settingsTabOrder)
+    .map((id) => tabs.find((t) => t.id === id))
+    .filter((t): t is (typeof tabs)[number] => t !== undefined);
+  const [draggedSettingsTab, setDraggedSettingsTab] = useState<SettingsTab | null>(null);
+  const [dropSettingsTabTarget, setDropSettingsTabTarget] = useState<string | null>(null);
+  // Click-hold to drag (Gary, 2026-11-06): when the user pressed on
+  // a tab. The HOLD is enforced at the drop, not dragstart — the old
+  // dragstart-cancel gate killed the drag for the whole press
+  // whenever the user moved before the hold was done (the browser
+  // fires dragstart once per press), so a normal press-and-drag
+  // never reordered at all. Same fix as the toolbar icons.
+  const settingsTabMouseDownAtRef = useRef<number>(0);
+  // Whether the hold has completed for the drag in progress — the
+  // drop indicator renders dimmed until it is, so the user can see
+  // when a drop will stick. Armed from dragstart; cleared on
+  // drop / drag end / unmount.
+  const [settingsTabDragHoldReady, setSettingsTabDragHoldReady] = useState(false);
+  const settingsTabDragHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearSettingsTabDragHoldTimer = () => {
+    if (settingsTabDragHoldTimerRef.current !== null) {
+      clearTimeout(settingsTabDragHoldTimerRef.current);
+      settingsTabDragHoldTimerRef.current = null;
+    }
+  };
+
+  // Never leave a hold timer running past unmount.
+  useEffect(() => clearSettingsTabDragHoldTimer, []);
+  // Whether the drop will land AFTER the hovered tab (the pointer
+  // is in its lower half) rather than before it. A drag DOWN onto
+  // the tab immediately below the dragged one lands after it (they
+  // swap); without this, that drop was a silent no-op — inserting
+  // before the next tab is the order you already have — which reads
+  // as "the tabs don't move". Same fix as the toolbar icons.
+  const [dropSettingsTabInsertAfter, setDropSettingsTabInsertAfter] = useState(false);
+
+  // Where the drop lands relative to the target tab: the pointer's
+  // position within the tab. Lower half -> after the target, upper
+  // half -> before it. No usable geometry (e.g. jsdom, where rects
+  // are all zeros) -> before it, the long-standing behaviour.
+  const settingsTabDropInsertAfterFromEvent = (e: ReactDragEvent): boolean => {
+    const target = e.currentTarget as HTMLElement | null;
+    const rect = target?.getBoundingClientRect?.();
+    if (!rect || rect.height <= 0) return false;
+    return e.clientY > rect.top + rect.height / 2;
+  };
+
+  // Drop: move the dragged tab to the target and STORE the new order
+  // immediately — one updateSetting call persists it (settings IPC)
+  // and updates the store state, so the new order survives a reload
+  // (updated AND stored, not updated-only). A null target is the end
+  // zone: the tab moves last. The hold gate lives HERE, not in
+  // dragstart: the drop only commits once the tab has been held for
+  // SETTINGS_TAB_HOLD_TO_DRAG_MS since the press, so a quick flick
+  // (press-drag-drop inside the hold window) is ignored and stores
+  // nothing, while a deliberate hold-drag reorders and stores —
+  // even when the drag itself started before the hold was done.
+  const handleSettingsTabDrop = async (
+    e: ReactDragEvent,
+    targetId: SettingsTab | null,
+    insertAfter: boolean = false,
+  ) => {
+    e.preventDefault();
+    const fromData = e.dataTransfer?.getData('text/plain') || undefined;
+    const draggedId = fromData ?? draggedSettingsTab;
+    clearSettingsTabDragHoldTimer();
+    setSettingsTabDragHoldReady(false);
+    setDropSettingsTabInsertAfter(false);
+    setDraggedSettingsTab(null);
+    setDropSettingsTabTarget(null);
+    if (!draggedId || draggedId === targetId) return;
+    // Click-HOLD to drag: the press must have lasted the hold
+    // threshold by drop time, or the reorder does not commit.
+    // (No press recorded — e.g. a programmatic drag — counts as
+    // held: settingsTabMouseDownAtRef starts at 0, so the elapsed
+    // time is always past the threshold.)
+    if (Date.now() - settingsTabMouseDownAtRef.current < SETTINGS_TAB_HOLD_TO_DRAG_MS) return;
+    const currentOrder = orderedTabs.map((t) => t.id);
+    const next = moveSettingsTab(currentOrder, draggedId, targetId, insertAfter);
+    if (next.join(',') === currentOrder.join(',')) return;
+    await updateSetting('settingsTabOrder', [...next]);
+  };
+
+  const handleSettingsTabDragEnd = () => {
+    clearSettingsTabDragHoldTimer();
+    setSettingsTabDragHoldReady(false);
+    setDropSettingsTabInsertAfter(false);
+    setDraggedSettingsTab(null);
+    setDropSettingsTabTarget(null);
+  };
+
   return (
     <div className="h-full flex flex-col bg-[var(--bg-primary)]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
         <h2 className="text-lg font-semibold">Settings</h2>
-<Tooltip content="Close Settings">
-          <button onClick={onClose} className="btn-ghost p-1 rounded">
-            <X size={20} />
-          </button>
-</Tooltip>
+        <div className="flex items-center gap-1">
+          <Tooltip content={settingsTabsLocked ? 'Unlock tab order' : 'Lock tab order'}>
+            <button
+              onClick={() => void updateSetting('settingsTabsLocked', !settingsTabsLocked)}
+              className="btn-ghost p-1 rounded"
+              aria-label={settingsTabsLocked ? 'Unlock Settings tab order' : 'Lock Settings tab order'}
+              data-settings-tabs-lock={settingsTabsLocked ? 'locked' : 'unlocked'}
+            >
+              {settingsTabsLocked ? <Lock size={18} /> : <Unlock size={18} />}
+            </button>
+          </Tooltip>
+          <Tooltip content="Close Settings">
+            <button onClick={onClose} className="btn-ghost p-1 rounded">
+              <X size={20} />
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
         <div className="w-48 border-r border-[var(--border)] p-2">
-          {tabs.map((tab) => (
-<Tooltip key={tab.id} content={`${tab.label} settings`}>
-              <button
-                onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${activeTab === tab.id
-                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                  }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-</Tooltip>
+          {orderedTabs.map((tab) => (
+            <div
+              key={tab.id}
+              data-settings-tab={tab.id}
+              className={`relative ${draggedSettingsTab === tab.id ? 'opacity-40' : ''}`}
+              draggable={!settingsTabsLocked}
+              onMouseDown={(e) => {
+                // Record the press: dragstart below compares against it.
+                if (e.button === 0) settingsTabMouseDownAtRef.current = Date.now();
+              }}
+              onDragStart={(e) => {
+                // Locked: no dragging at all.
+                if (settingsTabsLocked) {
+                  e.preventDefault();
+                  return;
+                }
+                // Click-HOLD to drag (Gary, 2026-11-06): the drag
+                // starts on movement — the HOLD is enforced at the
+                // drop, not here. Cancelling dragstart for a short
+                // press killed the drag for the whole press (the
+                // browser fires dragstart once per press), so a
+                // normal press-and-drag never reordered at all. The
+                // drop handler only commits once the press has
+                // lasted SETTINGS_TAB_HOLD_TO_DRAG_MS, so a plain
+                // click (or an accidental nudge) still never
+                // reorders — and still switches to the tab on release.
+                // dataTransfer is null in jsdom (no DataTransfer); the
+                // dragged id also lives in state, so the drop falls back.
+                if (e.dataTransfer) {
+                  e.dataTransfer.setData('text/plain', tab.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                }
+                setDraggedSettingsTab(tab.id);
+                // The drop indicator shows the hold state: ready now
+                // if the user already held the threshold before
+                // moving, else ready when the threshold passes after
+                // the press.
+                const remaining = SETTINGS_TAB_HOLD_TO_DRAG_MS - (Date.now() - settingsTabMouseDownAtRef.current);
+                if (remaining <= 0) {
+                  setSettingsTabDragHoldReady(true);
+                } else {
+                  settingsTabDragHoldTimerRef.current = setTimeout(() => setSettingsTabDragHoldReady(true), remaining);
+                }
+              }}
+              onDragOver={(e) => {
+                if (settingsTabsLocked) return;
+                e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                setDropSettingsTabTarget(tab.id);
+                // Midpoint-aware drop: the pointer's half of the
+                // target decides whether the tab lands before or
+                // after it.
+                setDropSettingsTabInsertAfter(settingsTabDropInsertAfterFromEvent(e));
+              }}
+              onDrop={(e) => handleSettingsTabDrop(e, tab.id, settingsTabDropInsertAfterFromEvent(e))}
+              onDragEnd={handleSettingsTabDragEnd}
+            >
+              {dropSettingsTabTarget === tab.id && (
+                <div className={`absolute ${dropSettingsTabInsertAfter ? '-bottom-0.5' : '-top-0.5'} left-2 right-2 h-0.5 rounded bg-[var(--accent)] ${settingsTabDragHoldReady ? '' : 'opacity-40'}`} aria-hidden="true" />
+              )}
+              <Tooltip content={`${tab.label} settings`}>
+                <button
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${activeTab === tab.id
+                    ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                    }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              </Tooltip>
+            </div>
           ))}
+          {/* End zone: dropping a tab here moves it last. */}
+          <div
+            data-settings-tab-end-zone
+            className={`w-full shrink-0 ${draggedSettingsTab ? 'h-4' : 'h-0'} ${dropSettingsTabTarget === 'end' ? `bg-[var(--bg-tertiary)]${settingsTabDragHoldReady ? '' : ' opacity-40'}` : ''}`}
+            onDragOver={(e) => {
+              if (settingsTabsLocked || !draggedSettingsTab) return;
+              e.preventDefault();
+              if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+              setDropSettingsTabTarget('end');
+            }}
+            onDrop={(e) => handleSettingsTabDrop(e, null)}
+          />
         </div>
 
         {/* Content */}
@@ -610,6 +875,67 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               </section>
 
               <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Ping Server (test)</h3>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Test path: AI chat goes to the Cloudflare ping server Worker instead of the local model or OpenAI. Free model, 100 SP to start — 1 SP per reply, refills over time. Nothing else changes.
+                </p>
+                <label className="flex items-center gap-2 text-sm mb-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.pingServerEnabled}
+                    onChange={(e) => updateSetting('pingServerEnabled', e.target.checked)}
+                  />
+                  Route AI chat through the ping server
+                </label>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    className="input w-full"
+                    placeholder="http://127.0.0.1:8787"
+                    value={settings.pingServerEndpoint}
+                    onChange={(e) => updateSetting('pingServerEndpoint', e.target.value)}
+                  />
+                  {hasPingKey ? (
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-[var(--bg-tertiary)] rounded-md">
+                        <Check size={16} className="text-[var(--success)]" />
+                        <span className="text-sm text-[var(--text-muted)]">Ping server key saved</span>
+                      </div>
+                      <Tooltip content="Remove the saved ping server key">
+                        <button onClick={deletePingKey} className="btn btn-danger">
+                          <Trash2 size={16} />
+                          Remove
+                        </button>
+                      </Tooltip>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        className="input"
+                        placeholder="Ping server shared secret"
+                        value={pingKeyInput}
+                        onChange={(e) => setPingKeyInput(e.target.value)}
+                      />
+                      <Tooltip content="Save the ping server key">
+                        <button onClick={() => setPingKey(pingKeyInput)} className="btn btn-primary">
+                          Save
+                        </button>
+                      </Tooltip>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button onClick={testPingServer} disabled={pingTesting} className="btn btn-secondary">
+                      {pingTesting ? 'Testing…' : 'Test connection'}
+                    </button>
+                    {pingTestResult && (
+                      <span className="text-xs text-[var(--text-muted)]">{pingTestResult}</span>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
                   Command Execution Policy
                 </h3>
@@ -722,7 +1048,7 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     // Synth and AI Chat are LuciferAI surfaces: their
                     // toolbar buttons cannot be switched on while the
                     // plugin is off.
-                    const isLuciferSurface = plugin.action === 'synth' || plugin.action === 'ai-chat';
+                    const isLuciferSurface = plugin.action === 'synth' || plugin.action === 'help' || plugin.action === 'ai-chat';
                     const surfaceDisabled = isLuciferSurface && !luciferAiEnabled;
                     return (
 <Tooltip key={plugin.id} content={plugin.description}>
@@ -752,7 +1078,7 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm">LuciferAI</span>
                       <span className="block text-xs text-[var(--text-muted)]">
-                        The plugin itself — local AI backend, command passes, FixNet. The Synth shell and AI Chat above are its two surfaces.
+                        The plugin itself — local AI backend, command passes, FixNet. The Synth shell, AI Chat and Help above are its surfaces.
                       </span>
                       <label className="flex items-center gap-2 cursor-pointer mt-2">
                         <Toggle
@@ -785,6 +1111,18 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       <span className="block text-sm">{DEVICES_PLUGIN.name}</span>
                       <span className="block text-xs text-[var(--text-muted)]">
                         {DEVICES_PLUGIN.description}
+                      </span>
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)] shrink-0">
+                      Built-in · Anchored
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Boxes size={18} className="text-[var(--text-muted)] shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm">{MODULES_PLUGIN.name}</span>
+                      <span className="block text-xs text-[var(--text-muted)]">
+                        {MODULES_PLUGIN.description}
                       </span>
                     </span>
                     <span className="text-xs text-[var(--text-muted)] shrink-0">
@@ -845,11 +1183,12 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Add-ons</h3>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
-                  Installed on demand — nothing is pre-installed, except Android Connect, which is installed automatically with the Devices anchor plugin. The install flow is not built yet, so the other Install buttons stay disabled until it exists.
+                  Installed on demand — nothing is pre-installed, except Android Connect, which is installed automatically with the Devices anchor plugin, and Segments, installed automatically with the Modules anchor plugin. Installable add-ons install from here; an installed add-on gets a Settings button that opens its settings.
                 </p>
                 <div className="space-y-3">
                   {PLUGIN_ADDONS.map((addon) => {
-                    const installed = isAddonInstalled(addon);
+                    const installed = isAddonInstalled(addon, settings.installedAddons ?? []);
+                    const userInstalled = (settings.installedAddons ?? []).includes(addon.id);
                     const anchorLabel = addonAnchorLabel(addon);
                     return (
                       <div key={addon.id} className="flex items-center gap-3">
@@ -861,17 +1200,45 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                             {addon.removable ? ' Removable once installed.' : ''}
                           </span>
                         </span>
+                        <AddonVoiceButton addonId={addon.id} addonName={addon.name} />
                         {installed ? (
-                          <span className="text-xs text-[var(--text-muted)] shrink-0">
-                            Installed{anchorLabel ? ` · ${anchorLabel}` : ''}
-                          </span>
+                          <>
+                            <span className="text-xs text-[var(--text-muted)] shrink-0">
+                              Installed{anchorLabel ? ` · ${anchorLabel}` : ''}
+                            </span>
+                            <button data-addon-settings={addon.id}
+                              onClick={() => handleAddonSettings(addon.id, addon.name)}
+                              className="btn btn-secondary text-xs shrink-0"
+                              title={`Open ${addon.name} settings`}
+                            >
+                              Settings
+                            </button>
+                            {userInstalled && addon.removable && (
+                              <button data-addon-remove={addon.id}
+                                onClick={() => void updateSetting('installedAddons', (settings.installedAddons ?? []).filter((id) => id !== addon.id))}
+                                className="btn btn-secondary text-xs shrink-0"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </>
+                        ) : addon.installBlockedReason ? (
+                          <>
+                            <span className="text-xs text-[var(--text-muted)] shrink-0">Not installed</span>
+                            <button data-addon-install={addon.id}
+                              disabled
+                              title={addon.installBlockedReason}
+                              className="btn btn-secondary text-xs shrink-0 opacity-50 cursor-not-allowed"
+                            >
+                              Install
+                            </button>
+                          </>
                         ) : (
                           <>
                             <span className="text-xs text-[var(--text-muted)] shrink-0">Not installed</span>
-                            <button
-                              disabled
-                              title={addon.installBlockedReason ?? 'Install flow not built yet'}
-                              className="btn btn-secondary text-xs shrink-0 opacity-50 cursor-not-allowed"
+                            <button data-addon-install={addon.id}
+                              onClick={() => void updateSetting('installedAddons', [...(settings.installedAddons ?? []), addon.id])}
+                              className="btn btn-secondary text-xs shrink-0"
                             >
                               Install
                             </button>
@@ -968,6 +1335,14 @@ function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 </div>
               </section>
             </div>
+          )}
+
+          {activeTab === 'forge' && (
+            <ForgeView />
+          )}
+
+          {activeTab === 'modules' && (
+            <ModulesTab />
           )}
 
           {activeTab === 'models' && (

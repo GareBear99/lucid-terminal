@@ -90,11 +90,13 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // the plugins, not the core view buttons.
   const toolbarPlugins = useSettingsStore((s) => s.settings.toolbarPlugins);
   const luciferAiEnabled = useSettingsStore((s) => isLuciferAiEnabled(s.settings));
-  // Disabled: the Synth, Help and AI Chat buttons are LuciferAI
-  // surfaces, so they leave the toolbar with the plugin. Forge is a
-  // different plugin (LLMBuilder) and stays.
+  // Disabled: the Synth and Help buttons are LuciferAI surfaces, so
+  // they leave the toolbar with the plugin. Forge is a different
+  // plugin (LLMBuilder) and stays — and so does AI Chat, which is
+  // Lucid AI, its own plugin now (Gary, 2026-11-07), not a
+  // LuciferAI surface.
   const enabledPlugins = enabledToolbarPlugins(toolbarPlugins).filter(
-    (plugin) => luciferAiEnabled || (plugin.action !== 'synth' && plugin.action !== 'help' && plugin.action !== 'ai-chat'),
+    (plugin) => luciferAiEnabled || (plugin.action !== 'synth' && plugin.action !== 'help'),
   );
 
   // --- Toolbar icon order + drag-reorder (Gary, 2026-11-06) --------

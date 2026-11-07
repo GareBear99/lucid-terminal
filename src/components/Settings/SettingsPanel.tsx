@@ -21,6 +21,7 @@ import {
   Hammer,
   Lock,
   Unlock,
+  Shield,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
@@ -44,6 +45,7 @@ import { resolveSettingsTabOrder, moveSettingsTab } from '../../lib/settingsTabO
 import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { PermissionsTab } from './PermissionsTab';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -55,7 +57,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules';
+type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
@@ -371,6 +373,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} /> },
     { id: 'daemon', label: 'Daemon', icon: <Eye size={18} /> },
     { id: 'general', label: 'General', icon: <Settings size={18} /> },
+    { id: 'permissions', label: 'Permissions', icon: <Shield size={18} /> },
   ];
 
   // --- Settings tab order + drag-reorder (Gary, 2026-11-06) --------
@@ -998,10 +1001,12 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   {TOOLBAR_PLUGINS.map((plugin) => {
                     const Icon = plugin.icon;
                     const onToolbar = settings.toolbarPlugins?.[plugin.id] ?? plugin.defaultOnToolbar;
-                    // Synth and AI Chat are LuciferAI surfaces: their
+                    // Synth and Help are LuciferAI surfaces: their
                     // toolbar buttons cannot be switched on while the
-                    // plugin is off.
-                    const isLuciferSurface = plugin.action === 'synth' || plugin.action === 'help' || plugin.action === 'ai-chat';
+                    // plugin is off. AI Chat is not — it is Lucid AI,
+                    // its own plugin (Gary, 2026-11-07), so its
+                    // toggle stays live with the plugin off.
+                    const isLuciferSurface = plugin.action === 'synth' || plugin.action === 'help';
                     const surfaceDisabled = isLuciferSurface && !luciferAiEnabled;
                     return (
 <Tooltip key={plugin.id} content={plugin.description}>
@@ -1031,7 +1036,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm">LuciferAI</span>
                       <span className="block text-xs text-[var(--text-muted)]">
-                        The plugin itself — local AI backend, command passes, FixNet. The Synth shell, AI Chat and Help above are its surfaces.
+                        The plugin itself — local AI backend, command passes, FixNet. The Synth shell and Help above are its surfaces.
                       </span>
                       <label className="flex items-center gap-2 cursor-pointer mt-2">
                         <Toggle
@@ -1040,8 +1045,8 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                         />
                         <span className="text-xs text-[var(--text-muted)]">
                           {luciferAiEnabled
-                            ? 'Enabled — turning it off removes the plugin entirely (blood drop, heartbeat, Help, AI Chat and Synth all go with it).'
-                            : 'Disabled — the plugin is completely gone. Turn it back on to restore it.'}
+                            ? 'Enabled — turning it off removes the plugin entirely (blood drop, heartbeat, Help and Synth all go with it). AI Chat stays — it is its own plugin now.'
+                            : 'Disabled — the plugin is completely gone. Turn it back on to restore it. (AI Chat stays — it is its own plugin now.)'}
                         </span>
                       </label>
                     </span>
@@ -1553,6 +1558,8 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           </div>
         </div>
       )}
+
+          {activeTab === 'permissions' && (<PermissionsTab />)}
       {/* Daemon Log Viewer */}
       {showDaemonLogs && <DaemonLogViewer onClose={() => setShowDaemonLogs(false)} />}
     </div>

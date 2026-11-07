@@ -7,12 +7,19 @@
  * the Help screen, which is bound to LuciferAI — and the plugin's
  * commands must refuse while off.
  *
- * CONSEQUENCE (stated plainly, per Gary's ask): Synth and AI Chat
- * are two surfaces of the same LuciferAI plugin
- * (src/data/toolbarPlugins.ts header), so disabling LuciferAI also
- * removes the AI Chat surface — and the Synth surface with it. The
+ * CONSEQUENCE (stated plainly, per Gary's ask): Synth is a surface
+ * of the LuciferAI plugin (src/data/toolbarPlugins.ts header), so
+ * disabling LuciferAI removes the Synth surface with it. The
  * terminal itself keeps working (shell commands, fix/fixnet local
  * workflow); only the plugin is gone.
+ *
+ * AI Chat is NOT a LuciferAI surface any more (Gary, 2026-11-07):
+ * it is Lucid AI, its own plugin, unmounted from LuciferAI — so
+ * disabling LuciferAI does NOT remove the AI panel. The panel works
+ * on every view with the plugin on or off; its model is the ping
+ * server, an API key, or a local model. Nothing that gates the
+ * panel may read this setting, or the panel disappears with the
+ * plugin again.
  *
  * The state is the `luciferAiEnabled` settings key (default ON,
  * persisted via updateSetting like toolbarPlugins). Every consumer

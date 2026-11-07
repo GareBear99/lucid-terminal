@@ -3,18 +3,21 @@
  * sidebar's icon bar, in the plugins section above Settings.
  *
  * The plugin system today is the PLUGIN_SHELLS registry
- * (src/types/synth.ts): LuciferAI is the only plugin, embodied as
- * Lucifer the Sentinel in the synth shell. It has three surfaces a
- * toolbar button can open: the Synth view (its shell), the AI chat
- * panel (its chat), and the Help modal (its command reference, on
- * the blood drop — Gary, 2026-11-06). Each surface is one
- * toolbar-plugin entry below — they are three buttons for the same
- * plugin, not three plugins. The Synth and Help buttons are
- * separate: the Synth button (Orbit) opens the Synth view, the
- * blood drop opens Help (the two were one button until 2026-11-06,
- * when the drop was repurposed to Help and the Synth lost its icon
- * entirely — Gary reported it absent, so it gets its own button
- * back here).
+ * (src/types/synth.ts): LuciferAI is the only shelled plugin,
+ * embodied as Lucifer the Sentinel in the synth shell. It has two
+ * surfaces a toolbar button can open: the Synth view (its shell) and
+ * the Help modal (its command reference, on the blood drop — Gary,
+ * 2026-11-06). Each surface is one toolbar-plugin entry below.
+ *
+ * AI Chat is NOT a LuciferAI surface any more (Gary, 2026-11-07):
+ * it is Lucid AI, its own plugin, unmounted from LuciferAI and
+ * mounted as a top-level panel. Its model is the ping server (Llama
+ * 3.2 1B via Cloudflare), an API key, or a local model — never
+ * LuciferAI — so it works with the plugin on or off, on every view.
+ * Its dependencies are the chat routes, which the chat verifies
+ * before answering and reports honestly when none can answer.
+ * Never re-couple it to LuciferAI: no gate on the panel may read
+ * the plugin, or the panel disappears with it again.
  *
  * A future plugin adds one entry here (and, for a shell, one entry in
  * PLUGIN_SHELLS). The Sidebar renders one button per entry that is
@@ -68,7 +71,7 @@ export const TOOLBAR_PLUGINS: ToolbarPlugin[] = [
   {
     id: 'ai-chat',
     name: 'AI Chat',
-    description: 'LuciferAI chat panel — talk to the plugin.',
+    description: 'Lucid AI chat panel — talk to Lucid AI. Runs on the ping server, your API key, or a local model. Its own plugin, independent of LuciferAI.',
     icon: Sparkles,
     action: 'ai-chat',
     // No toolbar button today (it lives on the StatusBar), so it starts

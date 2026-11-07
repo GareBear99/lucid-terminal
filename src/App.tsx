@@ -62,11 +62,12 @@ function App() {
   // Browser tab (or with the panel already open on Browser) switches to
   // the chat tab first - it never reopens on Browser. Clicking it while
   // already on AI Chat closes the panel, as before.
+  // The panel is Lucid AI, its own plugin (Gary, 2026-11-07) — it is
+  // NOT a LuciferAI surface, so the toggle never checks LuciferAI:
+  // it works with the plugin on or off. The panel's own dependencies
+  // are the chat routes (ping server / API key / local model), which
+  // the chat itself verifies before answering.
   const handleToggleAI = () => {
-    // Disabled: the AI Chat surface is a LuciferAI surface, so the
-    // AI button does nothing while the plugin is off. (The button
-    // itself is hidden in the StatusBar too - this is the backstop.)
-    if (!luciferAiEnabled) return;
     if (!showAI) {
       useBrowserStore.getState().setPanelTab('ai');
       setShowAI(true);
@@ -86,20 +87,19 @@ function App() {
   const openHelp = () => {
     if (isLuciferAiEnabled(useSettingsStore.getState().settings)) setShowHelp(true);
   };
-  // When LuciferAI is disabled, its surfaces close: the AI panel,
-  // the Synth view, the Help modal. They cannot be reopened while
-  // off (the buttons, the shortcut and the `help` command are all
-  // gated), so this only fires on the toggle itself.
+  // When LuciferAI is disabled, ITS surfaces close: the Synth view,
+  // the Persona Plex view, the Help modal. They cannot be reopened
+  // while off (the buttons, the shortcut and the `help` command are
+  // all gated), so this only fires on the toggle itself.
+  // The AI panel is NOT one of them — it is Lucid AI, its own plugin
+  // (Gary, 2026-11-07), so it stays open and working with the plugin
+  // off. Never close it here.
   useEffect(() => {
     if (luciferAiEnabled) return;
-    if (showAI) setShowAI(false);
-    if (useBrowserStore.getState().panelTab === 'ai') {
-      useBrowserStore.getState().setPanelTab('browser');
-    }
     if (currentView === 'synth') setCurrentView('terminal');
     if (currentView === 'persona-plex') setCurrentView('terminal');
     if (showHelp) setShowHelp(false);
-  }, [luciferAiEnabled, showAI, currentView, showHelp]);
+  }, [luciferAiEnabled, currentView, showHelp]);
   // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).
   // Shows on every launch for now; a "don't show again" setting is a
   // one-line follow-up. The dashboard mounts underneath, so the splash
@@ -307,47 +307,60 @@ function App() {
                         />
                       )}
                     </div>
-
-                    {/* AI Panel */}
-                    {showAI && (
-                      <>
-                        {/* Resize Handle */}
-                        <div
-                          className="w-1 resize-handle"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            const startX = e.clientX;
-                            const startWidth = aiPanelWidth;
-
-                            const onMouseMove = (e: MouseEvent) => {
-                              const delta = startX - e.clientX;
-                              const newWidth = Math.max(400, Math.min(1000, startWidth + delta));
-                              setAiPanelWidth(newWidth);
-                            };
-
-                            const onMouseUp = () => {
-                              document.removeEventListener('mousemove', onMouseMove);
-                              document.removeEventListener('mouseup', onMouseUp);
-                            };
-
-                            document.addEventListener('mousemove', onMouseMove);
-                            document.addEventListener('mouseup', onMouseUp);
-                          }}
-                        />
-
-                        {/* AI Panel — tabbed: AI Chat + Browser */}
-                        <div
-                          className="h-full border-l border-[var(--border)]"
-                          style={{ width: aiPanelWidth }}
-                        >
-                          <AIPanel onClose={() => setShowAI(false)} />
-                        </div>
-                      </>
-                    )}
                   </div>
                 </>
               )}
             </div>
+
+            {/* AI Panel — Lucid AI, its own plugin (Gary, 2026-11-07):
+                unmounted from LuciferAI and mounted HERE, as a sibling
+                of the main panel, so it shows on EVERY view — terminal,
+                editor, Synth, Forge, Persona Plex, Settings — not just
+                the terminal. It used to live inside the terminal view
+                branch, which is why it never appeared on the other
+                pages: never nest it in a view again.
+                Its dependencies (what it needs, and what it does not):
+                it needs a chat route — the ping server, an API key, or
+                a local model — which the chat verifies before answering
+                and reports honestly when none can answer (the "No model
+                loaded" screen, the SP base display). It does NOT need
+                LuciferAI: nothing here reads the plugin, and the panel
+                works with it on or off. */}
+            {showAI && (
+              <>
+                {/* Resize Handle */}
+                <div
+                  className="w-1 resize-handle"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const startX = e.clientX;
+                    const startWidth = aiPanelWidth;
+
+                    const onMouseMove = (e: MouseEvent) => {
+                      const delta = startX - e.clientX;
+                      const newWidth = Math.max(400, Math.min(1000, startWidth + delta));
+                      setAiPanelWidth(newWidth);
+                    };
+
+                    const onMouseUp = () => {
+                      document.removeEventListener('mousemove', onMouseMove);
+                      document.removeEventListener('mouseup', onMouseUp);
+                    };
+
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.addEventListener('mouseup', onMouseUp);
+                  }}
+                />
+
+                {/* AI Panel — tabbed: AI Chat + Browser */}
+                <div
+                  className="h-full border-l border-[var(--border)]"
+                  style={{ width: aiPanelWidth }}
+                >
+                  <AIPanel onClose={() => setShowAI(false)} />
+                </div>
+              </>
+            )}
         </>
       </div>
 

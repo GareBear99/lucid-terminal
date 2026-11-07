@@ -14,8 +14,10 @@ interface StatusBarProps {
 function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
   const { tabs, activeTabId } = useTerminalStore();
   const { hasApiKey, currentTheme, settings } = useSettingsStore();
-  // Disabled: the AI button (a LuciferAI surface) and the Help button
-  // (Help is bound to LuciferAI) leave the status bar with the plugin.
+  // Disabled: the Help button (Help is bound to LuciferAI) leaves the
+  // status bar with the plugin. The AI button is NOT a LuciferAI
+  // surface — it is Lucid AI, its own plugin (Gary, 2026-11-07) — so
+  // it stays and works with the plugin on or off.
   const luciferAiEnabled = isLuciferAiEnabled(settings);
 
   // Network reachability, probed from the main process (short-timeout
@@ -95,8 +97,7 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
           </Tooltip>
         )}
 
-        {/* AI Status — hidden while LuciferAI is disabled */}
-        {luciferAiEnabled && (
+        {/* AI Status — Lucid AI, its own plugin: always shown, on or off. */}
         <Tooltip content={showAI ? 'Hide AI Panel' : 'Show AI Panel'}>
           <button
             onClick={onToggleAI}
@@ -109,7 +110,6 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
             <span>AI {hasApiKey ? '' : '(No Key)'}</span>
           </button>
         </Tooltip>
-        )}
       </div>
     </div>
   );

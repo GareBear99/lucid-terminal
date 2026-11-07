@@ -58,9 +58,11 @@ describe('Plugins tab', () => {
     // LuciferAI disable toggle on its own row.
     expect(switchCount(html)).toBe(5);
     // The toggles keep their descriptions from the toolbar data.
+    // (AI Chat is Lucid AI, its own plugin — Gary, 2026-11-07 — not a
+    // LuciferAI surface, so its description says so.)
     expect(html).toContain('LuciferAI plugin shell');
     expect(html).toContain('LuciferAI help');
-    expect(html).toContain('LuciferAI chat panel');
+    expect(html).toContain('Lucid AI chat panel');
     expect(html).toContain('Train your Homunculi');
   });
 

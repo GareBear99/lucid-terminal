@@ -490,8 +490,10 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     renderSidebar();
     expect(document.querySelector('[data-toolbar-icon="synth"]')).toBeNull();
     expect(document.querySelector('[data-toolbar-icon="help"]')).toBeNull();
-    expect(document.querySelector('[data-toolbar-icon="ai-chat"]')).toBeNull();
     expect(document.querySelector(`path[fill="${BLOOD_COLOR}"]`)).toBeNull();
+    // AI Chat stays — it is Lucid AI, its own plugin (Gary, 2026-11-07),
+    // unmounted from LuciferAI; it works with the plugin on or off.
+    expect(document.querySelector('[data-toolbar-icon="ai-chat"]')).not.toBeNull();
     // Forge stays (a different plugin).
     expect(document.querySelector('[data-toolbar-icon="llmbuilder"]')).not.toBeNull();
   });

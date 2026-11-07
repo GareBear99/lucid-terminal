@@ -242,6 +242,11 @@ def get_single_key_input(prompt: str, valid_keys: List[str] = ['y', 'n']) -> str
             lucifer.INPUT_ACTIVE = prev_input_active
 
 
+# Chat id used when a caller sends no chat_id (old callers, the
+# interactive CLI): the shared default history, exactly as before.
+_DEFAULT_CHAT_ID = 'default'
+
+
 class EnhancedLuciferAgent:
     """
     Enhanced agent with:
@@ -356,7 +361,20 @@ class EnhancedLuciferAgent:
         # Check model integrity on startup if WiFi connected
         self._check_model_integrity()
         
-        self.conversation_history: List[Dict[str, str]] = []
+        # Per-chat conversation histories, keyed by the Lucid chat id
+        # the reply belongs to (the stdio payload's chat_id). Before
+        # this, one shared list served every chat and was never
+        # cleared on switch or new chat, so a new chat still saw the
+        # old chat's context. Each chat now gets its own list;
+        # `conversation_history` (property, below) returns the ACTIVE
+        # chat's list, so existing readers keep working untouched.
+        # Histories live only for this backend process's lifetime -
+        # they are NOT persisted (same as before).
+        self._chat_histories: Dict[str, List[Dict[str, str]]] = {}
+        self._active_chat_id: Optional[str] = None
+        # One-call model override, from the stdio payload's `model`
+        # (the chat's dropdown choice). None = auto-select as today.
+        self._model_override: Optional[str] = None
         self.tools_executed: List[str] = []
         self.env = get_env_info()
         self.fixes_applied = 0
@@ -863,7 +881,47 @@ class EnhancedLuciferAgent:
         
         # If we reach here, all models are disabled - return None for rule-based mode
         return None
-    
+
+    def _select_model_for_request(self) -> Optional[str]:
+        """The model for this one request: the per-chat override when it
+        can answer, else the auto-selected best enabled model.
+
+        The override (the chat's dropdown choice) wins only when it
+        names a model this backend knows, that is enabled, and that
+        is neither locked nor corrupted. Otherwise auto-selection
+        decides, exactly as today - an unavailable choice still gets
+        a reply from another model instead of an error. The override
+        is one-call only; it never changes the agent's default.
+        """
+        override = self._model_override
+        if override:
+            from model_files_map import get_canonical_name
+            canonical = get_canonical_name(override)
+            locked = self.lock_manager.get_locked_models(exclude_own=True)
+            if (canonical in self.available_models
+                    and self._is_llm_enabled(canonical)
+                    and canonical not in locked
+                    and not self._is_model_corrupted(canonical)):
+                return canonical
+        return self._select_best_enabled_model(exclude_locked=True)
+
+    def _prefer_requested_model(self, tried_models) -> Optional[str]:
+        """The model for this reply: the request's selected model when
+        it is among the usable models, else None (the caller falls back
+        to tier selection). The request's selected model is
+        self.ollama_model, set by _execute_single_request via
+        _select_model_for_request — which honors the per-chat dropdown
+        override when it can answer. A general question used to ignore
+        it and always take the highest-tier enabled model, so the
+        dropdown's local choice never actually answered. This makes the
+        choice real: the model the chat picked is the model that
+        replies (and, with the resident servers in llm_backend, it
+        replies instantly)."""
+        requested = getattr(self, 'ollama_model', None)
+        if requested and requested in tried_models:
+            return requested
+        return None
+
     def _delegate_to_model(self, task_type: str) -> str:
         """Intelligently delegate task to appropriate model when all three are available.
         
@@ -1094,10 +1152,43 @@ class EnhancedLuciferAgent:
         
         return corrected
     
-    def process_request(self, user_input: str) -> str:
+    @property
+    def conversation_history(self) -> List[Dict[str, str]]:
+        """The ACTIVE chat's history (per-chat: see _chat_histories).
+
+        All existing readers (appends, len checks, last-10 reads) go
+        through here, so they now see only the active chat's context.
+        A chat with no messages yet gets an empty list, created on
+        first access. With no chat id set (old callers, no payload
+        chat_id) the history is the shared default chat, as before.
+        """
+        return self._chat_histories.setdefault(self._active_chat_id or _DEFAULT_CHAT_ID, [])
+
+    @conversation_history.setter
+    def conversation_history(self, value: List[Dict[str, str]]) -> None:
+        # Replacing the history (e.g. a clear) only touches the
+        # active chat's list, never another chat's.
+        self._chat_histories[self._active_chat_id or _DEFAULT_CHAT_ID] = value
+
+    def set_active_chat(self, chat_id: Optional[str]) -> None:
+        """Scope the next request(s) to one Lucid chat (its history)."""
+        self._active_chat_id = chat_id or None
+
+    def process_request(self, user_input: str, model: Optional[str] = None, chat_id: Optional[str] = None) -> str:
         """
         Main entry point - process user request with auto-fix.
+
+        model: the current chat's model (its dropdown choice) - honored
+            for this call only; None = auto-select as today.
+        chat_id: the Lucid chat this reply belongs to - its history is
+            scoped to this id, so a new chat never sees the old chat's
+            context. None = the shared default history, as before.
         """
+        # Scope this call to its chat + model before anything runs.
+        # (Chained subcommands inherit the scope - they run through
+        # _execute_single_request on this same instance.)
+        self.set_active_chat(chat_id)
+        self._model_override = model or None
         original_input = user_input
         
         # Check for command chaining with "and" (case-insensitive)
@@ -1147,9 +1238,10 @@ class EnhancedLuciferAgent:
         """
         original_input = user_input
         
-        # Select best available model (excluding locked ones)
+        # Select the model for this call: the per-chat override wins
+        # when it can answer, else auto-selection, exactly as today.
         previous_model = self.ollama_model
-        selected_model = self._select_best_enabled_model(exclude_locked=True)
+        selected_model = self._select_model_for_request()
         
         # Try to acquire lock for selected model
         lock_acquired = self.lock_manager.acquire_lock(selected_model)
@@ -8676,15 +8768,21 @@ Show all 85+ supported models organized by tier.
                 skipped_corrupted.append(model)
             else:
                 tried_models.append(model)
-        
-        # Choose best available (non-corrupted) by tier
-        from core.model_tiers import get_model_tier
-        
-        # Sort by tier (highest first)
-        sorted_models = sorted(tried_models, key=lambda m: get_model_tier(m), reverse=True)
-        
-        if sorted_models:
-            best_model = sorted_models[0]
+
+        # The request's selected model wins (the per-chat dropdown
+        # choice) when it can answer; otherwise the highest-tier
+        # enabled model, exactly as today. See _prefer_requested_model.
+        best_model = self._prefer_requested_model(tried_models)
+        if best_model is None:
+            # Choose best available (non-corrupted) by tier
+            # Priority: Tier 4 > Tier 3 > Tier 2 > Tier 1 > Tier 0
+            from core.model_tiers import get_model_tier
+
+            # Sort by tier (highest first)
+            sorted_models = sorted(tried_models, key=lambda m: get_model_tier(m), reverse=True)
+
+            if sorted_models:
+                best_model = sorted_models[0]
         
         if not best_model:
             msg = c(f"{Emojis.CROSS} No usable models available", "red")

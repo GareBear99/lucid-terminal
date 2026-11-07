@@ -40,6 +40,14 @@ class StdioAgent:
         if command == 'chat':
             message = data.get('message', '')
             cwd = data.get('cwd')
+            # The current chat's model + id, from the Electron side
+            # (AIChat.tsx -> ai:chat -> local_ai.ts). The model is the
+            # chat's dropdown choice, honored for this call only; the
+            # chat id scopes the agent's history to that chat, so a new
+            # chat never sees the old chat's context. Both absent (Auto /
+            # old callers) = the backend's own defaults, as before.
+            model = data.get('model')
+            chat_id = data.get('chat_id')
             
             if cwd:
                 self.agent.env['cwd'] = cwd
@@ -53,7 +61,7 @@ class StdioAgent:
             from contextlib import redirect_stdout
             
             with redirect_stdout(f):
-                response_text = self.agent.process_request(message)
+                response_text = self.agent.process_request(message, model=model, chat_id=chat_id)
                 
             captured_output = f.getvalue()
             

@@ -1,13 +1,18 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, MessageSquare, Trash2, Menu, Folder, FolderOpen, Loader } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, Minus, MessageSquare, Trash2, Menu, Folder, FolderOpen, Loader, Volume2, VolumeX } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useFileStore } from '../../stores/fileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
-import { ChatMessage } from '../../types';
+import { ChatMessage, PingQuota } from '../../types';
+import { getChatModelOptions, AUTO_CHAT_MODEL_VALUE } from '../../lib/chatModels';
+import { formatTimeSinceRestock, isPingUnreachableError } from '../../lib/pingQuota';
 import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
+import { MessageContextMenu } from './MessageContextMenu';
+import { shouldShowSpeakOption, getActivePersonaVoiceSettings } from '../../lib/personaPlex';
+import { speakText } from '../../lib/speak';
 import { InputDragHandle } from '../InputDragHandle';
 import {
   INPUT_DRAG_MAX_HEIGHT_VH,
@@ -22,7 +27,7 @@ interface AIChatProps {
 
 function AIChat({ onClose }: AIChatProps) {
 
-  const { hasApiKey, setApiKey, isLocalBackendAvailable, isLocalModelAvailable, checkBackendStatus } = useSettingsStore();
+  const { hasApiKey, setApiKey, isLocalBackendAvailable, isLocalModelAvailable, checkBackendStatus, settings, updateSetting } = useSettingsStore();
   const {
     sessions,
     currentSessionId,
@@ -35,6 +40,7 @@ function AIChat({ onClose }: AIChatProps) {
     loadSessions,
     createSession,
     selectSession,
+    setSessionModel,
     deleteSession,
     addMessage,
     updateStreamingMessage,
@@ -43,12 +49,52 @@ function AIChat({ onClose }: AIChatProps) {
     setContextDirectory,
     isSessionsLoaded,
     pendingAiPrompt,
-    clearPendingAiPrompt
+    clearPendingAiPrompt,
+    pingQuota,
+    pingQuotaSource,
+    lastRestockAt,
+    setPingQuota
   } = useAIStore();
 
   const [input, setInput] = useState('');
   const [keyInput, setKeyInput] = useState('');
-  const [showSidebar, setShowSidebar] = useState(true);
+  // The Chats panel starts CLOSED (Gary, 2026-11-06): open, it overlays
+  // most of the conversation and hides the assistant replies, and the
+  // only way to close it was clicking off in the chat. Open it with the
+  // Menu toggle in the chat header; close it with the minus in the
+  // panel header, or by clicking off in the chat.
+  const [showSidebar, setShowSidebar] = useState(false);
+
+  // Right-click context menu on a message (Speak). Set on right-click
+  // when the Speak gate passes; null = no menu.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string; showSpeak: boolean } | null>(null);
+
+  // Persona Plex Speak gate (Gary, 2026-11-06): Speak shows only
+  // when Persona Plex is installed AND the Speak toggle is on AND
+  // the active persona's own Speak is on. The voice is the active
+  // persona's voice (Lily when none is active), at that persona's
+  // volume and rate — the voice follows the chat bubble message.
+  const personaPlexInstalled = (settings.installedAddons ?? []).includes('persona-plex');
+  const speakEnabled = settings.personaPlexSpeakEnabled ?? false;
+  const activePersonaVoiceSettings = getActivePersonaVoiceSettings({
+    activeId: settings.personaPlexActiveId ?? null,
+    config: settings.personaPlexConfig ?? {},
+    customPersonas: settings.personaPlexCustomPersonas ?? [],
+  });
+
+  // The per-chat model dropdown options (chatModels.ts is the
+  // single list source): Auto first, then the ping server models
+  // (when ping is enabled). No locals, no GPTs — the dropdown is
+  // ping models only, and every one runs on SP. Rebuilt when ping
+  // availability changes.
+  const modelOptions = useMemo(
+    () => getChatModelOptions({ pingEnabled: settings.pingServerEnabled }),
+    [settings.pingServerEnabled],
+  );
+
+  // The chat on screen - its model is what the dropdown shows and
+  // what handleSend passes for the next reply.
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
 
   // Gate actions: install the bundled model from inside the panel, and
   // re-check the backend. The backend/model status is only probed once
@@ -117,8 +163,33 @@ function AIChat({ onClose }: AIChatProps) {
 
   useEffect(() => {
     // Setup streaming listeners
-    const handleStreamEnd = () => {
+    const handleStreamEnd = (quota?: PingQuota) => {
+      if (quota) setPingQuota(quota);
+      const replyText = useAIStore.getState().streamingMessage;
       completeStream();
+      // Auto-speak: the active persona's messages speak as soon as
+      // they arrive, in that persona's voice, when the persona has
+      // auto-speak on (and the global Speak toggle is on and Persona
+      // Plex is installed). Off by default — messages otherwise only
+      // speak on right-click Speak.
+      const live = useSettingsStore.getState().settings;
+      const voiceSettings = getActivePersonaVoiceSettings({
+        activeId: live.personaPlexActiveId ?? null,
+        config: live.personaPlexConfig ?? {},
+        customPersonas: live.personaPlexCustomPersonas ?? [],
+      });
+      if (
+        (live.installedAddons ?? []).includes('persona-plex') &&
+        (live.personaPlexSpeakEnabled ?? false) &&
+        voiceSettings.speakEnabled &&
+        voiceSettings.autoSpeak &&
+        replyText.trim()
+      ) {
+        speakText(replyText, voiceSettings.voice, {
+          volume: voiceSettings.volume,
+          rate: voiceSettings.rate,
+        });
+      }
     };
 
     const handleStreamError = (error: string) => {
@@ -129,6 +200,23 @@ function AIChat({ onClose }: AIChatProps) {
         timestamp: Date.now()
       });
       setLoading(false);
+      // A network failure on the ping route means the ping server is
+      // unreachable — the SP balance is then the KNOWN base 100, not a
+      // stale one. Only when the route could have been ping: ping is
+      // enabled and this chat's model is ping or Auto (the cascade
+      // tries ping first). A local or OpenAI chat never touches the
+      // server, so its errors leave the balance alone.
+      if (isPingUnreachableError(error)) {
+        const ai = useAIStore.getState();
+        const session = ai.sessions.find((s) => s.id === ai.currentSessionId);
+        if (
+          useSettingsStore.getState().settings.pingServerEnabled &&
+          session?.modelSource !== 'local' &&
+          session?.modelSource !== 'openai'
+        ) {
+          ai.setPingQuotaBase();
+        }
+      }
     };
 
     const cleanupStream = window.lucidAPI.ai.onStream((chunk) => {
@@ -153,7 +241,7 @@ function AIChat({ onClose }: AIChatProps) {
     const text = (overrideText ?? input).trim();
     // Allow if has key OR a loaded local model. A wrapper with no model
     // must not receive the message — it answers with a raw Python error.
-    if (!text || isLoading || (!hasApiKey && !isLocalModelAvailable)) return;
+    if (!text || isLoading || (!hasApiKey && !isLocalModelAvailable && !settings.pingServerEnabled)) return;
 
     // A submitted prompt feeds the Sentinel face's horns.
     usePromptPaceStore.getState().recordPrompt();
@@ -178,7 +266,17 @@ function AIChat({ onClose }: AIChatProps) {
       history.push({ role: userMessage.role, content: userMessage.content });
 
       // Start chat stream with context directory
-      await window.lucidAPI.ai.chat(history as any, contextDirectory || undefined, true);
+      // The current chat's model, read at send time: this choice is
+      // for the NEXT prompted reply. Absent (Auto) = no model is
+      // passed and the reply takes today's cascade. The chat id
+      // always rides along - the local backend scopes its memory
+      // per chat id, so a new chat never sees the old chat's context.
+      await window.lucidAPI.ai.chat(history as any, contextDirectory || undefined, true, {
+        ...(currentSession?.model
+          ? { model: currentSession.model, modelSource: currentSession.modelSource }
+          : {}),
+        chatId: currentSessionId ?? undefined,
+      });
     } catch (error) {
       console.error('Chat error:', error);
       setLoading(false);
@@ -270,6 +368,19 @@ function AIChat({ onClose }: AIChatProps) {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+  };
+
+  // Right-click on a message: ALWAYS show the custom menu — Copy
+  // is a basic function and must never be gated (Gary: Copy works
+  // with or without Persona Plex, Speak toggle on or off). Speak
+  // shows in the menu only when the Speak gate passes (Persona
+  // Plex installed AND the Speak toggle on AND the active persona's
+  // own Speak on). The browser's default menu never shows on a
+  // message right-click, so Copy is never lost to it in Electron.
+  const handleMessageContextMenu = (e: React.MouseEvent, text: string) => {
+    e.preventDefault();
+    const showSpeak = shouldShowSpeakOption({ personaPlexInstalled, speakEnabled, personaSpeakEnabled: activePersonaVoiceSettings.speakEnabled });
+    setContextMenu({ x: e.clientX, y: e.clientY, text, showSpeak });
   };
 
   // ChatGPT-style bubbles: user messages are a bubble hugging the right
@@ -373,7 +484,7 @@ function AIChat({ onClose }: AIChatProps) {
   // API Key / No Model Screen — shown when there is no key and no
   // loaded local model. The message must say so plainly when the wrapper
   // is up but no model is loaded.
-  if (!hasApiKey && !isLocalModelAvailable) {
+  if (!hasApiKey && !isLocalModelAvailable && !settings.pingServerEnabled) {
     return (
       <div className="h-full flex flex-col bg-[var(--bg-primary)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -483,13 +594,23 @@ function AIChat({ onClose }: AIChatProps) {
         <div className="absolute inset-y-0 left-0 w-64 bg-[var(--bg-secondary)] border-r border-[var(--border)] z-10 shadow-xl flex flex-col">
           <div className="p-3 border-b border-[var(--border)] flex items-center justify-between">
             <h3 className="font-semibold text-sm">Chats</h3>
-            <button
-              onClick={createSession}
-              className="p-1 hover:bg-[var(--bg-tertiary)] rounded"
-              title="New Chat"
-            >
-              <Plus size={16} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowSidebar(false)}
+                className="p-1 hover:bg-[var(--bg-tertiary)] rounded"
+                title="Minimize chats"
+                aria-label="Minimize chats"
+              >
+                <Minus size={16} />
+              </button>
+              <button
+                onClick={createSession}
+                className="p-1 hover:bg-[var(--bg-tertiary)] rounded"
+                title="New Chat"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             {sessions.map((session) => (
@@ -536,11 +657,46 @@ function AIChat({ onClose }: AIChatProps) {
             <button
               onClick={() => setShowSidebar(!showSidebar)}
               className="p-1 hover:bg-[var(--bg-secondary)] rounded"
+              title="Toggle chats panel"
+              aria-label="Toggle chats panel"
             >
               <Menu size={18} />
             </button>
             <Sparkles size={18} className="text-[var(--accent)]" />
             <span className="font-semibold">Lucid AI</span>
+            {settings.pingServerEnabled && pingQuota && (
+              <span
+                className="text-xs text-[var(--text-muted)]"
+                title={
+                  pingQuotaSource === 'base'
+                    ? 'Ping server not connected — SP is base 100 (known)'
+                    : 'Ping server SP balance — 1 SP per reply'
+                }
+              >
+                Ping server: {pingQuota.remaining}/{pingQuota.limit} left
+                {pingQuotaSource === 'base' ? ' (base)' : ''}
+                {lastRestockAt != null &&
+                  formatTimeSinceRestock(lastRestockAt) != null &&
+                  ` · restocked ${formatTimeSinceRestock(lastRestockAt)}`}
+              </span>
+            )}
+            <select
+              value={currentSession?.model ?? AUTO_CHAT_MODEL_VALUE}
+              onChange={(e) => {
+                if (!currentSessionId) return;
+                const chosen = modelOptions.find((o) => o.value === e.target.value);
+                setSessionModel(currentSessionId, chosen?.value || undefined, chosen?.source);
+              }}
+              className="text-xs bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-1 py-0.5 max-w-[160px]"
+              title="Model for the next reply - this chat remembers its model"
+              aria-label="Chat model"
+            >
+              {modelOptions.map((option) => (
+                <option key={option.value || 'auto'} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center gap-2">
@@ -564,6 +720,17 @@ function AIChat({ onClose }: AIChatProps) {
                 title="Set Context Directory"
               >
                 <Folder size={18} />
+              </button>
+            )}
+            {personaPlexInstalled && (
+              <button
+                onClick={() => void updateSetting('personaPlexSpeakEnabled', !speakEnabled)}
+                className="p-1 hover:bg-[var(--bg-secondary)] rounded"
+                title={speakEnabled ? 'Speak on right-click: on — right-click a message to hear it' : 'Speak on right-click: off'}
+                aria-label="Toggle Speak on right-click"
+                aria-pressed={speakEnabled}
+              >
+                {speakEnabled ? <Volume2 size={18} className="text-[var(--accent)]" /> : <VolumeX size={18} className="text-[var(--text-muted)]" />}
               </button>
             )}
             <button onClick={onClose} className="btn-ghost p-1 rounded">
@@ -592,7 +759,10 @@ function AIChat({ onClose }: AIChatProps) {
                 // that arrive without one), so the key is stable across
                 // re-renders and re-orders — never Math.random(), which
                 // would remount bubbles and break timestamp continuity.
-                <div key={message.id ?? `msg-${index}`}>
+                <div
+                  key={message.id ?? `msg-${index}`}
+                  onContextMenu={(e) => handleMessageContextMenu(e, message.content)}
+                >
                   {renderMessage(message)}
                 </div>
               ))}
@@ -614,6 +784,17 @@ function AIChat({ onClose }: AIChatProps) {
             </>
           )}
         </div>
+
+        {contextMenu && (
+          <MessageContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            showSpeak={contextMenu.showSpeak}
+            onSpeak={() => speakText(contextMenu.text, activePersonaVoiceSettings.voice, { volume: activePersonaVoiceSettings.volume, rate: activePersonaVoiceSettings.rate })}
+            onCopy={() => copyToClipboard(contextMenu.text)}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
 
         <div className="relative p-3 border-t border-[var(--border)]">
           {/* Drag handle on the input's top edge: drag up to grow,

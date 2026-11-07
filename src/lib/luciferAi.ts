@@ -34,6 +34,20 @@ export function isLuciferAiEnabled(settings: Pick<Settings, 'luciferAiEnabled'>)
 export const LUCIFER_AI_DISABLED_MESSAGE =
   'LuciferAI is disabled — enable it in Settings → Plugins to use AI commands.';
 
+/** The refusal a terminal block shows for a plugin command while the
+ *  plugin is off. Every refusal site (the `llm` branches, `tokens`,
+ *  the default branch) builds it through here so the text cannot
+ *  drift between commands. `help` gets the extra line naming that
+ *  Help is part of LuciferAI. */
+export function refusalForDisabledCommand(commandType: string): string {
+  return (
+    LUCIFER_AI_DISABLED_MESSAGE +
+    (commandType === 'help'
+      ? '\n\nHelp is part of LuciferAI and is unavailable while the plugin is disabled.'
+      : '')
+  );
+}
+
 /** Which LuciferAI status indicator the terminal prompt row shows.
  *  'hidden' is the disabled state: the blood drop renders NOTHING
  *  (not even the grey offline dot — that is itself a LuciferAI

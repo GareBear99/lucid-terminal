@@ -288,6 +288,45 @@ describe('streaming — stable start time and stamped completion', () => {
     expect(reply.ritualTick).toBe(1);
   });
 
+  it('the full send→stream→complete path lands the reply in the DISPLAYED list so it renders (streaming regression)', () => {
+    // Regression: the ping-server stream completed and the reply was
+    // persisted to sessions.json, but the chat showed only the user
+    // bubble — no assistant reply rendered. The cause was traced to
+    // two Lucid instances sharing one sessions.json (not a store bug),
+    // but this test pins the exact contract the live path depends on:
+    // when the generation's origin session IS the displayed session,
+    // completeStream must put the reply in the displayed messages
+    // (buffer A, what AIChat renders), not only in the session copy.
+    const chat = session('a', 'Chat A', [msg('u1', 1000, 'What is 2+2? Reply in one short sentence.', 'user', 0)], 1);
+    useAIStore.setState({
+      sessions: [chat],
+      currentSessionId: 'a',
+      messages: [...chat.messages],
+    });
+    const store = useAIStore.getState();
+    // handleSend's sequence: capture the origin, then stream chunks.
+    store.setLoading(true);
+    expect(useAIStore.getState().generatingSessionId).toBe('a');
+    store.updateStreamingMessage('2 + 2 = 4');
+    store.completeStream();
+
+    const state = useAIStore.getState();
+    // Generation state released.
+    expect(state.isLoading).toBe(false);
+    expect(state.generatingSessionId).toBeNull();
+    expect(state.streamingMessage).toBe('');
+    // The reply is in the DISPLAYED list (what the chat renders).
+    expect(state.messages).toHaveLength(2);
+    const reply = state.messages[1];
+    expect(reply.role).toBe('assistant');
+    expect(reply.content).toBe('2 + 2 = 4');
+    expect(reply.ritualTick).toBe(1);
+    // And in the persisted session copy, exactly once.
+    const stored = state.sessions.find((s) => s.id === 'a');
+    expect(stored?.messages).toHaveLength(2);
+    expect(stored?.messages[1].content).toBe('2 + 2 = 4');
+  });
+
   it('completeStream clears isLoading even when the stream delivered nothing', () => {
     const chat = session('a', 'Chat A', [msg('u1', 1000, 'hi', 'user', 0)], 1);
     useAIStore.setState({
@@ -605,5 +644,166 @@ describe('ritual ticks — causal order, per chat, surviving reload', () => {
 
     useAIStore.getState().addMessage(msg('n1', 1000, 'first in the new chat'));
     expect(useAIStore.getState().messages[0].ritualTick).toBe(0);
+  });
+});
+
+describe('per-chat model — setSessionModel + createSession inheritance', () => {
+  const sessionWithModel = (
+    id: string,
+    title: string,
+    model?: string,
+    modelSource?: ChatSession['modelSource'],
+  ): ChatSession => ({
+    id,
+    title,
+    messages: [],
+    createdAt: 1000,
+    updatedAt: 1000,
+    nextTick: 0,
+    model,
+    modelSource,
+  });
+
+  it('setSessionModel sets the model and source, and persists the session', () => {
+    const chat = sessionWithModel('a', 'Chat A');
+    useAIStore.setState({ sessions: [chat], currentSessionId: 'a', messages: [] });
+
+    useAIStore.getState().setSessionModel('a', 'tinyllama', 'local');
+
+    const updated = useAIStore.getState().sessions.find((s) => s.id === 'a');
+    expect(updated?.model).toBe('tinyllama');
+    expect(updated?.modelSource).toBe('local');
+    // The choice is persisted, so the chat remembers its model.
+    expect((window as any).lucidAPI.ai.saveSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a', model: 'tinyllama', modelSource: 'local' }),
+    );
+    // Nothing else about the session changed.
+    expect(updated?.messages).toEqual([]);
+    expect(updated?.nextTick).toBe(0);
+  });
+
+  it('setSessionModel with no model clears back to Auto', () => {
+    const chat = sessionWithModel('a', 'Chat A', 'gpt-4', 'openai');
+    useAIStore.setState({ sessions: [chat], currentSessionId: 'a', messages: [] });
+
+    useAIStore.getState().setSessionModel('a', undefined, undefined);
+
+    const updated = useAIStore.getState().sessions.find((s) => s.id === 'a');
+    expect(updated?.model).toBeUndefined();
+    expect(updated?.modelSource).toBeUndefined();
+    expect((window as any).lucidAPI.ai.saveSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a', model: undefined, modelSource: undefined }),
+    );
+  });
+
+  it('setSessionModel ignores an unknown session id and persists nothing', () => {
+    const chat = sessionWithModel('a', 'Chat A');
+    useAIStore.setState({ sessions: [chat], currentSessionId: 'a', messages: [] });
+
+    useAIStore.getState().setSessionModel('nope', 'tinyllama', 'local');
+
+    expect(useAIStore.getState().sessions).toHaveLength(1);
+    expect(useAIStore.getState().sessions[0].model).toBeUndefined();
+    expect((window as any).lucidAPI.ai.saveSession).not.toHaveBeenCalled();
+  });
+
+  it('createSession inherits the current chat\'s model', () => {
+    const chat = sessionWithModel('a', 'Chat A', 'llama3.2', 'local');
+    useAIStore.setState({ sessions: [chat], currentSessionId: 'a', messages: [] });
+
+    useAIStore.getState().createSession();
+
+    const state = useAIStore.getState();
+    const created = state.sessions.find((s) => s.id === state.currentSessionId);
+    expect(created?.model).toBe('llama3.2');
+    expect(created?.modelSource).toBe('local');
+  });
+
+  it('createSession defaults to Auto when the current chat has no model', () => {
+    const chat = sessionWithModel('a', 'Chat A');
+    useAIStore.setState({ sessions: [chat], currentSessionId: 'a', messages: [] });
+
+    useAIStore.getState().createSession();
+
+    const state = useAIStore.getState();
+    const created = state.sessions.find((s) => s.id === state.currentSessionId);
+    expect(created?.model).toBeUndefined();
+    expect(created?.modelSource).toBeUndefined();
+  });
+
+  it('a stored model round-trips through loadSessions — the chat remembers it after reload', async () => {
+    const stored = sessionWithModel('a', 'Chat A', 'gpt-4-turbo', 'openai');
+    ((window as any).lucidAPI.ai.getSessions as any).mockResolvedValue([stored]);
+
+    await useAIStore.getState().loadSessions();
+
+    const loaded = useAIStore.getState().sessions.find((s) => s.id === 'a');
+    expect(loaded?.model).toBe('gpt-4-turbo');
+    expect(loaded?.modelSource).toBe('openai');
+  });
+});
+
+describe('ping quota — restock timer + base 100 when the server is unreachable (Gary, 2026-11-06)', () => {
+  beforeEach(() => {
+    useAIStore.setState({
+      pingQuota: null,
+      pingQuotaSource: null,
+      lastRestockAt: null,
+    });
+  });
+
+  const q = (limit: number, remaining: number, reset: number) => ({
+    limit,
+    remaining,
+    reset,
+    reset_in_seconds: 0,
+  });
+
+  it('setPingQuota records the server source and keeps the timer unknown until a restock is seen', () => {
+    useAIStore.getState().setPingQuota(q(200, 100, 1000));
+    const s = useAIStore.getState();
+    expect(s.pingQuota?.remaining).toBe(100);
+    expect(s.pingQuotaSource).toBe('server');
+    expect(s.lastRestockAt).toBeNull();
+  });
+
+  it('a restock (reset advances) resets the timer to the most recent restock', () => {
+    useAIStore.getState().setPingQuota(q(200, 100, 1000));
+    useAIStore.getState().setPingQuota(q(200, 125, 1000 + 4 * 3600));
+    const s = useAIStore.getState();
+    expect(s.pingQuota?.remaining).toBe(125);
+    expect(s.lastRestockAt).toBe(1000 * 1000);
+  });
+
+  it('spending without a restock does NOT reset the timer (no stale reset)', () => {
+    useAIStore.getState().setPingQuota(q(200, 100, 1000));
+    useAIStore.getState().setPingQuota(q(200, 125, 1000 + 4 * 3600));
+    useAIStore.getState().setPingQuota(q(200, 124, 1000 + 4 * 3600));
+    expect(useAIStore.getState().lastRestockAt).toBe(1000 * 1000);
+  });
+
+  it('setPingQuotaBase is base 100, source base, and clears the restock timer', () => {
+    useAIStore.getState().setPingQuota(q(200, 100, 1000));
+    useAIStore.getState().setPingQuota(q(200, 125, 1000 + 4 * 3600));
+    expect(useAIStore.getState().lastRestockAt).toBe(1000 * 1000);
+    useAIStore.getState().setPingQuotaBase();
+    const s = useAIStore.getState();
+    expect(s.pingQuota).toEqual({
+      limit: 200,
+      remaining: 100,
+      reset: 0,
+      reset_in_seconds: 0,
+    });
+    expect(s.pingQuotaSource).toBe('base');
+    // No server, no known restock — never a stale timer.
+    expect(s.lastRestockAt).toBeNull();
+  });
+
+  it('setPingQuota(null) clears the balance and the source', () => {
+    useAIStore.getState().setPingQuota(q(200, 100, 1000));
+    useAIStore.getState().setPingQuota(null);
+    const s = useAIStore.getState();
+    expect(s.pingQuota).toBeNull();
+    expect(s.pingQuotaSource).toBeNull();
   });
 });

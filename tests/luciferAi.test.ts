@@ -12,6 +12,7 @@ import {
   isLuciferAiEnabled,
   LUCIFER_AI_DISABLED_MESSAGE,
   luciferStatusIndicator,
+  refusalForDisabledCommand,
 } from '../src/lib/luciferAi';
 import { useSettingsStore } from '../src/stores/settingsStore';
 
@@ -57,6 +58,22 @@ describe('LUCIFER_AI_DISABLED_MESSAGE', () => {
   it('names the plugin and where to turn it back on', () => {
     expect(LUCIFER_AI_DISABLED_MESSAGE).toContain('LuciferAI');
     expect(LUCIFER_AI_DISABLED_MESSAGE).toContain('Settings');
+  });
+});
+
+describe('refusalForDisabledCommand', () => {
+  it('is exactly the disabled message for ordinary plugin commands', () => {
+    expect(refusalForDisabledCommand('agent')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
+    expect(refusalForDisabledCommand('llm')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
+    expect(refusalForDisabledCommand('tokens')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
+    expect(refusalForDisabledCommand('install')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
+  });
+
+  it('appends the Help line for the help command', () => {
+    expect(refusalForDisabledCommand('help')).toBe(
+      LUCIFER_AI_DISABLED_MESSAGE +
+        '\n\nHelp is part of LuciferAI and is unavailable while the plugin is disabled.',
+    );
   });
 });
 

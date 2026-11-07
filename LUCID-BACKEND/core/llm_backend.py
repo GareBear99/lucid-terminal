@@ -3,8 +3,12 @@
 🧠 Unified LLM Backend - Native llamafile execution with GGUF models
 Provides a single interface for all LLM operations via native llamafile subprocess calls
 """
+import atexit
 import os
 import json
+import socket
+import subprocess
+import time
 from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
 
@@ -390,6 +394,266 @@ class OllamaBackend:
         self.model = model
 
 
+# ============================================================================
+# Resident llamafile servers — instant local reply (Gary, 2026-11-06).
+#
+# The AI chat's local path used to cold-load the model on EVERY reply:
+# NativeLlamafileBackend.generate() spawned a fresh `llamafile -m <gguf>
+# -p <prompt>` subprocess per reply, so the whole GGUF was re-read from
+# disk and re-loaded into memory before a single token was generated.
+# Picking a model in the per-chat dropdown only chose WHICH file the
+# next reply cold-loaded — it never made local instant.
+#
+# A resident server keeps the model LOADED. The first reply for a model
+# starts one llamafile server for it (`llamafile -m <gguf> --server`,
+# OpenAI-compatible on 127.0.0.1) and waits for it to become healthy
+# (the one-time load). Every later reply for that model POSTs its prompt
+# to the already-running server instead of spawning a fresh process —
+# no cold-load, so the reply starts immediately. Switching chats or
+# switching models stays instant for a model whose server is already
+# up; a model never used in this session loads once on its first reply,
+# then stays resident.
+#
+# RESIDENCY (plain, so Gary can see it and call it):
+# - Which models stay loaded: every local model that has answered a
+#   reply in this Lucid session. Loaded lazily on first use (first
+#   reply for that model pays the one-time load), never preloaded at
+#   startup, and never evicted while Lucid is open — there is no idle
+#   timeout and no max-resident cap in this build.
+# - What runs while Lucid is open: one resident llamafile server
+#   process per used local model (each holding its GGUF in RAM), plus
+#   the Python stdio backend itself. A 7B Q4_K_M model holds ~4 GB;
+#   using several large models in one session adds up, and on the
+#   8 GB Mac that can pressure memory. That is the trade for instant
+#   reply. (Gary's OpenClaw rule — "only activate per call, then
+#   shut off, NO always-on servers" — is for OpenClaw, his second
+#   agent on the Mac mini, NOT for Lucid's local models; this
+#   residency is Lucid-side and is what Gary asked for here.)
+# - When a model unloads: when the Python stdio backend process exits
+#   (Lucid quits / the backend stops). An atexit hook kills every
+#   resident server, so no llamafile server survives Lucid. The
+#   Electron-side LlamafileManager (lucidCore, the terminal core) runs
+#   its OWN servers on 11434-12000; these Python-side resident servers
+#   use 12200-12400 so the two never collide on a port, and a model
+#   used by both sides has one server per side (a known duplication —
+#   a future consolidation could share one server per model, out of
+#   scope here).
+# - Failure: if a resident server cannot start (or a request to it
+#   fails), generate() falls back to the old subprocess path, so a
+#   reply still comes back — just slow, as today. A failed resident
+#   server never blocks a reply.
+# ============================================================================
+
+#: Port range for the Python-side resident servers. The Electron-side
+#: LlamafileManager uses 11434-12000, so this range never collides
+#: with it (and never with Ollama's 11434).
+RESIDENT_SERVER_PORT_START = 12200
+RESIDENT_SERVER_PORT_END = 12400
+
+#: How long a newly started resident server may take to load its model
+#: and answer /health. A big model can take a minute or more; 120s
+#: covers it. Past this, the caller falls back to the subprocess path.
+RESIDENT_SERVER_READY_TIMEOUT_S = 120
+
+
+class _ResidentServer:
+    """One resident llamafile server: a model kept loaded in a
+    long-running `llamafile --server` process on 127.0.0.1."""
+
+    def __init__(self, model: str, model_path: Path, port: int, process: subprocess.Popen) -> None:
+        self.model = model
+        self.model_path = model_path
+        self.port = port
+        self.process = process
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    def is_alive(self) -> bool:
+        """True while the server process is still running."""
+        return self.process.poll() is None
+
+    def is_healthy(self) -> bool:
+        """True when the process is alive AND /health answers."""
+        if not self.is_alive():
+            return False
+        try:
+            import requests
+
+            resp = requests.get(f"{self.base_url}/health", timeout=2)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+
+# Canonical model name -> resident server for it. Module-level so a
+# server started by one LLMBackend instance is reused by the next —
+# NativeLlamafileBackend is constructed fresh per query, so an
+# instance-level registry would cold-load on every reply (the bug).
+_RESIDENT_SERVERS: Dict[str, _ResidentServer] = {}
+
+
+def _find_free_port(
+    start: int = RESIDENT_SERVER_PORT_START,
+    end: int = RESIDENT_SERVER_PORT_END,
+) -> int:
+    """A free localhost port in [start, end] — bind-probe, so it never
+    hands out a port another process is already on. Raises when none
+    is free (the caller falls back to the subprocess path)."""
+    for port in range(start, end + 1):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(("127.0.0.1", port))
+            return port
+        except OSError:
+            continue
+        finally:
+            sock.close()
+    raise RuntimeError(
+        f"No free port for a resident llamafile server in {start}-{end}"
+    )
+
+
+def _spawn_resident_server(
+    model: str, model_path: Path, port: int
+) -> subprocess.Popen:
+    """Start `llamafile --server` for one model. The llamafile binary
+    is an APE binary: it must run through sh on EVERY platform (the
+    same rule as the subprocess path — direct exec fails with ENOEXEC
+    where APE binfmt is not registered). stdout/stderr go to DEVNULL:
+    a long-running server logs continuously, and an unread PIPE would
+    fill and block it. Readiness is proven by /health, not by logs."""
+    cmd = [
+        "sh", str(_canonical_llamafile_path()),
+        "-m", str(model_path),
+        "--server",
+        "--port", str(port),
+        "--host", "127.0.0.1",
+        "--nobrowser",
+    ]
+    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _wait_for_resident_server(
+    port: int,
+    process: subprocess.Popen,
+    timeout: float = RESIDENT_SERVER_READY_TIMEOUT_S,
+) -> bool:
+    """Poll /health until the server answers or the timeout elapses.
+    Returns False immediately when the process dies on startup (it
+    can never become healthy) and on timeout. True when healthy."""
+    import requests
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if process.poll() is not None:
+            return False
+        try:
+            resp = requests.get(f"http://127.0.0.1:{port}/health", timeout=2)
+            if resp.status_code == 200:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def ensure_resident_server(model: str, model_path: Path) -> _ResidentServer:
+    """The resident server for one model, starting it on first use.
+    A healthy existing server is returned as-is (the instant path —
+    no spawn, no load). A dead server is dropped and re-started.
+    Raises when no server can be started (the caller falls back to
+    the subprocess path)."""
+    from core.model_files_map import get_canonical_name
+
+    key = get_canonical_name(model)
+    existing = _RESIDENT_SERVERS.get(key)
+    if existing is not None:
+        if existing.is_healthy():
+            return existing
+        # Dead server: drop it (and kill the process if it lingers).
+        try:
+            existing.process.kill()
+        except Exception:
+            pass
+        del _RESIDENT_SERVERS[key]
+    port = _find_free_port()
+    process = _spawn_resident_server(key, model_path, port)
+    if not _wait_for_resident_server(port, process):
+        try:
+            process.kill()
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"Resident llamafile server for '{key}' did not become healthy on port {port}"
+        )
+    server = _ResidentServer(key, model_path, port, process)
+    _RESIDENT_SERVERS[key] = server
+    return server
+
+
+def resident_generate(
+    model: str,
+    model_path: Path,
+    prompt: str,
+    temperature: float = 0.7,
+    max_tokens: int = 300,
+    timeout: float = 600,
+) -> "tuple[str, Dict[str, int]]":
+    """(content, token stats) from the model's resident server — no
+    cold-load. Ensures the server (starts it on first use), then POSTs
+    the prompt to its /completion endpoint. The prompt is the same
+    string the subprocess path sends with -p, so the reply is the same
+    shape as today, just without the load. Raises on any failure; the
+    caller falls back to the subprocess path."""
+    import requests
+
+    server = ensure_resident_server(model, model_path)
+    resp = requests.post(
+        f"{server.base_url}/completion",
+        json={
+            "prompt": prompt,
+            "temperature": temperature,
+            "n_predict": max_tokens,
+            "stream": False,
+        },
+        timeout=timeout,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Resident server for '{server.model}' answered HTTP {resp.status_code}: {resp.text[:200]}"
+        )
+    data = resp.json()
+    content = data.get("content")
+    if not isinstance(content, str):
+        raise RuntimeError(
+            f"Resident server for '{server.model}' returned no completion content"
+        )
+    timings = data.get("timings") if isinstance(data.get("timings"), dict) else {}
+    stats = {
+        "prompt_tokens": int(timings.get("prompt_n", 0) or 0),
+        "generated_tokens": int(timings.get("predicted_n", 0) or 0),
+        "total_tokens": int(timings.get("prompt_n", 0) or 0)
+        + int(timings.get("predicted_n", 0) or 0),
+    }
+    return content, stats
+
+
+def shutdown_resident_servers() -> None:
+    """Kill every resident server. Called at backend exit (atexit) so
+    no llamafile server survives Lucid, and by tests to reset state."""
+    for server in list(_RESIDENT_SERVERS.values()):
+        try:
+            server.process.kill()
+        except Exception:
+            pass
+    _RESIDENT_SERVERS.clear()
+
+
+atexit.register(shutdown_resident_servers)
+
+
 class NativeLlamafileBackend:
     """Backend implementation for native llamafile (subprocess calls)."""
     
@@ -449,6 +713,35 @@ class NativeLlamafileBackend:
         # as they arrive. The old default (False) switched the stream
         # detection off in every path that did not ask for it explicitly.
         stream = kwargs.get('stream', True)
+
+        # Resident server first (instant reply): the model stays loaded
+        # in a long-running llamafile server, so this reply skips the
+        # cold-load. The prompt is the same string the subprocess path
+        # sends with -p, so the reply is the same shape as today. The
+        # resident call is non-streaming (the model is already loaded,
+        # so there is no load stall to detect); a stream_callback, when
+        # one is passed, gets the full text once, for compatibility.
+        # Falls back to the subprocess path below when the server cannot
+        # start or the request fails — a reply still comes back, just
+        # slow, as today. A failed resident server never blocks a reply.
+        try:
+            content, stats = resident_generate(
+                self.model,
+                self.model_path,
+                prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=kwargs.get('timeout', 600),
+            )
+            stream_callback = kwargs.get('stream_callback', None)
+            if stream_callback:
+                stream_callback(content, len(content))
+            if kwargs.get('return_stats', False):
+                return (content, stats)
+            return content
+        except Exception as e:
+            if self.verbose:
+                print(f"{GOLD}Resident server unavailable ({e}); falling back to subprocess{RESET}")
 
         # Build llamafile command. llamafile is an APE binary: it must run
         # through sh on EVERY platform — direct exec fails with ENOEXEC /

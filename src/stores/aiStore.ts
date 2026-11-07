@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { ChatMessage, ChatSession } from '../types';
+import { ChatMessage, ChatSession, PingQuota } from '../types';
+import { basePingQuota, nextLastRestockAt } from '../lib/pingQuota';
 import { normalizeMessageList, insertMessageInOrder, nextTickFor } from '../components/AI/chatBubbles';
 import { useHornWiggleStore } from './hornWiggleStore';
 
@@ -39,6 +40,11 @@ interface AIState {
     loadSessions: () => Promise<void>;
     createSession: () => void;
     selectSession: (id: string) => void;
+    /** Set a chat's model (from the header dropdown). Persists via
+     *  the existing saveSession call, so the choice round-trips
+     *  through sessions.json and the chat remembers its model.
+     *  model/modelSource undefined = Auto (today's cascade). */
+    setSessionModel: (id: string, model?: string, modelSource?: 'local' | 'openai' | 'ping') => void;
     deleteSession: (id: string) => Promise<void>;
     clearSessions: () => Promise<void>;
     addMessage: (message: ChatMessage, targetSessionId?: string) => void;
@@ -52,6 +58,32 @@ interface AIState {
     clearPendingAiPrompt: () => void;
     setContextDirectory: (dir: string | null) => void;
     setLoading: (loading: boolean) => void;
+
+    /** Last SP balance the ping server reported (null until the
+     *  client has talked to it once). Shown in the AI panel header
+     *  while the ping server test path is enabled. */
+    pingQuota: PingQuota | null;
+    setPingQuota: (quota: PingQuota | null) => void;
+
+    /** Where the current pingQuota came from: 'server' when the ping
+     *  server reported it, 'base' when Lucid cannot reach the server
+     *  and the balance is the KNOWN base 100 (a non-connected user
+     *  carries a temp, and through that temp their SP is base 100 —
+     *  daily-sync design). Null when no balance is known yet. */
+    pingQuotaSource: 'server' | 'base' | null;
+
+    /** Unix ms of the most recent SP restock, when it is known. The
+     *  header shows "restocked Xm ago" from this. Null until a
+     *  restock is actually seen — never a stale timer from an older
+     *  restock. Cleared when the balance goes to base (no server, no
+     *  known restock). */
+    lastRestockAt: number | null;
+
+    /** Put the SP balance into the base-100 KNOWN state: the ping
+     *  server is unreachable, so the balance is base 100 (the
+     *  starting balance), not an error, not unknown, not stale. Also
+     *  clears the restock timer (no server, no known restock). */
+    setPingQuotaBase: () => void;
 }
 
 export const useAIStore = create<AIState>((set, get) => {
@@ -206,6 +238,9 @@ export const useAIStore = create<AIState>((set, get) => {
     generatingSessionId: null,
     pendingAiPrompt: null,
     lastTokenAt: null,
+    pingQuota: null,
+    pingQuotaSource: null,
+    lastRestockAt: null,
     stagingMessages: null,
     nextMessages: null,
 
@@ -239,6 +274,12 @@ export const useAIStore = create<AIState>((set, get) => {
     },
 
     createSession: () => {
+        // A new chat inherits the current chat's model (so starting a
+        // fresh chat while talking to TinyLlama keeps TinyLlama), else
+        // Auto — no explicit model, the reply takes today's cascade.
+        // There is no global model default beyond the cascade: the
+        // dropdown's Auto entry IS the default.
+        const current = get().sessions.find((s) => s.id === get().currentSessionId);
         const newSession: ChatSession = {
             id: Date.now().toString(),
             title: 'New Chat',
@@ -246,6 +287,8 @@ export const useAIStore = create<AIState>((set, get) => {
             createdAt: Date.now(),
             updatedAt: Date.now(),
             nextTick: 0,
+            model: current?.model,
+            modelSource: current?.modelSource,
         };
 
         // New empty chat, through the same atomic swap as any switch —
@@ -270,6 +313,17 @@ export const useAIStore = create<AIState>((set, get) => {
         // The chat's ritual ticks ride along unchanged — the swap
         // never re-numbers them.
         swapToChat(session.messages, { currentSessionId: id }, session.nextTick);
+    },
+
+    setSessionModel: (id, model, modelSource) => {
+        const state = get();
+        const session = state.sessions.find((s) => s.id === id);
+        if (!session) return;
+        const updated: ChatSession = { ...session, model, modelSource, updatedAt: Date.now() };
+        set({ sessions: state.sessions.map((s) => (s.id === id ? updated : s)) });
+        // Persist — the model round-trips through sessions.json with
+        // the rest of the session, so the chat remembers it.
+        window.lucidAPI.ai.saveSession(updated);
     },
 
     deleteSession: async (id: string) => {
@@ -486,6 +540,32 @@ export const useAIStore = create<AIState>((set, get) => {
             set({ isLoading: false, generatingSessionId: null, lastTokenAt: null });
             if (wasLoading) useHornWiggleStore.getState().wiggle();
         }
+    },
+
+    setPingQuota: (quota) => {
+        if (!quota) {
+            set({ pingQuota: null, pingQuotaSource: null });
+            return;
+        }
+        const prev = get().pingQuota;
+        set({
+            pingQuota: quota,
+            pingQuotaSource: 'server',
+            // A restock is detected from the quota's `reset` advancing
+            // (see pingQuota.ts) — the timer resets to the most
+            // recent restock, never to a stale one.
+            lastRestockAt: nextLastRestockAt(prev, quota, get().lastRestockAt),
+        });
+    },
+
+    setPingQuotaBase: () => {
+        set({
+            pingQuota: basePingQuota(),
+            pingQuotaSource: 'base',
+            // No server, no known restock — never show a stale timer
+            // from an older restock.
+            lastRestockAt: null,
+        });
     },
     };
 });

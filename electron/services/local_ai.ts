@@ -140,7 +140,19 @@ export async function checkLocalBackendHealth(): Promise<boolean> {
     return isBackendReady && !!backendProcess;
 }
 
-export function chatLocal(messages: ChatMessage[], cwd?: string): Promise<string> {
+/**
+ * Per-chat options for the local path. `model` is the canonical
+ * local key the Python backend cold-loads for this one reply;
+ * `chatId` is the chat the reply belongs to - the backend scopes
+ * its conversation history per chat id, so a new chat never sees
+ * the old chat's context. Both absent = Auto (backend default).
+ */
+export interface LocalChatOptions {
+  model?: string;
+  chatId?: string;
+}
+
+export function chatLocal(messages: ChatMessage[], cwd?: string, options?: LocalChatOptions): Promise<string> {
     if (!backendProcess || !isBackendReady) {
         return Promise.reject(new Error("Local backend is not running"));
     }
@@ -156,8 +168,8 @@ export function chatLocal(messages: ChatMessage[], cwd?: string): Promise<string
     // as unhandled until the caller awaits it (a macrotask later).
     const { promise } = chatQueue.enqueue<string>(
         'ai-chat',
-        { messages: messages.length, cwd: cwd ?? null },
-        (_task, isCancelled) => sendChatRequest(messages, cwd, isCancelled)
+        { messages: messages.length, cwd: cwd ?? null, model: options?.model ?? null, chatId: options?.chatId ?? null },
+        (_task, isCancelled) => sendChatRequest(messages, cwd, isCancelled, options)
     );
     return promise;
 }
@@ -169,10 +181,27 @@ export function chatLocal(messages: ChatMessage[], cwd?: string): Promise<string
  * cancelled run still consumes its reply line — the result is just
  * dropped and the caller gets TaskCancelledError instead.
  */
+/**
+ * Build the stdio payload for one chat round-trip. The per-chat
+ * model + chat id ride along when present; omitted when absent
+ * (Auto), so the backend then uses its own default model and its
+ * shared history, exactly as today. Exported for tests.
+ */
+export function buildChatPayload(prompt: string, cwd: string | undefined, options?: LocalChatOptions): string {
+    return JSON.stringify({
+        command: 'chat',
+        message: prompt,
+        cwd: cwd,
+        ...(options?.model ? { model: options.model } : {}),
+        ...(options?.chatId ? { chat_id: options.chatId } : {}),
+    });
+}
+
 function sendChatRequest(
     messages: ChatMessage[],
     cwd: string | undefined,
-    isCancelled: () => boolean
+    isCancelled: () => boolean,
+    options?: LocalChatOptions
 ): Promise<string> {
     return new Promise((resolve, reject) => {
         pendingRequestResolver = (response: any) => {
@@ -190,11 +219,7 @@ function sendChatRequest(
         const lastMessage = messages[messages.length - 1];
         const prompt = lastMessage.content;
 
-        const payload = JSON.stringify({
-            command: 'chat',
-            message: prompt,
-            cwd: cwd
-        });
+        const payload = buildChatPayload(prompt, cwd, options);
 
         try {
             backendProcess?.stdin?.write(payload + '\n');
@@ -309,6 +334,8 @@ export interface LocalToolChatDeps {
   /** Called for every tool execution (the IPC layer streams it as
    * a `> ⚡` notice, like the OpenAI path does). */
   onToolCall?: (name: string, resultSummary: string) => void;
+  /** The current chat's model + id, passed to the stdio payload. */
+  localOptions?: LocalChatOptions;
 }
 
 const BROWSER_TOOL_PROMPT = [
@@ -348,7 +375,7 @@ export async function chatLocalWithBrowserTools(
   cwd?: string,
   deps: LocalToolChatDeps = {},
 ): Promise<string> {
-  const chat = deps.chat ?? chatLocal;
+  const chat = deps.chat ?? ((msgs, dir) => chatLocal(msgs, dir, deps.localOptions));
   const execute =
     deps.execute ?? ((name, args) => executeTool(name, args, cwd));
   let transcript = formatTranscript(messages);

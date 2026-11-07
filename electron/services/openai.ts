@@ -82,7 +82,10 @@ export async function chat(
   contextDirectory?: string,
   onStream?: (chunk: string) => void,
   onEnd?: () => void,
-  onError?: (error: string) => void
+  onError?: (error: string) => void,
+  // The current chat's model (the header dropdown), when one is set.
+  // Absent = today's global Settings default (settings.aiModel).
+  modelOverride?: string
 ): Promise<string> {
   const apiKey = apiKeyStorage.getApiKey();
 
@@ -92,7 +95,9 @@ export async function chat(
     throw new Error(errorMsg);
   }
 
-  const model = settings.get<string>('aiModel') || 'gpt-4';
+  // A per-chat model overrides the global Settings default for this
+  // one reply only - the setting itself never changes.
+  const model = modelOverride ?? (settings.get<string>('aiModel') || 'gpt-4');
 
   let systemPrompt = SYSTEM_PROMPT;
   if (contextDirectory) {

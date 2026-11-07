@@ -11,17 +11,13 @@
  *   (self-drop, an unknown id; an unknown target appends instead of
  *   losing the tab).
  * - Persistence round-trip: a stored order reloads to the same order.
- * - The hold threshold: the Settings tabs share the toolbar's 500ms
- *   click-hold-to-drag threshold (same constant).
  */
 import { describe, test, expect } from 'vitest';
 import {
   resolveSettingsTabOrder,
   moveSettingsTab,
   DEFAULT_SETTINGS_TAB_ORDER,
-  SETTINGS_TAB_HOLD_TO_DRAG_MS,
 } from '../src/lib/settingsTabOrder';
-import { TOOLBAR_HOLD_TO_DRAG_MS } from '../src/lib/toolbarOrder';
 
 describe('resolveSettingsTabOrder', () => {
   test('no stored order -> the default order', () => {
@@ -96,12 +92,5 @@ describe('persistence round-trip', () => {
     // And after a move, the moved order also reloads unchanged.
     const moved = moveSettingsTab(stored, 'daemon', 'appearance');
     expect(resolveSettingsTabOrder(moved)).toEqual(moved);
-  });
-});
-
-describe('hold threshold', () => {
-  test('the Settings tabs share the toolbar 500ms click-hold threshold', () => {
-    expect(SETTINGS_TAB_HOLD_TO_DRAG_MS).toBe(500);
-    expect(SETTINGS_TAB_HOLD_TO_DRAG_MS).toBe(TOOLBAR_HOLD_TO_DRAG_MS);
   });
 });

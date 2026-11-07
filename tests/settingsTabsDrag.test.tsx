@@ -5,16 +5,13 @@
  * Covers:
  * - The tabs render in the stored order (or the default order when
  *   nothing is stored), and a stored order survives a reload.
- * - Click-HOLD to drag: the drop only commits once the tab has
- *   been held for the hold threshold — a press-drag-drop inside the
- *   hold window stores nothing, while a drop after holding reorders
- *   and stores the new order immediately (updated AND stored). A drag
- *   that starts before the hold is done still reorders, as long as
- *   the drop happens after the hold (the hold is enforced at the
- *   drop, not dragstart — cancelling dragstart for a short press
- *   killed the drag for the whole press). The drop is midpoint-aware:
- *   dragging DOWN one slot onto the next tab swaps them instead of
- *   silently doing nothing.
+ * - No hold gate (the 500ms press-and-hold gate was REMOVED
+ *   2026-11-07, same root cause as the toolbar icons): a completed
+ *   drop on a different tab always commits and stores the new order
+ *   immediately (updated AND stored). REGRESSION: a quick
+ *   press-drag-drop with no hold at all commits and stores. The
+ *   drop is midpoint-aware: dragging DOWN one slot onto the next
+ *   tab swaps them instead of silently doing nothing.
  * - A plain click still switches to the tab (no reorder).
  * - The lock toggle: unlocked by default; locking pins the order
  *   (tabs stop being draggable and a drag stores nothing); unlocking
@@ -107,123 +104,104 @@ describe('Settings tabs drag-reorder + lock', () => {
     expect(tabOrderInDom()).toEqual(stored);
   });
 
-  test('dragging General onto Appearance after holding stores the new order (updated AND stored)', async () => {
-    const baseMs = 1_000_000;
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(baseMs);
-    try {
-      renderSettings();
-      const general = tabEl('general');
-      const appearance = tabEl('appearance');
-      fireEvent.mouseDown(general);
-      // Hold 600ms (past the 500ms threshold), then drag.
-      nowSpy.mockReturnValue(baseMs + 600);
-      fireEvent.dragStart(general);
-      nowSpy.mockRestore();
-      fireEvent.dragOver(appearance);
-      fireEvent.drop(appearance);
-      const expected = [
-        'general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
-      ];
-      await waitFor(() => {
-        expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
-      });
-      // And the store holds the new order (what a reload reads).
-      expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual(expected);
-    } finally {
-      nowSpy.mockRestore();
-    }
-  });
-
-  test('a press-drag-drop inside the hold window stores nothing (drop-gate)', () => {
+  test('dragging General onto Appearance stores the new order (updated AND stored)', async () => {
     renderSettings();
     const general = tabEl('general');
     const appearance = tabEl('appearance');
-    // Press, drag and drop immediately (no hold): the drop happens
-    // inside the hold window, so the drop-gate ignores it and stores
-    // nothing. (The old dragstart-cancel gate did the same job by
-    // killing the drag; the gate now lives at the drop, so a drag
-    // that starts before the hold can still commit if the drop
-    // happens after it — see the next test.)
     fireEvent.mouseDown(general);
     fireEvent.dragStart(general);
     fireEvent.dragOver(appearance);
     fireEvent.drop(appearance);
-    expect(mockSet).not.toHaveBeenCalled();
-    expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual([]);
+    const expected = [
+      'general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
+    });
+    // And the store holds the new order (what a reload reads).
+    expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual(expected);
   });
 
-  test('a drag that starts before the hold but drops after it still reorders', async () => {
-    const baseMs = 1_000_000;
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(baseMs);
-    try {
-      renderSettings();
-      const general = tabEl('general');
-      const appearance = tabEl('appearance');
-      fireEvent.mouseDown(general);
-      // Drag immediately (no hold yet) — the old dragstart-cancel
-      // gate killed this drag for the whole press, so a normal
-      // press-and-drag never reordered at all.
-      fireEvent.dragStart(general);
-      fireEvent.dragOver(appearance);
-      // The drop line is dimmed until the hold completes.
-      expect(appearance.querySelector('[class*="opacity-40"]')).not.toBeNull();
-      // Hold out the 500ms, then drop: the reorder commits.
-      nowSpy.mockReturnValue(baseMs + 600);
-      fireEvent.drop(appearance);
-      const expected = [
-        'general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
-      ];
-      await waitFor(() => {
-        expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
-      });
-      expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual(expected);
-    } finally {
-      nowSpy.mockRestore();
-    }
+  test('REGRESSION (Gary, 2026-11-07): a quick press-drag-drop with no hold commits — the reorder is stored', async () => {
+    renderSettings();
+    const general = tabEl('general');
+    const appearance = tabEl('appearance');
+    // Press, drag and drop immediately (no hold) — the natural
+    // gesture, ~200-400ms total. The old 500ms hold gate silently
+    // rejected this and stored nothing, so the tabs "didn't move"
+    // with a real mouse. A completed drop on a different tab must
+    // commit. This test FAILS on the old code (mockSet never called)
+    // and PASSES after the fix.
+    fireEvent.mouseDown(general);
+    fireEvent.dragStart(general);
+    fireEvent.dragOver(appearance);
+    fireEvent.drop(appearance);
+    const expected = [
+      'general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
+    });
+    expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual(expected);
+  });
+
+  test('the drop indicator is solid during a drag — a drop always sticks (no dimmed hold state)', async () => {
+    renderSettings();
+    const general = tabEl('general');
+    const appearance = tabEl('appearance');
+    fireEvent.mouseDown(general);
+    fireEvent.dragStart(general);
+    fireEvent.dragOver(appearance);
+    // The accent line renders solid — there is no dimmed "not ready
+    // yet" state any more, because a drop always commits now.
+    const line = appearance.querySelector('[class*="h-0.5"]') as HTMLElement | null;
+    expect(line).not.toBeNull();
+    expect(line?.className).not.toContain('opacity-40');
+    // And the drop commits immediately.
+    fireEvent.drop(appearance);
+    const expected = [
+      'general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
+    });
+    expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual(expected);
   });
 
   test('dragging a tab DOWN one slot onto the next tab swaps them (midpoint-aware drop)', async () => {
-    const baseMs = 1_000_000;
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(baseMs);
+    renderSettings();
+    const appearance = tabEl('appearance');
+    const customization = tabEl('customization');
+    // Give the target real geometry (jsdom rects are all zeros):
+    // a 40px-tall tab, pointer at clientY 30 — in its lower half,
+    // so the drop lands AFTER it.
+    const rect = {
+      top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40,
+      x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect;
+    const origRect = customization.getBoundingClientRect.bind(customization);
+    customization.getBoundingClientRect = () => rect;
     try {
-      renderSettings();
-      const appearance = tabEl('appearance');
-      const customization = tabEl('customization');
-      // Give the target real geometry (jsdom rects are all zeros):
-      // a 40px-tall tab, pointer at clientY 30 — in its lower half,
-      // so the drop lands AFTER it.
-      const rect = {
-        top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40,
-        x: 0, y: 0, toJSON: () => ({}),
-      } as DOMRect;
-      const origRect = customization.getBoundingClientRect.bind(customization);
-      customization.getBoundingClientRect = () => rect;
-      try {
-        fireEvent.mouseDown(appearance);
-        nowSpy.mockReturnValue(baseMs + 600);
-        fireEvent.dragStart(appearance);
-        nowSpy.mockRestore();
-        // jsdom has no DragEvent, so fireEvent.dragOver/drop lose
-        // clientY. Dispatch a MouseEvent carrying the same type
-        // instead — React only keys on the event type, and the
-        // handlers read clientY + the target rect from it.
-        dispatchPointerDragEvent(customization, 'dragover', 30);
-        dispatchPointerDragEvent(customization, 'drop', 30);
-      } finally {
-        customization.getBoundingClientRect = origRect;
-      }
-      // Appearance and customization swap (was a silent no-op:
-      // insert-before the next tab is the order you already have).
-      const expected = [
-        'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general',
-      ];
-      await waitFor(() => {
-        expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
-      });
-      expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual(expected);
+      fireEvent.mouseDown(appearance);
+      fireEvent.dragStart(appearance);
+      // jsdom has no DragEvent, so fireEvent.dragOver/drop lose
+      // clientY. Dispatch a MouseEvent carrying the same type
+      // instead — React only keys on the event type, and the
+      // handlers read clientY + the target rect from it.
+      dispatchPointerDragEvent(customization, 'dragover', 30);
+      dispatchPointerDragEvent(customization, 'drop', 30);
     } finally {
-      nowSpy.mockRestore();
+      customization.getBoundingClientRect = origRect;
     }
+    // Appearance and customization swap (was a silent no-op:
+    // insert-before the next tab is the order you already have).
+    const expected = [
+      'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
+    });
+    expect(useSettingsStore.getState().settings.settingsTabOrder).toEqual(expected);
   });
 
   test('dropping a tab on the end zone moves it last', async () => {

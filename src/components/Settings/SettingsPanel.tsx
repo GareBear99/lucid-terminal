@@ -40,7 +40,7 @@ import { COMMAND_CATEGORIES, searchCommandCatalogue } from '../../data/commands'
 import { useDevicesStore } from '../../stores/devicesStore';
 import { useToastStore } from '../../stores/toastStore';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
-import { resolveSettingsTabOrder, moveSettingsTab, SETTINGS_TAB_HOLD_TO_DRAG_MS } from '../../lib/settingsTabOrder';
+import { resolveSettingsTabOrder, moveSettingsTab } from '../../lib/settingsTabOrder';
 import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -375,48 +375,33 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
   // --- Settings tab order + drag-reorder (Gary, 2026-11-06) --------
   // The tabs are drag-reorderable, same pattern as the toolbar icons
-  // (see src/lib/settingsTabOrder.ts): press-and-hold a tab for the
-  // hold threshold, then drag it onto another tab to move it before
-  // that tab (or onto the end zone to move it last). The hold is
-  // enforced at the DROP, not dragstart — cancelling dragstart for
-  // a short press killed the drag for the whole press, so a normal
-  // press-and-drag never reordered at all. A plain click still
-  // switches to the tab. The drop is midpoint-aware: the pointer's
-  // half of the target decides whether the tab lands before or
-  // after it, so dragging DOWN one slot onto the next tab swaps
-  // them instead of silently doing nothing. The order is stored
-  // immediately on drop via updateSetting('settingsTabOrder', ...) — updated AND
-  // stored — so it survives a reload/restart. The lock
-  // (settingsTabsLocked) only prevents dragging; the order is
-  // persisted whenever it changes, locked or not.
+  // (see src/lib/settingsTabOrder.ts): drag a tab onto another tab
+  // to move it before that tab (or onto the end zone to move it
+  // last). There used to be a 500ms press-and-hold gate at the drop
+  // (removed 2026-11-07, same root cause as the toolbar icons): a
+  // natural drag takes ~200-400ms total, so the gate silently
+  // rejected the overwhelmingly common gesture and the tabs "didn't
+  // move" (Gary, 2026-11-07, real mouse). A completed drop on a
+  // different tab is already unambiguous — a plain click can never
+  // produce a drop on another tab — so the drop commits without a
+  // hold. A plain click still switches to the tab. The drop is
+  // midpoint-aware: the pointer's half of the target decides whether
+  // the tab lands before or after it, so dragging DOWN one slot onto
+  // the next tab swaps them instead of silently doing nothing. The
+  // order is stored immediately on drop via
+  // updateSetting('settingsTabOrder', ...) — updated AND stored — so
+  // it survives a reload/restart. The lock (settingsTabsLocked)
+  // only prevents dragging; the order is persisted whenever it
+  // changes, locked or not.
   const settingsTabsLocked = settings.settingsTabsLocked ?? false;
   const orderedTabs = resolveSettingsTabOrder(settings.settingsTabOrder)
     .map((id) => tabs.find((t) => t.id === id))
     .filter((t): t is (typeof tabs)[number] => t !== undefined);
   const [draggedSettingsTab, setDraggedSettingsTab] = useState<SettingsTab | null>(null);
   const [dropSettingsTabTarget, setDropSettingsTabTarget] = useState<string | null>(null);
-  // Click-hold to drag (Gary, 2026-11-06): when the user pressed on
-  // a tab. The HOLD is enforced at the drop, not dragstart — the old
-  // dragstart-cancel gate killed the drag for the whole press
-  // whenever the user moved before the hold was done (the browser
-  // fires dragstart once per press), so a normal press-and-drag
-  // never reordered at all. Same fix as the toolbar icons.
-  const settingsTabMouseDownAtRef = useRef<number>(0);
-  // Whether the hold has completed for the drag in progress — the
-  // drop indicator renders dimmed until it is, so the user can see
-  // when a drop will stick. Armed from dragstart; cleared on
-  // drop / drag end / unmount.
-  const [settingsTabDragHoldReady, setSettingsTabDragHoldReady] = useState(false);
-  const settingsTabDragHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearSettingsTabDragHoldTimer = () => {
-    if (settingsTabDragHoldTimerRef.current !== null) {
-      clearTimeout(settingsTabDragHoldTimerRef.current);
-      settingsTabDragHoldTimerRef.current = null;
-    }
-  };
-
-  // Never leave a hold timer running past unmount.
-  useEffect(() => clearSettingsTabDragHoldTimer, []);
+  // (No hold gate any more — see the header comment above. A
+  // completed drop on a different tab commits; a plain click can
+  // never produce one.)
   // Whether the drop will land AFTER the hovered tab (the pointer
   // is in its lower half) rather than before it. A drag DOWN onto
   // the tab immediately below the dragged one lands after it (they
@@ -440,12 +425,10 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   // immediately — one updateSetting call persists it (settings IPC)
   // and updates the store state, so the new order survives a reload
   // (updated AND stored, not updated-only). A null target is the end
-  // zone: the tab moves last. The hold gate lives HERE, not in
-  // dragstart: the drop only commits once the tab has been held for
-  // SETTINGS_TAB_HOLD_TO_DRAG_MS since the press, so a quick flick
-  // (press-drag-drop inside the hold window) is ignored and stores
-  // nothing, while a deliberate hold-drag reorders and stores —
-  // even when the drag itself started before the hold was done.
+  // zone: the tab moves last. A completed drop on a different tab
+  // always commits — there is no hold gate here any more (see the
+  // header comment): the 500ms gate silently rejected every natural
+  // quick drag, so the tabs "didn't move".
   const handleSettingsTabDrop = async (
     e: ReactDragEvent,
     targetId: SettingsTab | null,
@@ -454,18 +437,10 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     e.preventDefault();
     const fromData = e.dataTransfer?.getData('text/plain') || undefined;
     const draggedId = fromData ?? draggedSettingsTab;
-    clearSettingsTabDragHoldTimer();
-    setSettingsTabDragHoldReady(false);
     setDropSettingsTabInsertAfter(false);
     setDraggedSettingsTab(null);
     setDropSettingsTabTarget(null);
     if (!draggedId || draggedId === targetId) return;
-    // Click-HOLD to drag: the press must have lasted the hold
-    // threshold by drop time, or the reorder does not commit.
-    // (No press recorded — e.g. a programmatic drag — counts as
-    // held: settingsTabMouseDownAtRef starts at 0, so the elapsed
-    // time is always past the threshold.)
-    if (Date.now() - settingsTabMouseDownAtRef.current < SETTINGS_TAB_HOLD_TO_DRAG_MS) return;
     const currentOrder = orderedTabs.map((t) => t.id);
     const next = moveSettingsTab(currentOrder, draggedId, targetId, insertAfter);
     if (next.join(',') === currentOrder.join(',')) return;
@@ -473,8 +448,6 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   };
 
   const handleSettingsTabDragEnd = () => {
-    clearSettingsTabDragHoldTimer();
-    setSettingsTabDragHoldReady(false);
     setDropSettingsTabInsertAfter(false);
     setDraggedSettingsTab(null);
     setDropSettingsTabTarget(null);
@@ -513,43 +486,23 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               data-settings-tab={tab.id}
               className={`relative ${draggedSettingsTab === tab.id ? 'opacity-40' : ''}`}
               draggable={!settingsTabsLocked}
-              onMouseDown={(e) => {
-                // Record the press: dragstart below compares against it.
-                if (e.button === 0) settingsTabMouseDownAtRef.current = Date.now();
-              }}
               onDragStart={(e) => {
                 // Locked: no dragging at all.
                 if (settingsTabsLocked) {
                   e.preventDefault();
                   return;
                 }
-                // Click-HOLD to drag (Gary, 2026-11-06): the drag
-                // starts on movement — the HOLD is enforced at the
-                // drop, not here. Cancelling dragstart for a short
-                // press killed the drag for the whole press (the
-                // browser fires dragstart once per press), so a
-                // normal press-and-drag never reordered at all. The
-                // drop handler only commits once the press has
-                // lasted SETTINGS_TAB_HOLD_TO_DRAG_MS, so a plain
-                // click (or an accidental nudge) still never
-                // reorders — and still switches to the tab on release.
-                // dataTransfer is null in jsdom (no DataTransfer); the
-                // dragged id also lives in state, so the drop falls back.
+                // The drag starts on movement. A plain click (or an
+                // accidental nudge) never reorders — it produces no
+                // drop on another tab, and still switches to the tab
+                // on release. dataTransfer is null in jsdom (no
+                // DataTransfer); the dragged id also lives in state,
+                // so the drop falls back.
                 if (e.dataTransfer) {
                   e.dataTransfer.setData('text/plain', tab.id);
                   e.dataTransfer.effectAllowed = 'move';
                 }
                 setDraggedSettingsTab(tab.id);
-                // The drop indicator shows the hold state: ready now
-                // if the user already held the threshold before
-                // moving, else ready when the threshold passes after
-                // the press.
-                const remaining = SETTINGS_TAB_HOLD_TO_DRAG_MS - (Date.now() - settingsTabMouseDownAtRef.current);
-                if (remaining <= 0) {
-                  setSettingsTabDragHoldReady(true);
-                } else {
-                  settingsTabDragHoldTimerRef.current = setTimeout(() => setSettingsTabDragHoldReady(true), remaining);
-                }
               }}
               onDragOver={(e) => {
                 if (settingsTabsLocked) return;
@@ -565,7 +518,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               onDragEnd={handleSettingsTabDragEnd}
             >
               {dropSettingsTabTarget === tab.id && (
-                <div className={`absolute ${dropSettingsTabInsertAfter ? '-bottom-0.5' : '-top-0.5'} left-2 right-2 h-0.5 rounded bg-[var(--accent)] ${settingsTabDragHoldReady ? '' : 'opacity-40'}`} aria-hidden="true" />
+                <div className={`absolute ${dropSettingsTabInsertAfter ? '-bottom-0.5' : '-top-0.5'} left-2 right-2 h-0.5 rounded bg-[var(--accent)]`} aria-hidden="true" />
               )}
               <Tooltip content={`${tab.label} settings`}>
                 <button
@@ -584,7 +537,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {/* End zone: dropping a tab here moves it last. */}
           <div
             data-settings-tab-end-zone
-            className={`w-full shrink-0 ${draggedSettingsTab ? 'h-4' : 'h-0'} ${dropSettingsTabTarget === 'end' ? `bg-[var(--bg-tertiary)]${settingsTabDragHoldReady ? '' : ' opacity-40'}` : ''}`}
+            className={`w-full shrink-0 ${draggedSettingsTab ? 'h-4' : 'h-0'} ${dropSettingsTabTarget === 'end' ? 'bg-[var(--bg-tertiary)]' : ''}`}
             onDragOver={(e) => {
               if (settingsTabsLocked || !draggedSettingsTab) return;
               e.preventDefault();

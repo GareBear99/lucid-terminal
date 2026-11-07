@@ -26,30 +26,21 @@
  * render order) and moveToolbarIcon (one drag -> the new order).
  * The Sidebar calls moveToolbarIcon on drop and persists the result
  * with updateSetting('toolbarOrder', newOrder) in the same step.
- * Dragging is click-HOLD to drag (see TOOLBAR_HOLD_TO_DRAG_MS): the
- * drop only commits once the icon has been held for the threshold,
- * so a plain click never reorders — it activates the icon instead.
+ * There used to be a 500ms press-and-hold gate at the drop (see
+ * TOOLBAR_HOLD_TO_DRAG_MS, removed 2026-11-07): the drop only
+ * committed once the press had lasted 500ms, but a natural drag
+ * takes ~200-400ms total, so the gate silently rejected the
+ * overwhelmingly common gesture and the icons "didn't move" (Gary,
+ * 2026-11-07, real mouse). A completed drop on a different slot is
+ * already unambiguous — a plain click can never produce a drop on
+ * another slot — so the drop commits without a hold. A plain click
+ * never reorders; it activates the icon instead.
  * The drop is midpoint-aware: the pointer's half of the target slot
  * decides whether the icon lands before or after it, so dragging
  * DOWN one slot onto the next icon swaps them instead of silently
  * doing nothing (insert-before the next icon is the order you
  * already have, which reads as "the icons don't move").
  */
-
-/**
- * How long (ms) the user must HOLD a toolbar icon before the drop
- * commits. Click-HOLD to drag (Gary, 2026-11-06): press and hold
- * the icon for this long, then drag it to a new position. A
- * press-and-drop inside the hold window does not reorder — the
- * Sidebar only commits the drop once the press has lasted this
- * long, so a plain click (or an accidental nudge) never reorders
- * and still activates the icon's normal action. The gate is at the
- * drop, not dragstart: cancelling dragstart for a short press
- * killed the drag for the whole press (the browser fires dragstart
- * once per press), so a normal press-and-drag never reordered at
- * all. Matches the Forge face's click-and-hold threshold.
- */
-export const TOOLBAR_HOLD_TO_DRAG_MS = 500;
 
 /** One entry in the toolbar order — an icon id, or the gap. */
 export type ToolbarIconId =

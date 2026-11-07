@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, Fragment, type DragEvent as ReactDragEvent } from 'react';
+import { useEffect, useState, Fragment, type DragEvent as ReactDragEvent } from 'react';
 import {
   FolderOpen,
   Terminal,
@@ -21,7 +21,7 @@ import { useHistoryStore, EMPTY_BLOCKS, jumpToBlock } from '../../stores/history
 import { useSettingsStore } from '../../stores/settingsStore';
 import { enabledToolbarPlugins } from '../../data/toolbarPlugins';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
-import { resolveToolbarOrder, moveToolbarIcon, TOOLBAR_HOLD_TO_DRAG_MS } from '../../lib/toolbarOrder';
+import { resolveToolbarOrder, moveToolbarIcon } from '../../lib/toolbarOrder';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { View, FileEntry } from '../../types';
@@ -122,20 +122,20 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   const toolbarOrder = resolveToolbarOrder(storedToolbarOrder, availableToolbarIcons);
   const [draggedToolbarIcon, setDraggedToolbarIcon] = useState<string | null>(null);
   const [dropToolbarTarget, setDropToolbarTarget] = useState<string | null>(null);
-  // Click-hold to drag (Gary, 2026-11-06): when the user pressed on
-  // an icon — the drop only COMMITS once the press has lasted the
-  // hold threshold. The drag itself starts on movement (see
-  // toolbarIconSlot): gating dragstart instead killed the drag for
-  // the whole press whenever the user moved before the hold was
-  // done, so a normal press-and-drag never reordered at all. A
-  // plain click still activates the icon's normal action (no
-  // movement, no drag, no drop).
-  const mouseDownAtRef = useRef<number>(0);
-  // Whether the hold has completed for the drag in progress — the
-  // drop indicators render dimmed until it is, so the user can see
-  // when a drop will stick. Armed from dragstart; cleared on
-  // drop / drag end / unmount.
-  const [dragHoldReady, setDragHoldReady] = useState(false);
+  // Drag-reorder (Gary, 2026-11-06; the 500ms hold gate was REMOVED
+  // 2026-11-07): a completed drag onto a different slot commits on
+  // drop. There used to be a 500ms press-and-hold gate at the drop —
+  // the drop only committed once the press had lasted 500ms — but a
+  // natural drag takes ~200-400ms total, so the gate silently
+  // rejected the overwhelmingly common gesture and the icons "didn't
+  // move" (Gary, 2026-11-07, real mouse). The gate is gone because a
+  // completed drop on a different slot is already unambiguous: a
+  // plain click can never produce a drop on another slot (no
+  // dragstart, no drop), so it still activates the icon's normal
+  // action and never reorders. The drag itself starts on movement
+  // (see toolbarIconSlot); gating dragstart instead killed the drag
+  // for the whole press whenever the user moved before the hold was
+  // done, so a normal press-and-drag never reordered at all.
   // Whether the drop will land AFTER the hovered icon (the pointer
   // is in its lower half) rather than before it. A drag DOWN onto
   // the icon immediately below the dragged one lands after it (they
@@ -144,16 +144,6 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // reads as "the icons don't move". The accent line renders below
   // the target when this is true, above it otherwise.
   const [dropToolbarInsertAfter, setDropToolbarInsertAfter] = useState(false);
-  const dragHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearDragHoldTimer = () => {
-    if (dragHoldTimerRef.current !== null) {
-      clearTimeout(dragHoldTimerRef.current);
-      dragHoldTimerRef.current = null;
-    }
-  };
-
-  // Never leave a hold timer running past unmount.
-  useEffect(() => clearDragHoldTimer, []);
 
   // Where the drop lands relative to the target slot: the pointer's
   // position within the slot. Lower half -> after the target, upper
@@ -170,13 +160,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // Drop: move the dragged icon to the target and STORE the new order
   // immediately — one updateSetting call persists it (settings IPC)
   // and updates the store state, so the new order survives a reload
-  // (updated AND stored, not updated-only). The hold gate lives
-  // HERE, not in dragstart: the drop only commits once the icon
-  // has been held for TOOLBAR_HOLD_TO_DRAG_MS since the press, so
-  // a quick flick (press-drag-drop inside the hold window) is
-  // ignored and stores nothing, while a deliberate hold-drag
-  // reorders and stores — even when the drag itself started before
-  // the hold was done.
+  // (updated AND stored, not updated-only). A completed drop on a
+  // different slot always commits — there is no hold gate here any
+  // more (see above): the 500ms gate silently rejected every natural
+  // quick drag, so the icons "didn't move".
   const handleToolbarDrop = async (
     e: ReactDragEvent,
     targetId: string | null,
@@ -185,26 +172,16 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     e.preventDefault();
     const fromData = e.dataTransfer?.getData('text/plain') || undefined;
     const draggedId = fromData ?? draggedToolbarIcon;
-    clearDragHoldTimer();
-    setDragHoldReady(false);
     setDropToolbarInsertAfter(false);
     setDraggedToolbarIcon(null);
     setDropToolbarTarget(null);
     if (!draggedId || draggedId === targetId) return;
-    // Click-HOLD to drag: the press must have lasted the hold
-    // threshold by drop time, or the reorder does not commit.
-    // (No press recorded — e.g. a programmatic drag — counts as
-    // held: mouseDownAtRef starts at 0, so the elapsed time is
-    // always past the threshold.)
-    if (Date.now() - mouseDownAtRef.current < TOOLBAR_HOLD_TO_DRAG_MS) return;
     const next = moveToolbarIcon(toolbarOrder, draggedId, targetId, insertAfter);
     if (next.join(',') === toolbarOrder.join(',')) return;
     await updateSetting('toolbarOrder', [...next]);
   };
 
   const handleToolbarDragEnd = () => {
-    clearDragHoldTimer();
-    setDragHoldReady(false);
     setDropToolbarInsertAfter(false);
     setDraggedToolbarIcon(null);
     setDropToolbarTarget(null);
@@ -323,9 +300,9 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // accent line shows where a dropped icon will land — above the
   // hovered icon when the pointer is in its upper half (insert
   // before it), below it when the pointer is in its lower half
-  // (insert after it). The line is dimmed until the hold completes
-  // (see dragHoldReady) — a drop before then does not commit, so
-  // the line going solid is the signal that the reorder will stick.
+  // (insert after it). The line is always solid: a drop on this
+  // slot always commits (no hold gate any more), so the line going
+  // solid is the signal that the reorder will stick.
   const toolbarIconSlot = (id: string) => {
     const entry = toolbarIconButton(id);
     if (!entry) return null;
@@ -336,36 +313,18 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         data-toolbar-icon={id}
         className={`relative ${isDragging ? 'opacity-40' : ''}`}
         draggable
-        onMouseDown={(e) => {
-          // Record the press: dragstart below compares against it.
-          if (e.button === 0) mouseDownAtRef.current = Date.now();
-        }}
         onDragStart={(e) => {
-          // Click-HOLD to drag (Gary, 2026-11-06): the drag starts
-          // on movement — the HOLD is enforced at the drop, not
-          // here. Cancelling dragstart for a short press killed the
-          // drag for the whole press (the browser fires dragstart
-          // once per press), so a normal press-and-drag never
-          // reordered at all. The drop handler only commits once
-          // the press has lasted TOOLBAR_HOLD_TO_DRAG_MS, so a
-          // plain click (or an accidental nudge) still never
-          // reorders — and still activates the icon on release.
-          // dataTransfer is null in jsdom (no DataTransfer); the
-          // dragged id also lives in state, so the drop falls back.
+          // The drag starts on movement. A plain click (or an
+          // accidental nudge) never reorders — it produces no drop
+          // on another slot, and still activates the icon on
+          // release. dataTransfer is null in jsdom (no
+          // DataTransfer); the dragged id also lives in state, so
+          // the drop falls back.
           if (e.dataTransfer) {
             e.dataTransfer.setData('text/plain', id);
             e.dataTransfer.effectAllowed = 'move';
           }
           setDraggedToolbarIcon(id);
-          // The drop indicators show the hold state: ready now if
-          // the user already held the threshold before moving,
-          // else ready when the threshold passes after the press.
-          const remaining = TOOLBAR_HOLD_TO_DRAG_MS - (Date.now() - mouseDownAtRef.current);
-          if (remaining <= 0) {
-            setDragHoldReady(true);
-          } else {
-            dragHoldTimerRef.current = setTimeout(() => setDragHoldReady(true), remaining);
-          }
         }}
         onDragOver={(e) => {
           e.preventDefault();
@@ -379,7 +338,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         onDragEnd={handleToolbarDragEnd}
       >
         {isDropTarget && (
-          <div className={`absolute ${dropToolbarInsertAfter ? '-bottom-0.5' : '-top-0.5'} left-1 right-1 h-0.5 rounded bg-[var(--accent)] ${dragHoldReady ? '' : 'opacity-40'}`} aria-hidden="true" />
+          <div className={`absolute ${dropToolbarInsertAfter ? '-bottom-0.5' : '-top-0.5'} left-1 right-1 h-0.5 rounded bg-[var(--accent)]`} aria-hidden="true" />
         )}
         <Tooltip content={entry.tooltip} placement="right" shortcut={entry.shortcut}>
           {entry.button}
@@ -510,10 +469,9 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           `toolbarOrder` setting + the icons available now); drag an
           icon onto another to move it before that icon, onto the gap
           to put it just after the gap, or onto the strip at the very
-          bottom to put it last. Click-HOLD to drag: hold the icon
-          500ms first — the drop line is dimmed until the hold is
-          done, and only a drop after the hold STORES the new order
-          immediately (updated AND stored). */}
+          bottom to put it last. A drop on a different slot STORES
+          the new order immediately (updated AND stored). A plain
+          click still activates the icon — it never reorders. */}
       <div className="w-12 h-full bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-2 gap-1">
         {toolbarOrder.map((entry, entryIdx) => {
           if (entry === 'spacer') {
@@ -534,7 +492,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
                 onDrop={(e) => handleToolbarDrop(e, 'spacer', true)}
               >
                 {isDropTarget && (
-                  <div className={`absolute top-0 left-1 right-1 h-0.5 rounded bg-[var(--accent)] ${dragHoldReady ? '' : 'opacity-40'}`} aria-hidden="true" />
+                  <div className="absolute top-0 left-1 right-1 h-0.5 rounded bg-[var(--accent)]" aria-hidden="true" />
                 )}
               </div>
             );
@@ -559,7 +517,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         <div
           data-toolbar-icon="end"
           className={`w-full shrink-0 ${draggedToolbarIcon ? 'h-6' : 'h-0'} ${
-            dropToolbarTarget === 'end' ? `bg-[var(--bg-tertiary)]${dragHoldReady ? '' : ' opacity-40'}` : ''
+            dropToolbarTarget === 'end' ? 'bg-[var(--bg-tertiary)]' : ''
           }`}
           onDragOver={(e) => {
             if (!draggedToolbarIcon) return;

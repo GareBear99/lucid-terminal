@@ -16,15 +16,14 @@
  *   the Synth button (Orbit) and the Help button (blood drop) both
  *   show while LuciferAI is enabled, and are gone entirely while it
  *   is disabled (Forge stays).
- * - Click-HOLD to drag (Gary, 2026-11-06): the drop only commits
- *   once the icon has been held for the hold threshold — a
- *   press-drag-drop inside the hold window stores nothing, while a
- *   drop after holding reorders and stores. A drag that STARTS
- *   before the hold is done still reorders, as long as the drop
- *   happens after the hold — cancelling dragstart for a short press
- *   killed the drag for the whole press, so a normal press-and-drag
- *   never reordered at all. A plain click still activates the icon
- *   (covered by the blood-drop Help tests).
+ * - No hold gate (the 500ms press-and-hold gate was REMOVED
+ *   2026-11-07): a completed drop on a different slot always
+ *   commits — the gate silently rejected every natural quick drag
+ *   (a real drag takes ~200-400ms), so the icons "didn't move"
+ *   (Gary, 2026-11-07, real mouse). REGRESSION: a quick
+ *   press-drag-drop with no hold at all commits and stores. A plain
+ *   click still activates the icon (covered by the blood-drop Help
+ *   tests) — it can never produce a drop on another slot.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/react';
@@ -225,23 +224,32 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
   });
 
-  test('a press-drag-drop inside the hold window stores nothing', () => {
+  test('REGRESSION (Gary, 2026-11-07): a quick press-drag-drop with no hold commits — the reorder is stored', async () => {
     renderSidebar();
     const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
     const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
     expect(synth).not.toBeNull();
     expect(terminal).not.toBeNull();
-    // Press, drag and drop immediately (no hold): the drop happens
-    // inside the hold window, so it is ignored and stores nothing.
+    // Press, drag and drop immediately (no hold) — the natural
+    // gesture, ~200-400ms total. The old 500ms hold gate silently
+    // rejected this and stored nothing, so the icons "didn't move"
+    // with a real mouse. A completed drop on a different slot must
+    // commit. This test FAILS on the old code (mockSet never called)
+    // and PASSES after the fix.
     fireEvent.mouseDown(synth);
     fireEvent.dragStart(synth);
     fireEvent.dragOver(terminal);
     fireEvent.drop(terminal);
-    expect(mockSet).not.toHaveBeenCalled();
-    expect(useSettingsStore.getState().settings.toolbarOrder).toEqual([]);
+    const expected = [
+      'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
+    });
+    expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
   });
 
-  test('a drop after holding is committed — the reorder is stored', async () => {
+  test('a drag after holding still commits — holding is no longer required but harmless', async () => {
     const base = 1_000_000;
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(base);
     try {
@@ -249,7 +257,8 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
       const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
       const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
       fireEvent.mouseDown(synth);
-      // Hold 600ms (past the 500ms threshold), then drag.
+      // Hold 600ms, then drag — holding is no longer required, but
+      // a held drag must still commit.
       nowSpy.mockReturnValue(base + 600);
       fireEvent.dragStart(synth);
       nowSpy.mockRestore();
@@ -267,83 +276,67 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     }
   });
 
-  test('a drag that starts before the hold but drops after it still reorders', async () => {
-    const base = 1_000_000;
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(base);
-    try {
-      renderSidebar();
-      const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
-      const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
-      expect(synth).not.toBeNull();
-      expect(terminal).not.toBeNull();
-      fireEvent.mouseDown(synth);
-      // Drag immediately (no hold yet) — the old dragstart-cancel
-      // gate killed this drag for the whole press, so a normal
-      // press-and-drag never reordered at all.
-      fireEvent.dragStart(synth);
-      fireEvent.dragOver(terminal);
-      // The drop line is dimmed until the hold completes.
-      expect(terminal.querySelector('[class*="opacity-40"]')).not.toBeNull();
-      // Hold out the 500ms, then drop: the reorder commits.
-      nowSpy.mockReturnValue(base + 600);
-      fireEvent.drop(terminal);
-      const expected = [
-        'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
-      ];
-      await waitFor(() => {
-        expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
-      });
-      expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
-    } finally {
-      nowSpy.mockRestore();
-    }
+  test('the drop indicator is solid during a drag — a drop always sticks (no dimmed hold state)', async () => {
+    renderSidebar();
+    const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
+    const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
+    expect(synth).not.toBeNull();
+    expect(terminal).not.toBeNull();
+    fireEvent.mouseDown(synth);
+    fireEvent.dragStart(synth);
+    fireEvent.dragOver(terminal);
+    // The accent line renders solid — there is no dimmed "not ready
+    // yet" state any more, because a drop always commits now.
+    const line = terminal.querySelector('[class*="h-0.5"]') as HTMLElement | null;
+    expect(line).not.toBeNull();
+    expect(line?.className).not.toContain('opacity-40');
+    // And the drop commits immediately.
+    fireEvent.drop(terminal);
+    const expected = [
+      'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
+    });
+    expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
   });
 
   test('dragging an icon DOWN one slot onto the next icon swaps them (midpoint-aware drop)', async () => {
-    const base = 1_000_000;
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(base);
+    renderSidebar();
+    const forge = document.querySelector('[data-toolbar-icon="llmbuilder"]') as HTMLElement;
+    const settings = document.querySelector('[data-toolbar-icon="settings"]') as HTMLElement;
+    expect(forge).not.toBeNull();
+    expect(settings).not.toBeNull();
+    // Give the target real geometry (jsdom rects are all zeros):
+    // a 40px-tall slot, pointer at clientY 30 — in its lower half,
+    // so the drop lands AFTER it.
+    const rect = {
+      top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40,
+      x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect;
+    const origRect = settings.getBoundingClientRect.bind(settings);
+    settings.getBoundingClientRect = () => rect;
     try {
-      renderSidebar();
-      const forge = document.querySelector('[data-toolbar-icon="llmbuilder"]') as HTMLElement;
-      const settings = document.querySelector('[data-toolbar-icon="settings"]') as HTMLElement;
-      expect(forge).not.toBeNull();
-      expect(settings).not.toBeNull();
-      // Give the target real geometry (jsdom rects are all zeros):
-      // a 40px-tall slot, pointer at clientY 30 — in its lower half,
-      // so the drop lands AFTER it.
-      const rect = {
-        top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40,
-        x: 0, y: 0, toJSON: () => ({}),
-      } as DOMRect;
-      const origRect = settings.getBoundingClientRect.bind(settings);
-      settings.getBoundingClientRect = () => rect;
-      try {
-        fireEvent.mouseDown(forge);
-        // Hold 600ms (past the 500ms threshold), then drag.
-        nowSpy.mockReturnValue(base + 600);
-        fireEvent.dragStart(forge);
-        nowSpy.mockRestore();
-        // jsdom has no DragEvent, so fireEvent.dragOver/drop lose
-        // clientY. Dispatch a MouseEvent carrying the same type
-        // instead — React only keys on the event type, and the
-        // handlers read clientY + the target rect from it.
-        dispatchPointerDragEvent(settings, 'dragover', 30);
-        dispatchPointerDragEvent(settings, 'drop', 30);
-      } finally {
-        settings.getBoundingClientRect = origRect;
-      }
-      // Forge and Settings swap (was a silent no-op: insert-before
-      // the next icon is the order you already have).
-      const expected = [
-        'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'settings', 'llmbuilder',
-      ];
-      await waitFor(() => {
-        expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
-      });
-      expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
+      fireEvent.mouseDown(forge);
+      fireEvent.dragStart(forge);
+      // jsdom has no DragEvent, so fireEvent.dragOver/drop lose
+      // clientY. Dispatch a MouseEvent carrying the same type
+      // instead — React only keys on the event type, and the
+      // handlers read clientY + the target rect from it.
+      dispatchPointerDragEvent(settings, 'dragover', 30);
+      dispatchPointerDragEvent(settings, 'drop', 30);
     } finally {
-      nowSpy.mockRestore();
+      settings.getBoundingClientRect = origRect;
     }
+    // Forge and Settings swap (was a silent no-op: insert-before
+    // the next icon is the order you already have).
+    const expected = [
+      'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'settings', 'llmbuilder',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
+    });
+    expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
   });
 
   test('the drop reads the dragged id from a real DataTransfer (the production path)', async () => {

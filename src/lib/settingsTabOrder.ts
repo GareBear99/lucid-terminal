@@ -19,29 +19,20 @@
  * render order) and moveSettingsTab (one drag -> the new order).
  * The SettingsPanel calls moveSettingsTab on drop and persists the
  * result with updateSetting('settingsTabOrder', newOrder) in the
- * same step. Dragging is click-HOLD to drag (see
- * SETTINGS_TAB_HOLD_TO_DRAG_MS): the drop only commits once the tab
- * has been held for the threshold — the hold is enforced at the
- * drop, not dragstart (cancelling dragstart for a short press
- * killed the drag for the whole press, so a normal press-and-drag
- * never reordered at all). The drop is midpoint-aware: the pointer's
- * half of the target decides whether the tab lands before or after
- * it, so dragging DOWN one slot onto the next tab swaps them
- * instead of silently doing nothing.
+ * same step. There used to be a 500ms press-and-hold gate at the
+ * drop (removed 2026-11-07): the drop only committed once the tab
+ * had been held for 500ms, but a natural drag takes ~200-400ms
+ * total, so the gate silently rejected the overwhelmingly common
+ * gesture and the tabs "didn't move" — the same root cause as the
+ * toolbar icons (Gary, 2026-11-07, real mouse). A completed drop on
+ * a different tab is already unambiguous — a plain click can never
+ * produce a drop on another tab — so the drop commits without a
+ * hold. A plain click never reorders; it switches to the tab. The
+ * drop is midpoint-aware: the pointer's half of the target decides
+ * whether the tab lands before or after it, so dragging DOWN one
+ * slot onto the next tab swaps them instead of silently doing
+ * nothing.
  */
-
-import { TOOLBAR_HOLD_TO_DRAG_MS } from './toolbarOrder';
-
-/**
- * How long (ms) the user must HOLD a Settings tab before the drop
- * commits. Click-HOLD to drag (Gary, 2026-11-06): press and hold the
- * tab for this long, then drag it to a new position. A
- * press-drag-drop inside the hold window does not commit — the
- * SettingsPanel enforces the hold at the drop, so a plain click
- * still switches to the tab. Shared with the toolbar icons (same
- * threshold as the Forge face hold).
- */
-export const SETTINGS_TAB_HOLD_TO_DRAG_MS = TOOLBAR_HOLD_TO_DRAG_MS;
 
 /** The default tab order — the layout as it was before reordering. */
 export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [

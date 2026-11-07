@@ -80,13 +80,13 @@ function App() {
     }
   };
   const [showHelp, setShowHelp] = useState(false);
-  // Blood drop tab (Gary, 2026-11-07): the LuciferAI tab, a visible
-  // tab in the terminal tab strip. When true the main panel shows the
-  // LuciferAI panel instead of the terminals; picking a terminal tab
-  // (or creating one) sets it false again. It is NOT a terminal tab
-  // — no PTY, no entry in the terminal store — and it is NOT the Help
-  // modal (that is the toolbar drop's surface). The daemon and the
-  // homunculi do not live here and are not gated on this state.
+  // Blood drop tab (Gary, 2026-11-07): a visible tab in the terminal
+  // tab strip. When true the main panel shows the blood drop panel
+  // instead of the terminals; picking a terminal tab (or creating
+  // one) sets it false again. It is NOT a terminal tab — no PTY, no
+  // entry in the terminal store — and it is NOT the Help modal (that
+  // is the toolbar drop's surface). The daemon and the homunculi do
+  // not live here and are not gated on this state.
   const [bloodDropActive, setBloodDropActive] = useState(false);
   // Help is bound to LuciferAI: when the plugin is off, Help is
   // inaccessible. Every Help opener (the StatusBar button, the
@@ -290,7 +290,15 @@ function App() {
               onViewChange={setCurrentView}
               showAI={showAI}
               onToggleAI={handleToggleAI}
-              onOpenHelp={openHelp}
+              onOpenBloodDrop={() => {
+                // Both blood drops go to the same creation place
+                // (Gary, 2026-11-07 ~09:18 PST): the toolbar drop
+                // opens the blood drop terminal, like the create
+                // drop. The terminal view IS the creation place, so
+                // switch to it first when coming from another view.
+                setCurrentView('terminal');
+                setBloodDropActive(true);
+              }}
               onToggleSynth={toggleSynth}
               onToggleForge={toggleForge}
               onTogglePersonaPlex={togglePersonaPlex}
@@ -327,10 +335,10 @@ function App() {
                 <CodeEditor />
               ) : (
                 <>
-                  {/* Terminal Tabs — the blood drop tab is the
-                      LuciferAI tab (Gary, 2026-11-07): it renders in
-                      this strip while LuciferAI is enabled and is
-                      gone when the plugin is off. */}
+                  {/* Terminal Tabs — the blood drop tab (Gary,
+                      2026-11-07): it renders in this strip while
+                      LuciferAI is enabled and is gone when the plugin
+                      is off. */}
                   <TerminalTabs
                     showBloodDrop={luciferAiEnabled}
                     bloodDropActive={bloodDropActive}
@@ -342,7 +350,7 @@ function App() {
                     {/* Terminal */}
                     <div className="flex-1 overflow-hidden">
                       {bloodDropActive ? (
-                        // Blood drop tab selected: the LuciferAI panel,
+                        // Blood drop tab selected: the blood drop panel,
                         // not a terminal. The terminals stay mounted
                         // underneath (hidden), so switching back is
                         // instant and nothing is lost.
@@ -354,22 +362,21 @@ function App() {
                           key={tab.id}
                           className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                         >
-                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} />
+                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} bloodDropActive={bloodDropActive} onToggleBloodDrop={() => setBloodDropActive((v) => !v)} />
                         </div>
                       ))}
                       {tabs.length === 0 && (
                         <EmptyTerminalState
                           onCreateTerminal={() => createTab()}
                           onCreateEditor={() => setCurrentView('editor')}
-                          // Blood drop (Gary, 2026-11-07): the
-                          // LuciferAI tab, as an option in the empty
-                          // state — a tab you open. It selects the
-                          // blood drop tab in the strip (the LuciferAI
-                          // panel); it does NOT open the Help modal —
-                          // that is the toolbar drop's surface. Only
-                          // when LuciferAI is enabled; when off, no
-                          // handler and no drop anywhere (not in the
-                          // strip, not here).
+                          // Blood drop (Gary, 2026-11-07): as an option
+                          // in the empty state — a tab you open. It
+                          // selects the blood drop tab in the strip
+                          // (the blood drop panel); it does NOT open
+                          // the Help modal — that is the toolbar drop's
+                          // surface. Only when LuciferAI is enabled;
+                          // when off, no handler and no drop anywhere
+                          // (not in the strip, not here).
                           onOpenBloodDrop={luciferAiEnabled ? () => setBloodDropActive(true) : undefined}
                         />
                       )}

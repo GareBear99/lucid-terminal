@@ -47,11 +47,11 @@ describe('Plugins tab', () => {
     expect(html).toContain('Plugins');
   });
 
-  it('renders the Core plugins section with the Synth, Help, AI Chat, and Forge toolbar toggles', () => {
+  it('renders the Core plugins section with the Synth, Blood drop, AI Chat, and Forge toolbar toggles', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Core plugins');
     expect(html).toContain('Synth');
-    expect(html).toContain('Help');
+    expect(html).toContain('Blood drop');
     expect(html).toContain('AI Chat');
     expect(html).toContain('Forge');
     // Five switches on the tab: the four toolbar toggles plus the
@@ -59,9 +59,10 @@ describe('Plugins tab', () => {
     expect(switchCount(html)).toBe(5);
     // The toggles keep their descriptions from the toolbar data.
     // (AI Chat is Lucid AI, its own plugin — Gary, 2026-11-07 — not a
-    // LuciferAI surface, so its description says so.)
+    // LuciferAI surface, so its description says so. The blood drop
+    // entry is the creation place, not Help — Gary, 2026-11-07.)
     expect(html).toContain('LuciferAI plugin shell');
-    expect(html).toContain('LuciferAI help');
+    expect(html).toContain('Blood drop terminal');
     expect(html).toContain('Lucid AI chat panel');
     expect(html).toContain('Train your Homunculi');
   });
@@ -72,7 +73,7 @@ describe('Plugins tab', () => {
     expect(html).toContain('Built-in');
     // No backend fetch runs under SSR, so the condition reads Checking…
     expect(html).toContain('Checking…');
-    // The disable toggle is ON by default (Synth and Help are the
+    // The disable toggle is ON by default (Synth and Blood drop are the
     // other ON switches; AI Chat and Forge default off).
     expect(switchCount(html)).toBe(5);
     expect(switchesOnCount(html)).toBe(3);

@@ -71,7 +71,6 @@ describe('color-shift — sidebar divider', () => {
         onViewChange={() => {}}
         showAI={false}
         onToggleAI={() => {}}
-        onOpenHelp={() => {}}
       />,
     );
     const divider = container.querySelector('.lucid-color-shift');
@@ -85,8 +84,8 @@ describe('color-shift — sidebar divider', () => {
     // It still sits between the plugin icons and Settings: in the
     // icon bar the divider's previous sibling is the plugin list
     // (holding the Synth button — the last plugin icon before
-    // Settings in this render, where only Synth and Help are on
-    // by default; the blood drop is locked to the top spot now,
+    // Settings in this render, where only Synth and the blood drop
+    // are on by default; the blood drop is locked to the top spot now,
     // Gary 2026-11-07, so it is no longer the last plugin icon)
     // and its next sibling is the Settings button.
     // (Asserted structurally, not via title attributes — the tooltip

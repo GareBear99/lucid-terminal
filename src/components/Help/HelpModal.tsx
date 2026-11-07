@@ -65,7 +65,7 @@ export function HelpContent({
             <Tooltip content="Back to categories">
               <button
                 onClick={() => setSelectedCategory(null)}
-                className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+                className="p-1 hover:bg-[var(--bg-tertiary)]/70 rounded transition-colors"
               >
                 <ChevronRight size={20} className="rotate-180 text-[var(--text-muted)]" />
               </button>
@@ -87,7 +87,7 @@ export function HelpContent({
           <Tooltip content="Close" shortcut="Esc">
             <button
               onClick={onClose}
-              className="p-2 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+              className="p-2 hover:bg-[var(--bg-tertiary)]/70 rounded transition-colors"
             >
               <X size={20} className="text-[var(--text-muted)]" />
             </button>
@@ -104,7 +104,7 @@ export function HelpContent({
             placeholder="Search commands, examples, or tags..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-md text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            className="w-full pl-10 pr-4 py-2 bg-[var(--bg-tertiary)]/60 backdrop-blur-sm border border-[var(--border)] rounded-md text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           />
         </div>
       </div>
@@ -118,7 +118,7 @@ export function HelpContent({
               <button
                 key={category.id}
                 onClick={() => setSelectedCategory(category)}
-                className="group relative p-4 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg transition-all cursor-pointer text-left"
+                className="group relative p-4 bg-[var(--bg-primary)]/60 hover:bg-[var(--bg-tertiary)]/70 backdrop-blur-md border border-[var(--border)] rounded-lg transition-all cursor-pointer text-left"
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -186,7 +186,7 @@ export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="w-[800px] max-h-[85vh] bg-[var(--bg-secondary)] rounded-lg shadow-2xl border border-[var(--border)] flex flex-col overflow-hidden">
+      <div className="w-[800px] max-h-[85vh] bg-[var(--bg-secondary)]/80 backdrop-blur-xl rounded-lg shadow-2xl border border-[var(--border)] flex flex-col overflow-hidden">
         <HelpContent
           title="LuciferAI Command Reference"
           onClose={onClose}
@@ -194,9 +194,9 @@ export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps
         />
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-[var(--border)] bg-[var(--bg-primary)]">
+        <div className="px-6 py-3 border-t border-[var(--border)] bg-[var(--bg-primary)]/70 backdrop-blur-md">
           <p className="text-xs text-[var(--text-muted)] text-center">
-            Press <kbd className="px-2 py-1 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded text-[var(--text-primary)]">Esc</kbd> to close
+            Press <kbd className="px-2 py-1 bg-[var(--bg-tertiary)]/60 backdrop-blur-sm border border-[var(--border)] rounded text-[var(--text-primary)]">Esc</kbd> to close
           </p>
         </div>
       </div>
@@ -206,7 +206,7 @@ export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps
 
 function CommandCard({ command, categoryColor }: { command: HelpCommand; categoryColor: string }) {
   return (
-    <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg">
+    <div className="p-4 bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border)] rounded-lg">
       {/* Command Header */}
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1">
@@ -229,7 +229,7 @@ function CommandCard({ command, categoryColor }: { command: HelpCommand; categor
         <label className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
           Syntax
         </label>
-        <code className="block mt-1 px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded text-sm font-mono text-[var(--text-primary)]">
+        <code className="block mt-1 px-3 py-2 bg-[var(--bg-tertiary)]/60 backdrop-blur-sm border border-[var(--border)] rounded text-sm font-mono text-[var(--text-primary)]">
           {command.syntax}
         </code>
       </div>
@@ -245,7 +245,7 @@ function CommandCard({ command, categoryColor }: { command: HelpCommand; categor
               <Tooltip content="Click to copy">
                 <code
                   key={idx}
-                  className="block px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded text-xs font-mono text-[var(--accent)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer"
+                  className="block px-3 py-2 bg-[var(--bg-tertiary)]/60 backdrop-blur-sm border border-[var(--border)] rounded text-xs font-mono text-[var(--accent)] hover:bg-[var(--bg-secondary)]/70 transition-colors cursor-pointer"
                   onClick={() => {
                     navigator.clipboard.writeText(example);
                   }}
@@ -264,7 +264,7 @@ function CommandCard({ command, categoryColor }: { command: HelpCommand; categor
           {command.tags.map((tag, idx) => (
             <span
               key={idx}
-              className="px-2 py-0.5 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded text-xs text-[var(--text-muted)]"
+              className="px-2 py-0.5 bg-[var(--bg-tertiary)]/60 backdrop-blur-sm border border-[var(--border)] rounded text-xs text-[var(--text-muted)]"
             >
               {tag}
             </span>

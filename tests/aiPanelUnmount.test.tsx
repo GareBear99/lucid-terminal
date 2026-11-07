@@ -26,7 +26,7 @@
  * disabled) and pass after the unmount.
  *
  * The intended LuciferAI couplings are preserved and asserted too:
- * the Synth view/button, Help and the blood drop still go away with
+ * the Synth view/button and the blood drop still go away with
  * the plugin — only the AI panel stays. The Persona Plex icon stays
  * too: it is an ADD-ON, not a LuciferAI surface (Gary, 2026-11-07
  * ~06:22 PST) — disabling the plugin used to take it out as if it
@@ -240,7 +240,7 @@ describe('AI panel unmounted from LuciferAI', () => {
     expect(screen.getByRole('button', { name: /AI/ })).not.toBeNull();
   });
 
-  test('Sidebar: the AI Chat icon shows while LuciferAI is disabled (Synth and Help do not)', () => {
+  test('Sidebar: the AI Chat icon shows while LuciferAI is disabled (Synth and the blood drop do not)', () => {
     useSettingsStore.setState((s) => ({
       settings: {
         ...s.settings,
@@ -256,12 +256,11 @@ describe('AI panel unmounted from LuciferAI', () => {
         onViewChange={() => {}}
         showAI={false}
         onToggleAI={() => {}}
-        onOpenHelp={() => {}}
       />,
     );
     // AI Chat is its own plugin now — its icon stays.
     expect(container.querySelector('[data-toolbar-icon="ai-chat"]')).not.toBeNull();
-    // Synth and Help are LuciferAI surfaces — they still go with it.
+    // Synth and the blood drop are LuciferAI surfaces — they still go with it.
     expect(container.querySelector('[data-toolbar-icon="synth"]')).toBeNull();
     expect(container.querySelector('[data-toolbar-icon="help"]')).toBeNull();
   });
@@ -290,7 +289,7 @@ describe('AI panel unmounted from LuciferAI', () => {
       clickToolbarIcon(container, view);
       await waitFor(() => expectPanelPresent());
     }
-    // Synth and Help are LuciferAI surfaces — their icons are gone
+    // Synth and the blood drop are LuciferAI surfaces — their icons are gone
     // while the plugin is off (intended, unchanged). Persona Plex
     // is an add-on — its icon stays.
     expect(container.querySelector('[data-toolbar-icon="synth"]')).toBeNull();

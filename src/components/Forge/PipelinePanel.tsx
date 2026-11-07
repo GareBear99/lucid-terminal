@@ -79,7 +79,11 @@ export function PipelinePanel() {
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-3">
+    // min-w-72 (not min-w-0): the pipeline keeps a usable width and the
+    // Forge row WRAPS it to its own line instead of crushing it to a
+    // ~100px strip in the narrower Settings mount (Gary, 2026-11-07 —
+    // the Forge settings page was unreadable there).
+    <div className="flex min-w-72 flex-1 flex-col gap-3" data-testid="forge-pipeline">
       {lowMemory && (
         <p
           role="alert"

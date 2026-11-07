@@ -44,10 +44,10 @@ export function PlanningPanel({ onClose }: PlanningPanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-5xl h-[80vh] bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-5xl h-[80vh] bg-[var(--bg-secondary)]/80 backdrop-blur-xl border border-[var(--border)] rounded-lg shadow-2xl flex flex-col overflow-hidden">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]/60 backdrop-blur-md">
           <div className="flex items-center gap-3">
             <FileText size={20} className="text-[var(--accent)]" />
             <div>
@@ -62,7 +62,7 @@ export function PlanningPanel({ onClose }: PlanningPanelProps) {
           <Tooltip content="Close">
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-[var(--bg-primary)] transition-colors"
+              className="p-2 rounded-lg hover:bg-[var(--bg-primary)]/70 transition-colors"
             >
               <X size={18} className="text-[var(--text-muted)]" />
             </button>
@@ -76,7 +76,7 @@ export function PlanningPanel({ onClose }: PlanningPanelProps) {
               {/* New Plan Button */}
               <button
                 className="w-full p-4 mb-4 rounded-lg border-2 border-dashed border-[var(--border)] 
-                         hover:border-[var(--accent)] hover:bg-[var(--bg-primary)] transition-all
+                         hover:border-[var(--accent)] hover:bg-[var(--bg-primary)]/70 transition-all
                          flex items-center justify-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               >
                 <Plus size={18} />
@@ -113,7 +113,7 @@ export function PlanningPanel({ onClose }: PlanningPanelProps) {
           {selectedPlan && (
             <div className="w-full flex flex-col overflow-hidden">
               {/* Plan Header */}
-              <div className="px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+              <div className="px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]/60 backdrop-blur-md">
                 <button
                   onClick={() => setSelectedPlan(null)}
                   className="flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] mb-3 transition-colors"
@@ -151,7 +151,7 @@ export function PlanningPanel({ onClose }: PlanningPanelProps) {
                         {selectedPlan.completedSteps}/{selectedPlan.steps} steps
                       </span>
                     </div>
-                    <div className="h-2 bg-[var(--bg-primary)] rounded-full overflow-hidden">
+                    <div className="h-2 bg-[var(--bg-primary)]/60 rounded-full overflow-hidden">
                       <div 
                         className="h-full bg-[var(--accent)] transition-all duration-300"
                         style={{ width: `${(selectedPlan.completedSteps / selectedPlan.steps) * 100}%` }}
@@ -160,7 +160,7 @@ export function PlanningPanel({ onClose }: PlanningPanelProps) {
                   </div>
 
                   {/* Placeholder Content */}
-                  <div className="p-6 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-center">
+                  <div className="p-6 rounded-lg bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border)] text-center">
                     <FileText size={40} className="text-[var(--text-muted)] mx-auto mb-3" />
                     <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">
                       Plan details coming soon
@@ -186,7 +186,7 @@ function PlanCard({ plan, onClick }: { plan: Plan; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="w-full p-4 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]
+      className="w-full p-4 rounded-lg bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border)]
                hover:border-[var(--accent)] hover:shadow-md transition-all duration-200
                text-left group"
     >
@@ -211,7 +211,7 @@ function PlanCard({ plan, onClick }: { plan: Plan; onClick: () => void }) {
         </div>
         
         {/* Mini Progress Bar */}
-        <div className="w-20 h-1.5 bg-[var(--bg-secondary)] rounded-full overflow-hidden">
+        <div className="w-20 h-1.5 bg-[var(--bg-secondary)]/60 rounded-full overflow-hidden">
           <div 
             className="h-full bg-[var(--accent)] transition-all duration-300"
             style={{ width: `${progressPercent}%` }}

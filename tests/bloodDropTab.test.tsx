@@ -1,23 +1,25 @@
 // @vitest-environment jsdom
 /**
- * Blood drop tab — the LuciferAI tab, in the terminal tab strip (Gary, 2026-11-07).
+ * Blood drop tab in the terminal tab strip (Gary, 2026-11-07).
  *
  * The corrected design (Gary, 2026-11-07 ~07:38 PST): the blood drop IS a
- * visible terminal tab IN the tab strip, and that blood drop tab IS the
- * LuciferAI tab. The earlier empty-state-button-that-opens-the-Help-modal
- * design was wrong — the drop is a tab, not a separate door. The
- * individual LuciferAI tabs hide behind this one, ordered by causal
- * ritual placement (ticks), not by time (see tests/aiSessionCausalOrder).
+ * visible terminal tab IN the tab strip. The earlier
+ * empty-state-button-that-opens-the-Help-modal design was wrong — the
+ * drop is a tab, not a separate door. The individual LuciferAI tabs
+ * hide behind this one, ordered by causal ritual placement (ticks),
+ * not by time (see tests/aiSessionCausalOrder).
  *
  * The tab:
  *   - renders FIRST in the strip (pinned to the top spot, the same lock
  *     as the toolbar drop) while LuciferAI is enabled, and is GONE when
  *     the plugin is disabled (not hidden — not rendered at all);
- *   - is the LuciferAI tab: blood drop icon + "LuciferAI" label, the
- *     same black portal glass as the terminal tabs (active: deeper
- *     black + splash-blue line; inactive: glass sheen on hover);
+ *   - is JUST the blood drop icon — no visible "LuciferAI" label
+ *     (Gary, 2026-11-07 ~09:16 PST: "I told you no luciferAI words
+ *     in the tab"). Its title/aria-label stay "LuciferAI prompt
+ *     commands" (Gary, 2026-11-07 ~09:18 PST: "luciferAI prompt
+ *     commands are fine");
  *   - is NOT a terminal tab: no PTY, no close (X) button, no rename
- *     on double-click — picking it shows the LuciferAI panel, picking
+ *     on double-click — picking it shows the blood drop panel, picking
  *     a terminal tab shows that terminal.
  *
  * Same harness as tests/helpModal.test.tsx: @testing-library/react +
@@ -61,12 +63,14 @@ const renderView = (props: {
     />,
   );
 
-describe('Blood drop tab — the LuciferAI tab in the strip', () => {
+describe('Blood drop tab in the strip', () => {
   it('renders in the strip, FIRST, while LuciferAI is enabled', () => {
     const { container } = renderView({ showBloodDrop: true });
     const drop = screen.getByTestId('blood-drop-tab');
     expect(drop).toBeTruthy();
-    expect(drop.textContent).toContain('LuciferAI');
+    // No visible "LuciferAI" text on the tab (Gary, 2026-11-07
+    // ~09:16 PST) — just the blood drop icon.
+    expect(drop.textContent).not.toContain('LuciferAI');
     // The blood drop icon itself: a droplet svg in the tab.
     expect(drop.querySelector('svg')).not.toBeNull();
     // Pinned first: ahead of Terminal 1 in the strip's DOM order.
@@ -77,6 +81,19 @@ describe('Blood drop tab — the LuciferAI tab in the strip', () => {
     expect(html.indexOf('blood-drop-tab')).toBeLessThan(html.indexOf('Terminal 1'));
   });
 
+  it('shows JUST the blood drop icon — no visible label, title/aria-label stay (Gary, 2026-11-07 ~09:16 + ~09:18 PST)', () => {
+    renderView({ showBloodDrop: true });
+    const drop = screen.getByTestId('blood-drop-tab');
+    // No visible text on the tab at all.
+    expect(drop.textContent).not.toContain('LuciferAI');
+    expect(drop.querySelector('span')).toBeNull();
+    expect(drop.querySelector('svg')).not.toBeNull();
+    // But the title/aria-label "LuciferAI prompt commands" STAY —
+    // Gary, 2026-11-07 ~09:18 PST: "luciferAI prompt commands are fine."
+    expect(drop.getAttribute('title')).toBe('LuciferAI prompt commands');
+    expect(drop.getAttribute('aria-label')).toBe('LuciferAI prompt commands');
+  });
+
   it('is gone when LuciferAI is disabled — not rendered at all', () => {
     renderView({ showBloodDrop: false });
     expect(screen.queryByTestId('blood-drop-tab')).toBeNull();
@@ -85,7 +102,7 @@ describe('Blood drop tab — the LuciferAI tab in the strip', () => {
     expect(screen.getByText('Terminal 2')).toBeTruthy();
   });
 
-  it('clicking it selects the LuciferAI tab', () => {
+  it('clicking it selects the blood drop tab', () => {
     const onBloodDropActiveChange = vi.fn();
     renderView({ showBloodDrop: true, onBloodDropActiveChange });
     fireEvent.click(screen.getByTestId('blood-drop-tab'));
@@ -121,6 +138,6 @@ describe('Blood drop tab — the LuciferAI tab in the strip', () => {
     // A terminal tab's double-click swaps its label for a Rename input;
     // the drop tab shows no input at all.
     expect(screen.queryByLabelText(/Rename/)).toBeNull();
-    expect(screen.getByTestId('blood-drop-tab').textContent).toContain('LuciferAI');
+    expect(screen.getByTestId('blood-drop-tab').textContent).not.toContain('LuciferAI');
   });
 });

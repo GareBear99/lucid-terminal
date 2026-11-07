@@ -39,9 +39,9 @@ export interface TerminalTabsViewProps {
   onRenameTab: (id: string, title: string) => void;
   onSelectTab: (id: string) => void;
   /**
-   * Blood drop tab (Gary, 2026-11-07) — the LuciferAI tab, pinned
-   * first in the strip while LuciferAI is enabled. Optional so
-   * existing callers render the plain strip unchanged.
+   * Blood drop tab (Gary, 2026-11-07) — pinned first in the strip
+   * while LuciferAI is enabled. Optional so existing callers render
+   * the plain strip unchanged.
    */
   showBloodDrop?: boolean;
   bloodDropActive?: boolean;
@@ -94,16 +94,20 @@ export function TerminalTabsView({
     >
       {/* Tabs */}
       <div className="flex-1 flex items-center overflow-x-auto">
-        {/* Blood drop tab — the LuciferAI tab (Gary, 2026-11-07).
-            Pinned first in the strip, always the top spot (the same
-            lock as the toolbar drop), rendered ONLY while LuciferAI
-            is enabled; when the plugin is off it is gone, not
-            hidden. It IS the LuciferAI tab: the individual LuciferAI
-            tabs hide behind this one, ordered by causal ritual
-            placement (ticks), never by time. It is not a terminal
-            tab — no PTY, no close button, no rename — picking it
-            shows the LuciferAI panel; picking a terminal tab shows
-            that terminal. Same portal glass as the terminal tabs. */}
+        {/* Blood drop tab (Gary, 2026-11-07). Pinned first in the
+            strip, always the top spot (the same lock as the toolbar
+            drop), rendered ONLY while LuciferAI is enabled; when the
+            plugin is off it is gone, not hidden. The individual
+            LuciferAI tabs hide behind this one, ordered by causal
+            ritual placement (ticks), never by time. It is not a
+            terminal tab — no PTY, no close button, no rename —
+            picking it shows the blood drop panel; picking a terminal
+            tab shows that terminal. Same portal glass as the terminal
+            tabs. The tab shows just the blood drop icon — no visible
+            text label (Gary, 2026-11-07 ~09:16 PST); its
+            title/aria-label stay "LuciferAI prompt commands" (Gary,
+            2026-11-07 ~09:18 PST: "luciferAI prompt commands are
+            fine"). */}
         {showBloodDrop && (
           <div
             data-testid="blood-drop-tab"
@@ -117,7 +121,6 @@ export function TerminalTabsView({
             onClick={() => onBloodDropActiveChange?.(true)}
           >
             <BloodDropIcon size={14} />
-            <span className="text-sm whitespace-nowrap">LuciferAI</span>
           </div>
         )}
 
@@ -210,8 +213,8 @@ export function TerminalTabsView({
           <span
             className={`absolute top-1 right-0.5 min-w-4 h-4 px-0.5 rounded-full text-[10px] leading-4 text-center font-medium ${
               hasUnreadError
-                ? 'bg-red-500 text-white'
-                : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border)]'
+                ? 'bg-red-500/80 backdrop-blur-sm text-white'
+                : 'bg-[var(--bg-tertiary)]/70 backdrop-blur-sm text-[var(--text-primary)] border border-[var(--border)]'
             }`}
           >
             {unread > 9 ? '9+' : unread}

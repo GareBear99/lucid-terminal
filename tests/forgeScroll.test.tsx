@@ -114,9 +114,12 @@ describe('Forge full-page scroll (Gary, 2026-11-07)', () => {
     expect(rosterRoot).toBeTruthy();
     expect(rosterRoot!.className).not.toContain('overflow-y-auto');
 
+    // The pipeline root is identified by its min-width class — min-w-72,
+    // the wrap guard that keeps it usable in the narrower Settings
+    // mount (Gary, 2026-11-07); it was min-w-0 before the fix.
     const pipelineRoot = closestAncestorWithClass(
       findText('Training run'),
-      'min-w-0',
+      'min-w-72',
     );
     expect(pipelineRoot).toBeTruthy();
     expect(pipelineRoot!.className).not.toContain('overflow-y-auto');

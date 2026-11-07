@@ -166,9 +166,9 @@ export function DaemonLogViewer({ onClose }: DaemonLogViewerProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-[90vw] h-[90vh] bg-[var(--bg-primary)] rounded-lg border border-[var(--border)] shadow-xl flex flex-col overflow-hidden">
+      <div className="w-[90vw] h-[90vh] bg-[var(--bg-primary)]/80 backdrop-blur-xl rounded-lg border border-[var(--border)] shadow-xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-secondary)]/60 backdrop-blur-md">
           <div className="flex items-center gap-3">
             <Eye size={20} className="text-[var(--accent)]" />
             <h2 className="text-lg font-semibold">Daemon Logs</h2>
@@ -214,7 +214,7 @@ export function DaemonLogViewer({ onClose }: DaemonLogViewerProps) {
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-4 px-6 py-3 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+        <div className="flex items-center gap-4 px-6 py-3 border-b border-[var(--border)] bg-[var(--bg-tertiary)]/60 backdrop-blur-md">
           <div className="flex items-center gap-2">
             <Filter size={14} className="text-[var(--text-muted)]" />
             <select
@@ -255,8 +255,8 @@ export function DaemonLogViewer({ onClose }: DaemonLogViewerProps) {
                 <button
                   key={log.id}
                   onClick={() => setSelectedLog(log)}
-                  className={`w-full text-left px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition-colors ${
-                    selectedLog?.id === log.id ? 'bg-[var(--bg-tertiary)] border-l-2 border-l-[var(--accent)]' : 'border-l-2 border-l-transparent'
+                  className={`w-full text-left px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--bg-tertiary)]/70 transition-colors ${
+                    selectedLog?.id === log.id ? 'bg-[var(--bg-tertiary)]/60 backdrop-blur-sm border-l-2 border-l-[var(--accent)]' : 'border-l-2 border-l-transparent'
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -330,8 +330,8 @@ export function DaemonLogViewer({ onClose }: DaemonLogViewerProps) {
                 {selectedLog.diff && selectedLog.diff.length > 0 && (
                   <div>
                     <h4 className="text-sm font-semibold mb-2 text-[var(--text-secondary)]">Changes</h4>
-                    <div className="bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] overflow-hidden">
-                      <div className="bg-[var(--bg-secondary)] px-3 py-2 border-b border-[var(--border)] text-xs text-[var(--text-muted)] font-mono">
+                    <div className="bg-[var(--bg-tertiary)]/60 backdrop-blur-md rounded-lg border border-[var(--border)] overflow-hidden">
+                      <div className="bg-[var(--bg-secondary)]/70 backdrop-blur-sm px-3 py-2 border-b border-[var(--border)] text-xs text-[var(--text-muted)] font-mono">
                         {selectedLog.file}
                       </div>
                       <div className="font-mono text-xs">

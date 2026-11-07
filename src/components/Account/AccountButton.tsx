@@ -73,7 +73,7 @@ export function AccountButton() {
           onClick={() => setIsMenuOpen(!isMenuOpen)}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all duration-200
                      bg-[var(--bg-tertiary)]/60 backdrop-blur-md border border-[var(--border)]/50
-                     hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)]
+                     hover:bg-[var(--bg-tertiary)]/80 hover:border-[var(--border)]
                      active:scale-95"
         >
           <User size={14} className={idInfo.isPermanent ? 'text-[var(--success)]' : 'text-[var(--warning)]'} />
@@ -84,7 +84,7 @@ export function AccountButton() {
       {/* Dropdown Menu */}
       {isMenuOpen && (
         <div className="absolute top-full right-0 mt-2 w-80 z-50
-                       bg-[var(--bg-tertiary)]/95 backdrop-blur-xl border border-[var(--border)]
+                       bg-[var(--bg-tertiary)]/80 backdrop-blur-xl border border-[var(--border)]
                        rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
           
           {/* Header */}
@@ -115,7 +115,7 @@ export function AccountButton() {
               <Tooltip content="Copy ID">
                 <button
                   onClick={handleCopy}
-                  className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--bg-primary)] transition-colors"
+                  className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--bg-primary)]/70 transition-colors"
                 >
                   {copied ? (
                     <Check size={14} className="text-[var(--success)]" />

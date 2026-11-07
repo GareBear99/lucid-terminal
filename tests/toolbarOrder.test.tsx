@@ -13,7 +13,7 @@
  * - The Sidebar drag: dropping an icon STORES the new order
  *   immediately (updated AND stored) — window.lucidAPI.settings.set
  *   is called with the new toolbarOrder and the store holds it — and
- *   the Synth button (Orbit) and the Help button (blood drop) both
+ *   the Synth button (Orbit) and the blood drop button both
  *   show while LuciferAI is enabled, and are gone entirely while it
  *   is disabled (Forge stays).
  * - No hold gate (the 500ms press-and-hold gate was REMOVED
@@ -22,13 +22,13 @@
  *   (a real drag takes ~200-400ms), so the icons "didn't move"
  *   (Gary, 2026-11-07, real mouse). REGRESSION: a quick
  *   press-drag-drop with no hold at all commits and stores. A plain
- *   click still activates the icon (covered by the blood-drop Help
- *   tests) — it can never produce a drop on another slot.
- * - The blood drop (Help) is LOCKED to the top spot (Gary,
+ *   click still activates the icon (covered by the blood-drop
+ *   terminal tests) — it can never produce a drop on another slot.
+ * - The blood drop is LOCKED to the top spot (Gary,
  *   2026-11-07): it always resolves first, can never be moved, no
  *   icon can be inserted before it, and its slot is not draggable
- *   (its click still opens Help). When it becomes available again
- *   it re-inserts at the top.
+ *   (its click still opens the blood drop terminal). When it becomes
+ *   available again it re-inserts at the top.
  * - The end zone always reserves its height (Gary, 2026-11-07):
  *   it is always h-6, never h-0 when idle. Growing it on drag
  *   start shrank the flex spacer and shifted every icon below the
@@ -277,7 +277,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
         onViewChange={vi.fn()}
         showAI={false}
         onToggleAI={vi.fn()}
-        onOpenHelp={vi.fn()}
+        onOpenBloodDrop={vi.fn()}
         onToggleForge={vi.fn()}
       />,
     );
@@ -495,7 +495,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(synth.querySelector(`path[fill="${BLOOD_COLOR}"]`)).toBeNull();
   });
 
-  test('the Help button shows the blood drop while LuciferAI is enabled', () => {
+  test('the Blood drop button shows the blood drop while LuciferAI is enabled', () => {
     renderSidebar();
     const help = document.querySelector('[data-toolbar-icon="help"]') as HTMLElement;
     expect(help).not.toBeNull();
@@ -531,9 +531,9 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(terminal.getAttribute('draggable')).toBe('true');
     const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
     expect(synth.getAttribute('draggable')).toBe('true');
-    // But the click still works — the blood drop still opens Help.
-    // (The button inside the slot keeps its onClick; only the drag
-    // is disabled.)
+    // But the click still works — the blood drop still opens the
+    // blood drop terminal. (The button inside the slot keeps its
+    // onClick; only the drag is disabled.)
     expect(help.querySelector('button')).not.toBeNull();
   });
 
@@ -559,19 +559,22 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
   });
 });
 
-describe('Sidebar toolbar blood drop opens Help (Gary, 2026-11-07 ~09:01 PST)', () => {
+describe('Sidebar toolbar blood drop opens the blood drop terminal (Gary, 2026-11-07 ~09:18 PST)', () => {
   /**
-   * The toolbar blood drop (the Help entry, BloodDropIcon) goes to
-   * the Help page — NOT the terminal for LuciferAI commands. The
-   * create blood drop opens a terminal under the blood drop terminal
-   * tab; the toolbar drop is the Help gateway. Clicking the Help
-   * button calls onOpenHelp. (The drop's click was previously only
-   * asserted to still exist, never to call Help — this test fires
-   * it and checks the handler.)
+   * Both blood drops go to the same creation place: the toolbar
+   * blood drop opens the blood drop terminal, the same as the create
+   * blood drop — NOT the Help modal. (The toolbar drop opened Help
+   * until 2026-11-07 ~09:18 PST; Gary: "both blood drops go to the
+   * same creation place now.") Help stays reachable via the StatusBar
+   * button, the terminal `help` command, and Cmd+/ — none of those
+   * go through the Sidebar, so they are untouched here. Clicking the
+   * toolbar drop calls onOpenBloodDrop. The Sidebar takes no
+   * onOpenHelp prop at all anymore, so there is no Help path left
+   * in the toolbar to regress.
    */
   const mockSet = vi.fn(async (_key: string, _value: unknown) => undefined);
   let prevLucidAPI: unknown;
-  const onOpenHelp = vi.fn();
+  const onOpenBloodDrop = vi.fn();
 
   beforeEach(() => {
     const win = window as unknown as Record<string, unknown>;
@@ -586,7 +589,7 @@ describe('Sidebar toolbar blood drop opens Help (Gary, 2026-11-07 ~09:01 PST)', 
       },
     };
     mockSet.mockClear();
-    onOpenHelp.mockClear();
+    onOpenBloodDrop.mockClear();
     // All plugin buttons on, LuciferAI enabled, default order.
     const base = useSettingsStore.getState().settings;
     useSettingsStore.setState({
@@ -604,7 +607,7 @@ describe('Sidebar toolbar blood drop opens Help (Gary, 2026-11-07 ~09:01 PST)', 
     win.lucidAPI = prevLucidAPI;
   });
 
-  it('clicking the toolbar blood drop calls onOpenHelp (the Help page)', () => {
+  it('clicking the toolbar blood drop opens the blood drop terminal (not Help)', () => {
     render(
       <Sidebar
         width={250}
@@ -613,15 +616,15 @@ describe('Sidebar toolbar blood drop opens Help (Gary, 2026-11-07 ~09:01 PST)', 
         onViewChange={vi.fn()}
         showAI={false}
         onToggleAI={vi.fn()}
-        onOpenHelp={onOpenHelp}
+        onOpenBloodDrop={onOpenBloodDrop}
         onToggleForge={vi.fn()}
       />,
     );
-    const help = screen.getByRole('button', { name: 'Help' });
-    expect(help).toBeTruthy();
+    const drop = screen.getByRole('button', { name: 'Blood drop' });
+    expect(drop).toBeTruthy();
     // The blood drop icon itself: a droplet svg in the button.
-    expect(help.querySelector('svg')).not.toBeNull();
-    fireEvent.click(help);
-    expect(onOpenHelp).toHaveBeenCalledTimes(1);
+    expect(drop.querySelector('svg')).not.toBeNull();
+    fireEvent.click(drop);
+    expect(onOpenBloodDrop).toHaveBeenCalledTimes(1);
   });
 });

@@ -32,9 +32,13 @@ interface TerminalProps {
   onOpenSynth?: () => void;
   /** Open the Forge (the Homunculi roster). */
   onOpenForge?: () => void;
+  /** Whether the blood drop terminal is shown (the prompt drop's toggle state). */
+  bloodDropActive?: boolean;
+  /** Toggle the blood drop terminal (the prompt drop next to the send arrow). */
+  onToggleBloodDrop?: () => void;
 }
 
-function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps) {
+function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, bloodDropActive, onToggleBloodDrop }: TerminalProps) {
   const { settings } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
@@ -1047,13 +1051,19 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
                   only a loaded model is. A wrapper with no model says so.
                   When the plugin is DISABLED the indicator renders
                   nothing at all - the flex row reflows and the input
-                  stretches to fill the gap. */}
+                  stretches to fill the gap. It is also the toggle for
+                  the blood drop terminal (Gary, 2026-11-07 ~09:20 PST):
+                  clicking it toggles the blood drop terminal; it
+                  defaults darkened/off, so no blood drop terminal is
+                  awaiting commands until it is turned on. */}
               <LuciferStatusIndicator
                 enabled={luciferAiEnabled}
                 checking={luciferAIChecking}
                 modelAvailable={modelAvailable}
                 modelNames={modelNames}
                 available={luciferAIAvailable}
+                bloodDropActive={bloodDropActive}
+                onToggleBloodDrop={onToggleBloodDrop}
               />
               
               {/* Send arrow — this used to be a decorative span, so clicking it

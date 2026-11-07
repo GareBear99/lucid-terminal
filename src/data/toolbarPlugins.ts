@@ -6,8 +6,9 @@
  * (src/types/synth.ts): LuciferAI is the only shelled plugin,
  * embodied as Lucifer the Sentinel in the synth shell. It has two
  * surfaces a toolbar button can open: the Synth view (its shell) and
- * the Help modal (its command reference, on the blood drop — Gary,
- * 2026-11-06). Each surface is one toolbar-plugin entry below.
+ * the blood drop terminal (the creation place, on the blood drop —
+ * Gary, 2026-11-07 ~09:18 PST — both blood drops go to the same
+ * creation place). Each surface is one toolbar-plugin entry below.
  *
  * AI Chat is NOT a LuciferAI surface any more (Gary, 2026-11-07):
  * it is Lucid AI, its own plugin, unmounted from LuciferAI and
@@ -60,12 +61,13 @@ export const TOOLBAR_PLUGINS: ToolbarPlugin[] = [
   },
   {
     id: 'help',
-    name: 'Help',
-    description: 'LuciferAI help — the command reference modal.',
+    name: 'Blood drop',
+    description: 'Blood drop terminal — the creation place.',
     icon: BloodDropIcon,
     action: 'help',
-    // The blood drop opens Help (Gary, 2026-11-06) — it is a
-    // toolbar button of its own, so it stays on.
+    // The blood drop opens the blood drop terminal (Gary, 2026-11-07
+    // ~09:18 PST — both blood drops go to the same creation place) —
+    // it is a toolbar button of its own, so it stays on.
     defaultOnToolbar: true,
   },
   {

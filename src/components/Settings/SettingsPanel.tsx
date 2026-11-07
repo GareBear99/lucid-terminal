@@ -1085,7 +1085,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   {TOOLBAR_PLUGINS.map((plugin) => {
                     const Icon = plugin.icon;
                     const onToolbar = settings.toolbarPlugins?.[plugin.id] ?? plugin.defaultOnToolbar;
-                    // Synth and Help are LuciferAI surfaces: their
+                    // Synth and the blood drop are LuciferAI surfaces: their
                     // toolbar buttons cannot be switched on while the
                     // plugin is off. AI Chat is not — it is Lucid AI,
                     // its own plugin (Gary, 2026-11-07), so its
@@ -1120,7 +1120,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm">LuciferAI</span>
                       <span className="block text-xs text-[var(--text-muted)]">
-                        The plugin itself — local AI backend, command passes, FixNet. The Synth shell and Help above are its surfaces.
+                        The plugin itself — local AI backend, command passes, FixNet. The Synth shell and blood drop above are its surfaces.
                       </span>
                       <label className="flex items-center gap-2 cursor-pointer mt-2">
                         <Toggle

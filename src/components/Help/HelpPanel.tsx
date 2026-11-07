@@ -40,10 +40,10 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-6xl h-[85vh] bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-6xl h-[85vh] bg-[var(--bg-secondary)]/80 backdrop-blur-xl border border-[var(--border)] rounded-lg shadow-2xl flex flex-col overflow-hidden">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]/60 backdrop-blur-md">
           <div className="flex items-center gap-3">
             <Terminal size={20} className="text-[var(--accent)]" />
             <div>
@@ -58,7 +58,7 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
           <Tooltip content="Close">
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-[var(--bg-primary)] transition-colors"
+              className="p-2 rounded-lg hover:bg-[var(--bg-primary)]/70 transition-colors"
             >
               <X size={18} className="text-[var(--text-muted)]" />
             </button>
@@ -74,7 +74,7 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search commands, examples, or tags..."
-              className="w-full pl-10 pr-4 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] 
+              className="w-full pl-10 pr-4 py-2 rounded-lg bg-[var(--bg-primary)]/60 backdrop-blur-sm border border-[var(--border)] 
                        text-[var(--text-primary)] placeholder:text-[var(--text-muted)]
                        focus:outline-none focus:border-[var(--accent)] transition-colors"
             />
@@ -103,7 +103,7 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
               </div>
 
               {/* System Stats Footer */}
-              <div className="mt-8 p-4 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border)]">
+              <div className="mt-8 p-4 rounded-lg bg-[var(--bg-tertiary)]/60 backdrop-blur-md border border-[var(--border)]">
                 <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">
                   System Features
                 </h3>
@@ -123,7 +123,7 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
           {selectedCategory && currentCategory && (
             <div className="w-full flex flex-col overflow-hidden">
               {/* Category Header */}
-              <div className="px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+              <div className="px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)]/60 backdrop-blur-md">
                 <button
                   onClick={() => setSelectedCategory(null)}
                   className="flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] mb-3 transition-colors"
@@ -141,7 +141,7 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
                   </div>
                 </div>
                 {currentCategory.stats && (
-                  <div className="mt-3 inline-block px-3 py-1 rounded-full bg-[var(--bg-primary)] border border-[var(--border)]">
+                  <div className="mt-3 inline-block px-3 py-1 rounded-full bg-[var(--bg-primary)]/60 backdrop-blur-sm border border-[var(--border)]">
                     <span className="text-xs font-medium" style={{ color: currentCategory.color }}>
                       {currentCategory.stats.label}: {currentCategory.stats.value}
                     </span>
@@ -181,7 +181,7 @@ function CategoryCard({
   return (
     <button
       onClick={onClick}
-      className="p-4 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]
+      className="p-4 rounded-lg bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border)]
                hover:border-[var(--border)] hover:shadow-md transition-all duration-200
                text-left group"
       style={{
@@ -227,7 +227,7 @@ function CommandCard({
   copied: boolean;
 }) {
   return (
-    <div className="p-4 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+    <div className="p-4 rounded-lg bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border)]">
       {/* Command Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
@@ -248,7 +248,7 @@ function CommandCard({
         <Tooltip content="Copy syntax">
           <button
             onClick={() => onCopy(command.syntax)}
-            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+            className="p-1.5 rounded hover:bg-[var(--bg-secondary)]/70 transition-colors"
           >
             {copied ? (
               <Check size={14} className="text-[var(--success)]" />
@@ -260,7 +260,7 @@ function CommandCard({
       </div>
 
       {/* Syntax */}
-      <div className="mb-3 p-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)]">
+      <div className="mb-3 p-2 rounded bg-[var(--bg-secondary)]/70 backdrop-blur-sm border border-[var(--border)]">
         <code className="text-xs font-mono text-[var(--text-primary)]">
           {command.syntax}
         </code>
@@ -275,13 +275,13 @@ function CommandCard({
           <div className="space-y-1">
             {command.examples.map((example, idx) => (
               <div key={idx} className="flex items-center gap-2 group">
-                <code className="flex-1 text-xs font-mono text-[var(--text-secondary)] px-2 py-1 rounded bg-[var(--bg-secondary)]">
+                <code className="flex-1 text-xs font-mono text-[var(--text-secondary)] px-2 py-1 rounded bg-[var(--bg-secondary)]/70 backdrop-blur-sm">
                   {example}
                 </code>
                 <Tooltip content="Copy example">
                   <button
                     onClick={() => onCopy(example)}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--bg-secondary)] transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--bg-secondary)]/70 transition-all"
                   >
                     <Copy size={12} className="text-[var(--text-muted)]" />
                   </button>
@@ -298,7 +298,7 @@ function CommandCard({
           {command.tags.map((tag, idx) => (
             <span
               key={idx}
-              className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border)]"
+              className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)]/60 backdrop-blur-sm text-[var(--text-muted)] border border-[var(--border)]"
             >
               {tag}
             </span>

@@ -8,8 +8,10 @@
  * it is unchanged.
  *
  * The sidebar blood-drop button does NOT toggle the Synth view
- * anymore (Gary, 2026-11-06) — it opens the Help modal, from
- * either view, instead of always opening the Synth view.
+ * anymore (Gary, 2026-11-06) — it opens the blood drop terminal,
+ * from either view, instead of always opening the Synth view.
+ * (Both blood drops go to the same creation place, Gary,
+ * 2026-11-07 ~09:18 PST — the toolbar drop used to open Help.)
  *
  * Run with: npm test
  */
@@ -38,9 +40,9 @@ describe('toggleSynthView', () => {
   });
 });
 
-describe('sidebar blood-drop button opens Help', () => {
+describe('sidebar blood-drop button opens the blood drop terminal', () => {
   const renderSidebar = (currentView: 'terminal' | 'synth') => {
-    const onOpenHelp = vi.fn();
+    const onOpenBloodDrop = vi.fn();
     const onViewChange = vi.fn();
     render(
       <Sidebar
@@ -50,23 +52,23 @@ describe('sidebar blood-drop button opens Help', () => {
         onViewChange={onViewChange}
         showAI={false}
         onToggleAI={() => {}}
-        onOpenHelp={onOpenHelp}
+        onOpenBloodDrop={onOpenBloodDrop}
       />,
     );
-    return { onOpenHelp, onViewChange };
+    return { onOpenBloodDrop, onViewChange };
   };
 
-  test('press from terminal opens Help (not the Synth view)', () => {
-    const { onOpenHelp, onViewChange } = renderSidebar('terminal');
-    fireEvent.click(screen.getByLabelText('Help'));
-    expect(onOpenHelp).toHaveBeenCalledTimes(1);
+  test('press from terminal opens the blood drop terminal (not the Synth view)', () => {
+    const { onOpenBloodDrop, onViewChange } = renderSidebar('terminal');
+    fireEvent.click(screen.getByLabelText('Blood drop'));
+    expect(onOpenBloodDrop).toHaveBeenCalledTimes(1);
     expect(onViewChange).not.toHaveBeenCalledWith('synth');
   });
 
-  test('press from synth also opens Help (same action, either view)', () => {
-    const { onOpenHelp, onViewChange } = renderSidebar('synth');
-    fireEvent.click(screen.getByLabelText('Help'));
-    expect(onOpenHelp).toHaveBeenCalledTimes(1);
+  test('press from synth also opens the blood drop terminal (same action, either view)', () => {
+    const { onOpenBloodDrop, onViewChange } = renderSidebar('synth');
+    fireEvent.click(screen.getByLabelText('Blood drop'));
+    expect(onOpenBloodDrop).toHaveBeenCalledTimes(1);
     expect(onViewChange).not.toHaveBeenCalledWith('synth');
   });
 });
@@ -85,14 +87,13 @@ describe('sidebar Synth button opens the Synth view', () => {
         onViewChange={onViewChange}
         showAI={false}
         onToggleAI={() => {}}
-        onOpenHelp={() => {}}
         onToggleSynth={onToggleSynth}
       />,
     );
     return { onToggleSynth, onViewChange };
   };
 
-  test('press from terminal toggles the Synth view (separate from Help)', () => {
+  test('press from terminal toggles the Synth view (separate from the blood drop)', () => {
     const { onToggleSynth, onViewChange } = renderSidebar('terminal');
     fireEvent.click(screen.getByLabelText('Synth'));
     expect(onToggleSynth).toHaveBeenCalledTimes(1);
@@ -109,7 +110,6 @@ describe('sidebar Synth button opens the Synth view', () => {
         onViewChange={onViewChange}
         showAI={false}
         onToggleAI={() => {}}
-        onOpenHelp={() => {}}
       />,
     );
     fireEvent.click(screen.getByLabelText('Synth'));

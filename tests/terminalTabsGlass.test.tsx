@@ -48,13 +48,14 @@ const noop = () => undefined;
 
 const renderView = (props: {
   tabs?: typeof TABS;
+  notifications?: Notification[];
   notificationsOpen?: boolean;
 }) =>
   renderToStaticMarkup(
     React.createElement(TerminalTabsView, {
       tabs: props.tabs ?? TABS,
       activeTabId: 't1',
-      notifications: [],
+      notifications: props.notifications ?? [],
       notificationsOpen: props.notificationsOpen ?? false,
       onCreateTab: noop,
       onCloseTab: noop,
@@ -165,6 +166,32 @@ describe('TerminalTabs — black portal splashscreen glass', () => {
     expect(panel).toContain('rounded-none');
     expect(panel).not.toContain('rounded-b-lg');
     expect(panel).not.toContain('bg-[var(--bg-secondary)]');
+  });
+
+  it('the bell badge is glass, not a solid pill (Gary, 2026-11-07 ~09:26 PST)', () => {
+    // Glass match: the unread-count pill sits ON the glass bar, so it
+    // is a translucent tint + blur, never a solid pill.
+    const badgeTokens = (html: string): string[] => {
+      const badgeIdx = html.indexOf('min-w-4');
+      expect(badgeIdx).toBeGreaterThan(-1);
+      const openIdx = html.lastIndexOf('<span', badgeIdx);
+      const tag = html.slice(openIdx, html.indexOf('>', badgeIdx) + 1);
+      return tag.match(/class="([^"]*)"/)?.[1].split(/\s+/) ?? [];
+    };
+    // Unread error: translucent red + blur.
+    const errorTokens = badgeTokens(
+      renderView({ notifications: [{ id: 'n1', type: 'error', message: 'boom', read: false }] }),
+    );
+    expect(errorTokens).toContain('bg-red-500/80');
+    expect(errorTokens).toContain('backdrop-blur-sm');
+    expect(errorTokens).not.toContain('bg-red-500');
+    // Unread non-error: translucent tertiary + blur.
+    const infoTokens = badgeTokens(
+      renderView({ notifications: [{ id: 'n2', type: 'info', message: 'note', read: false }] }),
+    );
+    expect(infoTokens).toContain('bg-[var(--bg-tertiary)]/70');
+    expect(infoTokens).toContain('backdrop-blur-sm');
+    expect(infoTokens).not.toContain('bg-[var(--bg-tertiary)]');
   });
 
   it('the bar still renders the tabs and the new-tab button', () => {

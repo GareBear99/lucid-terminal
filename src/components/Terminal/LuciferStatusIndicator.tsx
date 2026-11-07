@@ -12,6 +12,10 @@ interface LuciferStatusIndicatorProps {
   modelNames: string[];
   /** The plugin wrapper is up (loaded, with or without a model). */
   available: boolean;
+  /** Whether the blood drop terminal is shown — the toggle's on state. Defaults off. */
+  bloodDropActive?: boolean;
+  /** Clicking the drop toggles the blood drop terminal. Omitted → the drop is a status display only. */
+  onToggleBloodDrop?: () => void;
 }
 
 /**
@@ -26,6 +30,12 @@ interface LuciferStatusIndicatorProps {
  * offline dot, which is itself a LuciferAI trace — so the flex row
  * reflows and the prompt input stretches to fill the gap the drop
  * left (the send arrow stays attached to the input).
+ *
+ * The toggle (Gary, 2026-11-07 ~09:20 PST): the drop next to the
+ * send arrow is a clickable toggle for the blood drop terminal. It
+ * ALWAYS defaults darkened/off, so no blood drop terminal is
+ * awaiting commands until it is turned on — darkened = off, full
+ * brightness = on. The status stays in the tooltip.
  */
 export function LuciferStatusIndicator({
   enabled,
@@ -33,41 +43,58 @@ export function LuciferStatusIndicator({
   modelAvailable,
   modelNames,
   available,
+  bloodDropActive = false,
+  onToggleBloodDrop,
 }: LuciferStatusIndicatorProps) {
   const status = luciferStatusIndicator(enabled, checking, modelAvailable, available);
   if (status === 'hidden') return null;
-  if (status === 'checking') {
+
+  const glyph =
+    status === 'checking'
+      ? '⏳'
+      : status === 'ready' || status === 'loaded-no-model'
+        ? '🩸'
+        : '⚪';
+  const color =
+    status === 'checking'
+      ? 'text-yellow-500 animate-pulse'
+      : status === 'ready'
+        ? 'text-green-500'
+        : status === 'loaded-no-model'
+          ? 'text-amber-500'
+          : 'text-gray-500';
+  const statusText =
+    status === 'checking'
+      ? 'Connecting to LuciferAI plugin...'
+      : status === 'ready'
+        ? `LuciferAI connected — model(s) ready: ${modelNames.join(', ')}`
+        : status === 'loaded-no-model'
+          ? 'LuciferAI plugin loaded — no model loaded'
+          : 'LuciferAI plugin offline - terminal works in standalone mode';
+
+  // The toggle (Gary, 2026-11-07 ~09:20 PST): the drop next to the
+  // send arrow is a clickable toggle for the blood drop terminal.
+  // It ALWAYS defaults darkened/off (bloodDropActive defaults false),
+  // so no blood drop terminal is awaiting commands until it is turned
+  // on. Darkened = off, full brightness = on.
+  if (onToggleBloodDrop) {
     return (
-      <Tooltip content="Connecting to LuciferAI plugin...">
-        <span className="text-xs text-yellow-500 animate-pulse">
-          ⏳
-        </span>
-      </Tooltip>
-    );
-  }
-  if (status === 'ready') {
-    return (
-      <Tooltip content={`LuciferAI connected — model(s) ready: ${modelNames.join(', ')}`}>
-        <span className="text-xs text-green-500">
-          🩸
-        </span>
-      </Tooltip>
-    );
-  }
-  if (status === 'loaded-no-model') {
-    return (
-      <Tooltip content="LuciferAI plugin loaded — no model loaded">
-        <span className="text-xs text-amber-500">
-          🩸
-        </span>
+      <Tooltip content={`${statusText} — click to toggle the blood drop terminal`}>
+        <button
+          type="button"
+          onClick={onToggleBloodDrop}
+          aria-label="Toggle blood drop terminal"
+          aria-pressed={bloodDropActive}
+          className={`text-xs ${color} ${bloodDropActive ? 'opacity-100' : 'opacity-40'} hover:opacity-100 transition-opacity select-none`}
+        >
+          {glyph}
+        </button>
       </Tooltip>
     );
   }
   return (
-    <Tooltip content="LuciferAI plugin offline - terminal works in standalone mode">
-      <span className="text-xs text-gray-500">
-        ⚪
-      </span>
+    <Tooltip content={statusText}>
+      <span className={`text-xs ${color}`}>{glyph}</span>
     </Tooltip>
   );
 }

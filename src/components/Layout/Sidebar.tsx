@@ -35,8 +35,8 @@ interface SidebarProps {
   showAI: boolean;
   /** Toggle the AI chat panel (the AI Chat toolbar button's action). */
   onToggleAI: () => void;
-  /** Open the Help modal (the blood-drop toolbar button's action). */
-  onOpenHelp?: () => void;
+  /** Open the blood drop terminal (the blood-drop toolbar button's action, Gary 2026-11-07 ~09:18 PST — both blood drops go to the same creation place). */
+  onOpenBloodDrop?: () => void;
   /** Toggle the Synth view (the Synth toolbar button's action). */
   onToggleSynth?: () => void;
   /** Toggle the Forge view (the Forge toolbar button's action). */
@@ -47,7 +47,7 @@ interface SidebarProps {
   onToggleSettings?: () => void;
 }
 
-function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenHelp, onToggleSynth, onToggleForge, onTogglePersonaPlex, onToggleSettings }: SidebarProps) {
+function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenBloodDrop, onToggleSynth, onToggleForge, onTogglePersonaPlex, onToggleSettings }: SidebarProps) {
   const {
     currentDir,
     entries,
@@ -90,8 +90,8 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // the plugins, not the core view buttons.
   const toolbarPlugins = useSettingsStore((s) => s.settings.toolbarPlugins);
   const luciferAiEnabled = useSettingsStore((s) => isLuciferAiEnabled(s.settings));
-  // Disabled: the Synth and Help buttons are LuciferAI surfaces, so
-  // they leave the toolbar with the plugin. Forge is a different
+  // Disabled: the Synth and blood drop buttons are LuciferAI surfaces,
+  // so they leave the toolbar with the plugin. Forge is a different
   // plugin (LLMBuilder) and stays — and so does AI Chat, which is
   // Lucid AI, its own plugin now (Gary, 2026-11-07), not a
   // LuciferAI surface.
@@ -195,12 +195,14 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
 
   // The button for one toolbar icon id. Core icons switch views or
   // sidebar panels; plugin icons come from the enabled plugins. The
-  // Synth and Help buttons are SEPARATE (Gary, 2026-11-06): the Synth
-  // button (Orbit) opens the Synth view, the blood drop opens Help —
-  // the drop was the Synth button until it was repurposed to Help,
-  // which left the Synth with no icon at all. Both buttons only
-  // render while LuciferAI is enabled (the filter above), so neither
-  // shows while the plugin is disabled.
+  // The Synth and blood drop buttons are SEPARATE (Gary, 2026-11-06):
+  // the Synth button (Orbit) opens the Synth view, the blood drop
+  // opens the blood drop terminal (Gary, 2026-11-07 ~09:18 PST —
+  // both blood drops go to the same creation place). The drop was
+  // the Synth button until it was repurposed, which left the Synth
+  // with no icon at all. Both buttons only render while LuciferAI
+  // is enabled (the filter above), so neither shows while the plugin
+  // is disabled.
   const toolbarIconButton = (id: string): { button: React.ReactElement; tooltip: string; shortcut?: string } | null => {
     const btnClass = (isActive: boolean) =>
       `p-2 rounded-md transition-colors ${isActive
@@ -266,7 +268,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
       default: {
         const plugin = enabledPlugins.find((p) => p.id === id);
         if (!plugin) return null;
-        // Help opens a modal, not a view, so it is never the
+        // The blood drop is not a view toggle, so it is never the
         // "active" view button. Forge and Synth toggle views; the
         // AI Chat button is active while its panel is open.
         const isActive =
@@ -283,10 +285,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
             : plugin.action === 'forge'
               ? (onToggleForge ?? (() => onViewChange('forge')))
               : plugin.action === 'help'
-                ? (onOpenHelp ?? (() => {}))
+                ? (onOpenBloodDrop ?? (() => {}))
                 : onToggleAI;
         // The icon comes from the plugin entry itself: Orbit for the
-        // Synth, the blood drop for Help.
+        // Synth, the blood drop for the blood drop terminal.
         const Icon = plugin.icon;
         const label = plugin.name;
         const tooltip = `${plugin.name} — ${plugin.description}`;
@@ -309,11 +311,12 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // (insert after it). The line is always solid: a drop on this
   // slot always commits (no hold gate any more), so the line going
   // solid is the signal that the reorder will stick.
-  // The blood drop (Help) is LOCKED to the top spot (Gary,
+  // The blood drop is LOCKED to the top spot (Gary,
   // 2026-11-07): its slot is never draggable — the user can't even
-  // start dragging it — but its click behaviour (opens Help) is
-  // unchanged. It is still a drop TARGET (dropping another icon
-  // onto it lands that icon right after it, at index 1).
+  // start dragging it — but its click behaviour (opens the blood
+  // drop terminal) is unchanged. It is still a drop TARGET
+  // (dropping another icon onto it lands that icon right after it,
+  // at index 1).
   const toolbarIconSlot = (id: string) => {
     const entry = toolbarIconButton(id);
     if (!entry) return null;

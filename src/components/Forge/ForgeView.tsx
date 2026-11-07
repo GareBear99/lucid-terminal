@@ -260,7 +260,13 @@ export function ForgeView() {
             />
             <HomunculusVoiceNote />
           </div>
-      <div className="flex gap-3">
+      {/* Three columns — roster, pipeline, scoreboard. They WRAP when the
+          mount is narrow (Settings: the tab sidebar + p-6 leave ~700px),
+          so the pipeline never crushes to a ~100px strip the way a
+          fixed 288 + flex-1 + 320 row did. The pipeline's min-w-72
+          (PipelinePanel) is what forces the wrap instead of the crush;
+          the scoreboard drops to its own full-width row first. */}
+      <div className="flex flex-wrap gap-3" data-testid="forge-columns">
         {/* Roster (left) */}
         <div className="flex w-72 shrink-0 flex-col gap-3">
           {roster.length === 0 ? (

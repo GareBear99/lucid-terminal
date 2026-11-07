@@ -13,6 +13,8 @@
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { ForgeView } from '../src/components/Forge/ForgeView';
 import { useForgeStore } from '../src/stores/forgeStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
@@ -452,5 +454,42 @@ describe('ForgeView dual unison tabs (Gary, 2026-11-06)', () => {
       './forge/forge-tail-generator.mp3',
     );
     expect(audio?.hasAttribute('controls')).toBe(true);
+  });
+
+  test('columns wrap and the pipeline keeps a usable minimum width (Settings mount)', async () => {
+    // Gary, 2026-11-07: the Forge settings page was shit — in the
+    // narrower Settings mount (tab sidebar + p-6) the fixed
+    // 288 + flex-1 + 320 row crushed the pipeline to a ~100px strip
+    // (tier dropdown clipped, Training data wrapping every 2-3 words).
+    // The row wraps (flex-wrap) and the pipeline has a min width
+    // (min-w-72), so the scoreboard drops to its own row instead of
+    // the pipeline crushing.
+    restore = installMock([LUCIFER]);
+    render(<ForgeView />);
+    await waitFor(() => expect(screen.getByText('Lucifer')).toBeTruthy());
+    const columns = document.querySelector('[data-testid="forge-columns"]');
+    expect(columns).not.toBeNull();
+    expect(columns?.className).toContain('flex-wrap');
+    const pipeline = document.querySelector('[data-testid="forge-pipeline"]');
+    expect(pipeline).not.toBeNull();
+    expect(pipeline?.className).toContain('min-w-72');
+    expect(pipeline?.className).not.toContain('min-w-0');
+  });
+});
+
+describe('Forge native controls — dark color-scheme', () => {
+  test(':root declares color-scheme: dark so the native audio players render dark', () => {
+    // Gary, 2026-11-07: the Forge voice-message audio players were
+    // blazing white slabs in the dark theme — the app never declared
+    // a color-scheme, so Chromium rendered the native <audio
+    // controls> light. Declaring dark in :root makes all four Forge
+    // audio players (and select lists / scrollbars) dark.
+    const indexCss = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'index.css'),
+      'utf-8',
+    );
+    const root = indexCss.match(/:root\s*\{[^}]*\}/);
+    expect(root).not.toBeNull();
+    expect(root![0]).toContain('color-scheme: dark');
   });
 });

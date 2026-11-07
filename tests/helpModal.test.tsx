@@ -2,12 +2,14 @@
 /**
  * Help modal render tests (Gary, 2026-11-06).
  *
- * Covers the last link in the blood-drop → Help chain: when App's
- * showHelp is true the modal renders the command reference, and when
- * it is false it renders nothing. The click itself (blood-drop button
- * → onOpenHelp) is covered in tests/synthToggle.test.tsx; the App
- * state in between (openHelp sets showHelp) is two lines verified by
- * reading, and this test pins the modal end of it.
+ * Covers the Help modal end: when App's showHelp is true the modal
+ * renders the command reference, and when it is false it renders
+ * nothing. The openers (StatusBar Help button, terminal `help`
+ * command, Cmd+/ → openHelp) set showHelp; the App state in between
+ * (openHelp sets showHelp) is two lines verified by reading, and
+ * this test pins the modal end of it. (The toolbar blood drop used
+ * to open Help; since 2026-11-07 ~09:18 PST both blood drops go to
+ * the blood drop terminal instead — see tests/toolbarOrder.test.tsx.)
  */
 import { describe, test, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';

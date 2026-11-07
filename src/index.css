@@ -6,6 +6,12 @@
 @tailwind utilities;
 
 :root {
+  /* Dark native controls (audio players, select lists, scrollbars).
+     Without this the browser renders native controls light - the
+     Forge voice-message audio players were blazing white slabs in
+     the dark theme (Gary, 2026-11-07). */
+  color-scheme: dark;
+
   /* Default theme variables (dark) */
   --bg-primary: #0d1117;
   --bg-secondary: #161b22;

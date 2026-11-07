@@ -40,6 +40,23 @@
  * DOWN one slot onto the next icon swaps them instead of silently
  * doing nothing (insert-before the next icon is the order you
  * already have, which reads as "the icons don't move").
+ *
+ * The blood drop (Help) is LOCKED to the top spot (Gary, 2026-11-07):
+ * it always sits at index 0 when available, is never draggable, and
+ * re-inserts at the top when it becomes available again (e.g.
+ * LuciferAI re-enabled) — never at a stored position, and no other
+ * icon can be dropped before it. resolveToolbarOrder pins it first;
+ * moveToolbarIcon refuses to move it and clamps any insert to index
+ * 1 or later while it sits at index 0; the Sidebar renders its slot
+ * with draggable={false}.
+ *
+ * The end zone reserves its height (Gary, 2026-11-07): it is always
+ * h-6, never h-0 when idle. Growing it on drag start shrank the
+ * flex spacer and shifted every icon below the spacer up 24px
+ * mid-drag, so the drop targets went stale — the top icons (above
+ * the spacer) worked, the bottom plugin icons didn't (Gary's real
+ * mouse, 2026-11-07). Reserving the height keeps the layout still
+ * for the whole drag.
  */
 
 /** One entry in the toolbar order — an icon id, or the gap. */
@@ -56,15 +73,17 @@ export type ToolbarIconId =
   | 'settings'
   | 'spacer';
 
-/** The default order — the layout as it was before reordering. */
+/** The default order — the layout as it was before reordering.
+ * The blood drop (Help) is first: it is locked to the top spot
+ * (Gary, 2026-11-07), so the default puts it at index 0. */
 export const DEFAULT_TOOLBAR_ORDER: ToolbarIconId[] = [
+  'help',
   'terminal',
   'editor',
   'explorer',
   'chats',
   'spacer',
   'synth',
-  'help',
   'ai-chat',
   'llmbuilder',
   'persona-plex',
@@ -90,6 +109,12 @@ const PLUGIN_ICON_IDS: readonly string[] = ['synth', 'help', 'ai-chat', 'llmbuil
  * - The spacer is always present exactly once — a stored order that
  *   lost it (saved before the spacer existed) gets it back before
  *   the first plugin icon, else before Settings, else at the end.
+ * - The blood drop (Help) is locked to the top spot (Gary,
+ *   2026-11-07): when it is available it always sits at index 0,
+ *   regardless of the stored order — a stored order that had it
+ *   elsewhere gets it moved to the front, and when it becomes
+ *   available again (e.g. LuciferAI re-enabled) it re-inserts at
+ *   the top, not at a stored position or before Settings.
  */
 export function resolveToolbarOrder(
   stored: readonly string[] | null | undefined,
@@ -141,6 +166,17 @@ export function resolveToolbarOrder(
     }
   }
 
+  // The blood drop (Help) is locked to the top spot (Gary,
+  // 2026-11-07): when it is available it always sits at index 0,
+  // regardless of the stored order. This is the last step so no
+  // earlier fix-up can leave it anywhere else — and it is what
+  // makes it re-insert at the top when it becomes available again.
+  const helpIdx = resolved.indexOf('help');
+  if (helpIdx > 0) {
+    resolved.splice(helpIdx, 1);
+    resolved.unshift('help');
+  }
+
   return resolved;
 }
 
@@ -157,6 +193,11 @@ export function resolveToolbarOrder(
  *   on itself, dragging the spacer (it is not an icon), dragging an
  *   id that is not in the order, or an unknown target (appends at the
  *   end instead of losing the icon).
+ * - The blood drop (Help) is locked to the top spot (Gary,
+ *   2026-11-07): it can never be moved (dragging it returns the
+ *   order unchanged), and no other icon can be inserted before it —
+ *   an insert that would land at index 0 while Help sits there is
+ *   clamped to index 1, right after it.
  */
 export function moveToolbarIcon(
   order: readonly ToolbarIconId[],
@@ -167,6 +208,10 @@ export function moveToolbarIcon(
   if (!draggedId || draggedId === 'spacer' || draggedId === targetId) {
     return [...order];
   }
+  // The blood drop is locked to the top spot — it can never be moved.
+  if (draggedId === 'help') {
+    return [...order];
+  }
   const without = order.filter((id) => id !== draggedId);
   // The dragged id must be in the order to move it.
   if (without.length === order.length) return [...order];
@@ -174,7 +219,11 @@ export function moveToolbarIcon(
   if (targetId === null) return [...without, draggedId as ToolbarIconId];
   const targetIdx = without.indexOf(targetId as ToolbarIconId);
   if (targetIdx < 0) return [...without, draggedId as ToolbarIconId];
-  const insertIdx = insertAfter ? targetIdx + 1 : targetIdx;
+  let insertIdx = insertAfter ? targetIdx + 1 : targetIdx;
+  // The blood drop is locked to the top spot: never insert before it.
+  // An insert that would land at index 0 while Help sits there is
+  // clamped to index 1, right after it.
+  if (without[0] === 'help' && insertIdx === 0) insertIdx = 1;
   const next = [...without];
   next.splice(insertIdx, 0, draggedId as ToolbarIconId);
   return next;

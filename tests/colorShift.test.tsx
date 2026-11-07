@@ -84,11 +84,14 @@ describe('color-shift — sidebar divider', () => {
     expect(divider!.classList.contains('border-t')).toBe(false);
     // It still sits between the plugin icons and Settings: in the
     // icon bar the divider's previous sibling is the plugin list
-    // (holding the Help button — the last plugin icon before
-    // Settings) and its next sibling is the Settings button.
+    // (holding the Synth button — the last plugin icon before
+    // Settings in this render, where only Synth and Help are on
+    // by default; the blood drop is locked to the top spot now,
+    // Gary 2026-11-07, so it is no longer the last plugin icon)
+    // and its next sibling is the Settings button.
     // (Asserted structurally, not via title attributes — the tooltip
     // work removes native titles.)
-    const synthBtn = screen.getByLabelText('Help');
+    const synthBtn = screen.getByLabelText('Synth');
     expect(divider!.previousElementSibling?.contains(synthBtn)).toBe(true);
     // The next sibling holds the Settings button (possibly wrapped
     // in the tooltip trigger span — assert on what it contains).

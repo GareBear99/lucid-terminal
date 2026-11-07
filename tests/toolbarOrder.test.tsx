@@ -24,6 +24,18 @@
  *   press-drag-drop with no hold at all commits and stores. A plain
  *   click still activates the icon (covered by the blood-drop Help
  *   tests) — it can never produce a drop on another slot.
+ * - The blood drop (Help) is LOCKED to the top spot (Gary,
+ *   2026-11-07): it always resolves first, can never be moved, no
+ *   icon can be inserted before it, and its slot is not draggable
+ *   (its click still opens Help). When it becomes available again
+ *   it re-inserts at the top.
+ * - The end zone always reserves its height (Gary, 2026-11-07):
+ *   it is always h-6, never h-0 when idle. Growing it on drag
+ *   start shrank the flex spacer and shifted every icon below the
+ *   spacer up 24px mid-drag, so the drop targets went stale — the
+ *   top icons worked, the bottom plugin icons didn't (Gary's real
+ *   mouse, 2026-11-07). REGRESSION: the end zone is h-6 before
+ *   and during a drag.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/react';
@@ -48,16 +60,45 @@ describe('resolveToolbarOrder', () => {
     expect(resolveToolbarOrder(undefined, AVAILABLE)).toEqual(DEFAULT_TOOLBAR_ORDER);
   });
 
-  test('a stored order is respected as-is', () => {
+  test('a stored order is respected as-is — except the blood drop, which is pinned to the top', () => {
     const stored = ['settings', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex'];
-    expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual(stored);
+    // Every entry keeps its relative order, but 'help' (the blood
+    // drop, locked to the top spot) moves from index 7 to index 0.
+    expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
+      'help', 'settings', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex',
+    ]);
+  });
+
+  test('the blood drop always resolves first (locked to the top spot, Gary 2026-11-07)', () => {
+    // Help buried in the middle of a stored order comes to the front.
+    const stored = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings'];
+    expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
+      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+    ]);
+    // Help at the very end of a stored order also comes to the front.
+    const storedEnd = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'help'];
+    expect(resolveToolbarOrder(storedEnd, AVAILABLE)).toEqual([
+      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+    ]);
+  });
+
+  test('the blood drop re-inserts at the top when it becomes available again', () => {
+    // Stored while LuciferAI was off (no Help in the stored order);
+    // now available again — it re-inserts at the top, not before
+    // Settings where a newly-available icon would otherwise land.
+    const stored = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'settings'];
+    expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
+      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+    ]);
   });
 
   test('an available icon missing from the stored order is inserted before Settings', () => {
     const stored = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'settings'];
     // 'help', 'ai-chat', 'llmbuilder' and 'persona-plex' are available but not stored.
+    // They are inserted before Settings — then the blood drop is
+    // pinned to the top spot, so it ends up first.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
     ]);
   });
 
@@ -85,13 +126,13 @@ describe('moveToolbarIcon', () => {
 
   test('move before a target', () => {
     expect(moveToolbarIcon(order, 'synth', 'terminal', false)).toEqual([
-      'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
     ]);
   });
 
   test('move after a target (drop on the spacer)', () => {
     expect(moveToolbarIcon(order, 'terminal', 'spacer', true)).toEqual([
-      'editor', 'explorer', 'chats', 'spacer', 'terminal', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+      'help', 'editor', 'explorer', 'chats', 'spacer', 'terminal', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
     ]);
   });
 
@@ -102,19 +143,19 @@ describe('moveToolbarIcon', () => {
     // next icon is the order you already have), which reads as "the
     // icons don't move".
     expect(moveToolbarIcon(order, 'llmbuilder', 'settings', true)).toEqual([
-      'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'persona-plex', 'settings', 'llmbuilder',
+      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'persona-plex', 'settings', 'llmbuilder',
     ]);
   });
 
   test('move to the very end (end zone, null target)', () => {
     expect(moveToolbarIcon(order, 'terminal', null, true)).toEqual([
-      'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'terminal',
+      'help', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'terminal',
     ]);
   });
 
   test('move across the spacer', () => {
     expect(moveToolbarIcon(order, 'settings', 'editor', false)).toEqual([
-      'terminal', 'settings', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex',
+      'help', 'terminal', 'settings', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex',
     ]);
   });
 
@@ -123,7 +164,32 @@ describe('moveToolbarIcon', () => {
     expect(moveToolbarIcon(order, 'spacer', 'terminal', false)).toEqual(order);
     expect(moveToolbarIcon(order, 'nope', 'terminal', false)).toEqual(order);
     expect(moveToolbarIcon(order, 'terminal', 'nope', false)).toEqual([
-      'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'terminal',
+      'help', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'terminal',
+    ]);
+  });
+
+  test('the blood drop can never be moved (locked to the top spot, Gary 2026-11-07)', () => {
+    // Dragging Help onto another icon, onto the end zone, or onto
+    // Settings all return the order unchanged.
+    expect(moveToolbarIcon(order, 'help', 'terminal', false)).toEqual(order);
+    expect(moveToolbarIcon(order, 'help', 'settings', true)).toEqual(order);
+    expect(moveToolbarIcon(order, 'help', null, true)).toEqual(order);
+    expect(moveToolbarIcon(order, 'help', 'spacer', true)).toEqual(order);
+  });
+
+  test('no icon can be inserted before the blood drop (it stays at index 0)', () => {
+    // Dropping Synth onto Help (insert before) lands it right AFTER
+    // Help instead — at index 1, never index 0.
+    expect(moveToolbarIcon(order, 'synth', 'help', false)).toEqual([
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+    ]);
+    // Dropping Terminal onto Help (insert before) also lands after it.
+    expect(moveToolbarIcon(order, 'terminal', 'help', false)).toEqual([
+      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+    ]);
+    // Dropping onto Help with insertAfter lands after it too.
+    expect(moveToolbarIcon(order, 'synth', 'help', true)).toEqual([
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
     ]);
   });
 
@@ -136,12 +202,24 @@ describe('moveToolbarIcon', () => {
 
 describe('persistence round-trip', () => {
   test('a stored order reloads to the same order', () => {
-    const stored = ['synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings'];
+    // Help is first (locked to the top spot), so the stored order
+    // reloads unchanged.
+    const stored = ['help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings'];
     // Resolving the stored order (as a reload would) returns it unchanged.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual(stored);
     // And after a move, the moved order also reloads unchanged.
     const moved = moveToolbarIcon(stored, 'settings', 'terminal', false);
     expect(resolveToolbarOrder(moved, AVAILABLE)).toEqual(moved);
+  });
+
+  test('a stored order with Help elsewhere reloads with Help at the top', () => {
+    // A stored order saved before the lock (Help in the middle)
+    // reloads with Help moved to the top — the lock, not the
+    // stored position, wins.
+    const stored = ['synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings'];
+    expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings',
+    ]);
   });
 });
 
@@ -215,7 +293,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     fireEvent.dragOver(terminal);
     fireEvent.drop(terminal);
     const expected = [
-      'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -241,7 +319,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     fireEvent.dragOver(terminal);
     fireEvent.drop(terminal);
     const expected = [
-      'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -265,7 +343,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
       fireEvent.dragOver(terminal);
       fireEvent.drop(terminal);
       const expected = [
-        'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
+        'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'settings',
       ];
       await waitFor(() => {
         expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -293,7 +371,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     // And the drop commits immediately.
     fireEvent.drop(terminal);
     const expected = [
-      'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -331,7 +409,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     // Forge and Settings swap (was a silent no-op: insert-before
     // the next icon is the order you already have).
     const expected = [
-      'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'settings', 'llmbuilder',
+      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'settings', 'llmbuilder',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -366,7 +444,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     fireEvent.dragOver(terminal, { dataTransfer });
     fireEvent.drop(terminal, { dataTransfer });
     const expected = [
-      'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -416,5 +494,46 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(document.querySelector(`path[fill="${BLOOD_COLOR}"]`)).toBeNull();
     // Forge stays (a different plugin).
     expect(document.querySelector('[data-toolbar-icon="llmbuilder"]')).not.toBeNull();
+  });
+
+  test('the blood drop is locked to the top spot — first icon, and not draggable (Gary 2026-11-07)', () => {
+    renderSidebar();
+    // The first icon in the bar is the blood drop (Help).
+    const icons = Array.from(document.querySelectorAll('[data-toolbar-icon]')) as HTMLElement[];
+    const iconIds = icons.map((el) => el.getAttribute('data-toolbar-icon'));
+    expect(iconIds[0]).toBe('help');
+    // Its slot is NOT draggable — the user can't even start dragging
+    // it — while the other icons are.
+    const help = document.querySelector('[data-toolbar-icon="help"]') as HTMLElement;
+    expect(help.getAttribute('draggable')).toBe('false');
+    const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
+    expect(terminal.getAttribute('draggable')).toBe('true');
+    const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
+    expect(synth.getAttribute('draggable')).toBe('true');
+    // But the click still works — the blood drop still opens Help.
+    // (The button inside the slot keeps its onClick; only the drag
+    // is disabled.)
+    expect(help.querySelector('button')).not.toBeNull();
+  });
+
+  test('REGRESSION (Gary, 2026-11-07): the end zone always reserves its height — no layout shift on drag start', () => {
+    renderSidebar();
+    const endZone = document.querySelector('[data-toolbar-icon="end"]') as HTMLElement;
+    expect(endZone).not.toBeNull();
+    // Before any drag, the end zone is already h-6 (its height is
+    // reserved), never h-0.
+    expect(endZone.className).toContain('h-6');
+    expect(endZone.className).not.toContain('h-0');
+    // Start a drag on a bottom plugin icon (Synth). The old code grew
+    // the end zone from h-0 to h-6 here, which shrank the flex spacer
+    // and shifted every icon below the spacer up 24px mid-drag — the
+    // drop targets went stale, so the bottom icons "didn't move"
+    // while the top ones (above the spacer) worked. With the height
+    // reserved, the end zone is unchanged by the drag start.
+    const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
+    fireEvent.mouseDown(synth);
+    fireEvent.dragStart(synth);
+    expect(endZone.className).toContain('h-6');
+    expect(endZone.className).not.toContain('h-0');
   });
 });

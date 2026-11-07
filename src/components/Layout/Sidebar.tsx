@@ -303,6 +303,11 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // (insert after it). The line is always solid: a drop on this
   // slot always commits (no hold gate any more), so the line going
   // solid is the signal that the reorder will stick.
+  // The blood drop (Help) is LOCKED to the top spot (Gary,
+  // 2026-11-07): its slot is never draggable — the user can't even
+  // start dragging it — but its click behaviour (opens Help) is
+  // unchanged. It is still a drop TARGET (dropping another icon
+  // onto it lands that icon right after it, at index 1).
   const toolbarIconSlot = (id: string) => {
     const entry = toolbarIconButton(id);
     if (!entry) return null;
@@ -312,7 +317,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
       <div
         data-toolbar-icon={id}
         className={`relative ${isDragging ? 'opacity-40' : ''}`}
-        draggable
+        draggable={id !== 'help'}
         onDragStart={(e) => {
           // The drag starts on movement. A plain click (or an
           // accidental nudge) never reorders — it produces no drop
@@ -513,10 +518,18 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           );
         })}
         {/* End zone — drop here to append at the very bottom. Only a
-            drop target while a drag is in progress. */}
+            drop target while a drag is in progress. The height is
+            ALWAYS h-6, never h-0 when idle (Gary, 2026-11-07): the
+            height is reserved so the layout never shifts when a drag
+            starts. Growing it on drag start shrank the flex spacer
+            and shifted every icon below the spacer up 24px mid-drag,
+            so the drop targets went stale — the top icons (above the
+            spacer) worked, the bottom plugin icons didn't (Gary's
+            real mouse, 2026-11-07). Reserving the height keeps the
+            layout still for the whole drag. */}
         <div
           data-toolbar-icon="end"
-          className={`w-full shrink-0 ${draggedToolbarIcon ? 'h-6' : 'h-0'} ${
+          className={`w-full shrink-0 h-6 ${
             dropToolbarTarget === 'end' ? 'bg-[var(--bg-tertiary)]' : ''
           }`}
           onDragOver={(e) => {

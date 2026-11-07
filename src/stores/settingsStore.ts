@@ -31,6 +31,13 @@ interface SettingsState {
   deleteApiKey: () => Promise<void>;
   checkApiKey: () => Promise<void>;
   hasApiKey: boolean;
+
+  // Ping server key actions (test path) — the shared secret for the
+  // Cloudflare ping server Worker.
+  setPingKey: (key: string) => Promise<void>;
+  deletePingKey: () => Promise<void>;
+  checkPingKey: () => Promise<void>;
+  hasPingKey: boolean;
   checkBackendStatus: () => Promise<void>;
 
   exportSettings: () => Promise<string>;
@@ -50,6 +57,9 @@ const defaultSettings: Settings = {
   bellSound: false,
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
+  pingServerEnabled: false,
+  pingServerEndpoint: 'http://127.0.0.1:8787',
+  pingServerUserId: '',
   terminalPolicy: 'ask',
   showValidationSteps: true,
   autoCollapseValidation: true,
@@ -67,9 +77,28 @@ const defaultSettings: Settings = {
   processingGlowSpeed: 3,
   gazeSensitivity: 50,
   homunculusColor: null,
+  forgeStopColorDuration: { kind: 'seconds', seconds: 3 },
   synthDisclaimerChoice: null,
   synthVersion: null,
   toolbarPlugins: {},
+  // Toolbar icon order — empty = the default order (see
+  // src/lib/toolbarOrder.ts). Written immediately on drop.
+  toolbarOrder: [],
+  // Settings tab order — empty = the default order (see
+  // src/lib/settingsTabOrder.ts). Written immediately on drop.
+  settingsTabOrder: [],
+  // Settings tab lock — false = unlocked, tabs can be dragged
+  // (see src/types/index.ts).
+  settingsTabsLocked: false,
+  // User-installed add-ons — empty = none installed (see
+  // src/types/index.ts). Written immediately on Install.
+  installedAddons: [],
+  // Persona Plex — empty = no custom personas, no per-persona
+  // overrides, no active persona, Speak off (see src/types/index.ts).
+  personaPlexCustomPersonas: [],
+  personaPlexConfig: {},
+  personaPlexActiveId: null,
+  personaPlexSpeakEnabled: false,
   customPlugins: {},
   luciferAiEnabled: true,
 };
@@ -78,6 +107,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: defaultSettings,
   currentTheme: themes[0],
   hasApiKey: false,
+  hasPingKey: false,
   isLocalBackendAvailable: false,
   isLocalModelAvailable: false,
   storageDegraded: false,
@@ -88,6 +118,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const allSettings = await window.lucidAPI.settings.getAll();
       const hasKey = await window.lucidAPI.settings.hasApiKey();
+      const hasPingKey = await window.lucidAPI.settings.hasPingKey();
 
       // Check local backend status
       await get().checkBackendStatus();
@@ -117,7 +148,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       document.documentElement.style.setProperty('--font-mono', settings.fontFamily);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
 
-      set({ settings, currentTheme: theme, hasApiKey: hasKey, isLoading: false });
+      set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, isLoading: false });
 
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -191,6 +222,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   checkApiKey: async () => {
     const hasKey = await window.lucidAPI.settings.hasApiKey();
     set({ hasApiKey: hasKey });
+  },
+
+  setPingKey: async (key) => {
+    await window.lucidAPI.settings.setPingKey(key);
+    set({ hasPingKey: true });
+  },
+
+  deletePingKey: async () => {
+    await window.lucidAPI.settings.deletePingKey();
+    set({ hasPingKey: false });
+  },
+
+  checkPingKey: async () => {
+    const hasKey = await window.lucidAPI.settings.hasPingKey();
+    set({ hasPingKey: hasKey });
   },
 
   checkBackendStatus: async () => {

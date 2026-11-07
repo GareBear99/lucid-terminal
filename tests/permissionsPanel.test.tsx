@@ -15,6 +15,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { render, screen } from '@testing-library/react';
 import { PermissionsTab } from '../src/components/Settings/PermissionsTab';
+import SettingsPanel from '../src/components/Settings/SettingsPanel';
 import { PERMISSIONS_INFO_TEXT } from '../src/lib/permissions';
 import type { PermissionSnapshot } from '../src/lib/permissions';
 import { usePermissionsStore } from '../src/stores/permissionsStore';
@@ -44,6 +45,39 @@ describe('Permissions tab (SSR)', () => {
     for (const label of ['Accessibility', 'Screen Recording', 'Full Disk Access', 'Microphone', 'Camera']) {
       expect(html).toContain(label);
     }
+  });
+});
+
+describe('Permissions tab placement in Settings (scroll regression)', () => {
+  it('renders INSIDE the scrollable Settings content area, not outside it', () => {
+    // Gary, 2026-11-07 ~04:04 PST: "permissions page is kinda
+    // broken and doesnt scroll". Root cause: the Permissions tab
+    // was rendered AFTER the scrollable content div closed, as a
+    // direct child of the Settings root — so it grew to its full
+    // height with no scroll container around it and the bottom
+    // rows were unreachable. It belongs inside the same
+    // `overflow-y-auto` content div as every other tab.
+    const html = renderToStaticMarkup(
+      React.createElement(SettingsPanel, {
+        onClose: () => undefined,
+        initialTab: 'permissions',
+      }),
+    );
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const row = doc.querySelector('[data-permission="accessibility"]');
+    expect(row).toBeTruthy();
+    // Walk up from a permission row: one of its ancestors must
+    // be the scrollable content container.
+    let el: Element | null = row!.parentElement;
+    let insideScrollContainer = false;
+    while (el) {
+      if (el.className && typeof el.className === 'string' && el.className.includes('overflow-y-auto')) {
+        insideScrollContainer = true;
+        break;
+      }
+      el = el.parentElement;
+    }
+    expect(insideScrollContainer).toBe(true);
   });
 });
 

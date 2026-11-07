@@ -1500,6 +1500,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               </section>
             </div>
           )}
+          {activeTab === 'permissions' && (<PermissionsTab />)}
         </div>
       </div>
 
@@ -1565,7 +1566,6 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
         </div>
       )}
 
-          {activeTab === 'permissions' && (<PermissionsTab />)}
       {/* Daemon Log Viewer */}
       {showDaemonLogs && <DaemonLogViewer onClose={() => setShowDaemonLogs(false)} />}
     </div>

@@ -325,6 +325,10 @@ export interface Settings {
   // finger's pattern: a finger starts enabled, Gary locks it
   // explicitly.
   computerControlLocked: boolean;
+  /** Browser finger lock (Phase B) — the phone-finger pattern:
+   * the browser finger starts enabled, Gary locks it explicitly.
+   * While locked, no agent may take the browser finger. */
+  browserFingerLocked: boolean;
   // Computer-control protected targets — window/tab title substrings
   // that are off-limits (never navigated, closed, or typed into).
   // Default: Gary's ChatGPT tab ("Next Starship Steps").
@@ -771,6 +775,16 @@ declare global {
         onMiniClosed: (callback: (tabId: string) => void) => () => void;
         onOpenInternalPhone: (callback: () => void) => () => void;
         onFocusAddressBar: (callback: () => void) => () => void;
+        // Agent browser (Phase B): live agent state, Gary's stop /
+        // take-control surface, the finger lock, and the queue.
+        onAgentState: (callback: (state: import('../lib/browserAgent').BrowserAgentStateSnapshot) => void) => () => void;
+        stopAgentBrowser: () => Promise<{ ok: boolean }>;
+        takeAgentControl: () => Promise<{ ok: boolean }>;
+        giveBackAgentControl: () => Promise<{ ok: boolean }>;
+        setBrowserFingerLocked: (locked: boolean) => Promise<{ ok: boolean }>;
+        getAgentState: () => Promise<{ ok: boolean; state: import('../lib/browserAgent').BrowserAgentStateSnapshot | null }>;
+        requestBrowserFinger: (holderId: string) => Promise<{ ok: boolean; granted?: boolean; position?: number | null; reason?: string; error?: string }>;
+        releaseBrowserFinger: (holderId: string) => Promise<{ ok: boolean; nextHolder?: string | null; error?: string }>
     startFlow: (definition: FlowDefinition, tabId: string) => Promise<{ ok: boolean; flowId?: string; error?: string; errors?: string[] }>;
     stopFlow: (flowId: string) => Promise<{ ok: boolean; error?: string }>;
     approveFlowStep: (flowId: string) => Promise<{ ok: boolean; error?: string }>;

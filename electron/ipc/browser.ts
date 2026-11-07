@@ -50,6 +50,16 @@ import { createBrowserFlowRunner } from '../services/browserFlows';
 import type { FlowDefinition } from '../../src/lib/browserFlows';
 import { createBrowserCdpManager } from '../services/browserCdp';
 import {
+  BROWSER_AGENT_HOLDER_ID,
+  createBrowserAgentSession,
+  type BrowserAgentSession,
+} from '../services/browserAgentSession';
+import { setMiniWindowFullscreen } from '../services/browserMiniWindow';
+import {
+  clampAgentMousePosition,
+  type BrowserAgentStateSnapshot,
+} from '../../src/lib/browserAgent';
+import {
   formatVisitsForAi,
   loadVisitLog,
   recordVisit,
@@ -186,6 +196,23 @@ import type {
  * link or the page URL as a `curl` command (copied, never
  * executed). Bookmarks live in the renderer
  * (`src/stores/browserBookmarks.ts`).
+ *
+ * Phase B (Area 10): the browser is Lucid's own thing, actually
+ * working. Every `browser_*` tool call runs inside the agent
+ * session (`electron/services/browserAgentSession.ts`): the active
+ * tab pops out into the mini window so Gary sees the agent's
+ * browsing, the browser tab is glass-splashed first (~3.2s, the
+ * boot splash's rhythm), then the mini window goes FULLSCREEN
+ * while the browser is in use and back to its floating PiP state
+ * when idle. The browser has its OWN LIVE MOUSE — a real CDP
+ * `mouseMoved` pointer (`browser_move_mouse`, and trusted clicks
+ * travel there first), locked to the browser view bounds, drawn
+ * in the mini window and the panel as the agent cursor. Finger
+ * access is one agent at a time, QUEUED, if eligible — the
+ * phone-finger pattern (starts enabled, Gary locks it with
+ * `browserFingerLocked`). When LuciferAI is DISABLED, the mini
+ * window is there for Gary to stop the agent or take the mouse
+ * (`browser:agent-stop`, `browser:agent-take-control`).
  */
 
 export type { BrowserViewBounds };
@@ -240,6 +267,15 @@ export function setupBrowserHandlers(
       create: (onClosed: () => void) => BrowserWindow | null;
       get: () => BrowserWindow | null;
     };
+    /** Agent-browser settings (Phase B): LuciferAI enabled +
+     * browser finger lock, read live from the settings store.
+     * Absent means the defaults (LuciferAI on, finger unlocked). */
+    getAgentSettings?: () => {
+      luciferAiEnabled: boolean;
+      browserFingerLocked: boolean;
+    };
+    /** Persist the browser finger lock (Phase B). */
+    setBrowserFingerLocked?: (locked: boolean) => void;
   },
 ): void {
   const views = new Map<string, ReturnType<typeof createBrowserView>>();
@@ -371,6 +407,10 @@ export function setupBrowserHandlers(
   // (~70px of nav bar + quick tabs), so the first paint lands under
   // the chrome instead of over it.
   let poppedOutTabId: string | null = null;
+  /** Agent browser session (Phase B) — assigned below, after the
+   * pop-out helpers it notifies. Null until then; popIn/popOut
+   * guard with `?.` so early calls are safe. */
+  let agentSession: BrowserAgentSession | null = null;
   let lastMiniBounds: BrowserViewBounds = {
     x: 0,
     y: 70,
@@ -401,6 +441,7 @@ export function setupBrowserHandlers(
       return { ok: false, error: 'not-popped-out' };
     }
     poppedOutTabId = null;
+    agentSession?.setPoppedOutTabId(null);
     const mini = options?.mini?.get() ?? null;
     if (mini && !mini.isDestroyed()) {
       detachBrowserView(mini);
@@ -434,9 +475,60 @@ export function setupBrowserHandlers(
     if (activeTabId === tabId) detach();
     attachBrowserView(mini, view, lastMiniBounds);
     poppedOutTabId = tabId;
+    agentSession?.setPoppedOutTabId(tabId);
     sendUpdate(tabId);
     return { ok: true };
   };
+
+  // Agent browser session (Phase B): the finger queue, the
+  // in-use/idle lifecycle (mini fullscreen while in use, PiP when
+  // idle), the glass splash, and the live agent mouse. Every
+  // `browser_*` tool call is wrapped in begin/endTool below, so
+  // the mini window appears whenever an agent browses — the
+  // browser is Lucid's own thing, actually working, not theory.
+  const agentFlowIds = new Set<string>();
+  const emitAgentState = (state: BrowserAgentStateSnapshot) => {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('browser:agent-state', state);
+    }
+    const mini = options?.mini?.get() ?? null;
+    if (mini && !mini.isDestroyed()) {
+      mini.webContents.send('browser:agent-state', state);
+    }
+  };
+  agentSession = createBrowserAgentSession({
+    // The ACTIVE tab pops out. No tab open means no pop-out —
+    // the tool itself reports 'No browser tab is open.', the
+    // long-standing contract (the agent tells Gary to open the
+    // browser; main never silently opens a tab for him).
+    popOutActiveTab: () => {
+      if (!activeTabId) return null;
+      const result = popOut(activeTabId);
+      return result.ok ? activeTabId : null;
+    },
+    setMiniFullscreen: (inUse) => {
+      setMiniWindowFullscreen(inUse);
+    },
+    emitState: emitAgentState,
+    getViewBounds: () => {
+      const view = activeTabId ? views.get(activeTabId) : undefined;
+      if (!view) return null;
+      const b = view.getBounds();
+      return { width: b.width, height: b.height };
+    },
+    onAgentStopped: () => {
+      for (const flowId of agentFlowIds) flows.stopFlow(flowId);
+      agentFlowIds.clear();
+    },
+    getLuciferAiEnabled: () =>
+      options?.getAgentSettings?.().luciferAiEnabled ?? true,
+    isFingerLocked: () =>
+      options?.getAgentSettings?.().browserFingerLocked ?? false,
+    setFingerLockedSetting: (locked) => {
+      options?.setBrowserFingerLocked?.(locked);
+    },
+  });
 
   // Downloads (Area 2): the session is shared by every browser
   // view, so one will-download handler covers all tabs. Progress
@@ -744,7 +836,10 @@ export function setupBrowserHandlers(
     const view = views.get(tabId);
     if (!view) return;
     const wasPoppedOut = poppedOutTabId === tabId;
-    if (wasPoppedOut) poppedOutTabId = null;
+    if (wasPoppedOut) {
+      poppedOutTabId = null;
+      agentSession?.setPoppedOutTabId(null);
+    }
     if (activeTabId === tabId) detach();
     cancelPendingAuthForTab(tabId);
     zoomFactors.delete(tabId);
@@ -1154,10 +1249,39 @@ export function setupBrowserHandlers(
       if (!attached.ok) {
         return `Could not click ${selector}: the debugger could not attach (${attached.error ?? 'unknown error'}).`;
       }
+      // The live agent mouse travels to the element first, so Gary
+      // sees the cursor move before the click lands.
+      const moved = await cdp.moveMouseToElement(activeTabId, selector);
+      if (moved.ok && moved.x !== undefined && moved.y !== undefined) {
+        agentSession?.moveMouse(moved.x, moved.y);
+      }
       const result = await cdp.trustedClickAtElement(activeTabId, selector);
       return result.ok
         ? `Clicked ${selector} (trusted input).`
         : `Could not click ${selector}: ${result.error ?? 'unknown error'}.`;
+    },
+
+    // Live agent mouse (Phase B): a real CDP mouseMoved event,
+    // clamped to the browser view bounds, with the agent cursor
+    // drawn at the same point in the mini window / panel. The
+    // wrapper already began the tool (holder + in-use), so the
+    // session accepts the move and pushes the position out.
+    moveMouse: async (x, y) => {
+      if (!activeTabId) return 'No browser tab is open.';
+      const view = views.get(activeTabId);
+      if (!view) return 'No browser tab is open.';
+      const clamped =
+        agentSession?.moveMouse(x, y) ??
+        clampAgentMousePosition(x, y, view.getBounds());
+      const attached = await cdp.attach(activeTabId, view.webContents);
+      if (!attached.ok) {
+        return `Could not move the mouse: the debugger could not attach (${attached.error ?? 'unknown error'}).`;
+      }
+      const moved = await cdp.moveMouse(activeTabId, clamped.x, clamped.y);
+      if (!moved.ok) {
+        return `Could not move the mouse: ${moved.error ?? 'unknown error'}.`;
+      }
+      return `Moved the browser mouse to (${Math.round(clamped.x)}, ${Math.round(clamped.y)}).`;
     },
 
     // Visit history (Area 9): what Gary looked at, for the AI.
@@ -1182,10 +1306,45 @@ export function setupBrowserHandlers(
           : '';
         return `Could not start the flow: ${started.error}.${detail}`;
       }
+      agentFlowIds.add(started.flowId);
       return `Flow started: ${definition.name} (${started.flowId}) — ${definition.steps.length} step(s). Steps that need approval (money, irreversible, or flagged) will pause for Gary in the browser panel; progress shows there.`;
     },
   };
-  registerBrowserToolTarget(toolTarget);
+  // Phase B: every tool call runs inside the agent session —
+  // the mini window appears, the glass splash shows, the mini
+  // goes fullscreen while in use, and the finger queue gates
+  // access. A refused call (Gary took control, finger locked,
+  // another agent holds it) returns a plain-text refusal, never
+  // a throw — the AI can tell Gary what is blocking it.
+  const withAgentSession =
+    <A extends unknown[]>(fn: (...args: A) => Promise<string>) =>
+    async (...args: A): Promise<string> => {
+      const begun = agentSession?.beginTool(BROWSER_AGENT_HOLDER_ID);
+      if (begun && !begun.ok) {
+        return begun.error ?? 'The browser is not available right now.';
+      }
+      try {
+        return await fn(...args);
+      } finally {
+        agentSession?.endTool();
+      }
+    };
+  const wrappedToolTarget: BrowserToolTarget = {
+    navigate: withAgentSession(toolTarget.navigate),
+    readPage: withAgentSession(toolTarget.readPage),
+    click: withAgentSession(toolTarget.click),
+    fill: withAgentSession(toolTarget.fill),
+    screenshot: withAgentSession(toolTarget.screenshot),
+    getState: withAgentSession(toolTarget.getState),
+    search: withAgentSession(toolTarget.search),
+    trustedClick: withAgentSession(toolTarget.trustedClick),
+    getHistory: withAgentSession(toolTarget.getHistory),
+    runFlow: withAgentSession(toolTarget.runFlow),
+    moveMouse: toolTarget.moveMouse
+      ? withAgentSession(toolTarget.moveMouse)
+      : undefined,
+  };
+  registerBrowserToolTarget(wrappedToolTarget);
 
   // Flows (Area 7): start / stop / approve / reject. Start
   // validates the definition in main and reports `no-such-tab`
@@ -1196,13 +1355,16 @@ export function setupBrowserHandlers(
     'browser:flow-start',
     (_event, definition: FlowDefinition, tabId: string) => {
       if (!views.has(tabId)) return { ok: false, error: 'no-such-tab' };
-      return flows.startFlow(definition, tabId);
+      const started = flows.startFlow(definition, tabId);
+      if (started.ok) agentFlowIds.add(started.flowId);
+      return started;
     },
   );
 
-  ipcMain.handle('browser:flow-stop', (_event, flowId: string) =>
-    flows.stopFlow(flowId),
-  );
+  ipcMain.handle('browser:flow-stop', (_event, flowId: string) => {
+    agentFlowIds.delete(flowId);
+    return flows.stopFlow(flowId);
+  });
 
   ipcMain.handle('browser:flow-approve', (_event, flowId: string) =>
     flows.approveStep(flowId),
@@ -1418,5 +1580,52 @@ export function setupBrowserHandlers(
     const win = getMainWindow();
     if (!win || win.isDestroyed()) return;
     win.webContents.send('browser:open-internal-phone');
+  });
+
+  // Agent browser (Phase B): Gary's stop / take-control surface
+  // in the mini window (there for him when LuciferAI is off, and
+  // wired whenever), the finger lock, the live agent state, and
+  // the finger queue for other agents.
+  ipcMain.handle('browser:agent-stop', () => {
+    agentSession?.stopAgent();
+    return { ok: true };
+  });
+
+  ipcMain.handle('browser:agent-take-control', () => {
+    agentSession?.takeControl();
+    return { ok: true };
+  });
+
+  ipcMain.handle('browser:agent-give-back', () => {
+    agentSession?.giveBackControl();
+    return { ok: true };
+  });
+
+  ipcMain.handle('browser:agent-finger-lock', (_event, locked: boolean) => {
+    agentSession?.setFingerLocked(locked === true);
+    return { ok: true };
+  });
+
+  ipcMain.handle('browser:agent-get-state', () => ({
+    ok: true,
+    state: agentSession?.getState() ?? null,
+  }));
+
+  ipcMain.handle('browser:finger-request', (_event, holderId: string) => {
+    if (typeof holderId !== 'string' || !holderId) {
+      return { ok: false, error: 'bad-holder' };
+    }
+    const queue = agentSession?.getQueue();
+    if (!queue) return { ok: false, error: 'no-session' };
+    return { ok: true, ...queue.request(holderId) };
+  });
+
+  ipcMain.handle('browser:finger-release', (_event, holderId: string) => {
+    if (typeof holderId !== 'string' || !holderId) {
+      return { ok: false, error: 'bad-holder' };
+    }
+    const queue = agentSession?.getQueue();
+    if (!queue) return { ok: false, error: 'no-session' };
+    return { ok: true, nextHolder: queue.release(holderId) };
   });
 }

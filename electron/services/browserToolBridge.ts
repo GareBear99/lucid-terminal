@@ -38,6 +38,12 @@ export interface BrowserToolTarget {
   /** Click an element with a real (trusted) mouse event via CDP
    * (Area 8) — for pages that ignore Tier 1's synthetic click. */
   trustedClick(selector: string): Promise<string>;
+  /** Move the live agent mouse to (x, y) in the active tab's
+   * viewport (Phase B): a real CDP `mouseMoved` event, clamped to
+   * the browser view bounds, with the agent cursor drawn at the
+   * same point in the mini window / panel. Optional: targets
+   * built before Phase B do not implement it. */
+  moveMouse?(x: number, y: number): Promise<string>;
   /** What the user looked at in the last `days` days (Area 9),
    * formatted for the AI chat. */
   getHistory(days?: number): Promise<string>;

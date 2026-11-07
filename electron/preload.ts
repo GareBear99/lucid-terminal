@@ -7,6 +7,7 @@ import type {
   TouchMessage,
 } from '../src/phone/streaming';
 import type { PingQuota } from '../src/types';
+import type { BrowserAgentStateSnapshot } from '../src/lib/browserAgent';
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('lucidAPI', {
@@ -287,6 +288,26 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('browser:focus-address-bar', listener);
       return () => ipcRenderer.removeListener('browser:focus-address-bar', listener);
     },
+    // Agent browser (Phase B): live state pushed by main whenever
+    // the agent starts/stops browsing, moves its mouse, or Gary
+    // takes control — plus Gary's stop / take-control / finger-lock
+    // controls and the finger queue for other agents.
+    onAgentState: (callback: (state: BrowserAgentStateSnapshot) => void) => {
+      const listener = (_: any, state: BrowserAgentStateSnapshot) =>
+        callback(state);
+      ipcRenderer.on('browser:agent-state', listener);
+      return () => ipcRenderer.removeListener('browser:agent-state', listener);
+    },
+    stopAgentBrowser: () => ipcRenderer.invoke('browser:agent-stop'),
+    takeAgentControl: () => ipcRenderer.invoke('browser:agent-take-control'),
+    giveBackAgentControl: () => ipcRenderer.invoke('browser:agent-give-back'),
+    setBrowserFingerLocked: (locked: boolean) =>
+      ipcRenderer.invoke('browser:agent-finger-lock', locked),
+    getAgentState: () => ipcRenderer.invoke('browser:agent-get-state'),
+    requestBrowserFinger: (holderId: string) =>
+      ipcRenderer.invoke('browser:finger-request', holderId),
+    releaseBrowserFinger: (holderId: string) =>
+      ipcRenderer.invoke('browser:finger-release', holderId),
     // Flows (Area 7): start / stop / approve / reject, and the
     // progress + approval events the panel shows.
     startFlow: (definition: FlowDefinition, tabId: string) =>

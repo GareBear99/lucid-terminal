@@ -74,6 +74,53 @@ export function getMiniBrowserWindow(): BrowserWindow | null {
   return miniWindow && !miniWindow.isDestroyed() ? miniWindow : null;
 }
 
+/**
+ * Fullscreen-while-in-use (Phase B): when an agent is actively
+ * driving the browser, the mini window expands to FULL SCREEN
+ * from its moveable FaceTime PiP-like floating state; when idle
+ * it returns to the PiP floating window, at the bounds Gary left
+ * it in (saved before entering fullscreen, restored on exit).
+ *
+ * The PiP bounds are remembered in module state (not the bounds
+ * store — a fullscreen window's bounds are the screen's, and
+ * persisting those would strand the PiP window fullscreen-sized
+ * after a restart). `setMiniWindowFullscreen` is a no-op when
+ * there is no mini window, and entering fullscreen twice (or
+ * exiting when not fullscreen) is a no-op. Returns whether the
+ * mini window is fullscreen after the call.
+ */
+let miniFullscreen = false;
+let pipBoundsBeforeFullscreen: BrowserViewBounds | null = null;
+
+export function isMiniWindowFullscreen(): boolean {
+  return miniFullscreen && getMiniBrowserWindow() !== null;
+}
+
+export function setMiniWindowFullscreen(inUse: boolean): boolean {
+  const win = getMiniBrowserWindow();
+  if (!win) return false;
+  if (inUse === miniFullscreen) return miniFullscreen;
+  if (inUse) {
+    pipBoundsBeforeFullscreen = { ...win.getBounds() };
+    win.setFullScreen(true);
+    miniFullscreen = true;
+  } else {
+    win.setFullScreen(false);
+    miniFullscreen = false;
+    if (pipBoundsBeforeFullscreen) {
+      win.setBounds(pipBoundsBeforeFullscreen);
+      pipBoundsBeforeFullscreen = null;
+    }
+  }
+  return miniFullscreen;
+}
+
+/** Test-only: drop the remembered PiP bounds / fullscreen flag. */
+export function resetMiniWindowFullscreenForTests(): void {
+  miniFullscreen = false;
+  pipBoundsBeforeFullscreen = null;
+}
+
 export interface MiniBrowserWindowOptions {
   /** Called when the mini window closes (Gary closed it, or it was
    * closed by a pop-in) so the browser handlers can pop the tab
@@ -165,6 +212,10 @@ export function createMiniBrowserWindow(
 
   win.on('closed', () => {
     if (miniWindow === win) miniWindow = null;
+    // A closed window is never fullscreen; forget the PiP bounds
+    // saved on entry so a later window starts from the store.
+    miniFullscreen = false;
+    pipBoundsBeforeFullscreen = null;
     options.onClosed();
   });
 

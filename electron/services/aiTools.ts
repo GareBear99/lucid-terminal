@@ -269,6 +269,28 @@ export const tools: ToolDefinition[] = [
     {
         type: 'function',
         function: {
+            name: 'browser_move_mouse',
+            description: 'Move the browser\'s own live mouse to a point on the current page (x, y in page viewport pixels). The mouse is locked to the browser area and Gary can see it move in the mini window — move it onto what you are about to click, so he can follow what you are doing. The page sees a real mouse move.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    x: {
+                        type: 'number',
+                        description: 'Horizontal position in the page viewport (CSS pixels from the left edge).',
+                    },
+                    y: {
+                        type: 'number',
+                        description: 'Vertical position in the page viewport (CSS pixels from the top edge).',
+                    },
+                },
+                required: ['x', 'y'],
+            },
+        },
+    },
+
+    {
+        type: 'function',
+        function: {
             name: 'browser_trusted_click',
             description: 'Click an element with a real (trusted) mouse event via CDP, for pages that ignore a normal click. Use this when browser_click did not work — the page may be checking that the click came from a real user.',
             parameters: {
@@ -315,6 +337,7 @@ export const browserToolNames: readonly string[] = [
   'browser_search',
   'browser_run_flow',
   'browser_trusted_click',
+  'browser_move_mouse',
   'browser_history',
 ];
 
@@ -480,6 +503,20 @@ export async function executeTool(
                 }
                 onLog?.(`Running browser flow: ${(definition as { name?: unknown }).name ?? '(unnamed)'}`);
                 return await target.runFlow(definition as never);
+            }
+
+
+            case 'browser_move_mouse': {
+                const target = getBrowserToolTarget();
+                if (!target) return BROWSER_TOOL_UNAVAILABLE;
+                if (typeof args.x !== 'number' || typeof args.y !== 'number') {
+                    return 'Error: browser_move_mouse needs x and y numbers.';
+                }
+                if (!target.moveMouse) {
+                    return 'The browser mouse is not available in this build.'
+                }
+                onLog?.(`Moving the browser mouse to (${args.x}, ${args.y})...`);
+                return await target.moveMouse(args.x, args.y);
             }
 
 

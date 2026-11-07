@@ -116,6 +116,17 @@ app.whenReady().then(() => {
     mini: {
       create: (onClosed) => createMiniBrowserWindow({ onClosed }),
       get: () => getMiniBrowserWindow(),
+    // Agent browser (Phase B): LuciferAI enabled + browser
+    // finger lock, read live from the same settings store the
+    // renderer persists to.
+    getAgentSettings: () => ({
+      luciferAiEnabled: settings.get<boolean>('luciferAiEnabled') ?? true,
+      browserFingerLocked:
+        settings.get<boolean>('browserFingerLocked') ?? false,
+    }),
+    setBrowserFingerLocked: (locked) => {
+      settings.set('browserFingerLocked', locked);
+    },
     },
   });
   // Phone streaming (scrcpy) needs the window for the PhoneView canvas host.

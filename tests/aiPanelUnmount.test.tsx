@@ -127,6 +127,9 @@ function installMock() {
       onMiniState: vi.fn(() => noop),
       onOpenInternalPhone: vi.fn(() => noop),
       onPermissionRequested: vi.fn(() => noop),
+      // Agent browser (Phase B): live agent state.
+      onAgentState: vi.fn(() => noop),
+      getAgentState: vi.fn(async () => ({ ok: true, state: null })),
       hide: vi.fn(async () => undefined),
       activate: vi.fn(async () => undefined),
       show: vi.fn(async () => undefined),

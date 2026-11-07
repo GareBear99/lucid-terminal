@@ -23,6 +23,9 @@ import {
   FileDown,
 } from 'lucide-react';
 import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
+import { useBrowserAgentStore } from '../../stores/browserAgentStore';
+import { AgentMouseCursor } from './AgentMouseCursor';
+import { BrowserGlassSplash } from './BrowserGlassSplash';
 import { useAIStore } from '../../stores/aiStore';
 import { buildPageSummaryPrompt } from '../../lib/browserActions';
 import {
@@ -144,6 +147,10 @@ function BrowserPanel() {
   const closedTabs = useBrowserStore((s) => s.closedTabs);
   const restoreClosedTab = useBrowserStore((s) => s.restoreClosedTab);
   const poppedOutTabId = useBrowserStore((s) => s.poppedOutTabId);
+  // Agent browser (Phase B): the live agent mouse and the glass
+  // splash, mirrored from main's `browser:agent-state`.
+  const agentMouse = useBrowserAgentStore((s) => s.mouse);
+  const agentSplash = useBrowserAgentStore((s) => s.splash);
   const setPoppedOutTabId = useBrowserStore((s) => s.setPoppedOutTabId);
   const zoomIn = useBrowserStore((s) => s.zoomIn);
   const zoomOut = useBrowserStore((s) => s.zoomOut);
@@ -328,6 +335,36 @@ function BrowserPanel() {
       setInput(activeTab?.url ?? '');
     }
   }, [activeTab?.url, activeTabId]);
+
+  // Agent-browser state from the main process (Phase B): the
+  // snapshot also carries the popped-out tab, so an agent-driven
+  // pop-out keeps the panel from re-attaching the view to the
+  // main window.
+  const [agentSplashDismissed, setAgentSplashDismissed] = useState(false);
+  useEffect(() => {
+    if (agentSplash) setAgentSplashDismissed(false);
+  }, [agentSplash]);
+  useEffect(() => {
+    const cleanupAgentState = window.lucidAPI.browser.onAgentState(
+      (state) => {
+        useBrowserAgentStore.getState().applyAgentState(state);
+        if (state.poppedOutTabId) {
+          useBrowserStore.getState().setPoppedOutTabId(
+            state.poppedOutTabId,
+          );
+        }
+      },
+    );
+    void window.lucidAPI.browser
+      .getAgentState()
+      .then((r) => {
+        if (r.state) useBrowserAgentStore.getState().applyAgentState(r.state);
+      })
+      .catch(() => undefined);
+    return () => {
+      cleanupAgentState();
+    };
+  }, []);
 
   // Live tab state from the main process (url/title/loading/nav state),
   // and new-window requests (target=_blank, window.open) as new tabs.
@@ -1064,7 +1101,14 @@ function BrowserPanel() {
           />
         </div>
       ) : (
-        <div ref={containerRef} className="flex-1 min-h-0 bg-white" />
+        <div ref={containerRef} className="flex-1 min-h-0 bg-white relative">
+          {agentSplash && !agentSplashDismissed && (
+            <BrowserGlassSplash
+              onDone={() => setAgentSplashDismissed(true)}
+            />
+          )}
+          <AgentMouseCursor mouse={agentMouse} />
+        </div>
       )}
 
       {/* Flow progress (Area 7): shows while a scripted flow runs

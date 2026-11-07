@@ -122,6 +122,23 @@ export interface BrowserCdpManager {
     tabId: string,
     selector: string,
   ): Promise<{ ok: boolean; error?: string }>;
+  /** Move the live agent mouse to (x, y) — a real `mouseMoved`
+   * event via CDP (Phase B). The page sees a real pointer moving,
+   * and the renderer draws the agent cursor at the same point.
+   * The caller clamps to the browser view bounds first (see
+   * `clampAgentMousePosition`); this sends exactly what it gets. */
+  moveMouse(
+    tabId: string,
+    x: number,
+    y: number,
+  ): Promise<{ ok: boolean; error?: string }>;
+  /** Move the agent mouse to an element's centre (scrolls it into
+   * view first) and return the point, so a click can visibly
+   * travel there first. */
+  moveMouseToElement(
+    tabId: string,
+    selector: string,
+  ): Promise<{ ok: boolean; x?: number; y?: number; error?: string }>;
   dispatchKey(
     tabId: string,
     type: 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char',
@@ -336,6 +353,43 @@ export function createBrowserCdpManager(): BrowserCdpManager {
       }
       const { x, y } = point as { x: number; y: number };
       return manager.trustedClick(tabId, x, y);
+    },
+
+    async moveMouse(tabId, x, y) {
+      const moved = await manager.sendCommand(
+        tabId,
+        'Input.dispatchMouseEvent',
+        { type: 'mouseMoved', x, y, button: 'none' },
+      );
+      return { ok: moved.ok, ...(moved.error ? { error: moved.error } : {}) };
+    },
+
+    async moveMouseToElement(tabId, selector) {
+      if (!isValidSelector(selector)) {
+        return { ok: false, error: 'bad-selector' };
+      }
+      const session = sessions.get(tabId);
+      if (!session) return { ok: false, error: 'not-attached' };
+      let point: unknown;
+      try {
+        point = await session.wc.executeJavaScript(
+          buildElementCenterScript(selector),
+        );
+      } catch {
+        return { ok: false, error: 'script-failed' };
+      }
+      if (
+        !point ||
+        typeof point !== 'object' ||
+        typeof (point as { x?: unknown }).x !== 'number' ||
+        typeof (point as { y?: unknown }).y !== 'number'
+      ) {
+        return { ok: false, error: 'not-found' };
+      }
+      const { x, y } = point as { x: number; y: number };
+      const moved = await manager.moveMouse(tabId, x, y);
+      if (!moved.ok) return { ok: false, error: moved.error };
+      return { ok: true, x, y };
     },
 
     async dispatchKey(tabId, type, key, code) {

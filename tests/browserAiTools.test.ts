@@ -37,10 +37,12 @@ const EXPECTED_TOOLS = [
   'browser_trusted_click',
   // Area 9: visit history.
   'browser_history',
+  // Phase B: the browser's own live mouse.
+  'browser_move_mouse',
 ];
 
 describe('browser tool definitions', () => {
-  it('defines all ten browser tools', () => {
+  it('defines all eleven browser tools', () => {
     const names = tools.map((t) => t.function.name);
     for (const name of EXPECTED_TOOLS) {
       expect(names).toContain(name);
@@ -67,7 +69,7 @@ describe('browser tool definitions', () => {
     expect(byName.get('browser_get_state')?.parameters.required).toBeUndefined();
   });
 
-  it('the allowlist is exactly the ten browser tools', () => {
+  it('the allowlist is exactly the eleven browser tools', () => {
     expect([...browserToolNames].sort()).toEqual([...EXPECTED_TOOLS].sort());
   });
 

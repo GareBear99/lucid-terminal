@@ -95,6 +95,9 @@ const defaultSettings: Settings = {
   // Gary locks it explicitly). Protected targets default to Gary's
   // ChatGPT tab (see src/lib/computerControl.ts).
   computerControlLocked: false,
+  // Browser finger lock (Phase B) — starts enabled, Gary locks
+  // it explicitly (same pattern as computerControlLocked).
+  browserFingerLocked: false,
   computerControlProtectedTargets: ['Next Starship Steps'],
   // User-installed add-ons — empty = none installed (see
   // src/types/index.ts). Written immediately on Install.

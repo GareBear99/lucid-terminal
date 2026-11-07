@@ -1,0 +1,128 @@
+/* Glass splash on the browser tab (Phase B) — the boot splash's
+ * rhythm with a glass treatment: frosted translucent panel over
+ * the tab, backdrop blur, hairline border, smoke puffs drifting
+ * behind a rising wordmark, then a fade. Pure CSS motion
+ * (transform/opacity on pre-blurred gradients), no per-frame JS. */
+
+.browser-glass-splash {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  /* Glass: frosted translucent white over the page, not black. */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.22),
+    rgba(255, 255, 255, 0.08) 45%,
+    rgba(255, 255, 255, 0.18)
+  );
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.browser-glass-splash-mounted {
+  opacity: 1;
+}
+
+.browser-glass-splash-phase-fade,
+.browser-glass-splash-skipping {
+  opacity: 0;
+  transition: opacity 1000ms ease;
+}
+
+.browser-glass-splash-skipping {
+  transition-duration: 250ms;
+}
+
+.browser-glass-splash-smoke {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+}
+
+.browser-glass-splash-puff {
+  position: absolute;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  filter: blur(18px);
+  opacity: 0;
+  animation: browser-glass-splash-drift 3.2s ease-in-out forwards;
+}
+
+.browser-glass-splash-puff-0 { width: 45%; height: 30%; left: -5%; top: 55%; animation-delay: 0ms; }
+.browser-glass-splash-puff-1 { width: 35%; height: 26%; left: 25%; top: 65%; animation-delay: 120ms; }
+.browser-glass-splash-puff-2 { width: 50%; height: 32%; left: 55%; top: 50%; animation-delay: 240ms; }
+.browser-glass-splash-puff-3 { width: 30%; height: 22%; left: 15%; top: 20%; animation-delay: 80ms; }
+.browser-glass-splash-puff-4 { width: 38%; height: 26%; left: 65%; top: 15%; animation-delay: 200ms; }
+
+@keyframes browser-glass-splash-drift {
+  0% { opacity: 0; transform: translate3d(0, 12%, 0) scale(0.9); }
+  30% { opacity: 0.8; }
+  100% { opacity: 0; transform: translate3d(4%, -8%, 0) scale(1.1); }
+}
+
+.browser-glass-splash-wordmark {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 700ms ease,
+    transform 700ms ease;
+}
+
+.browser-glass-splash-phase-wordmark .browser-glass-splash-wordmark,
+.browser-glass-splash-phase-hold .browser-glass-splash-wordmark,
+.browser-glass-splash-phase-fade .browser-glass-splash-wordmark {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.browser-glass-splash-wordmark-text {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #1a1a2e;
+  text-shadow: 0 1px 12px rgba(255, 255, 255, 0.8);
+}
+
+.browser-glass-splash-wordmark-letter {
+  display: inline-block;
+  opacity: 0;
+  animation: browser-glass-splash-letter-in 500ms ease forwards;
+  animation-delay: calc(var(--i) * 60ms);
+}
+
+@keyframes browser-glass-splash-letter-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.browser-glass-splash-wordmark-sub {
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(26, 26, 46, 0.72);
+}
+
+.browser-glass-splash-hint {
+  position: absolute;
+  bottom: 12px;
+  right: 14px;
+  font-size: 11px;
+  color: rgba(26, 26, 46, 0.55);
+}

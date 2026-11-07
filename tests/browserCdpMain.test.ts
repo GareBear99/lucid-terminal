@@ -389,7 +389,12 @@ describe('AI bridge trustedClick', () => {
     const mouse = debuggerOf(viewWc()).commands.filter(
       (c) => c.method === 'Input.dispatchMouseEvent',
     );
-    expect(mouse).toHaveLength(2);
+    // Phase B: the live agent mouse travels to the element first
+    // (mouseMoved), then the trusted press + release land.
+    expect(mouse).toHaveLength(3);
+    expect(mouse[0].params).toMatchObject({ type: 'mouseMoved' });
+    expect(mouse[1].params).toMatchObject({ type: 'mousePressed' });
+    expect(mouse[2].params).toMatchObject({ type: 'mouseReleased' });
   });
 
   it('no active tab is a clean message', async () => {

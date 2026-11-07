@@ -13,7 +13,14 @@
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useForgeStore } from '../src/stores/forgeStore';
+import {
+  activeHomunculusColor,
+  useForgeStore,
+} from '../src/stores/forgeStore';
+import {
+  allowedNewHomunculusColors,
+  oppositeHomunculusColor,
+} from '../src/lib/homunculusColor';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import type { Homunculus } from '../src/lib/homunculi';
 
@@ -102,7 +109,14 @@ function installMock(roster: Homunculus[]) {
       return () => undefined;
     }),
   };
-  win.lucidAPI = { ...((prevLucidAPI as object) ?? {}), llmbuilder: mock };
+  win.lucidAPI = {
+    ...((prevLucidAPI as object) ?? {}),
+    llmbuilder: mock,
+    // Activation swaps the face by updating the `homunculusColor`
+    // setting — the settings IPC needs a stub so updateSetting
+    // succeeds (and updates local state) in tests.
+    settings: { set: vi.fn(async () => undefined) },
+  };
   return {
     mock,
     calls,
@@ -458,5 +472,404 @@ describe('forgeStore Electron contract', () => {
     expect(useForgeStore.getState().scoreboardRaw).toEqual({
       models: [{ model_name: 'lucifer-1' }],
     });
+  });
+});
+
+describe('forgeStore opposite-colour rule (Gary, 2026-11-06)', () => {
+  let restore: () => void;
+
+  const PURPLE_ONE: Homunculus = {
+    ...LUCIFER,
+    id: 'violet',
+    name: 'Violet',
+    color: 'purple',
+  };
+
+  beforeEach(() => {
+    useForgeStore.getState().resetForTests();
+  });
+
+  afterEach(() => {
+    restore?.();
+    useForgeStore.getState().resetForTests();
+  });
+
+  function setRoster(roster: Homunculus[], selectedId: string | null) {
+    useForgeStore.setState({ roster: [...roster], selectedId });
+  }
+
+  test('rejects the same colour as the active Homunculus', async () => {
+    const m = installMock([LUCIFER]);
+    restore = m.restore;
+    setRoster([LUCIFER], 'lucifer');
+    await expect(
+      useForgeStore.getState().createHomunculus('Violet', 'pink'),
+    ).rejects.toThrow('opposite colour');
+    expect(useForgeStore.getState().roster).toHaveLength(1);
+    expect(useForgeStore.getState().lastError).toContain('opposite colour');
+    expect(m.calls.saveRoster).toHaveLength(0);
+  });
+
+  test('allows the opposite colour and selects the new Homunculus', async () => {
+    const m = installMock([LUCIFER]);
+    restore = m.restore;
+    setRoster([LUCIFER], 'lucifer');
+    const created = await useForgeStore
+      .getState()
+      .createHomunculus('Violet', 'purple');
+    expect(created.color).toBe('purple');
+    expect(useForgeStore.getState().roster).toHaveLength(2);
+    expect(useForgeStore.getState().selectedId).toBe('violet');
+    expect(m.calls.saveRoster).toHaveLength(1);
+  });
+
+  test('free choice when the roster is empty (black / unformed)', async () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setRoster([], null);
+    const pink = await useForgeStore
+      .getState()
+      .createHomunculus('First', 'pink');
+    expect(pink.color).toBe('pink');
+    // Reset to empty and prove purple is equally allowed as a first.
+    setRoster([], null);
+    const purple = await useForgeStore
+      .getState()
+      .createHomunculus('First', 'purple');
+    expect(purple.color).toBe('purple');
+    expect(m.calls.saveRoster).toHaveLength(2);
+  });
+
+  test('roster[0] is the active colour when nothing is selected', async () => {
+    const m = installMock([PURPLE_ONE]);
+    restore = m.restore;
+    setRoster([PURPLE_ONE], null);
+    await expect(
+      useForgeStore.getState().createHomunculus('Second', 'purple'),
+    ).rejects.toThrow('opposite colour');
+    const created = await useForgeStore
+      .getState()
+      .createHomunculus('Second', 'pink');
+    expect(created.color).toBe('pink');
+    expect(useForgeStore.getState().roster).toHaveLength(2);
+  });
+
+  test('colours alternate across creations', async () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setRoster([], null);
+    await useForgeStore.getState().createHomunculus('A', 'purple');
+    await expect(
+      useForgeStore.getState().createHomunculus('B', 'purple'),
+    ).rejects.toThrow('opposite colour');
+    await useForgeStore.getState().createHomunculus('B', 'pink');
+    await expect(
+      useForgeStore.getState().createHomunculus('C', 'pink'),
+    ).rejects.toThrow('opposite colour');
+    // The pair is formed — dual unison is unlocked — so the STOP
+    // blocks more singles until the first stop action is input.
+    await expect(
+      useForgeStore.getState().createHomunculus('C', 'purple'),
+    ).rejects.toThrow('first stop action');
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'seconds',
+      seconds: 3,
+    });
+    await useForgeStore.getState().createHomunculus('C', 'purple');
+    expect(
+      useForgeStore.getState().roster.map((h) => h.color),
+    ).toEqual(['purple', 'pink', 'purple']);
+    expect(m.calls.saveRoster).toHaveLength(3);
+  });
+
+  test('activeHomunculusColor: selected wins, else roster[0], else null', () => {
+    expect(activeHomunculusColor([LUCIFER, PURPLE_ONE], 'violet')).toBe(
+      'purple',
+    );
+    expect(activeHomunculusColor([LUCIFER, PURPLE_ONE], 'lucifer')).toBe(
+      'pink',
+    );
+    expect(activeHomunculusColor([PURPLE_ONE], null)).toBe('purple');
+    expect(activeHomunculusColor([], null)).toBeNull();
+  });
+
+  test('opposite / allowed colours: null means free choice', () => {
+    expect(oppositeHomunculusColor('pink')).toBe('purple');
+    expect(oppositeHomunculusColor('purple')).toBe('pink');
+    expect(allowedNewHomunculusColors(null)).toEqual(['purple', 'pink']);
+    expect(allowedNewHomunculusColors('pink')).toEqual(['purple']);
+    expect(allowedNewHomunculusColors('purple')).toEqual(['pink']);
+  });
+});
+
+describe('forgeStore dual unison (Gary, 2026-11-06)', () => {
+  let restore: () => void;
+
+  const PURPLE_ONE: Homunculus = {
+    ...LUCIFER,
+    id: 'violet',
+    name: 'Violet',
+    color: 'purple',
+  };
+
+  beforeEach(() => {
+    useForgeStore.getState().resetForTests();
+  });
+
+  afterEach(() => {
+    restore?.();
+    useForgeStore.getState().resetForTests();
+  });
+
+  function setRoster(roster: Homunculus[], selectedId: string | null) {
+    useForgeStore.setState({ roster: [...roster], selectedId });
+  }
+
+  /** The pair (pink + purple) in the roster — dual unison detected. */
+  function setPair() {
+    setRoster([LUCIFER, PURPLE_ONE], 'lucifer');
+  }
+
+  /** Walk the stop action all the way to detected. */
+  function unlockTail() {
+    const s = useForgeStore.getState();
+    s.inputStopAction('#ef4444', { kind: 'seconds', seconds: 3 });
+    s.verifyStopAction();
+    s.detectStopAction();
+  }
+
+  test('the STOP blocks a third single until the first stop action is input', async () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    // The active Homunculus is pink (lucifer), so the third single
+    // must be purple to pass the opposite-colour rule — and then it
+    // hits the STOP instead.
+    await expect(
+      useForgeStore.getState().createHomunculus('Third', 'purple'),
+    ).rejects.toThrow('first stop action');
+    expect(useForgeStore.getState().roster).toHaveLength(2);
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'seconds',
+      seconds: 3,
+    });
+    const created = await useForgeStore
+      .getState()
+      .createHomunculus('Third', 'purple');
+    expect(created.color).toBe('purple');
+    expect(useForgeStore.getState().roster).toHaveLength(3);
+    expect(m.calls.saveRoster).toHaveLength(1);
+  });
+
+  test('inputStopAction rejects without the pair, twice, or with a bad setup', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setRoster([LUCIFER], 'lucifer');
+    expect(() =>
+      useForgeStore.getState().inputStopAction('#ef4444', {
+        kind: 'seconds',
+        seconds: 3,
+      }),
+    ).toThrow('not unlocked yet');
+    setPair();
+    expect(() =>
+      useForgeStore.getState().inputStopAction('', {
+        kind: 'seconds',
+        seconds: 3,
+      }),
+    ).toThrow('Assign a colour');
+    expect(() =>
+      useForgeStore.getState().inputStopAction('#ef4444', {
+        kind: 'seconds',
+        seconds: 0,
+      }),
+    ).toThrow('1–9 seconds');
+    expect(() =>
+      useForgeStore.getState().inputStopAction('#ef4444', {
+        kind: 'seconds',
+        seconds: 10,
+      }),
+    ).toThrow('1–9 seconds');
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'seconds',
+      seconds: 3,
+    });
+    expect(() =>
+      useForgeStore.getState().inputStopAction('#f97316', {
+        kind: 'until-next-action',
+      }),
+    ).toThrow('already been input');
+    expect(useForgeStore.getState().unison.stopAction).toBe('input');
+    expect(useForgeStore.getState().unison.stopColor).toBe('#ef4444');
+  });
+
+  test('verify then detect, in order — the tail page unlocks only at detected', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    expect(() => useForgeStore.getState().verifyStopAction()).toThrow(
+      'input the first stop action',
+    );
+    expect(() => useForgeStore.getState().detectStopAction()).toThrow(
+      'verify the stop action',
+    );
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'until-next-action',
+    });
+    expect(() => useForgeStore.getState().detectStopAction()).toThrow(
+      'verify the stop action',
+    );
+    useForgeStore.getState().verifyStopAction();
+    expect(useForgeStore.getState().unison.stopAction).toBe('verified');
+    useForgeStore.getState().detectStopAction();
+    expect(useForgeStore.getState().unison.stopAction).toBe('detected');
+    expect(() => useForgeStore.getState().verifyStopAction()).toThrow(
+      'input the first stop action',
+    );
+  });
+
+  test('hitStop colours the action face; regress returns it to the solid', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    expect(() => useForgeStore.getState().hitStop()).toThrow(
+      'No stop to hit',
+    );
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'until-next-action',
+    });
+    useForgeStore.getState().hitStop();
+    expect(useForgeStore.getState().unison.stopFaceColorActive).toBe(true);
+    useForgeStore.getState().regressStopFaceColor();
+    expect(useForgeStore.getState().unison.stopFaceColorActive).toBe(false);
+  });
+
+  test('a seconds stop colour expires and regresses on its own', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'seconds',
+      seconds: 2,
+    });
+    vi.useFakeTimers();
+    try {
+      useForgeStore.getState().hitStop();
+      expect(useForgeStore.getState().unison.stopFaceColorActive).toBe(true);
+      vi.advanceTimersByTime(1999);
+      expect(useForgeStore.getState().unison.stopFaceColorActive).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(useForgeStore.getState().unison.stopFaceColorActive).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('an until-next-action stop colour clears on the next action', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'until-next-action',
+    });
+    useForgeStore.getState().hitStop();
+    expect(useForgeStore.getState().unison.stopFaceColorActive).toBe(true);
+    // Activating a Homunculus IS an action — the colour clears.
+    useForgeStore.getState().activateHomunculus('violet');
+    expect(useForgeStore.getState().unison.stopFaceColorActive).toBe(false);
+  });
+
+  test('an action message is assigned to the stop from the face', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    expect(() =>
+      useForgeStore.getState().assignStopActionMessage('held the line'),
+    ).toThrow('Input the first stop action');
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'seconds',
+      seconds: 3,
+    });
+    expect(() =>
+      useForgeStore.getState().assignStopActionMessage('   '),
+    ).toThrow('empty');
+    useForgeStore.getState().assignStopActionMessage('held the line');
+    expect(useForgeStore.getState().unison.stopMessage).toBe('held the line');
+  });
+
+  test('rootUnitedAction needs the tail page fully unlocked, then appends', async () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    expect(() =>
+      useForgeStore.getState().rootUnitedAction('did the thing'),
+    ).toThrow('not fully unlocked');
+    useForgeStore.getState().inputStopAction('#ef4444', {
+      kind: 'seconds',
+      seconds: 3,
+    });
+    expect(() =>
+      useForgeStore.getState().rootUnitedAction('did the thing'),
+    ).toThrow('not fully unlocked');
+    // The stop action was already input above — verify and detect it
+    // (unlockTail() would input it again).
+    useForgeStore.getState().verifyStopAction();
+    useForgeStore.getState().detectStopAction();
+    useForgeStore.getState().rootUnitedAction('first united action');
+    useForgeStore.getState().rootUnitedAction('second united action');
+    const { tail } = useForgeStore.getState().unison;
+    expect(tail).toHaveLength(2);
+    expect(tail[0].tick).toBe(1);
+    expect(tail[1].tick).toBe(2);
+    expect(tail[0].action).toBe('first united action');
+    expect(tail[1].prevHash).toBe(tail[0].hash);
+    expect(tail[1].action).toBe('second united action');
+    expect(() => useForgeStore.getState().rootUnitedAction('   ')).toThrow(
+      'empty',
+    );
+  });
+
+  test('tri unison is acquirable with dual unison, and only then', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setRoster([LUCIFER], 'lucifer');
+    expect(() => useForgeStore.getState().acquireTriUnison()).toThrow(
+      'not acquirable',
+    );
+    setPair();
+    useForgeStore.getState().acquireTriUnison();
+    expect(useForgeStore.getState().unison.triUnisonAcquired).toBe(true);
+  });
+
+  test('activateHomunculus swaps the face and validates a solid', async () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    useForgeStore.getState().activateHomunculus('violet');
+    expect(useForgeStore.getState().selectedId).toBe('violet');
+    // The face swaps: the `homunculusColor` setting becomes purple.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      useSettingsStore.getState().settings?.homunculusColor,
+    ).toBe('purple');
+    const { solidFace, faceTick } = useForgeStore.getState().unison;
+    expect(faceTick).toBe(1);
+    expect(solidFace).toEqual({ tick: 1, color: 'purple' });
+    // A second activation validates a newer solid, at a higher tick.
+    useForgeStore.getState().activateHomunculus('lucifer');
+    expect(useForgeStore.getState().unison.faceTick).toBe(2);
+    expect(useForgeStore.getState().unison.solidFace).toEqual({
+      tick: 2,
+      color: 'pink',
+    });
+  });
+
+  test('activateHomunculus refuses an unknown id', () => {
+    const m = installMock([]);
+    restore = m.restore;
+    setPair();
+    useForgeStore.getState().activateHomunculus('nope');
+    expect(useForgeStore.getState().lastError).toContain('No such Homunculus');
+    expect(useForgeStore.getState().selectedId).toBe('lucifer');
   });
 });

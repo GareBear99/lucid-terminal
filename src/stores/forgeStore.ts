@@ -53,7 +53,52 @@ import {
   type PromotionDecision,
   type RunTier,
 } from '../lib/llmbuilderApi';
+import {
+  allowedNewHomunculusColors,
+  oppositeHomunculusColor,
+} from '../lib/homunculusColor';
+import {
+  appendTailEntry,
+  canDetectStopAction,
+  canInputStopAction,
+  canVerifyStopAction,
+  detectDualUnison,
+  freshDualUnisonState,
+  isTailPageFullyUnlocked,
+  parseStopColorDurationSeconds,
+  type DualUnisonState,
+  type StopColorDuration,
+} from '../lib/dualUnison';
 import { useSettingsStore } from './settingsStore';
+
+/**
+ * The pending stop-face-colour timer (seconds duration only). A
+ * module-level handle, not store state — it is a runtime timer, not
+ * data. Cleared when the colour regresses, when a new stop is hit,
+ * and by resetForTests, so it can never fire into a dead store.
+ */
+let stopFaceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearStopFaceTimer(): void {
+  if (stopFaceTimer !== null) {
+    clearTimeout(stopFaceTimer);
+    stopFaceTimer = null;
+  }
+}
+
+/**
+ * A stop colour showing "until the next action" clears on the next
+ * action (an activation, a creation, rooting a united action) — the
+ * face regresses to the last validated solid. A seconds duration is
+ * governed by its timer instead and is left alone. Returns the
+ * (possibly unchanged) unison state.
+ */
+function withNextActionClear(unison: DualUnisonState): DualUnisonState {
+  if (!unison.stopFaceColorActive) return unison;
+  if (unison.stopDuration?.kind !== 'until-next-action') return unison;
+  clearStopFaceTimer();
+  return { ...unison, stopFaceColorActive: false };
+}
 
 export interface RunStageState {
   status: StageStatus | 'pending';
@@ -123,6 +168,83 @@ interface ForgeState {
   loadRoster: () => Promise<void>;
   saveRoster: () => Promise<void>;
   selectHomunculus: (id: string | null) => void;
+  /**
+   * DOUBLE-CLICK activation, IN THE FORGE specifically (Gary,
+   * 2026-11-06). Activates the Homunculus: it becomes the selected
+   * one, the face on the main terminal pages swaps to its colour
+   * (the `homunculusColor` setting is the face's colour — activation
+   * sets it), and the activation validates a new solid face colour
+   * (a ritual tick, for the stop-colour regression). Swappable on
+   * the go, quick — no restart, no deep menu. Single click still
+   * only selects (see selectHomunculus); activation is the
+   * double-click.
+   *
+   * LIVE REPORTING BUDDY — PLACEHOLDER, explicitly not built. The
+   * active Homunculus is a potential live reporting buddy (the face
+   * reports live once the display messages are finished). The
+   * display messages were started workshopping and are NOT finished
+   * — do not invent them. The hook point is here: activation is
+   * where the reporting buddy attaches, and the action message on a
+   * stop (assignStopActionMessage) is what it will report. Until the
+   * display messages exist, activation only swaps the face.
+   */
+  activateHomunculus: (id: string) => void;
+  /**
+   * Dual unison (binary 2 / the third type), the stop, the tail, and
+   * tri unison — Gary's design, 2026-11-06 (see
+   * src/lib/dualUnison.ts for the model). Detection is derived from
+   * the roster (a pink AND a purple Homunculus) — it is never stored
+   * separately, so it can never disagree with the roster.
+   */
+  unison: DualUnisonState;
+  /**
+   * Input the FIRST stop action — setting up the third type in the
+   * dual unison tab. Requires dual unison detected and the stop
+   * action never input. The colour is assigned to the stop (for
+   * now); the duration is how long the stop colour shows on the
+   * action face when the stop is hit (1–9 seconds, or until the
+   * next action). A violation is a rejection (lastError + throw),
+   * like the opposite-colour rule.
+   */
+  inputStopAction: (color: string, duration: StopColorDuration) => void;
+  /** Verify the input stop action, within the unison detect. */
+  verifyStopAction: () => void;
+  /**
+   * Detect the verified stop action, within the unison detect. This
+   * is what FULLY unlocks the tail page. Requires 'verified'.
+   */
+  detectStopAction: () => void;
+  /** Assign an action message to the stop, from the face. */
+  assignStopActionMessage: (message: string) => void;
+  /**
+   * Hit the stop: the action face colours to the stop's colour. For
+   * a seconds duration the colour shows for that long, then the face
+   * regresses to the last validated solid (see
+   * regressStopFaceColor). For "until next action" it stays until
+   * the next action (an activation, a creation, rooting an action).
+   */
+  hitStop: () => void;
+  /**
+   * Regress the face from a stop colour to the last validated solid
+   * (the active Homunculus's colour, at the highest face tick).
+   * Called when a seconds duration expires; also the explicit
+   * regression action for tests.
+   */
+  regressStopFaceColor: () => void;
+  /**
+   * Root a united action in binary 2 — append it to the tail.
+   * Requires dual unison detected AND the tail page fully unlocked
+   * (stop action verified and detected). The tail is append-only;
+   * this never rewrites history.
+   */
+  rootUnitedAction: (action: string) => void;
+  /**
+   * Acquire the tri unison buff on the account. Requires dual unison
+   * detected. The buff's effect and the intelligence gauging are
+   * OPEN (see TriUnisonState) — acquiring records only that the
+   * account has it.
+   */
+  acquireTriUnison: () => void;
   createHomunculus: (
     name: string,
     color: HomunculusColor,
@@ -183,6 +305,34 @@ export function readStoredHomunculusColor(): HomunculusColor | null {
   );
 }
 
+/**
+ * The active Homunculus's colour — the colour the opposite-colour
+ * rule (Gary, 2026-11-06) is measured against. The selected
+ * Homunculus's colour when one is selected; when the roster is
+ * non-empty but nothing is selected, roster[0]'s colour (the same
+ * fallback loadRoster uses for the selection); null when the roster
+ * is empty — no colour chosen anywhere, the black / unformed state,
+ * free choice. See the Forge rules block in
+ * src/lib/homunculusColor.ts.
+ */
+export function activeHomunculusColor(
+  roster: Homunculus[],
+  selectedId: string | null,
+): HomunculusColor | null {
+  const selected = selectedId
+    ? roster.find((h) => h.id === selectedId)
+    : undefined;
+  return selected?.color ?? roster[0]?.color ?? null;
+}
+
+/** The colours a new Homunculus may take right now (single source of truth). */
+export function allowedNewHomunculusColorsFor(
+  roster: Homunculus[],
+  selectedId: string | null,
+): HomunculusColor[] {
+  return allowedNewHomunculusColors(activeHomunculusColor(roster, selectedId));
+}
+
 function corpusSummaryFor(
   datasets: ImportDatasetResult[],
   corpus: string,
@@ -205,6 +355,7 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
   askResult: null,
   askError: null,
   lastError: null,
+  unison: freshDualUnisonState(),
 
   loadRoster: async () => {
     const api = getLlmbuilderApi();
@@ -256,7 +407,251 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
 
   selectHomunculus: (id) => set({ selectedId: id, askResult: null, askError: null }),
 
+  activateHomunculus: (id) => {
+    const homunculus = get().roster.find((h) => h.id === id);
+    if (!homunculus) {
+      set({ lastError: 'No such Homunculus to activate.' });
+      return;
+    }
+    // Activating IS an action: a stop colour showing "until the next
+    // action" clears, and the face regresses to the solid.
+    const unison = withNextActionClear(get().unison);
+    const faceTick = unison.faceTick + 1;
+    set({
+      selectedId: id,
+      askResult: null,
+      askError: null,
+      lastError: null,
+      unison: {
+        ...unison,
+        faceTick,
+        solidFace: { tick: faceTick, color: homunculus.color },
+      },
+    });
+    // The face on the main terminal pages wears the `homunculusColor`
+    // setting — activation sets it to the activated Homunculus's
+    // colour, so the face swaps. (The opposite-colour rule still
+    // measures against the roster's active Homunculus, not this
+    // setting, so the two never interfere.)
+    void useSettingsStore
+      .getState()
+      .updateSetting('homunculusColor', homunculus.color);
+  },
+
+  inputStopAction: (color, duration) => {
+    const detection = detectDualUnison(get().roster);
+    if (!detection.detected) {
+      const message =
+        'Dual unison is not unlocked yet — create a pink and a purple Homunculus first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    if (!canInputStopAction(get().unison.stopAction)) {
+      const message = 'The first stop action has already been input.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    if (typeof color !== 'string' || color.trim().length === 0) {
+      const message = 'Assign a colour to the stop first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    if (
+      duration.kind === 'seconds' &&
+      parseStopColorDurationSeconds(duration.seconds) === null
+    ) {
+      const message =
+        'The stop colour shows for 1–9 seconds — pick a whole number in that range.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    set({
+      unison: {
+        ...get().unison,
+        stopAction: 'input',
+        stopColor: color.trim(),
+        stopDuration: duration,
+      },
+      lastError: null,
+    });
+  },
+
+  verifyStopAction: () => {
+    if (!canVerifyStopAction(get().unison.stopAction)) {
+      const message =
+        'Nothing to verify — input the first stop action first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    set({
+      unison: { ...get().unison, stopAction: 'verified' },
+      lastError: null,
+    });
+  },
+
+  detectStopAction: () => {
+    if (!canDetectStopAction(get().unison.stopAction)) {
+      const message =
+        'Nothing to detect — verify the stop action first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    if (!detectDualUnison(get().roster).detected) {
+      const message =
+        'The unison detect no longer sees dual unison — the pair is gone.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    set({
+      unison: { ...get().unison, stopAction: 'detected' },
+      lastError: null,
+    });
+  },
+
+  assignStopActionMessage: (message) => {
+    if (get().unison.stopAction === 'not-input') {
+      const error = 'Input the first stop action before assigning it a message.';
+      set({ lastError: error });
+      throw new Error(error);
+    }
+    if (typeof message !== 'string' || message.trim().length === 0) {
+      const error = 'The action message is empty — write one first.';
+      set({ lastError: error });
+      throw new Error(error);
+    }
+    set({
+      unison: { ...get().unison, stopMessage: message.trim() },
+      lastError: null,
+    });
+  },
+
+  hitStop: () => {
+    const unison = get().unison;
+    if (unison.stopAction === 'not-input' || !unison.stopColor) {
+      const message =
+        'No stop to hit — set up the third type in the Dual Unison tab first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    if (!unison.stopDuration) {
+      const message =
+        'The stop has no duration — choose 1–9 seconds or until the next action.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    // A new hit restarts the colour: clear any running seconds timer.
+    clearStopFaceTimer();
+    set({
+      unison: { ...unison, stopFaceColorActive: true },
+      lastError: null,
+    });
+    if (unison.stopDuration.kind === 'seconds') {
+      const ms = unison.stopDuration.seconds * 1000;
+      stopFaceTimer = setTimeout(() => {
+        stopFaceTimer = null;
+        get().regressStopFaceColor();
+      }, ms);
+    }
+    // "Until the next action" needs no timer — the next action
+    // (activation, creation, rooting) clears it (see
+    // withNextActionClear).
+  },
+
+  regressStopFaceColor: () => {
+    clearStopFaceTimer();
+    const unison = get().unison;
+    if (!unison.stopFaceColorActive) return;
+    // The regression target is the last validated solid — the active
+    // Homunculus's colour at the highest face tick. The face reads
+    // that solid (via the `homunculusColor` setting, set at
+    // activation) once this override clears, so clearing the flag IS
+    // the regression: nothing else has to change.
+    set({ unison: { ...unison, stopFaceColorActive: false } });
+  },
+
+  rootUnitedAction: (action) => {
+    const detection = detectDualUnison(get().roster);
+    if (!detection.detected) {
+      const message =
+        'Dual unison is not unlocked — root actions only while united.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    if (!isTailPageFullyUnlocked(get().unison.stopAction)) {
+      const message =
+        'The tail page is not fully unlocked yet — the stop action must be verified and detected first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    if (typeof action !== 'string' || action.trim().length === 0) {
+      const message = 'The united action is empty — write what happened first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    // Rooting IS an action: a stop colour showing "until the next
+    // action" clears.
+    const unison = withNextActionClear(get().unison);
+    const tail = appendTailEntry(
+      unison.tail,
+      unison.tailNextTick,
+      action.trim(),
+      new Date().toISOString(),
+    );
+    set({
+      unison: {
+        ...unison,
+        tail,
+        tailNextTick: unison.tailNextTick + 1,
+      },
+      lastError: null,
+    });
+  },
+
+  acquireTriUnison: () => {
+    if (!detectDualUnison(get().roster).detected) {
+      const message =
+        'Tri unison is not acquirable yet — unlock dual unison first.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    set({
+      unison: { ...get().unison, triUnisonAcquired: true },
+      lastError: null,
+    });
+  },
+
   createHomunculus: async (name, color, biography = null) => {
+    // Forge rule (Gary, 2026-11-06): a new Homunculus must be the
+    // opposite colour of the active one — unless no colour is chosen
+    // anywhere (black / unformed face), when either colour is
+    // allowed. A violation is a rejection, not a silent correction:
+    // lastError says why, and the caller keeps its form open. The
+    // name is used exactly as given — the EVE naming default lives
+    // in the ForgeView creation form, not here.
+    const active = activeHomunculusColor(get().roster, get().selectedId);
+    if (active !== null && color !== oppositeHomunculusColor(active)) {
+      const message =
+        `A new Homunculus must be ${oppositeHomunculusColor(active)} — ` +
+        `the opposite colour of the active one (${active}).`;
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    // STOP (Gary, 2026-11-06), built into the dual unison type: once
+    // dual unison is unlocked, no more singles can be created until
+    // the FIRST STOP ACTION is input (setting up the third type in
+    // the dual unison tab). The pair-forming creation itself is never
+    // blocked — dual unison is only detected AFTER the pair exists,
+    // so the second Homunculus of the pair is always allowed in.
+    // A violation is a rejection, not a silent correction.
+    if (
+      detectDualUnison(get().roster).detected &&
+      get().unison.stopAction === 'not-input'
+    ) {
+      const message =
+        'Dual unison is unlocked — set up the third type in the Dual Unison tab first (the first stop action) before making more singles.';
+      set({ lastError: message });
+      throw new Error(message);
+    }
     const base = slugify(name);
     let id = base;
     let n = 2;
@@ -268,7 +663,14 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
       ...emptyHomunculus(id, name, color),
       biography,
     };
-    set({ roster: [...get().roster, homunculus], selectedId: id });
+    // Creating IS an action: a stop colour showing "until the next
+    // action" clears.
+    const unison = withNextActionClear(get().unison);
+    set({
+      roster: [...get().roster, homunculus],
+      selectedId: id,
+      unison,
+    });
     await get().saveRoster();
     return homunculus;
   },
@@ -682,7 +1084,8 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
 
   clearRun: () => set({ currentRun: null }),
 
-  resetForTests: () =>
+  resetForTests: () => {
+    clearStopFaceTimer();
     set({
       roster: [],
       selectedId: null,
@@ -696,5 +1099,7 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
       askResult: null,
       askError: null,
       lastError: null,
-    }),
+      unison: freshDualUnisonState(),
+    });
+  },
 }));

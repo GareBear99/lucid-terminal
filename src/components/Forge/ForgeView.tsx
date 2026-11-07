@@ -15,14 +15,23 @@
  * is post-v1 and is NOT wired here.
  */
 
-import { useEffect, useState } from 'react';
-import { useForgeStore } from '../../stores/forgeStore';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  allowedNewHomunculusColorsFor,
+  useForgeStore,
+} from '../../stores/forgeStore';
 import { getLlmbuilderApi } from '../../lib/llmbuilderApi';
 import type { HomunculusColor } from '../../lib/homunculi';
+import { detectDualUnison } from '../../lib/dualUnison';
 import { RosterCard } from './RosterCard';
 import { PipelinePanel } from './PipelinePanel';
 import { ScoreboardPanel } from './ScoreboardPanel';
 import { BiographyEditor } from './BiographyEditor';
+import { DualUnisonPanel } from './DualUnisonPanel';
+import { HomunculusVoiceNote } from './HomunculusVoiceNote';
+import { TailGeneratorPanel } from './TailGeneratorPanel';
+
+type ForgeTab = 'forge' | 'dual' | 'tail';
 
 export function ForgeView() {
   const roster = useForgeStore((s) => s.roster);
@@ -32,10 +41,12 @@ export function ForgeView() {
   const lastError = useForgeStore((s) => s.lastError);
   const askResult = useForgeStore((s) => s.askResult);
   const askError = useForgeStore((s) => s.askError);
+  const unison = useForgeStore((s) => s.unison);
   const loadRoster = useForgeStore((s) => s.loadRoster);
   const loadScoreboard = useForgeStore((s) => s.loadScoreboard);
   const loadStatus = useForgeStore((s) => s.loadStatus);
   const selectHomunculus = useForgeStore((s) => s.selectHomunculus);
+  const activateHomunculus = useForgeStore((s) => s.activateHomunculus);
   const createHomunculus = useForgeStore((s) => s.createHomunculus);
   const updateBiography = useForgeStore((s) => s.updateBiography);
   const subscribeProgress = useForgeStore((s) => s.subscribeProgress);
@@ -47,6 +58,12 @@ export function ForgeView() {
   const [askPrompt, setAskPrompt] = useState('Who are you?');
   const [asking, setAsking] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
+  // Forge tabs (Gary, 2026-11-06): the Forge itself, the Dual Unison
+  // tab (unlocks when the pair is created), and the Tail Generator
+  // tab (its requirement is "dual unison detected"). The tabs are
+  // always visible so the requirements can be read; the Dual Unison
+  // tab carries a Locked badge until the pair exists.
+  const [activeTab, setActiveTab] = useState<ForgeTab>('forge');
 
   useEffect(() => {
     void loadRoster();
@@ -61,6 +78,36 @@ export function ForgeView() {
   const editing = editingId
     ? roster.find((h) => h.id === editingId) ?? null
     : null;
+
+  // Forge rule (Gary, 2026-11-06): a new Homunculus must be the
+  // opposite colour of the active one — free choice only while the
+  // face is still black / unformed (empty roster). The colour this
+  // creation will actually have: the user's pick when it is allowed,
+  // otherwise the only allowed colour.
+  const allowedColors = useMemo(
+    () => allowedNewHomunculusColorsFor(roster, selectedId),
+    [roster, selectedId],
+  );
+  const effectiveColor = allowedColors.includes(newColor)
+    ? newColor
+    : allowedColors[0];
+  // Naming lore (Gary, 2026-11-06): the second Homunculus is EVE, if
+  // pink — pre-filled as a default the user can still change. A
+  // purple second has no name given, so it gets no default.
+  const defaultNewName =
+    roster.length === 1 && effectiveColor === 'pink' ? 'EVE' : '';
+
+  // Dual unison detection (derived from the roster, never stored).
+  // STOP gate: once dual unison is unlocked, no more singles until
+  // the first stop action is input in the Dual Unison tab. The store
+  // enforces it too (createHomunculus rejects); the button below is
+  // the UI half.
+  const dualUnisonDetected = useMemo(
+    () => detectDualUnison(roster).detected,
+    [roster],
+  );
+  const stopGateActive =
+    dualUnisonDetected && unison.stopAction === 'not-input';
 
   const handleSetup = async () => {
     const api = getLlmbuilderApi();
@@ -133,6 +180,72 @@ export function ForgeView() {
         </p>
       )}
 
+      {/* Forge tabs: Forge / Dual Unison / Tail Generator. */}
+      <div
+        role="tablist"
+        aria-label="Forge tabs"
+        className="mb-3 flex shrink-0 gap-1"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'forge'}
+          onClick={() => setActiveTab('forge')}
+          className={`rounded-md px-3 py-1.5 text-sm ${
+            activeTab === 'forge'
+              ? 'bg-[var(--accent)] text-white'
+              : 'border border-[var(--border)] text-[var(--text-secondary)]'
+          }`}
+        >
+          Forge
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'dual'}
+          onClick={() => setActiveTab('dual')}
+          className={`rounded-md px-3 py-1.5 text-sm ${
+            activeTab === 'dual'
+              ? 'bg-[var(--accent)] text-white'
+              : 'border border-[var(--border)] text-[var(--text-secondary)]'
+          }`}
+        >
+          Dual Unison {!dualUnisonDetected && '(Locked)'}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'tail'}
+          onClick={() => setActiveTab('tail')}
+          className={`rounded-md px-3 py-1.5 text-sm ${
+            activeTab === 'tail'
+              ? 'bg-[var(--accent)] text-white'
+              : 'border border-[var(--border)] text-[var(--text-secondary)]'
+          }`}
+        >
+          Tail Generator
+        </button>
+      </div>
+
+      {activeTab === 'dual' ? (
+        <DualUnisonPanel />
+      ) : activeTab === 'tail' ? (
+        <TailGeneratorPanel />
+      ) : (
+        <>
+          <div className="mb-3 shrink-0">
+            <p className="text-xs text-[var(--text-muted)]">
+              Listen to the Forge page voice message:
+            </p>
+            <audio
+              className="mt-1 w-full max-w-md"
+              controls
+              preload="metadata"
+              src="./forge/forge-main.mp3"
+              aria-label="Forge main page voice message"
+            />
+            <HomunculusVoiceNote />
+          </div>
       <div className="flex min-h-0 flex-1 gap-3">
         {/* Roster (left) */}
         <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto">
@@ -153,14 +266,26 @@ export function ForgeView() {
                 homunculus={h}
                 selected={h.id === selectedId}
                 onSelect={selectHomunculus}
+                onActivate={activateHomunculus}
                 onEditBiography={setEditingId}
               />
             ))
           )}
+          {stopGateActive && (
+            <p
+              role="alert"
+              className="rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
+            >
+              Dual unison is unlocked — set up the third type in the Dual
+              Unison tab first (the first stop action) before making more
+              singles.
+            </p>
+          )}
           <button
             type="button"
             onClick={() => setCreating((c) => !c)}
-            className="rounded-md border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
+            disabled={stopGateActive}
+            className="rounded-md border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--text-muted)] disabled:opacity-50"
           >
             + New Homunculus
           </button>
@@ -172,23 +297,37 @@ export function ForgeView() {
                 </span>
                 <select
                   className="w-full rounded border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-sm text-[var(--text-primary)]"
-                  value={newColor}
+                  value={effectiveColor}
                   onChange={(e) =>
                     setNewColor(e.target.value as HomunculusColor)
                   }
                   aria-label="Colour"
                 >
-                  <option value="purple">Purple</option>
-                  <option value="pink">Pink</option>
+                  {allowedColors.map((color) => (
+                    <option key={color} value={color}>
+                      {color === 'purple' ? 'Purple' : 'Pink'}
+                    </option>
+                  ))}
                 </select>
+                {allowedColors.length === 1 && (
+                  <span className="mt-1 block text-xs text-[var(--text-muted)]">
+                    Only {allowedColors[0] === 'purple' ? 'Purple' : 'Pink'}{' '}
+                    — a new Homunculus must be the opposite colour of the
+                    active one.
+                  </span>
+                )}
               </label>
               <BiographyEditor
-                name=""
+                name={defaultNewName}
                 biography={null}
                 onSave={(name, biography) => {
-                  void createHomunculus(name, newColor, biography).then(
-                    () => setCreating(false),
-                  );
+                  void createHomunculus(name, effectiveColor, biography)
+                    .then(() => setCreating(false))
+                    .catch(() => {
+                      // Rejected by the opposite-colour rule —
+                      // lastError already says why; keep the form
+                      // open so the user sees it.
+                    });
                 }}
                 onCancel={() => setCreating(false)}
               />
@@ -281,6 +420,25 @@ export function ForgeView() {
           </>
         )}
       </footer>
+        </>
+      )}
+
+      {/* First explanation (Gary, 2026-11-06): the Forge explanation
+          and its audio live at the BOTTOM of the page, after all the
+          Forge content — not at the top. */}
+      <div className="mt-3 shrink-0 border-t border-[var(--border)] pt-3">
+        <p className="text-xs text-[var(--text-muted)]">
+          How does the Forge work? Listen to the explanation:
+        </p>
+        <audio
+          className="mt-1 w-full max-w-md"
+          controls
+          preload="metadata"
+          src="./forge/forge-explanation.mp3"
+          aria-label="Forge explanation audio"
+        />
+        <HomunculusVoiceNote />
+      </div>
     </div>
   );
 }

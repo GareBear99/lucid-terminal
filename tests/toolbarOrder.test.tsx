@@ -467,6 +467,25 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(document.querySelector('[data-toolbar-icon="persona-plex"]')).not.toBeNull();
   });
 
+  test('the Persona Plex button STAYS while installed even when LuciferAI is disabled (Gary, 2026-11-07 ~06:22 PST)', () => {
+    // Persona Plex is an ADD-ON, not a LuciferAI surface: disabling
+    // the plugin used to take its icon out as if it belonged to it.
+    // Install is the only condition for the icon. REGRESSION: with
+    // LuciferAI off and the add-on installed, the icon is present.
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: { ...base, luciferAiEnabled: false, installedAddons: ['persona-plex'] },
+    });
+    renderSidebar();
+    expect(document.querySelector('[data-toolbar-icon="persona-plex"]')).not.toBeNull();
+    // The INTENDED couplings are preserved: Synth and Help are
+    // LuciferAI surfaces, so they still go with the plugin.
+    expect(document.querySelector('[data-toolbar-icon="synth"]')).toBeNull();
+    expect(document.querySelector('[data-toolbar-icon="help"]')).toBeNull();
+    // And AI Chat stays too — it is its own plugin.
+    expect(document.querySelector('[data-toolbar-icon="ai-chat"]')).not.toBeNull();
+  });
+
   test('the Synth button shows the Orbit icon while LuciferAI is enabled', () => {
     renderSidebar();
     const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;

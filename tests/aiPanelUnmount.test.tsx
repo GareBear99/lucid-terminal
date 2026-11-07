@@ -26,8 +26,11 @@
  * disabled) and pass after the unmount.
  *
  * The intended LuciferAI couplings are preserved and asserted too:
- * the Synth view/button, Help, the blood drop and the Persona Plex
- * icon still go away with the plugin — only the AI panel stays.
+ * the Synth view/button, Help and the blood drop still go away with
+ * the plugin — only the AI panel stays. The Persona Plex icon stays
+ * too: it is an ADD-ON, not a LuciferAI surface (Gary, 2026-11-07
+ * ~06:22 PST) — disabling the plugin used to take it out as if it
+ * belonged to it, which was the bug.
  *
  * Run with: npx vitest run tests/aiPanelUnmount.test.tsx
  */
@@ -277,14 +280,21 @@ describe('AI panel unmounted from LuciferAI', () => {
     // stays mounted on each one. (The Forge icon's toolbar id is
     // 'llmbuilder' — its plugin id — while the view it opens is
     // 'forge'.)
-    for (const view of ['editor', 'llmbuilder', 'settings'] as const) {
+    // Persona Plex is reachable too (Gary, 2026-11-07 ~06:22 PST):
+    // it is an ADD-ON, not a LuciferAI surface, so its icon stays
+    // and its view opens and stays open with the plugin off —
+    // disabling the plugin used to take it out as if it belonged
+    // to it. Clicking it here is the regression check for both the
+    // icon and the App disable effect.
+    for (const view of ['editor', 'llmbuilder', 'persona-plex', 'settings'] as const) {
       clickToolbarIcon(container, view);
       await waitFor(() => expectPanelPresent());
     }
-    // Synth and Persona Plex are LuciferAI surfaces — their icons
-    // are gone while the plugin is off (intended, unchanged).
+    // Synth and Help are LuciferAI surfaces — their icons are gone
+    // while the plugin is off (intended, unchanged). Persona Plex
+    // is an add-on — its icon stays.
     expect(container.querySelector('[data-toolbar-icon="synth"]')).toBeNull();
-    expect(container.querySelector('[data-toolbar-icon="persona-plex"]')).toBeNull();
+    expect(container.querySelector('[data-toolbar-icon="persona-plex"]')).not.toBeNull();
 
     // Back to the terminal — the panel is still there.
     clickToolbarIcon(container, 'terminal');

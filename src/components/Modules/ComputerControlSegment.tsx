@@ -83,6 +83,34 @@ export function ComputerControlSegment() {
     await refreshState();
   };
 
+  // Availability note — the honest state when the driver and the
+  // tracker disagree (Gary, 2026-11-07 ~06:22 PST): the tracker
+  // (the TCC record) can say Screen Recording is granted while the
+  // driver's test capture still fails — a failed capture does NOT
+  // prove the permission is missing (an unsigned, rebuilt binary
+  // is not recognised for capture even though the grant is listed).
+  // The old code printed the driver's reason verbatim ("Screen
+  // Recording permission not granted — grant Lucid access in
+  // System Settings"), which sent Gary to Settings for a permission
+  // he had already granted, every time he clicked Modules. The
+  // tracker is the source of truth for whether a permission is
+  // granted; the driver's reason is only shown when the tracker
+  // agrees a permission is actually missing. When the tracker says
+  // granted but the capture fails, the honest follow-on is the
+  // tracker's own detail (restart Lucid) — never a demand to grant
+  // something already granted.
+  const screenRecordingSnapshot = permSnapshot?.find((s) => s.id === 'screen-recording');
+  const accessibilitySnapshot = permSnapshot?.find((s) => s.id === 'accessibility');
+  const trackerSaysGranted =
+    accessibilitySnapshot?.status === 'granted' &&
+    screenRecordingSnapshot?.status === 'granted';
+  const driverUnavailable = segmentState != null && !segmentState.available;
+  const availabilityNote = !driverUnavailable
+    ? ''
+    : trackerSaysGranted
+      ? ` — ${screenRecordingSnapshot?.detail ?? 'a test capture just failed — restart Lucid and try again.'}`
+      : ` — ${segmentState?.availabilityReason ?? 'Unavailable.'}`;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -149,9 +177,7 @@ export function ComputerControlSegment() {
             {permissionStatusLabel(
               permSnapshot.find((s) => s.id === 'screen-recording')?.status ?? 'unknown',
             )}
-            {segmentState && !segmentState.available
-              ? ` — ${segmentState.availabilityReason ?? 'Unavailable.'}`
-              : ''}
+            {availabilityNote}
             {' '}See Settings → Permissions.
           </span>
         ) : (

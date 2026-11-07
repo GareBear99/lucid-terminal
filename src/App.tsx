@@ -88,16 +88,20 @@ function App() {
     if (isLuciferAiEnabled(useSettingsStore.getState().settings)) setShowHelp(true);
   };
   // When LuciferAI is disabled, ITS surfaces close: the Synth view,
-  // the Persona Plex view, the Help modal. They cannot be reopened
-  // while off (the buttons, the shortcut and the `help` command are
-  // all gated), so this only fires on the toggle itself.
+  // the Help modal. They cannot be reopened while off (the buttons,
+  // the shortcut and the `help` command are all gated), so this only
+  // fires on the toggle itself.
   // The AI panel is NOT one of them — it is Lucid AI, its own plugin
   // (Gary, 2026-11-07), so it stays open and working with the plugin
   // off. Never close it here.
+  // The Persona Plex view is NOT one of them either — it is an add-on
+  // (Gary, 2026-11-07 ~06:22 PST), not a LuciferAI surface, so it
+  // stays open and working with the plugin off. Disabling the plugin
+  // used to close it as if it belonged to it, which was the bug.
+  // Never close it here.
   useEffect(() => {
     if (luciferAiEnabled) return;
     if (currentView === 'synth') setCurrentView('terminal');
-    if (currentView === 'persona-plex') setCurrentView('terminal');
     if (showHelp) setShowHelp(false);
   }, [luciferAiEnabled, currentView, showHelp]);
   // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).

@@ -187,4 +187,82 @@ describe('Computer-control segment panel (interactive)', () => {
       expect(document.body.textContent).toContain('See Settings → Permissions.');
     });
   });
+
+  test('granted in the tracker but the driver capture fails: the segment does NOT send Gary to Settings to grant it (Gary, 2026-11-07 ~06:22 PST)', async () => {
+    // REGRESSION: the tracker (TCC record) said Screen Recording is
+    // granted — Gary saw it granted in System Settings — but the
+    // driver's test capture still failed, so the driver reported
+    // unavailable with "Screen Recording permission not granted —
+    // grant Lucid access in System Settings". The old segment
+    // printed that reason verbatim next to "Screen Recording:
+    // Granted", sending Gary to Settings for a permission he had
+    // already granted, every time he clicked Modules. A failed
+    // capture does NOT prove the permission is missing. The tracker
+    // is the source of truth for whether it is granted; when it
+    // says granted, the segment shows the honest follow-on (restart
+    // Lucid), never a demand to grant it.
+    const win = window as unknown as {
+      lucidAPI?: { permissions?: { getSnapshot: (force?: boolean) => Promise<PermissionSnapshot[]> } };
+    };
+    const captureFailingSnapshot: PermissionSnapshot[] = [
+      { id: 'accessibility', status: 'granted', detail: null, verified: true, checkedAt: 1 },
+      {
+        id: 'screen-recording',
+        status: 'granted',
+        detail: 'System Settings shows Screen Recording as granted, but a test capture just failed — try restarting Lucid. Until a capture works, features that need it will refuse.',
+        verified: false,
+        checkedAt: 1,
+      },
+      { id: 'full-disk-access', status: 'denied', detail: null, verified: true, checkedAt: 1 },
+      { id: 'microphone', status: 'not-determined', detail: null, verified: false, checkedAt: 1 },
+      { id: 'camera', status: 'not-determined', detail: null, verified: false, checkedAt: 1 },
+    ];
+    if (win.lucidAPI?.permissions) {
+      win.lucidAPI.permissions.getSnapshot = async () => captureFailingSnapshot;
+    }
+    mockGetState.mockResolvedValue({
+      ...MOCK_SEGMENT_STATE,
+      available: false,
+      availabilityReason: 'Screen Recording permission not granted — grant Lucid access in System Settings → Privacy & Security → Screen Recording',
+    });
+    render(<SegmentsPanel />);
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Screen Recording:');
+      expect(document.body.textContent).toContain('Granted');
+    });
+    await waitFor(() => {
+      // The honest follow-on: restart, not grant.
+      expect(document.body.textContent).toContain('restart');
+      // The driver's misleading demand must NOT appear.
+      expect(document.body.textContent).not.toContain('grant Lucid access');
+    });
+  });
+
+  test('genuinely not granted in the tracker: the segment DOES say how to grant it', async () => {
+    // Guard test — the fix above must not over-correct: when the
+    // tracker agrees the permission is actually missing, the demand
+    // to grant it still appears.
+    const win = window as unknown as {
+      lucidAPI?: { permissions?: { getSnapshot: (force?: boolean) => Promise<PermissionSnapshot[]> } };
+    };
+    const deniedSnapshot: PermissionSnapshot[] = [
+      { id: 'accessibility', status: 'granted', detail: null, verified: true, checkedAt: 1 },
+      { id: 'screen-recording', status: 'denied', detail: null, verified: true, checkedAt: 1 },
+      { id: 'full-disk-access', status: 'denied', detail: null, verified: true, checkedAt: 1 },
+      { id: 'microphone', status: 'not-determined', detail: null, verified: false, checkedAt: 1 },
+      { id: 'camera', status: 'not-determined', detail: null, verified: false, checkedAt: 1 },
+    ];
+    if (win.lucidAPI?.permissions) {
+      win.lucidAPI.permissions.getSnapshot = async () => deniedSnapshot;
+    }
+    mockGetState.mockResolvedValue({
+      ...MOCK_SEGMENT_STATE,
+      available: false,
+      availabilityReason: 'Screen Recording permission not granted — grant Lucid access in System Settings → Privacy & Security → Screen Recording',
+    });
+    render(<SegmentsPanel />);
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('grant Lucid access');
+    });
+  });
 });

@@ -1126,8 +1126,8 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                         />
                         <span className="text-xs text-[var(--text-muted)]">
                           {luciferAiEnabled
-                            ? 'Enabled — turning it off removes the plugin entirely (blood drop, heartbeat, Help and Synth all go with it). AI Chat stays — it is its own plugin now.'
-                            : 'Disabled — the plugin is completely gone. Turn it back on to restore it. (AI Chat stays — it is its own plugin now.)'}
+                            ? 'Enabled — turning it off removes the plugin entirely (blood drop, heartbeat, Help and Synth all go with it). AI Chat stays — it is its own plugin now. Persona Plex stays too — it is an add-on, not one of its surfaces.'
+                            : 'Disabled — the plugin is completely gone. Turn it back on to restore it. (AI Chat stays — it is its own plugin now. Persona Plex stays too — it is an add-on, not one of its surfaces.)'}
                         </span>
                       </label>
                     </span>

@@ -14,7 +14,9 @@
  *   'llmbuilder' (the Forge plugin's id; its button action is 'forge') |
  *   'persona-plex' (the Persona Plex add-on's id; its button opens the
  *   Plex setup page — it is available only while the add-on is
- *   installed and LuciferAI is enabled)
+ *   installed. Install is the only condition: it is an add-on, not
+ *   a LuciferAI surface, so it stays while LuciferAI is disabled
+ *   (Gary, 2026-11-07 ~06:22 PST).)
  * - 'spacer': the flexible gap that pins the lower group to the
  *   bottom of the bar. It is a layout entry, not an icon — it is
  *   never draggable and never a drag target's icon, but it IS a drop

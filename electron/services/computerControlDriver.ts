@@ -153,9 +153,19 @@ export async function probeScreenRecording(): Promise<{ granted: boolean; reason
     await runWithTimeout('screencapture', ['-x', '-t', 'png', probeFile], SPAWN_TIMEOUT_MS);
     return { granted: true, reason: null };
   } catch {
+    // A failed capture does NOT prove the permission is missing —
+    // it can also fail right after granting (Lucid needs a restart
+    // to pick the grant up) or after Lucid is rebuilt (an unsigned,
+    // rebuilt binary is not recognised for capture even though the
+    // grant is listed). So the reason says what was observed and
+    // what to do, never that the permission is definitely absent —
+    // the permissions service (which reads the TCC record) is the
+    // one that knows whether it is granted. (Gary, 2026-11-07
+    // ~06:22 PST: the old wording sent him to Settings for a
+    // permission he had already granted.)
     return {
       granted: false,
-      reason: 'Screen Recording permission not granted — grant Lucid access in System Settings → Privacy & Security → Screen Recording',
+      reason: 'A test screen capture failed — Screen Recording may not be granted, or Lucid may need a restart after granting. Grant Lucid access in System Settings → Privacy & Security → Screen Recording if it is not listed there, then restart Lucid.',
     };
   } finally {
     await unlink(probeFile).catch(() => undefined);

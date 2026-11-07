@@ -106,8 +106,12 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // The 'spacer' entry renders the flexible gap. The stored order is
   // the single source of truth — there is no separate local copy.
   // Persona Plex — an add-on, not a toolbar plugin: its icon shows
-  // only while the add-on is installed (user-installed, no anchor),
-  // and (like AI Chat) only while LuciferAI is enabled.
+  // only while the add-on is installed (user-installed, no anchor).
+  // Install is the ONLY condition (Gary, 2026-11-07 ~06:22 PST):
+  // Persona Plex is an add-on, not a LuciferAI surface, so its icon
+  // stays while LuciferAI is disabled — disabling the plugin used to
+  // take it out as if it belonged to it, which was the bug. (AI Chat
+  // is the same shape: its own plugin, icon stays with LuciferAI off.)
   const installedAddons = useSettingsStore((s) => s.settings.installedAddons ?? []);
   const personaPlexInstalled = installedAddons.includes('persona-plex');
   const storedToolbarOrder = useSettingsStore((s) => s.settings.toolbarOrder);
@@ -118,7 +122,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     'explorer',
     'chats',
     ...enabledPlugins.map((p) => p.id),
-    ...(personaPlexInstalled && luciferAiEnabled ? ['persona-plex'] : []),
+    ...(personaPlexInstalled ? ['persona-plex'] : []),
     'settings',
   ];
   const toolbarOrder = resolveToolbarOrder(storedToolbarOrder, availableToolbarIcons);

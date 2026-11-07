@@ -38,7 +38,7 @@
  *   and during a drag.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import {
   resolveToolbarOrder,
   moveToolbarIcon,
@@ -556,5 +556,72 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     fireEvent.dragStart(synth);
     expect(endZone.className).toContain('h-6');
     expect(endZone.className).not.toContain('h-0');
+  });
+});
+
+describe('Sidebar toolbar blood drop opens Help (Gary, 2026-11-07 ~09:01 PST)', () => {
+  /**
+   * The toolbar blood drop (the Help entry, BloodDropIcon) goes to
+   * the Help page — NOT the terminal for LuciferAI commands. The
+   * create blood drop opens a terminal under the blood drop terminal
+   * tab; the toolbar drop is the Help gateway. Clicking the Help
+   * button calls onOpenHelp. (The drop's click was previously only
+   * asserted to still exist, never to call Help — this test fires
+   * it and checks the handler.)
+   */
+  const mockSet = vi.fn(async (_key: string, _value: unknown) => undefined);
+  let prevLucidAPI: unknown;
+  const onOpenHelp = vi.fn();
+
+  beforeEach(() => {
+    const win = window as unknown as Record<string, unknown>;
+    prevLucidAPI = win.lucidAPI;
+    win.lucidAPI = {
+      settings: {
+        set: mockSet,
+        getAll: vi.fn(async () => ({})),
+        hasApiKey: vi.fn(async () => false),
+        hasPingKey: vi.fn(async () => false),
+        getStorageStatus: vi.fn(async () => ({ degraded: false, reason: null })),
+      },
+    };
+    mockSet.mockClear();
+    onOpenHelp.mockClear();
+    // All plugin buttons on, LuciferAI enabled, default order.
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: {
+        ...base,
+        toolbarPlugins: { synth: true, 'ai-chat': true, llmbuilder: true },
+        luciferAiEnabled: true,
+        toolbarOrder: [],
+      },
+    });
+  });
+
+  afterEach(() => {
+    const win = window as unknown as Record<string, unknown>;
+    win.lucidAPI = prevLucidAPI;
+  });
+
+  it('clicking the toolbar blood drop calls onOpenHelp (the Help page)', () => {
+    render(
+      <Sidebar
+        width={250}
+        onWidthChange={vi.fn()}
+        currentView="terminal"
+        onViewChange={vi.fn()}
+        showAI={false}
+        onToggleAI={vi.fn()}
+        onOpenHelp={onOpenHelp}
+        onToggleForge={vi.fn()}
+      />,
+    );
+    const help = screen.getByRole('button', { name: 'Help' });
+    expect(help).toBeTruthy();
+    // The blood drop icon itself: a droplet svg in the button.
+    expect(help.querySelector('svg')).not.toBeNull();
+    fireEvent.click(help);
+    expect(onOpenHelp).toHaveBeenCalledTimes(1);
   });
 });

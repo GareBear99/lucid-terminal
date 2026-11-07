@@ -8,17 +8,15 @@
  * to the editor view, which renders even with no files open yet — the
  * editor's own empty state points at the Explorer to pick a file.
  *
- * The blood drop (Gary, 2026-11-07) is the third option, shown ONLY
- * when LuciferAI is enabled: it is the LuciferAI tab — a tab you open
- * in the terminal tab strip (the blood drop tab IS the LuciferAI tab).
- * Clicking it selects that tab and shows the LuciferAI panel; it does
- * NOT open the Help modal (that is the toolbar drop's surface). This
- * is the segregation the terminal was missing: the terminal stays a
- * real, regular, usable terminal (plain shell), and LuciferAI's
- * commands are reached through the blood drop tab, never typed into
- * the terminal. When LuciferAI is off, App passes no handler and the
- * drop is not rendered at all — not in the strip, not here. No
- * splash screen on the blood drop screen — it is just the plugin.
+ * The blood drop (Gary, 2026-11-07 ~09:01 PST) is the third option,
+ * shown ONLY when LuciferAI is enabled: JUST the blood drop icon, no
+ * "LuciferAI" words anywhere on it. Clicking it creates/opens a
+ * terminal, like the current implementation, under the blood drop
+ * terminal tab — a plain terminal, not labelled a "LuciferAI terminal
+ * tab". It does NOT go to the Help page (that is the toolbar blood
+ * drop's job). The strip blood drop tab is a terminal tab and stays
+ * as it is. When LuciferAI is off, App passes no handler and the
+ * drop is not rendered at all — not in the strip, not here.
  *
  * Split out of App.tsx as a pure presentational component so it is
  * renderable in tests (see tests/emptyTerminalState.test.tsx).
@@ -28,7 +26,7 @@ import { BloodDropIcon } from '../Layout/BloodDropIcon';
 export interface EmptyTerminalStateProps {
   onCreateTerminal: () => void;
   onCreateEditor: () => void;
-  /** Opens the blood drop tab (the LuciferAI tab). Omitted when LuciferAI is off. */
+  /** Opens the blood drop terminal tab. Omitted when LuciferAI is off. */
   onOpenBloodDrop?: () => void;
 }
 
@@ -49,11 +47,10 @@ export function EmptyTerminalState({ onCreateTerminal, onCreateEditor, onOpenBlo
               onClick={onOpenBloodDrop}
               className="btn btn-secondary inline-flex items-center gap-2"
               data-testid="empty-state-blood-drop"
-              title="LuciferAI prompt commands"
-              aria-label="LuciferAI prompt commands"
+              title="Blood drop terminal"
+              aria-label="Blood drop terminal"
             >
               <BloodDropIcon size={18} />
-              LuciferAI
             </button>
           )}
         </div>

@@ -124,18 +124,15 @@ describe('EmptyTerminalState', () => {
   });
 });
 
-describe('EmptyTerminalState — blood drop option (Gary, 2026-11-07)', () => {
+describe('EmptyTerminalState — blood drop option (Gary, 2026-11-07 ~09:01 PST)', () => {
   /**
-   * The segregation the terminal was missing: when LuciferAI is enabled
-   * and no terminal tab is open, the blood drop appears as an option in
-   * the empty state — it IS the LuciferAI tab, a tab you open in the
-   * terminal tab strip (the blood drop tab opens the LuciferAI panel;
-   * it does NOT open the Help modal — that is the toolbar drop's
-   * surface). The terminal stays a real, regular, usable terminal;
-   * LuciferAI's commands are reached through the drop tab, never typed
-   * into the terminal. When LuciferAI is off, App passes no handler
-   * and the drop is not rendered at all. No splash screen on the blood
-   * drop screen — it is just the plugin.
+   * The blood drop in the create state: JUST the blood drop icon, no
+   * "LuciferAI" words anywhere on it. Clicking it creates/opens a
+   * terminal, like the current implementation, under the blood drop
+   * terminal tab — a plain terminal, not labelled a "LuciferAI
+   * terminal tab". It does NOT go to the Help page (that is the
+   * toolbar blood drop's job). When LuciferAI is off, App passes no
+   * handler and the drop is not rendered at all.
    */
   it('shows the blood drop option alongside Create Terminal and Create Editor when LuciferAI is on', () => {
     render(
@@ -151,7 +148,9 @@ describe('EmptyTerminalState — blood drop option (Gary, 2026-11-07)', () => {
     expect(screen.getByRole('button', { name: 'Create Editor' })).toBeTruthy();
     const drop = screen.getByTestId('empty-state-blood-drop');
     expect(drop).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'LuciferAI prompt commands' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Blood drop terminal' })).toBeTruthy();
+    // JUST the drop icon — no "LuciferAI" words anywhere on the button.
+    expect(drop.textContent).not.toContain('LuciferAI');
     // The blood drop icon itself: a droplet svg in the button.
     expect(drop.querySelector('svg')).not.toBeNull();
   });
@@ -179,7 +178,7 @@ describe('EmptyTerminalState — blood drop option (Gary, 2026-11-07)', () => {
     render(<EmptyTerminalState onCreateTerminal={() => {}} onCreateEditor={() => {}} />);
 
     expect(screen.queryByTestId('empty-state-blood-drop')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'LuciferAI prompt commands' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Blood drop terminal' })).toBeNull();
     // The two real options are still there.
     expect(screen.getByRole('button', { name: 'Create Terminal' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Create Editor' })).toBeTruthy();

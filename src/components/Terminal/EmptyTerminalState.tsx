@@ -8,15 +8,29 @@
  * to the editor view, which renders even with no files open yet — the
  * editor's own empty state points at the Explorer to pick a file.
  *
+ * The blood drop (Gary, 2026-11-07) is the third option, shown ONLY
+ * when LuciferAI is enabled: it is the LuciferAI prompt command tab
+ * (the same surface the toolbar blood drop opens — the Help modal
+ * with LuciferAI's commands). This is the segregation the terminal
+ * was missing: the terminal stays a real, regular, usable terminal
+ * (plain shell), and LuciferAI's commands are reached through the
+ * blood drop, never typed into the terminal. When LuciferAI is off,
+ * App passes no handler and the drop is not rendered at all. No
+ * splash screen on the blood drop screen — it is just the plugin.
+ *
  * Split out of App.tsx as a pure presentational component so it is
  * renderable in tests (see tests/emptyTerminalState.test.tsx).
  */
+import { BloodDropIcon } from '../Layout/BloodDropIcon';
+
 export interface EmptyTerminalStateProps {
   onCreateTerminal: () => void;
   onCreateEditor: () => void;
+  /** Opens the LuciferAI prompt command tab (Help). Omitted when LuciferAI is off. */
+  onOpenBloodDrop?: () => void;
 }
 
-export function EmptyTerminalState({ onCreateTerminal, onCreateEditor }: EmptyTerminalStateProps) {
+export function EmptyTerminalState({ onCreateTerminal, onCreateEditor, onOpenBloodDrop }: EmptyTerminalStateProps) {
   return (
     <div className="h-full flex items-center justify-center text-[var(--text-muted)]">
       <div className="text-center">
@@ -28,6 +42,18 @@ export function EmptyTerminalState({ onCreateTerminal, onCreateEditor }: EmptyTe
           <button onClick={onCreateEditor} className="btn btn-secondary">
             Create Editor
           </button>
+          {onOpenBloodDrop && (
+            <button
+              onClick={onOpenBloodDrop}
+              className="btn btn-secondary inline-flex items-center gap-2"
+              data-testid="empty-state-blood-drop"
+              title="LuciferAI prompt commands"
+              aria-label="LuciferAI prompt commands"
+            >
+              <BloodDropIcon size={18} />
+              LuciferAI
+            </button>
+          )}
         </div>
       </div>
     </div>

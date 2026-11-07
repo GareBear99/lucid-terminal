@@ -318,6 +318,15 @@ function App() {
                         <EmptyTerminalState
                           onCreateTerminal={() => createTab()}
                           onCreateEditor={() => setCurrentView('editor')}
+                          // Blood drop (Gary, 2026-11-07): the LuciferAI
+                          // prompt command tab, as an option in the empty
+                          // state — the segregation between the terminal
+                          // (real, regular shell) and LuciferAI's
+                          // commands (behind the drop). Only when
+                          // LuciferAI is enabled; openHelp is itself
+                          // guarded, so the drop can never open Help
+                          // while the plugin is off.
+                          onOpenBloodDrop={luciferAiEnabled ? openHelp : undefined}
                         />
                       )}
                     </div>

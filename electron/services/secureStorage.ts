@@ -167,6 +167,9 @@ const settingsStore = new ResilientStore('lucid-settings', {
   bellSound: false,
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
+  pingServerEnabled: false,
+  pingServerEndpoint: 'http://127.0.0.1:8787',
+  pingServerUserId: '',
   terminalPolicy: 'ask', // 'ask', 'auto', 'deny'
   customTheme: null,
 });

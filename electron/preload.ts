@@ -6,6 +6,7 @@ import type {
   StreamMetricsSnapshot,
   TouchMessage,
 } from '../src/phone/streaming';
+import type { PingQuota } from '../src/types';
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('lucidAPI', {
@@ -69,15 +70,15 @@ contextBridge.exposeInMainWorld('lucidAPI', {
 
   // AI operations
   ai: {
-    chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean) =>
-      ipcRenderer.invoke('ai:chat', messages, contextDirectory, stream),
+    chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) =>
+      ipcRenderer.invoke('ai:chat', messages, contextDirectory, stream, options),
     onStream: (callback: (chunk: string) => void) => {
       const listener = (_: any, chunk: string) => callback(chunk);
       ipcRenderer.on('ai:stream', listener);
       return () => ipcRenderer.removeListener('ai:stream', listener);
     },
-    onStreamEnd: (callback: () => void) => {
-      const listener = () => callback();
+    onStreamEnd: (callback: (quota?: PingQuota) => void) => {
+      const listener = (_: any, quota?: PingQuota) => callback(quota);
       ipcRenderer.on('ai:streamEnd', listener);
       return () => ipcRenderer.removeListener('ai:streamEnd', listener);
     },
@@ -90,6 +91,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     cancelStream: () => ipcRenderer.send('ai:cancelStream'),
     hasApiKey: () => ipcRenderer.invoke('ai:hasApiKey'),
     checkLocalBackend: () => ipcRenderer.invoke('ai:checkLocalBackend'),
+    pingServerHealth: () => ipcRenderer.invoke('ai:pingServerHealth'),
     getSessions: () => ipcRenderer.invoke('ai:getSessions'),
     saveSession: (session: ChatSession) =>
       ipcRenderer.invoke('ai:saveSession', session),
@@ -112,6 +114,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setApiKey: (key: string) => ipcRenderer.invoke('settings:setApiKey', key),
     hasApiKey: () => ipcRenderer.invoke('settings:hasApiKey'),
     deleteApiKey: () => ipcRenderer.invoke('settings:deleteApiKey'),
+    setPingKey: (key: string) => ipcRenderer.invoke('settings:setPingKey', key),
+    hasPingKey: () => ipcRenderer.invoke('settings:hasPingKey'),
+    deletePingKey: () => ipcRenderer.invoke('settings:deletePingKey'),
     getStorageStatus: () => ipcRenderer.invoke('settings:getStorageStatus'),
     export: () => ipcRenderer.invoke('settings:export'),
     import: (data: string) => ipcRenderer.invoke('settings:import', data),
@@ -494,14 +499,15 @@ export interface LucidAPI {
     executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
   };
   ai: {
-    chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean) => Promise<string>;
+    chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;
     onStream: (callback: (chunk: string) => void) => () => void;
-    onStreamEnd: (callback: () => void) => () => void;
+    onStreamEnd: (callback: (quota?: PingQuota) => void) => () => void;
 
     onStreamError: (callback: (error: string) => void) => () => void;
     cancelStream: () => void;
     hasApiKey: () => Promise<boolean>;
     checkLocalBackend: () => Promise<boolean>;
+    pingServerHealth: () => Promise<{ ok: boolean; service?: string; model?: string; mode?: string; quota: PingQuota | null }>;
     getSessions: () => Promise<ChatSession[]>;
     saveSession: (session: ChatSession) => Promise<void>;
     deleteSession: (id: string) => Promise<void>;
@@ -625,6 +631,9 @@ export interface LucidAPI {
     setApiKey: (key: string) => Promise<void>;
     hasApiKey: () => Promise<boolean>;
     deleteApiKey: () => Promise<void>;
+    setPingKey: (key: string) => Promise<void>;
+    hasPingKey: () => Promise<boolean>;
+    deletePingKey: () => Promise<void>;
     getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
     export: () => Promise<string>;
     import: (data: string) => Promise<void>;

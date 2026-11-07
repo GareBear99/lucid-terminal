@@ -15,7 +15,7 @@ import {
 } from './services/browserMiniWindow';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
-import { apiKeyStorage, settings } from './services/secureStorage';
+import { apiKeyStorage, pingKeyStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
@@ -143,6 +143,18 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:deleteApiKey', () => {
     apiKeyStorage.deleteApiKey();
+  });
+
+  // Ping server key handlers (test path: shared secret for the
+  // Cloudflare ping server Worker, stored encrypted like the API key)
+  ipcMain.handle('settings:setPingKey', (_, key) => {
+    pingKeyStorage.setPingKey(key);
+  });
+  ipcMain.handle('settings:hasPingKey', () => {
+    return pingKeyStorage.hasPingKey();
+  });
+  ipcMain.handle('settings:deletePingKey', () => {
+    pingKeyStorage.deletePingKey();
   });
 
 

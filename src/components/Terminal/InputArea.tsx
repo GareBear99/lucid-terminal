@@ -19,7 +19,7 @@ const MONACO_LOAD_TIMEOUT_MS = 8000;
 
 // The default cap lives in src/lib/inputHeight.ts (INPUT_DEFAULT_HEIGHT_VH,
 // one-third of the page) and the drag max there (INPUT_DRAG_MAX_HEIGHT_VH,
-// half the page). The bubble grows upward with the input up to the
+// half the page). The input grows upward with the content up to the
 // default cap, then scrolls — and a drag handle on its top edge lets the
 // user drag it taller or shorter, up to the drag max.
 
@@ -38,20 +38,25 @@ interface InputAreaProps {
     input: string;
     setInput: (value: string) => void;
     isProcessing?: boolean;
+    /** Flat prompt (LuciferAI disabled): no bubble, no backwall — the
+     *  rainbow processing glow (a border drawn around the input) is
+     *  part of the bubble chrome, so it stays off too. The drag
+     *  handle keeps working: resizing the input is not bubbling. */
+    flat?: boolean;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // Content height from the editor (Monaco) or the fallback textarea;
-  // the bubble height derives from it plus the dragged cap (below).
+  // the input height derives from it plus the dragged cap (below).
   const [contentHeightPx, setContentHeightPx] = useState(INPUT_MIN_HEIGHT_PX);
   const [viewportHeightPx, setViewportHeightPx] = useState(
     () => window.innerHeight,
   );
   const { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight } =
     useDraggableInputHeight();
-  // The bubble height: default cap 33.33vh; the dragged height is a
-  // cap — the bubble regresses to fit the content and is never stuck
+  // The input height: default cap 33.33vh; the dragged height is a
+  // cap — the input regresses to fit the content and is never stuck
   // tall — direct pointer follow while dragging.
   const editorHeight = resolveInputHeightPx(
     contentHeightPx,
@@ -126,8 +131,8 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
 
     // Plain-textarea fallback: grow with the content up to the cap,
     // then scroll - long input stays readable instead of clipping.
-    // The dragged height caps how tall the bubble may grow; the
-    // bubble regresses to fit the content when it shrinks.
+    // The dragged height caps how tall the input may grow; the
+    // input regresses to fit the content when it shrinks.
     useEffect(() => {
         const el = fallbackRef.current;
         if (!el) return;
@@ -230,9 +235,10 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
 
     return (
         <div className="w-full h-auto min-h-[40px] flex items-center relative px-3">
-            {/* Rainbow swirl processing glow */}
-            <ProcessingGlow isProcessing={isProcessing} />
-            {/* Drag handle on the bubble's top edge: drag up to grow,
+            {/* Rainbow swirl processing glow — bubble chrome: off while
+                the prompt is flat (LuciferAI disabled). */}
+            {!flat && <ProcessingGlow isProcessing={isProcessing} />}
+            {/* Drag handle on the input's top edge: drag up to grow,
                 down to shrink, up to half the page. */}
             <InputDragHandle
                 isDragging={isDragging}

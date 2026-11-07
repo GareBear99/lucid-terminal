@@ -85,7 +85,7 @@ vi.mock('@monaco-editor/react', () => {
   };
 });
 
-function Harness({ initial = '' }: { initial?: string }) {
+function Harness({ initial = '', flat = false, processing = false }: { initial?: string; flat?: boolean; processing?: boolean }) {
   const [input, setInput] = useState(initial);
   return (
     <InputArea
@@ -94,6 +94,8 @@ function Harness({ initial = '' }: { initial?: string }) {
       onSubmit={() => {}}
       onHistoryUp={() => {}}
       onHistoryDown={() => {}}
+      isProcessing={processing}
+      flat={flat}
     />
   );
 }
@@ -186,6 +188,34 @@ describe('prompt input bubble', () => {
     // The grow effect ran and holds the one-line floor in jsdom
     // (scrollHeight is 0 there); in a real browser it grows to the cap.
     expect(textarea.style.height).toBe('40px');
+  });
+});
+
+describe('prompt input flat (LuciferAI disabled — no bubble)', () => {
+  test('flat prompt shows no processing glow while processing', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    const { container } = render(<Harness processing flat />);
+    await screen.findByTestId('monaco-editor');
+    // The rainbow swirl is bubble chrome: a flat prompt draws no
+    // border around the input, even while a command runs.
+    expect(container.querySelector('.processing-glow-border')).toBeNull();
+    expect(container.querySelector('.processing-glow-pulse')).toBeNull();
+    // The drag handle still works: resizing is not bubbling.
+    expect(screen.getByTestId('input-drag-handle')).not.toBeNull();
+  });
+
+  test('non-flat prompt still shows the processing glow while processing', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    const { container } = render(<Harness processing />);
+    await screen.findByTestId('monaco-editor');
+    expect(container.querySelector('.processing-glow-border')).not.toBeNull();
+  });
+
+  test('no glow either way while idle', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    const { container } = render(<Harness />);
+    await screen.findByTestId('monaco-editor');
+    expect(container.querySelector('.processing-glow-border')).toBeNull();
   });
 });
 

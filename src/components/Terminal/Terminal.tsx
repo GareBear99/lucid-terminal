@@ -21,7 +21,7 @@ import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
-import { isLuciferAiEnabled, LUCIFER_AI_DISABLED_MESSAGE } from '../../lib/luciferAi';
+import { isLuciferAiEnabled, LUCIFER_AI_DISABLED_MESSAGE, refusalForDisabledCommand } from '../../lib/luciferAi';
 import { Tooltip } from '../Tooltip/Tooltip';
 
 interface TerminalProps {
@@ -29,9 +29,11 @@ interface TerminalProps {
   onOpenHelp?: () => void;
   /** Open the Synth view (the Sentinel's home). */
   onOpenSynth?: () => void;
+  /** Open the Forge (the Homunculi roster). */
+  onOpenForge?: () => void;
 }
 
-function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
+function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps) {
   const { currentTheme, settings } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
@@ -59,6 +61,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
   // Enter keeps focus in the editor naturally, a mouse click would
   // otherwise leave focus on the button.
   const inputWrapRef = useRef<HTMLDivElement>(null);
+  // Click-and-hold on the face button (Gary, 2026-11-06): holding
+  // the main displayed face opens the roster (the Forge); a quick
+  // click still toggles the Synth view as before. The timer and the
+  // fired flag live in refs so a hold that fires suppresses the
+  // click that follows the pointer-up.
+  const faceHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const faceHoldFiredRef = useRef(false);
   // Last keystroke in the prompt (ms epoch). The idle heartbeat
   // pauses while the user is typing — the original's smart pausing.
   const lastKeystrokeAt = useRef(0);
@@ -250,10 +259,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
     };
   }, [tabId]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom on a new block. Keystrokes are NOT a
+  // trigger: scrolling (smooth) on every keystroke made typing
+  // visibly janky - Warp keeps the prompt still while you type and
+  // only scrolls when output lands.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [blocks, input]);
+  }, [blocks]);
 
   // Run a command through the LuciferAI plugin (LucidCore.processCommand
   // → workflow orchestrator → plugin backend). While it runs, the
@@ -468,6 +480,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
         case 'llm':
           // LLM management commands
           console.log('[LLM] Processing:', parsed.command);
+          if (!luciferAiEnabled) {
+            // DISABLED (Part 2B fix): llm list / enable / disable
+            // used to call the backend IPC directly with no disable
+            // check, unlike every other `llm ...` command - refuse
+            // like them instead of surfacing a backend error.
+            setBlocks(prev => {
+              const updated = [...prev];
+              const lastBlock = updated[updated.length - 1];
+              if (lastBlock?.id === newBlock.id) {
+                lastBlock.output = refusalForDisabledCommand('llm');
+                lastBlock.isComplete = true;
+              }
+              return updated;
+            });
+            break;
+          }
           if (parsed.command === 'llm list') {
             const result = await window.lucidAPI.lucid.llmList();
             setBlocks(prev => {
@@ -607,9 +635,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
           break;
 
         case 'workflow':
-          // Workflow status commands
+          // Workflow status commands. The router returns command
+          // 'workflow' with args ['status'] for `workflow status`
+          // (see MULTI_WORD_COMMANDS) - matching on the phrase
+          // 'workflow status' here could never be true, so the
+          // block was created and never completed (Part 2C fix).
           console.log('[Workflow] Processing:', parsed.command);
-          if (parsed.command === 'workflow status') {
+          if (parsed.command === 'workflow' && parsed.args[0] === 'status') {
             const status = await window.lucidAPI.lucid.workflowStatus();
             setBlocks(prev => {
               const updated = [...prev];
@@ -620,7 +652,40 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
               }
               return updated;
             });
-          } else if (parsed.command === 'tokens') {
+          } else {
+            setBlocks(prev => {
+              const updated = [...prev];
+              const lastBlock = updated[updated.length - 1];
+              if (lastBlock?.id === newBlock.id) {
+                lastBlock.output = 'Usage: workflow status';
+                lastBlock.isComplete = true;
+              }
+              return updated;
+            });
+          }
+          break;
+
+        case 'tokens':
+          // `tokens` / `/tokens` - token stats for the plugin. It
+          // used to have no case at all: the only branch that
+          // mentioned it lived inside case 'workflow', where it
+          // could never run, so the command fell to the default
+          // branch (plugin / shell fallback). Refuse while the
+          // plugin is disabled, like every other plugin command.
+          console.log('[Tokens] Processing:', parsed.command);
+          if (!luciferAiEnabled) {
+            setBlocks(prev => {
+              const updated = [...prev];
+              const lastBlock = updated[updated.length - 1];
+              if (lastBlock?.id === newBlock.id) {
+                lastBlock.output = refusalForDisabledCommand('tokens');
+                lastBlock.isComplete = true;
+              }
+              return updated;
+            });
+            break;
+          }
+          {
             const stats = await window.lucidAPI.lucid.getTokenStats();
             setBlocks(prev => {
               const updated = [...prev];
@@ -636,28 +701,31 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
 
         case 'history':
           // `history` / `clear history` - the router returns type
-          // 'history' for both (see MULTI_WORD_COMMANDS). These
-          // branches used to live under case 'workflow', where they
-          // could never run.
+          // 'history' for both, with command 'history' and args
+          // ['clear'] for the clear form (see MULTI_WORD_COMMANDS).
+          // Matching on the phrase 'clear history' here could never
+          // be true, so `clear history` used to SHOW history instead
+          // of clearing it (Part 2C fix). Match on the arg.
           console.log('[History] Processing:', parsed.command);
-          if (parsed.command === 'history') {
+          if (parsed.args[0] === 'clear') {
+            await window.lucidAPI.lucid.clearHistory();
+            // Clear the VISIBLE history too — the terminal blocks
+            // and the History panel both read this tab's blocks
+            // from the history store, so clearing the store clears
+            // both. The confirmation block itself is wiped as well:
+            // an empty terminal IS the confirmation, like Unix
+            // `clear`. (Before this, only the backend AI
+            // conversation was cleared and every block stayed on
+            // screen, so `clear history` looked like it did
+            // nothing — live failure, 2026-11-06.)
+            useHistoryStore.getState().clearBlocks(tabId);
+          } else if (parsed.command === 'history') {
             const hist = await window.lucidAPI.lucid.getHistory();
             setBlocks(prev => {
               const updated = [...prev];
               const lastBlock = updated[updated.length - 1];
               if (lastBlock?.id === newBlock.id) {
                 lastBlock.output = JSON.stringify(hist, null, 2);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
-          } else if (parsed.command === 'clear history') {
-            await window.lucidAPI.lucid.clearHistory();
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = '✅ Conversation history cleared';
                 lastBlock.isComplete = true;
               }
               return updated;
@@ -674,7 +742,27 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
         default:
           // All other commands - route to LuciferAI plugin if available
           console.log('[Backend] Command type:', parsed.type);
-          
+
+          // DISABLED, not just down: refuse outright, BEFORE the
+          // checking/available branches - the probe starts in
+          // `checking` state, so a fast typist would otherwise get
+          // 'Connecting...' instead of the refusal. The fallback
+          // below would write the command to the shell PTY - a back
+          // door that must not run plugin commands (`install ...`
+          // is a real Unix command). No activation while off.
+          if (!luciferAiEnabled) {
+            setBlocks(prev => {
+              const updated = [...prev];
+              const lastBlock = updated[updated.length - 1];
+              if (lastBlock?.id === newBlock.id) {
+                lastBlock.output = refusalForDisabledCommand(parsed.type);
+                lastBlock.isComplete = true;
+              }
+              return updated;
+            });
+            break;
+          }
+
           if (luciferAIAvailable) {
             // LuciferAI plugin is available - use it
             console.log('[Plugin] Routing to LuciferAI:', parsed.type);
@@ -735,28 +823,6 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
             // LuciferAI plugin not available - use fallback system
             console.log('[Fallback] Plugin unavailable, checking alternatives');
 
-            if (!luciferAiEnabled) {
-              // DISABLED, not just down: refuse outright. The fallback
-              // below would write the command to the shell PTY - a back
-              // door that must not run plugin commands (`install ...`
-              // is a real Unix command). No activation while off.
-              const refusal =
-                LUCIFER_AI_DISABLED_MESSAGE +
-                (parsed.type === 'help'
-                  ? '\n\nHelp is part of LuciferAI and is unavailable while the plugin is disabled.'
-                  : '');
-              setBlocks(prev => {
-                const updated = [...prev];
-                const lastBlock = updated[updated.length - 1];
-                if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = refusal;
-                  lastBlock.isComplete = true;
-                }
-                return updated;
-              });
-              break;
-            }
-            
             const commandRequiresLLM = requiresLLM(parsed.type);
             
             if (commandRequiresLLM) {
@@ -905,6 +971,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                   block={block}
                   isActive={!block.isComplete}
                   onToggle={() => handleToggleBlock(block.id)}
+                  flat={!luciferAiEnabled}
                 />
               </div>
             ))}
@@ -920,13 +987,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
               busy WITHOUT dripping (plain shell) still hides it. */}
           <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
 
-          {/* Input Area - Glass Effect */}
-          <div className="input-container backdrop-blur-xl border-t border-[var(--border)] pb-safe"
+          {/* Input Area - glass bubble while LuciferAI is on, FLAT
+              while it is off (Gary, 2026-11-06): with the plugin out,
+              inputs are flat - no bubble, no backwall. The glass bar
+              (backdrop blur, translucent background, shadow, top
+              border) is LuciferAI-on chrome; with it off the prompt
+              sits directly on the terminal background, Warp-style. */}
+          <div className={luciferAiEnabled ? 'input-container backdrop-blur-xl border-t border-[var(--border)] pb-safe' : 'input-container input-container-flat pb-safe'}
                onKeyDown={() => { lastKeystrokeAt.current = Date.now(); }}
-               style={{
+               style={luciferAiEnabled ? {
                  background: 'rgba(22, 27, 34, 0.85)',
                  boxShadow: '0 -4px 24px rgba(0, 0, 0, 0.2)',
-               }}>
+               } : undefined}>
             <div className="flex items-center gap-3 px-4 py-3">
               {/* LuciferAI Plugin Status Indicator (the blood drop).
                   Honest states: the wrapper being up is NOT "connected" -
@@ -967,12 +1039,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
               <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">
                 ~
               </span>
-              <div ref={inputWrapRef} data-glow-anchor="prompt-input" className="flex-1 rounded-lg overflow-hidden" 
-                   style={{
+              <div ref={inputWrapRef} data-glow-anchor="prompt-input" data-testid="prompt-input-wrap"
+                   className={luciferAiEnabled ? 'flex-1 rounded-lg overflow-hidden' : 'flex-1 overflow-hidden'}
+                   style={luciferAiEnabled ? {
                      background: 'rgba(33, 38, 45, 0.5)',
                      border: '1px solid rgba(48, 54, 61, 0.6)',
-                   }}>
+                   } : undefined}>
                 <InputArea
+                  flat={!luciferAiEnabled}
                   input={input}
                   setInput={setInput}
                   onSubmit={handleSubmit}
@@ -986,11 +1060,37 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth }: TerminalProps) {
                   A LuciferAI surface: gone while the plugin is disabled, so the
                   input stretches into the space it leaves too. */}
               {onOpenSynth && luciferAiEnabled && (
-                <Tooltip content="Toggle the Synth view">
+                <Tooltip content="Toggle the Synth view — hold to open the roster">
                   <button
                     type="button"
-                    onClick={onOpenSynth}
-                    aria-label="Toggle Synth view"
+                    onClick={() => {
+                      // A hold already opened the roster — the click
+                      // that follows the pointer-up must not also
+                      // toggle the Synth view.
+                      if (faceHoldFiredRef.current) return;
+                      onOpenSynth?.();
+                    }}
+                    onPointerDown={() => {
+                      if (!onOpenForge) return;
+                      faceHoldFiredRef.current = false;
+                      faceHoldTimerRef.current = setTimeout(() => {
+                        faceHoldFiredRef.current = true;
+                        onOpenForge();
+                      }, 500);
+                    }}
+                    onPointerUp={() => {
+                      if (faceHoldTimerRef.current !== null) {
+                        clearTimeout(faceHoldTimerRef.current);
+                        faceHoldTimerRef.current = null;
+                      }
+                    }}
+                    onPointerLeave={() => {
+                      if (faceHoldTimerRef.current !== null) {
+                        clearTimeout(faceHoldTimerRef.current);
+                        faceHoldTimerRef.current = null;
+                      }
+                    }}
+                    aria-label="Toggle Synth view — hold to open the roster"
                     className="shrink-0 rounded-full p-0.5 hover:bg-white/10 transition-colors"
                   >
                     <SentinelFace size={32} />

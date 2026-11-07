@@ -10,9 +10,16 @@ interface BlockProps {
     block: TerminalBlock;
     isActive: boolean;
     onToggle: () => void;
+    /** Flat output (LuciferAI disabled): no bubble card — the
+     *  output sits directly on the terminal background,
+     *  Warp-style, matching the flat prompt (InputArea `flat`).
+     *  The rounded card + border + background is LuciferAI-on
+     *  chrome; with the plugin out, no bubbles anywhere, input
+     *  or output (Gary, 2026-11-06). */
+    flat?: boolean;
 }
 
-export function Block({ block, isActive, onToggle }: BlockProps) {
+export function Block({ block, isActive, onToggle, flat = false }: BlockProps) {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = (e: React.MouseEvent) => {
@@ -23,18 +30,22 @@ export function Block({ block, isActive, onToggle }: BlockProps) {
     };
 
     return (
-        <div className={`terminal-block mb-4 rounded-lg overflow-hidden border transition-all duration-200 ${isActive ? 'border-[var(--accent)] shadow-md ring-1 ring-[var(--accent)]/30' : 'border-[var(--border)] opacity-90 hover:opacity-100'
+        <div className={flat
+            ? 'terminal-block mb-2'
+            : `terminal-block mb-4 rounded-lg overflow-hidden border transition-all duration-200 ${isActive ? 'border-[var(--accent)] shadow-md ring-1 ring-[var(--accent)]/30' : 'border-[var(--border)] opacity-90 hover:opacity-100'
             } bg-[var(--bg-secondary)]`}
             style={{ isolation: 'isolate', contain: 'paint' }}>
 
             {/* Block Header */}
             <div
-                className="flex items-center justify-between px-3 py-2 bg-[var(--bg-tertiary)] border-b border-[var(--border)] cursor-pointer select-none group"
+                className={flat
+                    ? 'flex items-center justify-between px-3 py-2 cursor-pointer select-none group'
+                    : 'flex items-center justify-between px-3 py-2 bg-[var(--bg-tertiary)] border-b border-[var(--border)] cursor-pointer select-none group'}
                 onClick={onToggle}
             >
                 <div className="flex items-center gap-3 overflow-hidden">
                     {/* Status Icon/Button */}
-                    <div className={`p-1 rounded-md transition-colors ${block.isCollapsed ? 'bg-transparent text-[var(--text-muted)]' : 'bg-[var(--bg-primary)] text-[var(--text-primary)]'}`}>
+                    <div className={`p-1 rounded-md transition-colors ${block.isCollapsed ? 'bg-transparent text-[var(--text-muted)]' : flat ? 'bg-transparent text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-primary)]'}`}>
                         {block.isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                     </div>
 
@@ -70,7 +81,7 @@ export function Block({ block, isActive, onToggle }: BlockProps) {
             <div className={`transition-all duration-200 ${block.isCollapsed ? 'h-0 overflow-hidden' : 'h-auto'}`}>
                 {/* Validation Steps (Warp-style) */}
                 {block.validation && (
-                    <div className="px-3 py-2 bg-[var(--bg-secondary)] border-b border-[var(--border)]">
+                    <div className={flat ? 'px-3 py-2' : 'px-3 py-2 bg-[var(--bg-secondary)] border-b border-[var(--border)]'}>
                         <ValidationSteps 
                             steps={block.validation.steps}
                             collapsed={block.isComplete && !block.validation.steps.some(s => s.status === 'error')}
@@ -79,7 +90,7 @@ export function Block({ block, isActive, onToggle }: BlockProps) {
                 )}
                 
                 {/* Output */}
-                <div className="bg-[var(--bg-primary)]">
+                <div className={flat ? '' : 'bg-[var(--bg-primary)]'}>
                     <pre
                         className="ansi-output font-mono text-[13px] whitespace-pre-wrap select-text m-0 p-2"
                         style={{
@@ -94,7 +105,7 @@ export function Block({ block, isActive, onToggle }: BlockProps) {
                 
                 {/* Token Stats */}
                 {block.tokens && (
-                    <div className="px-3 py-2 bg-[var(--bg-secondary)] border-t border-[var(--border)]">
+                    <div className={flat ? 'px-3 py-2' : 'px-3 py-2 bg-[var(--bg-secondary)] border-t border-[var(--border)]'}>
                         <TokenDisplay tokens={block.tokens} />
                     </div>
                 )}

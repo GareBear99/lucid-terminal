@@ -22,6 +22,7 @@ import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled, LUCIFER_AI_DISABLED_MESSAGE, refusalForDisabledCommand } from '../../lib/luciferAi';
+import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
 
 interface TerminalProps {
@@ -195,7 +196,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
     // Handler for incoming data from PTY
     const handleData = (id: string, data: string) => {
       if (id !== tabId) return;
-      lastTerminalData.current = data.slice(-500);
+      // The bell: a BEL (\x07) in PTY data rings when the toggle is
+      // on, and never prints — processTerminalBell returns the chunk
+      // with BEL stripped. The toggle is read fresh per chunk, so
+      // flipping it in Settings takes effect immediately, mid-tab.
+      const cleaned = processTerminalBell(
+        data,
+        useSettingsStore.getState().settings.bellSound,
+      );
+      lastTerminalData.current = cleaned.slice(-500);
 
       // First data from the shell proves it actually spawned — only now is
       // the terminal genuinely ready (App.tsx must not claim readiness
@@ -214,7 +223,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
           return [{
             id: `terminal-${Date.now()}`,
             command: 'Terminal error',
-            output: data,
+            output: cleaned,
             timestamp: Date.now(),
             isComplete: true,
             isCollapsed: false,
@@ -229,7 +238,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
         const newBlocks = [...prev];
         newBlocks[newBlocks.length - 1] = {
           ...lastBlock,
-          output: lastBlock.output + data
+          output: lastBlock.output + cleaned
         };
         return newBlocks;
       });

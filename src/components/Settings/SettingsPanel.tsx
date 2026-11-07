@@ -22,6 +22,8 @@ import {
   Lock,
   Unlock,
   Shield,
+  Volume2,
+  Pause,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
@@ -41,6 +43,10 @@ import { COMMAND_CATEGORIES, searchCommandCatalogue } from '../../data/commands'
 import { useDevicesStore } from '../../stores/devicesStore';
 import { useToastStore } from '../../stores/toastStore';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
+import {
+  playTerminalBell,
+  TERMINAL_BELL_DURATION_MS,
+} from '../../lib/terminalBell';
 import { resolveSettingsTabOrder, moveSettingsTab } from '../../lib/settingsTabOrder';
 import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
@@ -109,6 +115,34 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   const [pingTesting, setPingTesting] = useState(false);
   const [pingTestResult, setPingTestResult] = useState<string | null>(null);
   const [commandFilter, setCommandFilter] = useState('');
+  // Bell preview (Gary, 2026-11-07): the play button next to the
+  // "Terminal bell sound" toggle plays the exact tone the terminal
+  // rings — even when the toggle is OFF, so you can hear what it
+  // sounds like before enabling it. The playing state is just the
+  // beep's duration; a second click while it plays is ignored.
+  const [bellPreviewPlaying, setBellPreviewPlaying] = useState(false);
+  const bellPreviewTimeout = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  useEffect(() => {
+    return () => {
+      if (bellPreviewTimeout.current) {
+        clearTimeout(bellPreviewTimeout.current);
+      }
+    };
+  }, []);
+  const previewBell = () => {
+    if (bellPreviewPlaying) return;
+    playTerminalBell();
+    setBellPreviewPlaying(true);
+    if (bellPreviewTimeout.current) {
+      clearTimeout(bellPreviewTimeout.current);
+    }
+    bellPreviewTimeout.current = setTimeout(
+      () => setBellPreviewPlaying(false),
+      TERMINAL_BELL_DURATION_MS,
+    );
+  };
   // Devices tab: the store behind it. The first time the tab opens
   // it scans once; Refresh re-scans after that. No hotplug events
   // in v1 - detection is on demand only.
@@ -709,6 +743,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               </section>
 
               <section>
+                <div className="flex items-center gap-3">
 <Tooltip content="Play a sound on the terminal bell">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <Toggle
@@ -718,6 +753,30 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <span className="text-sm">Terminal bell sound</span>
                   </label>
 </Tooltip>
+                  <span className="inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      data-terminal-bell-play
+                      onClick={previewBell}
+                      className="btn btn-secondary text-xs shrink-0"
+                      title="Preview the terminal bell sound"
+                      aria-label={
+                        bellPreviewPlaying
+                          ? 'Playing terminal bell sound'
+                          : 'Play terminal bell sound preview'
+                      }
+                    >
+                      {bellPreviewPlaying ? (
+                        <Pause size={14} />
+                      ) : (
+                        <Volume2 size={14} />
+                      )}
+                    </button>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Preview
+                    </span>
+                  </span>
+                </div>
               </section>
 
               <section>

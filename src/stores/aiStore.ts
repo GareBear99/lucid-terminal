@@ -4,6 +4,53 @@ import { basePingQuota, nextLastRestockAt } from '../lib/pingQuota';
 import { normalizeMessageList, insertMessageInOrder, nextTickFor } from '../components/AI/chatBubbles';
 import { useHornWiggleStore } from './hornWiggleStore';
 
+/**
+ * Session order — causal ritual placement (Gary, 2026-11-07).
+ *
+ * The LuciferAI tabs (the chats) hide behind the one blood drop tab,
+ * ordered by causal ritual placement, not by time. A session's
+ * `causalOrder` is its position in the creation sequence: assigned
+ * once at creation, never re-numbered, never moved by a reply — so
+ * the list order never changes under the user. Timestamps
+ * (createdAt/updatedAt) are display only; a session that was just
+ * replied to stays exactly where it was.
+ *
+ * Display is newest-created first (highest causalOrder first), the
+ * same look the old most-recently-active order had — only the rule
+ * behind it changed: creation sequence instead of last activity.
+ * A session that somehow lacks a number (defensive only — load
+ * assigns one to every legacy session) sorts after the numbered ones.
+ */
+function byCausalOrderDesc(a: ChatSession, b: ChatSession): number {
+    return (b.causalOrder ?? -1) - (a.causalOrder ?? -1);
+}
+
+/**
+ * Give legacy sessions (created before causalOrder existed) their
+ * causal number, in creation order: the oldest missing one takes the
+ * lowest free number above the highest already assigned, so the
+ * numbers keep the creation sequence and never collide with numbers
+ * already handed out. In practice this runs once, on the first load
+ * after the feature lands — no session is numbered yet, so they take
+ * 0..n in creation order, the same sequence creation would have
+ * assigned. Returns the sessions with every one numbered.
+ */
+function assignLegacyCausalOrder(sessions: ChatSession[]): ChatSession[] {
+    const missing = sessions.filter((s) => s.causalOrder === undefined);
+    if (missing.length === 0) return sessions;
+    let next = Math.max(-1, ...sessions.map((s) => s.causalOrder ?? -1)) + 1;
+    const assigned = new Map<string, number>();
+    [...missing]
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .forEach((s) => {
+            assigned.set(s.id, next);
+            next += 1;
+        });
+    return sessions.map((s) =>
+        s.causalOrder !== undefined ? s : { ...s, causalOrder: assigned.get(s.id) as number },
+    );
+}
+
 interface AIState {
     sessions: ChatSession[];
     currentSessionId: string | null;
@@ -256,8 +303,11 @@ export const useAIStore = create<AIState>((set, get) => {
             // in the chat — so it survives the reload and never
             // restarts from zero and collides with ticks already on
             // the chat's bubbles.
-            set({
-                sessions: sessions.map((s) => {
+            // The sessions themselves take their causal placement
+            // here too (see assignLegacyCausalOrder): the display
+            // list is causal-order desc, never last-activity time.
+            const normalized = assignLegacyCausalOrder(
+                sessions.map((s) => {
                     const messages = normalizeMessageList(s.messages ?? [], s.nextTick);
                     return {
                         ...s,
@@ -265,6 +315,14 @@ export const useAIStore = create<AIState>((set, get) => {
                         nextTick: Math.max(s.nextTick ?? 0, nextTickFor(messages)),
                     };
                 }),
+            ).sort(byCausalOrderDesc);
+            // Persist the numbers handed out to legacy sessions, so
+            // the placement sticks and is never re-derived.
+            normalized
+                .filter((s) => sessions.find((d) => d.id === s.id)?.causalOrder === undefined)
+                .forEach((s) => window.lucidAPI.ai.saveSession(s));
+            set({
+                sessions: normalized,
                 isSessionsLoaded: true,
             });
         } catch (error) {
@@ -280,12 +338,17 @@ export const useAIStore = create<AIState>((set, get) => {
         // There is no global model default beyond the cascade: the
         // dropdown's Auto entry IS the default.
         const current = get().sessions.find((s) => s.id === get().currentSessionId);
+        // Causal placement: one past the highest number in the list,
+        // so the new chat is the newest-created and lands first in
+        // causal-order desc. Never re-used, never re-numbered.
+        const causalOrder = Math.max(-1, ...get().sessions.map((s) => s.causalOrder ?? -1)) + 1;
         const newSession: ChatSession = {
             id: Date.now().toString(),
             title: 'New Chat',
             messages: [],
             createdAt: Date.now(),
             updatedAt: Date.now(),
+            causalOrder,
             nextTick: 0,
             model: current?.model,
             modelSource: current?.modelSource,
@@ -437,14 +500,16 @@ export const useAIStore = create<AIState>((set, get) => {
 
         // The displayed list (buffer A) changes only when the target
         // IS the displayed chat — and then only to the same ordered
-        // list, never by in-place mutation.
+        // list, never by in-place mutation. The order is causal
+        // placement, not last activity: a reply updates the session
+        // (and its updatedAt, for display) but never moves it.
         if (targetId === state.currentSessionId) {
             set({
                 messages: newMessages,
-                sessions: newSessions.sort((a, b) => b.updatedAt - a.updatedAt),
+                sessions: newSessions.sort(byCausalOrderDesc),
             });
         } else {
-            set({ sessions: newSessions.sort((a, b) => b.updatedAt - a.updatedAt) });
+            set({ sessions: newSessions.sort(byCausalOrderDesc) });
         }
     },
 

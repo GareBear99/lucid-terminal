@@ -80,6 +80,18 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   /**
+   * The session's causal placement — its position in the creation
+   * sequence (Gary, 2026-11-07): the LuciferAI tabs (the chats) hide
+   * behind the one blood drop tab, ordered by causal ritual placement
+   * (ticks), not by time. A session takes its number once, at
+   * creation, and it is never re-numbered — a reply never moves the
+   * session, so the list order never changes under the user.
+   * Timestamps (createdAt/updatedAt) are display only. Legacy
+   * sessions (created before this field) take their number on load,
+   * in creation order.
+   */
+  causalOrder?: number;
+  /**
    * The next ritual tick to assign in this chat. Persisted with the
    * session (it round-trips through sessions.json) so the counter
    * survives a reload and never restarts from zero and collides with

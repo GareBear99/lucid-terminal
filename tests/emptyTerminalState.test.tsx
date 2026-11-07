@@ -128,12 +128,14 @@ describe('EmptyTerminalState — blood drop option (Gary, 2026-11-07)', () => {
   /**
    * The segregation the terminal was missing: when LuciferAI is enabled
    * and no terminal tab is open, the blood drop appears as an option in
-   * the empty state — it IS the LuciferAI prompt command tab (the same
-   * surface the toolbar blood drop opens). The terminal stays a real,
-   * regular, usable terminal; LuciferAI's commands are reached through
-   * the drop, never typed into the terminal. When LuciferAI is off, App
-   * passes no handler and the drop is not rendered at all. No splash
-   * screen on the blood drop screen — it is just the plugin.
+   * the empty state — it IS the LuciferAI tab, a tab you open in the
+   * terminal tab strip (the blood drop tab opens the LuciferAI panel;
+   * it does NOT open the Help modal — that is the toolbar drop's
+   * surface). The terminal stays a real, regular, usable terminal;
+   * LuciferAI's commands are reached through the drop tab, never typed
+   * into the terminal. When LuciferAI is off, App passes no handler
+   * and the drop is not rendered at all. No splash screen on the blood
+   * drop screen — it is just the plugin.
    */
   it('shows the blood drop option alongside Create Terminal and Create Editor when LuciferAI is on', () => {
     render(

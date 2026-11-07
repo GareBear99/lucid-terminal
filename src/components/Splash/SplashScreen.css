@@ -177,8 +177,7 @@
   width: min(320px, 60vw);
 }
 
-/* Reduced motion: no smoke, no letter stagger — the wordmark is just there. */
-.splash-reduced-motion .splash-wordmark {
+/* Reduced motion: no smoke, no letter stagger — the wordmark is just there. */.splash-reduced-motion .splash-wordmark {
   transition-duration: 300ms;
 }
 
@@ -190,4 +189,15 @@
 .splash-reduced-motion .splash-wordmark-line {
   width: min(320px, 60vw);
   transition: none;
+}
+
+/* Main-screen mist (Gary, 2026-11-07): the boot splash's smoke, living
+   behind the dashboard permanently — same puffs, same drift, always
+   visible. Unlike the boot splash (whose smoke is gated on
+   .splash-mounted), the mist holds opacity 1 on its own, so the main
+   screen is misty black from the first frame. This rule sits after
+   the .splash-mounted rule and wins at equal specificity (two classes
+   each); no .splash-phase-* ancestor ever applies to the mist. */
+.splash-smoke.splash-mist {
+  opacity: 1;
 }

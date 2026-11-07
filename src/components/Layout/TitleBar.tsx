@@ -19,9 +19,22 @@ function TitleBar() {
     window.lucidAPI.window.onMaximizedChange(setIsMaximized);
   }, []);
 
+  // Top-bar height (Gary, 2026-11-07): h-16, a little taller than the
+  // old h-9. The macOS traffic lights (red/yellow/green) are drawn by
+  // the OS at the top-left of the window, pinned near the top - three
+  // 12px buttons spanning roughly y 8-20px - while the status dot
+  // (the spin-wheel loader: the swirl ring + charge arc around it
+  // while background work runs) sits at the far left, vertically
+  // centred in this bar. At h-9 the dot's centre was y 18 and its
+  // 22px swirl ring (dot 16px + 3px inset each side) spanned y 7-29,
+  // so the close button sat directly on top of the spinner. At h-16
+  // the dot's centre is y 32 and the ring spans y 21-43 - just below
+  // the lights. h-16 is the smallest standard step that clears them;
+  // h-12 (ring top y 13) still tucks under the lights. The tab strip
+  // below is untouched (still h-9); only this bar grows.
   return (
     <div
-      className="h-9 flex items-center justify-between bg-[var(--bg-secondary)] border-b border-[var(--border)] select-none"
+      className="h-16 flex items-center justify-between bg-[var(--bg-secondary)] border-b border-[var(--border)] select-none"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {/* App Title */}

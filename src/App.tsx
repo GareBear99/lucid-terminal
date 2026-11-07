@@ -23,8 +23,10 @@ import { toggleForgeView } from './lib/forgeView';
 import { togglePersonaPlexView } from './lib/personaPlexView';
 import { toggleSettingsView } from './lib/settingsView';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
+import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
+import { SplashMist } from './components/Splash/SplashMist';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
@@ -78,6 +80,14 @@ function App() {
     }
   };
   const [showHelp, setShowHelp] = useState(false);
+  // Blood drop tab (Gary, 2026-11-07): the LuciferAI tab, a visible
+  // tab in the terminal tab strip. When true the main panel shows the
+  // LuciferAI panel instead of the terminals; picking a terminal tab
+  // (or creating one) sets it false again. It is NOT a terminal tab
+  // — no PTY, no entry in the terminal store — and it is NOT the Help
+  // modal (that is the toolbar drop's surface). The daemon and the
+  // homunculi do not live here and are not gated on this state.
+  const [bloodDropActive, setBloodDropActive] = useState(false);
   // Help is bound to LuciferAI: when the plugin is off, Help is
   // inaccessible. Every Help opener (the StatusBar button, the
   // terminal `help` command, the model banner's tiers link) goes
@@ -88,9 +98,9 @@ function App() {
     if (isLuciferAiEnabled(useSettingsStore.getState().settings)) setShowHelp(true);
   };
   // When LuciferAI is disabled, ITS surfaces close: the Synth view,
-  // the Help modal. They cannot be reopened while off (the buttons,
-  // the shortcut and the `help` command are all gated), so this only
-  // fires on the toggle itself.
+  // the Help modal, and the blood drop tab. They cannot be reopened
+  // while off (the buttons, the shortcut and the `help` command are
+  // all gated), so this only fires on the toggle itself.
   // The AI panel is NOT one of them — it is Lucid AI, its own plugin
   // (Gary, 2026-11-07), so it stays open and working with the plugin
   // off. Never close it here.
@@ -99,11 +109,15 @@ function App() {
   // stays open and working with the plugin off. Disabling the plugin
   // used to close it as if it belonged to it, which was the bug.
   // Never close it here.
+  // The daemon and the homunculi are NOT one of them either — they
+  // continue with LuciferAI disabled (Gary, 2026-11-07 ~07:32 PST);
+  // nothing here touches them.
   useEffect(() => {
     if (luciferAiEnabled) return;
     if (currentView === 'synth') setCurrentView('terminal');
     if (showHelp) setShowHelp(false);
-  }, [luciferAiEnabled, currentView, showHelp]);
+    if (bloodDropActive) setBloodDropActive(false);
+  }, [luciferAiEnabled, currentView, showHelp, bloodDropActive]);
   // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).
   // Shows on every launch for now; a "don't show again" setting is a
   // one-line follow-up. The dashboard mounts underneath, so the splash
@@ -200,7 +214,11 @@ function App() {
     return (
       <>
         {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
-        <div className="h-screen flex items-center justify-center bg-[var(--bg-primary)]">
+        {/* Main screen is always splashscreen misty black (Gary,
+            2026-11-07): pure black + the splash's own smoke, behind
+            the content — same treatment as the main root below. */}
+        <div className="relative isolate h-screen flex items-center justify-center bg-black">
+        <SplashMist />
         <div className="flex flex-col items-center gap-4">
           <div className="spinner w-8 h-8"></div>
           <span className="text-[var(--text-secondary)]">Loading Lucid Terminal...</span>
@@ -214,9 +232,19 @@ function App() {
   // TODO: Re-add via menu or command palette
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-primary)] overflow-hidden">
+    // Main screen is always splashscreen misty black (Gary,
+    // 2026-11-07): the root is pure black #000 — the splash's own
+    // background — with the splash's smoke mist behind the content
+    // (SplashMist, -z-10 inside this isolated root, so it sits above
+    // the black and below every panel). The theme still colours text,
+    // accents and borders; the screen itself is mist in both
+    // LuciferAI states. The boot splash overlays this until it fades;
+    // what it fades into is the same mist, so the screen never stops
+    // being the splashscreen.
+    <div className="relative isolate h-screen flex flex-col bg-black overflow-hidden">
       {/* Boot splash - overlays the dashboard until it fades out. */}
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
+      <SplashMist />
 
       {/* Title Bar */}
       <TitleBar />
@@ -299,13 +327,28 @@ function App() {
                 <CodeEditor />
               ) : (
                 <>
-                  {/* Terminal Tabs */}
-                  <TerminalTabs />
+                  {/* Terminal Tabs — the blood drop tab is the
+                      LuciferAI tab (Gary, 2026-11-07): it renders in
+                      this strip while LuciferAI is enabled and is
+                      gone when the plugin is off. */}
+                  <TerminalTabs
+                    showBloodDrop={luciferAiEnabled}
+                    bloodDropActive={bloodDropActive}
+                    onBloodDropActiveChange={setBloodDropActive}
+                  />
 
                   {/* Terminal Container */}
                   <div className="flex-1 flex overflow-hidden">
                     {/* Terminal */}
                     <div className="flex-1 overflow-hidden">
+                      {bloodDropActive ? (
+                        // Blood drop tab selected: the LuciferAI panel,
+                        // not a terminal. The terminals stay mounted
+                        // underneath (hidden), so switching back is
+                        // instant and nothing is lost.
+                        <LuciferAITabPanel />
+                      ) : (
+                        <>
                       {tabs.map((tab) => (
                         <div
                           key={tab.id}
@@ -318,16 +361,19 @@ function App() {
                         <EmptyTerminalState
                           onCreateTerminal={() => createTab()}
                           onCreateEditor={() => setCurrentView('editor')}
-                          // Blood drop (Gary, 2026-11-07): the LuciferAI
-                          // prompt command tab, as an option in the empty
-                          // state — the segregation between the terminal
-                          // (real, regular shell) and LuciferAI's
-                          // commands (behind the drop). Only when
-                          // LuciferAI is enabled; openHelp is itself
-                          // guarded, so the drop can never open Help
-                          // while the plugin is off.
-                          onOpenBloodDrop={luciferAiEnabled ? openHelp : undefined}
+                          // Blood drop (Gary, 2026-11-07): the
+                          // LuciferAI tab, as an option in the empty
+                          // state — a tab you open. It selects the
+                          // blood drop tab in the strip (the LuciferAI
+                          // panel); it does NOT open the Help modal —
+                          // that is the toolbar drop's surface. Only
+                          // when LuciferAI is enabled; when off, no
+                          // handler and no drop anywhere (not in the
+                          // strip, not here).
+                          onOpenBloodDrop={luciferAiEnabled ? () => setBloodDropActive(true) : undefined}
                         />
+                      )}
+                        </>
                       )}
                     </div>
                   </div>

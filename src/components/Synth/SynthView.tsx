@@ -236,7 +236,10 @@ export function SynthView() {
       : 'Iteration 8';
 
   return (
-    <div className="relative flex-1 overflow-hidden bg-[var(--bg-primary)]">
+    // No background here: the main screen is always splashscreen
+    // misty black (Gary, 2026-11-07), so the App root's mist shows
+    // through — the shell keeps its own dark canvas.
+    <div className="relative flex-1 overflow-hidden">
       <div className="flex" style={synthScaleStyle(isMaximized)}>
       {/* Shell — the vendored v67 MATRIX SYNTH, with the thinker in the eye once mounted */}
       <div className="flex-1 overflow-hidden relative">

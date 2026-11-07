@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { X, Search, ChevronRight } from 'lucide-react';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { helpCategories, HelpCategory, HelpCommand, getCategoryById } from '../../data/helpData';
@@ -14,17 +14,159 @@ interface HelpModalProps {
   initialCategoryId?: string | null;
 }
 
-export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps) {
+/**
+ * The LuciferAI command reference browser — search + category grid +
+ * command detail — shared by the Help modal AND the blood drop tab
+ * (LuciferAITabPanel, Gary 2026-11-07): the tab shows this same
+ * surface inline, as a panel, not as a modal overlay. The header is
+ * part of the browser (back button, title, count, optional close):
+ * the modal passes its close handler (and the Esc hint lives in the
+ * modal's footer), the tab passes none — a tab is left by picking
+ * another tab, never closed. The category selection lives here, so
+ * both surfaces open on the same grid and drill into the same detail.
+ */
+export function HelpContent({
+  title,
+  titleIcon,
+  onClose,
+  initialCategoryId,
+}: {
+  title: string;
+  titleIcon?: ReactNode;
+  onClose?: () => void;
+  initialCategoryId?: string | null;
+}) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory | null>(null);
 
   // Land on the requested category when opened with one.
   useEffect(() => {
-    if (!isOpen || !initialCategoryId) return;
+    if (!initialCategoryId) return;
     const category = getCategoryById(initialCategoryId);
     if (category) setSelectedCategory(category);
-  }, [isOpen, initialCategoryId]);
+  }, [initialCategoryId]);
 
+  // Filter categories and commands by search query
+  const filteredCategories = helpCategories.map(category => ({
+    ...category,
+    commands: category.commands.filter(cmd =>
+      cmd.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cmd.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cmd.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+    )
+  })).filter(category => category.commands.length > 0);
+
+  return (
+    <>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
+        <div className="flex items-center gap-3">
+          {selectedCategory && (
+            <Tooltip content="Back to categories">
+              <button
+                onClick={() => setSelectedCategory(null)}
+                className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+              >
+                <ChevronRight size={20} className="rotate-180 text-[var(--text-muted)]" />
+              </button>
+            </Tooltip>
+          )}
+          {titleIcon}
+          <div>
+            <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+              {selectedCategory ? selectedCategory.title : title}
+            </h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              {selectedCategory
+                ? `${selectedCategory.commands.length} commands`
+                : `${filteredCategories.reduce((acc, cat) => acc + cat.commands.length, 0)} total commands`}
+            </p>
+          </div>
+        </div>
+        {onClose && (
+          <Tooltip content="Close" shortcut="Esc">
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+            >
+              <X size={20} className="text-[var(--text-muted)]" />
+            </button>
+          </Tooltip>
+        )}
+      </div>
+
+      {/* Search Bar */}
+      <div className="px-6 py-3 border-b border-[var(--border)]">
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+          <input
+            type="text"
+            placeholder="Search commands, examples, or tags..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-md text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          />
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {!selectedCategory ? (
+          // Category Grid View
+          <div className="grid grid-cols-2 gap-4">
+            {filteredCategories.map((category) => (
+              <button
+                key={category.id}
+                onClick={() => setSelectedCategory(category)}
+                className="group relative p-4 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg transition-all cursor-pointer text-left"
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{category.icon}</span>
+                    <div>
+                      <h3 className="font-semibold text-[var(--text-primary)]">
+                        {category.title}
+                      </h3>
+                      <p className="text-xs text-[var(--text-muted)] mt-1">
+                        {category.description}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
+                </div>
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {category.commands.length} {category.commands.length === 1 ? 'command' : 'commands'}
+                  </span>
+                  {category.stats && (
+                    <span className="text-xs font-medium" style={{ color: category.color }}>
+                      {category.stats.label}: {category.stats.value}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          // Command Detail View
+          <div className="space-y-4">
+            {selectedCategory.commands.map((command, idx) => (
+              <CommandCard key={idx} command={command} categoryColor={selectedCategory.color} />
+            ))}
+          </div>
+        )}
+
+        {filteredCategories.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-[var(--text-muted)]">No commands found matching "{searchQuery}"</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps) {
   // Handle ESC key to close
   useEffect(() => {
     if (!isOpen) return;
@@ -42,128 +184,14 @@ export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps
 
   if (!isOpen) return null;
 
-  // Filter categories and commands by search query
-  const filteredCategories = helpCategories.map(category => ({
-    ...category,
-    commands: category.commands.filter(cmd =>
-      cmd.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cmd.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
-    )
-  })).filter(category => category.commands.length > 0);
-
-  const handleCategoryClick = (category: HelpCategory) => {
-    setSelectedCategory(category);
-  };
-
-  const handleBack = () => {
-    setSelectedCategory(null);
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="w-[800px] max-h-[85vh] bg-[var(--bg-secondary)] rounded-lg shadow-2xl border border-[var(--border)] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
-          <div className="flex items-center gap-3">
-            {selectedCategory && (
-              <Tooltip content="Back to categories">
-                <button
-                  onClick={handleBack}
-                  className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
-                >
-                  <ChevronRight size={20} className="rotate-180 text-[var(--text-muted)]" />
-                </button>
-              </Tooltip>
-            )}
-            <div>
-              <h2 className="text-xl font-semibold text-[var(--text-primary)]">
-                {selectedCategory ? selectedCategory.title : 'LuciferAI Command Reference'}
-              </h2>
-              <p className="text-sm text-[var(--text-muted)]">
-                {selectedCategory 
-                  ? `${selectedCategory.commands.length} commands` 
-                  : `${filteredCategories.reduce((acc, cat) => acc + cat.commands.length, 0)} total commands`}
-              </p>
-            </div>
-          </div>
-          <Tooltip content="Close" shortcut="Esc">
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
-            >
-              <X size={20} className="text-[var(--text-muted)]" />
-            </button>
-          </Tooltip>
-        </div>
-
-        {/* Search Bar */}
-        <div className="px-6 py-3 border-b border-[var(--border)]">
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-            <input
-              type="text"
-              placeholder="Search commands, examples, or tags..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-md text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-            />
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {!selectedCategory ? (
-            // Category Grid View
-            <div className="grid grid-cols-2 gap-4">
-              {filteredCategories.map((category) => (
-                <button
-                  key={category.id}
-                  onClick={() => handleCategoryClick(category)}
-                  className="group relative p-4 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg transition-all cursor-pointer text-left"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">{category.icon}</span>
-                      <div>
-                        <h3 className="font-semibold text-[var(--text-primary)]">
-                          {category.title}
-                        </h3>
-                        <p className="text-xs text-[var(--text-muted)] mt-1">
-                          {category.description}
-                        </p>
-                      </div>
-                    </div>
-                    <ChevronRight size={16} className="text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
-                  </div>
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
-                    <span className="text-xs text-[var(--text-muted)]">
-                      {category.commands.length} {category.commands.length === 1 ? 'command' : 'commands'}
-                    </span>
-                    {category.stats && (
-                      <span className="text-xs font-medium" style={{ color: category.color }}>
-                        {category.stats.label}: {category.stats.value}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            // Command Detail View
-            <div className="space-y-4">
-              {selectedCategory.commands.map((command, idx) => (
-                <CommandCard key={idx} command={command} categoryColor={selectedCategory.color} />
-              ))}
-            </div>
-          )}
-
-          {filteredCategories.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-[var(--text-muted)]">No commands found matching "{searchQuery}"</p>
-            </div>
-          )}
-        </div>
+        <HelpContent
+          title="LuciferAI Command Reference"
+          onClose={onClose}
+          initialCategoryId={initialCategoryId}
+        />
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-[var(--border)] bg-[var(--bg-primary)]">

@@ -5,6 +5,7 @@ import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
 import type { Notification } from './ErrorNotification';
 import type { TerminalTab } from '../../types';
+import { BloodDropIcon } from '../Layout/BloodDropIcon';
 
 /**
  * Terminal tab bar.
@@ -37,6 +38,14 @@ export interface TerminalTabsViewProps {
   onCloseTab: (id: string) => void;
   onRenameTab: (id: string, title: string) => void;
   onSelectTab: (id: string) => void;
+  /**
+   * Blood drop tab (Gary, 2026-11-07) — the LuciferAI tab, pinned
+   * first in the strip while LuciferAI is enabled. Optional so
+   * existing callers render the plain strip unchanged.
+   */
+  showBloodDrop?: boolean;
+  bloodDropActive?: boolean;
+  onBloodDropActiveChange?: (active: boolean) => void;
   onToggleNotifications: () => void;
   onDismissNotification: (id: string) => void;
   onClearAllNotifications: () => void;
@@ -51,6 +60,9 @@ export function TerminalTabsView({
   onCloseTab,
   onRenameTab,
   onSelectTab,
+  showBloodDrop = false,
+  bloodDropActive = false,
+  onBloodDropActiveChange,
   onToggleNotifications,
   onDismissNotification,
   onClearAllNotifications,
@@ -82,6 +94,33 @@ export function TerminalTabsView({
     >
       {/* Tabs */}
       <div className="flex-1 flex items-center overflow-x-auto">
+        {/* Blood drop tab — the LuciferAI tab (Gary, 2026-11-07).
+            Pinned first in the strip, always the top spot (the same
+            lock as the toolbar drop), rendered ONLY while LuciferAI
+            is enabled; when the plugin is off it is gone, not
+            hidden. It IS the LuciferAI tab: the individual LuciferAI
+            tabs hide behind this one, ordered by causal ritual
+            placement (ticks), never by time. It is not a terminal
+            tab — no PTY, no close button, no rename — picking it
+            shows the LuciferAI panel; picking a terminal tab shows
+            that terminal. Same portal glass as the terminal tabs. */}
+        {showBloodDrop && (
+          <div
+            data-testid="blood-drop-tab"
+            title="LuciferAI prompt commands"
+            aria-label="LuciferAI prompt commands"
+            className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] cursor-pointer transition-colors ${
+              bloodDropActive
+                ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
+            }`}
+            onClick={() => onBloodDropActiveChange?.(true)}
+          >
+            <BloodDropIcon size={14} />
+            <span className="text-sm whitespace-nowrap">LuciferAI</span>
+          </div>
+        )}
+
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -227,7 +266,16 @@ export function TerminalTabsView({
   );
 }
 
-function TerminalTabs() {
+interface TerminalTabsProps {
+  /** LuciferAI enabled — the blood drop tab renders only then. */
+  showBloodDrop?: boolean;
+  /** The blood drop tab is the selected one. */
+  bloodDropActive?: boolean;
+  /** Selecting the drop (true), or a terminal tab / creating one (false). */
+  onBloodDropActiveChange?: (active: boolean) => void;
+}
+
+function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange }: TerminalTabsProps) {
   const { tabs, activeTabId, createTab, closeTab, setActiveTab, updateTabTitle } =
     useTerminalStore();
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
@@ -244,10 +292,19 @@ function TerminalTabs() {
       activeTabId={activeTabId}
       notifications={notifications}
       notificationsOpen={notificationsOpen}
-      onCreateTab={() => createTab()}
+      showBloodDrop={showBloodDrop}
+      bloodDropActive={bloodDropActive}
+      onBloodDropActiveChange={onBloodDropActiveChange}
+      onCreateTab={() => {
+        void createTab();
+        onBloodDropActiveChange?.(false);
+      }}
       onCloseTab={closeTab}
       onRenameTab={updateTabTitle}
-      onSelectTab={setActiveTab}
+      onSelectTab={(id) => {
+        setActiveTab(id);
+        onBloodDropActiveChange?.(false);
+      }}
       onToggleNotifications={toggleNotifications}
       onDismissNotification={removeNotification}
       onClearAllNotifications={clearAll}

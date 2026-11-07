@@ -12,6 +12,16 @@ export interface ChatSession {
   /** Next ritual tick to assign in this chat (see ChatMessage in the
    *  renderer types). Persisted in sessions.json with the session. */
   nextTick?: number;
+  /**
+   * The session's causal placement — its position in the creation
+   * sequence (Gary, 2026-11-07): the LuciferAI tabs (the chats) hide
+   * behind the one blood drop tab, ordered by causal ritual placement
+   * (ticks), not by time. Assigned once at creation, never
+   * re-numbered; a reply never moves the session. Timestamps are
+   * display only. (Renderer type in src/types/index.ts carries the
+   * same field; the two must stay in sync.)
+   */
+  causalOrder?: number;
 }
 
 const DATA_FILE = 'sessions.json';
@@ -49,7 +59,18 @@ class HistoryManager {
 
   public async getSessions(): Promise<ChatSession[]> {
     await this.init();
-    return this.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    // Causal ritual placement, not last-activity time (Gary,
+    // 2026-11-07): newest-created first by creation sequence, so a
+    // reply never re-orders the list. Sessions that somehow lack a
+    // number (legacy, not yet loaded since numbering began) sort
+    // after the numbered ones, newest-created first among
+    // themselves — the two keys never mix units.
+    return this.sessions.sort((a, b) => {
+      const ao = a.causalOrder ?? -1;
+      const bo = b.causalOrder ?? -1;
+      if (ao !== bo) return bo - ao;
+      return b.createdAt - a.createdAt;
+    });
   }
 
   public async getSession(id: string): Promise<ChatSession | undefined> {

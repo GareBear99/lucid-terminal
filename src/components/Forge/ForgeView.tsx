@@ -143,7 +143,10 @@ export function ForgeView() {
   // Tail Generator panels flow with the page the same way — no
   // inner scrolls except the bounded run log inside PipelinePanel.
   return (
-    <div className="bg-[var(--bg-primary)] p-4">
+    // No background here: the main screen is always splashscreen
+    // misty black (Gary, 2026-11-07), so the App root's mist shows
+    // through — the panels keep their own fills.
+    <div className="p-4">
       <header className="mb-3 shrink-0">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           Forge

@@ -495,7 +495,10 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   };
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
+    // No background here: the main screen is always splashscreen
+    // misty black (Gary, 2026-11-07), so the App root's mist shows
+    // through — the sections keep their own fills.
+    <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
         <h2 className="text-lg font-semibold">Settings</h2>

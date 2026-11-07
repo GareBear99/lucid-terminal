@@ -148,6 +148,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ...allSettings,
       };
 
+      // Light was removed from the theme options (Gary, 2026-11-07) —
+      // a persisted 'light' becomes Sunset instead of lingering.
+      if (settings.theme === 'light') {
+        settings.theme = 'sunset';
+        try {
+          await window.lucidAPI.settings.set('theme', 'sunset');
+        } catch {
+          // Persist is best-effort; the in-memory state is already Sunset.
+        }
+      }
+
       const theme = settings.customTheme && settings.theme === 'custom'
         ? settings.customTheme
         : getTheme(settings.theme);
@@ -200,11 +211,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setTheme: async (themeId) => {
-    const theme = getTheme(themeId);
+    // Light was removed from the theme options (Gary, 2026-11-07) —
+    // no code path can select it; a 'light' request becomes Sunset.
+    const effectiveId = themeId === 'light' ? 'sunset' : themeId;
+    const theme = getTheme(effectiveId);
     applyTheme(theme);
-    await window.lucidAPI.settings.set('theme', themeId);
+    await window.lucidAPI.settings.set('theme', effectiveId);
     set((state) => ({
-      settings: { ...state.settings, theme: themeId },
+      settings: { ...state.settings, theme: effectiveId },
       currentTheme: theme,
     }));
   },

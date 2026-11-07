@@ -30,6 +30,7 @@ import { render, screen } from '@testing-library/react';
 import Terminal from '../src/components/Terminal/Terminal';
 import { useHistoryStore } from '../src/stores/historyStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
+import { useTerminalStore } from '../src/stores/terminalStore';
 
 // --- Monaco mock (same pattern as tests/inputArea.test.tsx) ---
 const mockState = vi.hoisted(() => ({
@@ -182,5 +183,71 @@ describe('terminal prompt panel — squared glass backwall, segregation divider,
     expectSquaredGlassBackwall(wrap);
     // No drag handle while flat either.
     expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+  });
+});
+
+/**
+ * Prompt SECTION (Gary, 2026-11-07 ~08:34 PST): "see how their prompt
+ * box is a whole section make ours significantly more vantage glass
+ * for our section". Warp's prompt box is a full-width panel with its
+ * own header/identity line and context lines — Lucid's prompt is the
+ * same shape, more glass: a distinct frosted section (header row +
+ * input row) with a 2px top divider, in BOTH states. The section sits
+ * ON the misty-black main screen: translucent gradient, never opaque.
+ */
+describe('terminal prompt — whole glass section', () => {
+  /** The section's glass: 2px top divider + translucent gradient. */
+  function expectPromptSection(section: HTMLElement) {
+    // A section of its own: the 2px top divider marks where the
+    // output ends and the prompt begins.
+    expect(section.className).toContain('border-t-2');
+    expect(section.className).toContain('border-t-[var(--text-muted)]');
+    // Glass, never opaque: translucent gradient over the mist.
+    const style = section.getAttribute('style') ?? '';
+    expect(style).toContain('linear-gradient');
+    expect(style).toContain('rgba(38, 45, 56, 0.55)');
+    expect(style).toContain('rgba(22, 27, 34, 0.65)');
+  }
+
+  test('LuciferAI on: the prompt is a whole glass section with a header', async () => {
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('monaco-editor');
+    const section = screen.getByTestId('prompt-section');
+    expectPromptSection(section);
+    const header = screen.getByTestId('prompt-section-header');
+    expect(header.textContent).toContain('Terminal');
+    expect(header.textContent).toContain('plain shell');
+    // The backwall inside is still the squared glass panel.
+    expectSquaredGlassBackwall(screen.getByTestId('prompt-input-wrap'));
+  });
+
+  test('LuciferAI off (flat): the prompt is STILL a whole glass section', async () => {
+    setLuciferAiEnabled(false);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('monaco-editor');
+    const section = screen.getByTestId('prompt-section');
+    expectPromptSection(section);
+    const header = screen.getByTestId('prompt-section-header');
+    expect(header.textContent).toContain('Terminal');
+    // No flat outer bar anymore — the section is glass in both states.
+    expect(section.className).not.toContain('input-container-flat');
+    expectSquaredGlassBackwall(screen.getByTestId('prompt-input-wrap'));
+  });
+
+  test('the header shows the tab working directory as the context line', async () => {
+    setLuciferAiEnabled(true);
+    useTerminalStore.setState({
+      tabs: [{ id: 'tab-1', title: 'Terminal 1', cwd: '/Users/gary', isActive: true }],
+      activeTabId: 'tab-1',
+    });
+    try {
+      render(<Terminal tabId="tab-1" />);
+      await screen.findByTestId('monaco-editor');
+      const header = screen.getByTestId('prompt-section-header');
+      expect(header.textContent).toContain('/Users/gary');
+    } finally {
+      useTerminalStore.setState({ tabs: [], activeTabId: null });
+    }
   });
 });

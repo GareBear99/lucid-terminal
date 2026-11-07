@@ -41,6 +41,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
   // this value, never the raw setting (missing key = ON).
   const luciferAiEnabled = isLuciferAiEnabled(settings);
   const { createTab, closeTab, createErrors, clearCreateError } = useTerminalStore();
+  // This tab's working directory — the prompt section's
+  // context line (Warp's attached path, Gary 2026-11-07).
+  const tabCwd = useTerminalStore((st) => st.tabs.find((t) => t.id === tabId)?.cwd);
   // Command blocks live in the history store, keyed by this tab — the
   // chats (Conversation History) render in the main Sidebar, outside
   // this component, so local state can't reach them. This wrapper keeps
@@ -1004,21 +1007,41 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
               busy WITHOUT dripping (plain shell) still hides it. */}
           <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
 
-          {/* Input Area - glass bar while LuciferAI is on, FLAT while
-              it is off (Gary, 2026-11-06): with the plugin out, the
-              outer bar carries no glass. The prompt panel itself,
-              though, is a squared glass backwall in BOTH states
-              (Gary, 2026-11-07) — Warp-AI-terminal style, square
-              corners, frosted translucent glass. The backwall is the
-              prompt's own panel, not bubble chrome; the rainbow
-              processing glow stays off while flat. */}
-          <div className={luciferAiEnabled ? 'input-container backdrop-blur-xl border-t border-[var(--border)] pb-safe' : 'input-container input-container-flat pb-safe'}
+          {/* Prompt SECTION — a whole glass section, not a thin input
+              bar (Gary, 2026-11-07 ~08:34 PST): "see how their prompt
+              box is a whole section make ours significantly more
+              vantage glass for our section". Warp's prompt box is a
+              full-width panel with its own header/identity line and
+              context lines — ours is the same shape, more glass:
+              a frosted section with a header row (identity + the
+              tab's working directory, the attached-path context
+              line), a 2px top divider that marks where the output
+              ends and the prompt begins, and a stronger blur. It is
+              glass in BOTH states now (the flat outer bar carried
+              no glass before — that rule is superseded for the
+              section); the backwall inside stays the squared glass
+              panel it was, and the rainbow processing glow still
+              stays off while flat. The section sits ON the misty
+              black main screen (66ca165): translucent gradient,
+              never opaque. */}
+          <div data-testid="prompt-section"
+               className="input-container border-t-2 border-t-[var(--text-muted)] pb-safe"
                onKeyDown={() => { lastKeystrokeAt.current = Date.now(); }}
-               style={luciferAiEnabled ? {
-                 background: 'rgba(22, 27, 34, 0.85)',
-                 boxShadow: '0 -4px 24px rgba(0, 0, 0, 0.2)',
-               } : undefined}>
-            <div className="flex items-center gap-3 px-4 py-3">
+               style={{
+                 background: 'linear-gradient(180deg, rgba(38, 45, 56, 0.55), rgba(22, 27, 34, 0.65))',
+                 boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.35)',
+               }}>
+            {/* Section header — identity + context, Warp-style. */}
+            <div className="flex items-center gap-2 px-5 pt-3" data-testid="prompt-section-header">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Terminal</span>
+              <span className="text-[11px] text-[var(--text-muted)] opacity-70">plain shell</span>
+              {tabCwd && (
+                <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title={tabCwd}>
+                  {tabCwd}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 px-5 py-4">
               {/* LuciferAI Plugin Status Indicator (the blood drop).
                   Honest states: the wrapper being up is NOT "connected" -
                   only a loaded model is. A wrapper with no model says so.

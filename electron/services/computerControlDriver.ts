@@ -31,6 +31,7 @@ import { createHash } from 'crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { unlink } from 'fs/promises';
+import { systemPreferences } from 'electron';
 import type {
   ComputerControlAppWindow,
   ComputerControlDriver,
@@ -143,10 +144,37 @@ export async function probeAccessibility(): Promise<{ granted: boolean; reason: 
   }
 }
 
-/** Screen Recording probe — screencapture must produce a file. */
+/**
+ * Screen Recording probe — screencapture must produce a file.
+ *
+ * The TCC record is read FIRST (Gary, 2026-11-07 ~08:30 PST):
+ * opening the Permissions or Modules page prompted for Screen
+ * Recording even though it was already granted. The prompt came
+ * from this probe — spawning `screencapture` on an unsigned,
+ * rebuilt Lucid makes macOS ask again, because the rebuilt binary
+ * is not recognised for capture even though the grant is listed.
+ * So when the TCC record says 'granted', the record IS the
+ * answer and no capture is attempted — no prompt, ever, for a
+ * granted permission. The capture probe only runs when the
+ * record says the permission is not granted, where a prompt is
+ * the legitimate first request. A failed capture still does NOT
+ * prove the permission is missing (see the reason below).
+ */
 export async function probeScreenRecording(): Promise<{ granted: boolean; reason: string | null }> {
   if (process.platform !== 'darwin') {
     return { granted: false, reason: 'Screen Recording is macOS-only' };
+  }
+  // TCC record first: when macOS says the permission is granted,
+  // trust the record and do NOT spawn screencapture — spawning it
+  // prompts the user again for an unsigned, rebuilt binary.
+  let tcc = 'unknown';
+  try {
+    tcc = systemPreferences.getMediaAccessStatus('screen');
+  } catch {
+    tcc = 'unknown';
+  }
+  if (tcc === 'granted') {
+    return { granted: true, reason: null };
   }
   const probeFile = join(tmpdir(), `lucid-cc-probe-${process.pid}.png`);
   try {

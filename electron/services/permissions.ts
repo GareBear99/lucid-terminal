@@ -14,13 +14,15 @@
  *   Camera. It distinguishes 'granted' from 'denied' from
  *   'not-determined' — the honest states.
  * - FUNCTIONAL probe: does the capability actually work right
- *   now? Accessibility (System Events must answer) and Screen
- *   Recording (screencapture must produce a file) are probed by
- *   doing the thing, reusing the computer-control driver's probes
- *   (one probe per permission, not duplicated here). When the TCC
- *   record and the functional probe disagree, the functional probe
- *   wins — a 'granted' record with a failing capture is reported
- *   as granted-but-not-working, not silently trusted.
+ *   now? Accessibility (System Events must answer) is probed by
+ *   doing the thing; Screen Recording is probed by doing the
+ *   thing ONLY when the TCC record does not already say granted
+ *   — when it says granted, the record is trusted and no capture
+ *   is attempted, because spawning screencapture on an unsigned,
+ *   rebuilt Lucid prompts the user again even though the grant is
+ *   listed (Gary, 2026-11-07 ~08:30 PST). A feature that actually
+ *   needs a capture discovers a broken capture at action time,
+ *   with its own reason — the probe never prompts on view open.
  *
  * What is NOT probed, and why (honest limits):
  * - Accessibility has no TCC-read API: a failed probe means "not
@@ -131,7 +133,11 @@ async function probeOne(id: PermissionId, now: number): Promise<PermissionSnapsh
     }
     case 'screen-recording': {
       // TCC record first (it knows denied vs never-asked), then
-      // the functional probe — the probe wins when they disagree.
+      // the functional probe — which trusts a 'granted' record
+      // and never spawns a capture for it (spawning one prompts
+      // the user again for an unsigned, rebuilt binary — Gary,
+      // 2026-11-07 ~08:30 PST). A feature that actually needs a
+      // capture discovers a broken capture at action time.
       let tcc: MediaAccessStatus = 'unknown';
       try {
         tcc = systemPreferences.getMediaAccessStatus('screen') as MediaAccessStatus;
@@ -141,19 +147,6 @@ async function probeOne(id: PermissionId, now: number): Promise<PermissionSnapsh
       const probe = await probeScreenRecording();
       if (probe.granted) {
         return { id, status: 'granted', detail: null, verified: true, checkedAt: now };
-      }
-      if (tcc === 'granted') {
-        // TCC says granted but a test capture just failed — verify
-        // before trusting: report it, do not silently trust the
-        // record. (Usually fixed by restarting Lucid after granting.)
-        return {
-          id,
-          status: 'granted',
-          detail:
-            'System Settings shows Screen Recording as granted, but a test capture just failed — try restarting Lucid. Until a capture works, features that need it will refuse.',
-          verified: false,
-          checkedAt: now,
-        };
       }
       return {
         id,

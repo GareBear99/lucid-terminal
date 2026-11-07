@@ -39,45 +39,6 @@ const darkColors: ThemeColors = {
   },
 };
 
-// Light theme
-const lightColors: ThemeColors = {
-  bgPrimary: '#ffffff',
-  bgSecondary: '#f6f8fa',
-  bgTertiary: '#eaeef2',
-  textPrimary: '#1f2328',
-  textSecondary: '#656d76',
-  textMuted: '#8c959f',
-  accent: '#0969da',
-  accentHover: '#0550ae',
-  border: '#d0d7de',
-  success: '#1a7f37',
-  warning: '#9a6700',
-  error: '#cf222e',
-  terminal: {
-    background: '#ffffff',
-    foreground: '#1f2328',
-    cursor: '#0969da',
-    cursorAccent: '#ffffff',
-    selection: 'rgba(9, 105, 218, 0.2)',
-    black: '#24292f',
-    red: '#cf222e',
-    green: '#1a7f37',
-    yellow: '#9a6700',
-    blue: '#0969da',
-    magenta: '#8250df',
-    cyan: '#1b7c83',
-    white: '#6e7781',
-    brightBlack: '#57606a',
-    brightRed: '#a40e26',
-    brightGreen: '#2da44e',
-    brightYellow: '#bf8700',
-    brightBlue: '#218bff',
-    brightMagenta: '#a475f9',
-    brightCyan: '#3192aa',
-    brightWhite: '#8c959f',
-  },
-};
-
 // Midnight theme (deep blue/black with cyan accents)
 const midnightColors: ThemeColors = {
   bgPrimary: '#0a0e14',
@@ -236,7 +197,6 @@ const sunsetColors: ThemeColors = {
 
 export const themes: Theme[] = [
   { id: 'dark', name: 'Dark', colors: darkColors },
-  { id: 'light', name: 'Light', colors: lightColors },
   { id: 'midnight', name: 'Midnight', colors: midnightColors },
   { id: 'ocean', name: 'Ocean', colors: oceanColors },
   { id: 'forest', name: 'Forest', colors: forestColors },

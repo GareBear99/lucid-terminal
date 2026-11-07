@@ -52,9 +52,9 @@ import { settings, pingKeyStorage } from '../electron/services/secureStorage';
 
 const ENDPOINT = 'http://127.0.0.1:8787';
 const QUOTA_HEADERS = {
-  'x-ratelimit-limit': '100',
-  'x-ratelimit-remaining': '97',
-  'x-ratelimit-reset': String(Math.floor(Date.UTC(2026, 10, 7) / 1000)),
+  'x-ratelimit-limit': '200',
+  'x-ratelimit-remaining': '197',
+  'x-ratelimit-reset': String(Math.floor(Date.UTC(2026, 10, 7, 9, 31) / 1000)),
 };
 
 function sseResponse(text: string, status = 200, headers: Record<string, string> = {}) {
@@ -91,7 +91,7 @@ describe('pingServer client', () => {
 
     expect(text).toBe('PINGBACK');
     expect(chunks).toEqual(['PING', 'BACK']);
-    expect(endedQuota).toMatchObject({ limit: 100, remaining: 97 });
+    expect(endedQuota).toMatchObject({ limit: 200, remaining: 197 });
 
     // The request: OpenAI-compatible shape, both headers, no tools.
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -102,10 +102,25 @@ describe('pingServer client', () => {
     expect(headers['x-lucid-user']).toBe('test-user-1');
     expect(headers['x-lucid-ping-key']).toBe('test-secret');
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe('lucid-ping');
+    expect(body.model).toBe('@cf/meta/llama-3.2-1b-instruct');
     expect(body.stream).toBe(true);
     expect(body.messages).toEqual([{ role: 'user', content: 'Say the word PINGBACK and nothing else.' }]);
     expect(body).not.toHaveProperty('tools');
+  });
+
+  it('sends a chosen model as body.model so the worker serves it', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(sseResponse(SSE_PINGBACK, 200, QUOTA_HEADERS));
+    await chatPing(
+      [{ role: 'user', content: 'Hi.' }],
+      undefined,
+      undefined,
+      undefined,
+      '@cf/meta/llama-3.2-1b-instruct',
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('@cf/meta/llama-3.2-1b-instruct');
   });
 
   it('renders raw Workers AI chunks that carry a response field and no choices', async () => {
@@ -147,18 +162,18 @@ describe('pingServer client', () => {
     expect(isPingServerEnabled()).toBe(false);
   });
 
-  it('turns a 429 into a PingRateLimitError with the reset time', async () => {
-    const reset = Math.floor(Date.UTC(2026, 10, 7) / 1000);
+  it('turns a 429 into a PingRateLimitError with the next refill time', async () => {
+    const reset = Math.floor(Date.UTC(2026, 10, 7, 9, 31) / 1000);
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
           ok: false,
-          error: 'rate limit exceeded: 100 requests/day per user',
-          limit: 100,
+          error: 'rate limit exceeded: out of SP',
+          limit: 200,
           remaining: 0,
           reset,
-          reset_in_seconds: 5 * 3600 + 12 * 60,
+          reset_in_seconds: 3 * 3600 + 12 * 60,
         }),
         { status: 429, headers: { 'content-type': 'application/json' } },
       ),
@@ -169,9 +184,9 @@ describe('pingServer client', () => {
       chatPing([{ role: 'user', content: 'hi' }], undefined, undefined, (e) => errors.push(e)),
     ).rejects.toBeInstanceOf(PingRateLimitError);
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('100 requests/day');
-    expect(errors[0]).toContain('resets 00:00 UTC (in 5h 12m)');
-    expect(getLastQuota()).toMatchObject({ limit: 100, remaining: 0, reset });
+    expect(errors[0]).toContain('out of SP');
+    expect(errors[0]).toContain('Resets 09:31 UTC (in 3h 12m)');
+    expect(getLastQuota()).toMatchObject({ limit: 200, remaining: 0, reset });
   });
 
   it('reports a non-429 HTTP error once and throws', async () => {
@@ -200,7 +215,7 @@ describe('pingServer client', () => {
           service: 'lucid-ping-server',
           model: '@cf/meta/llama-3.2-1b-instruct',
           mode: 'live',
-          quota: { limit: 100, remaining: 88, reset, reset_in_seconds: 3600 },
+          quota: { limit: 200, remaining: 88, reset, reset_in_seconds: 3600 },
           echo: { message: 'ping' },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
@@ -208,7 +223,7 @@ describe('pingServer client', () => {
     );
     const health = await pingServerHealth();
     expect(health.ok).toBe(true);
-    expect(health.quota).toMatchObject({ limit: 100, remaining: 88 });
+    expect(health.quota).toMatchObject({ limit: 200, remaining: 88 });
     expect(getLastQuota()).toMatchObject({ remaining: 88 });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`${ENDPOINT}/ping`);
@@ -232,10 +247,10 @@ describe('pingServer client', () => {
 
   it('formats the reset time as UTC clock + time remaining', () => {
     expect(
-      formatResetTime({ limit: 100, remaining: 0, reset: Math.floor(Date.UTC(2026, 10, 7) / 1000), reset_in_seconds: 5 * 3600 + 12 * 60 }),
-    ).toBe('resets 00:00 UTC (in 5h 12m)');
+      formatResetTime({ limit: 200, remaining: 0, reset: Math.floor(Date.UTC(2026, 10, 7, 9, 31) / 1000), reset_in_seconds: 3 * 3600 + 12 * 60 }),
+    ).toBe('Resets 09:31 UTC (in 3h 12m)');
     expect(
-      formatResetTime({ limit: 100, remaining: 0, reset: Math.floor(Date.UTC(2026, 10, 7, 0, 30) / 1000), reset_in_seconds: 45 * 60 }),
-    ).toBe('resets 00:30 UTC (in 45m)');
+      formatResetTime({ limit: 200, remaining: 0, reset: Math.floor(Date.UTC(2026, 10, 7, 14, 30) / 1000), reset_in_seconds: 45 * 60 }),
+    ).toBe('Resets 14:30 UTC (in 45m)');
   });
 });

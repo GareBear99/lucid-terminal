@@ -14,14 +14,25 @@ import type { PingQuota } from '../../src/types';
 //
 // Identity + quota: every request sends `x-lucid-user`, a per-install
 // id generated once and stored in settings. The Worker gives each id
-// 100 model requests/day (UTC day, reset 00:00 UTC) and answers 429
-// with the reset time when it is spent. The client surfaces the quota
-// from the response headers so the UI can show remaining requests,
+// 100 SP to start — 1 SP per chat request, refilling +25 SP per 4h
+// under 200 (cap 250) — and answers 429 with the next refill time
+// when the bucket is empty. The client surfaces the SP balance
+// from the response headers so the UI can show it,
 // and turns a 429 into a PingRateLimitError with a human-readable
 // message instead of a bare failure.
 
 export const PING_SERVER_DEFAULT_ENDPOINT = 'http://127.0.0.1:8787';
-const PING_MODEL = 'lucid-ping';
+/**
+ * The default ping model — Llama 3.2 1B, the worker's default.
+ * The client sends the chat's chosen model as body.model (see
+ * chatPing); when no model is chosen (Auto) it sends this default.
+ * The worker only honors a model on its PING_MODELS allowlist and
+ * falls back to this same default for anything else, so the
+ * dropdown (src/lib/chatModels.ts) must stay in sync with the
+ * worker's allowlist. Every model costs 1 SP per reply.
+ */
+export const PING_DEFAULT_MODEL = '@cf/meta/llama-3.2-1b-instruct';
+const PING_MODEL = PING_DEFAULT_MODEL;
 
 export interface PingHealth {
   ok: boolean;
@@ -34,8 +45,8 @@ export interface PingHealth {
   echo?: unknown;
 }
 
-/** Thrown when the Worker's 100/day quota is spent. Carries the quota
- *  (limit / remaining / reset) so the caller can say when it resets. */
+/** Thrown when the Worker's SP balance is spent (0 SP left). Carries the
+ *  balance (limit / remaining / reset) so the caller can say when it refills. */
 export class PingRateLimitError extends Error {
   quota: PingQuota;
   constructor(message: string, quota: PingQuota) {
@@ -80,7 +91,7 @@ export function getOrCreateUserId(): string {
   return id;
 }
 
-/** "resets 00:00 UTC (in 5h 12m)" — the human half of a 429. */
+/** "Resets 09:31 UTC (in 3h 12m)" — the next SP refill time, the human half of a 429. */
 export function formatResetTime(quota: PingQuota): string {
   const d = new Date(quota.reset * 1000);
   const hh = String(d.getUTCHours()).padStart(2, '0');
@@ -89,7 +100,7 @@ export function formatResetTime(quota: PingQuota): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const inWords = h > 0 ? `in ${h}h ${m}m` : `in ${m}m`;
-  return `resets ${hh}:${mm} UTC (${inWords})`;
+  return `Resets ${hh}:${mm} UTC (${inWords})`;
 }
 
 function quotaFromHeaders(res: Response): PingQuota | null {
@@ -151,7 +162,13 @@ export async function chatPing(
   onStream?: (chunk: string) => void,
   onEnd?: (quota: PingQuota | null) => void,
   onError?: (error: string) => void,
+  model?: string,
 ): Promise<string> {
+  // The model the dropdown chose (a Workers AI id) — sent as
+  // body.model so the worker serves it. Absent (Auto) = the
+  // default; the worker falls back to the same default for any
+  // model not on its allowlist, so a stale pick still answers.
+  const resolvedModel = model || PING_MODEL;
   const endpoint = getPingServerEndpoint().replace(/\/$/, '');
 
   // Cancel any existing stream
@@ -165,7 +182,7 @@ export async function chatPing(
       method: 'POST',
       headers: pingHeaders(),
       body: JSON.stringify({
-        model: PING_MODEL,
+        model: resolvedModel,
         messages: initialMessages,
         stream: true,
       }),
@@ -193,8 +210,8 @@ export async function chatPing(
       }
       if (response.status === 429 && quota) {
         const message =
-          `Ping server daily limit reached (${quota.limit} requests/day). ` +
-          `Quota ${formatResetTime(quota)}.`;
+          `Ping server out of SP (${quota.remaining}/${quota.limit} left). ` +
+          `${formatResetTime(quota)}.`;
         onError?.(message);
         throw new PingRateLimitError(message, quota);
       }

@@ -142,10 +142,10 @@ export function ForgePersonaPlexSegment() {
   );
 
   return (
-    <div
-      data-forge-persona-plex-segment
-      className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-3 space-y-3"
-    >
+    // Flat like the rest of the panel (Modules heavy update
+    // 2026-11-07): the section heading above already names it, so
+    // no bordered card of its own.
+    <div data-forge-persona-plex-segment className="space-y-3">
       <div className="flex items-center gap-3">
         <Users size={18} className="text-[var(--text-muted)] shrink-0" />
         <span className="min-w-0 flex-1">

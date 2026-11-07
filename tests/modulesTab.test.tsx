@@ -28,6 +28,7 @@ import {
   isAddonInstalled,
 } from '../src/data/pluginAddons';
 import { detectStarship } from '../src/lib/starshipDetection';
+import { useSettingsStore } from '../src/stores/settingsStore';
 
 const renderSettings = (initialTab?: 'modules') =>
   renderToStaticMarkup(
@@ -83,5 +84,52 @@ describe('Modules tab', () => {
     const html = renderSettings('modules');
     expect(html).toContain('No starship detected');
     expect(html).toContain('Starship segments');
+  });
+});
+
+describe('Modules tab overview (heavy update 2026-11-07)', () => {
+  it('maps what lives here — all four segment groups, with live statuses', () => {
+    const html = renderSettings('modules');
+    expect(html).toContain('What lives here');
+    expect(html).toContain('Segments');
+    expect(html).toContain('Computer control');
+    expect(html).toContain('Starship segments');
+    expect(html).toContain('Forge ↔ Persona Plex bridge');
+    // Statuses are read from live state, never hardcoded: the
+    // add-on is installed via its anchor, computer control is
+    // pre-installed and live, the starship is waiting.
+    expect(html).toContain('Installed · Anchored with Modules');
+    expect(html).toContain('Pre-installed · Live');
+    expect(html).toContain('Waiting — no starship detected');
+  });
+
+  it('shows the Forge bridge hidden until Persona Plex is installed', () => {
+    // SSR only: zustand 4.5.7 passes getInitialState as the server
+    // snapshot, so renderToStaticMarkup always reads the initial
+    // installedAddons ([]) and setState is invisible to it. The
+    // "live once installed" branch is covered by
+    // tests/modulesInventoryLive.test.tsx (jsdom, live subscription).
+    const html = renderSettings('modules');
+    expect(html).toContain('Hidden — install Persona Plex to show it');
+  });
+
+  it('explains how a segment gets here — the three arrival routes', () => {
+    const html = renderSettings('modules');
+    expect(html).toContain('How a segment gets here');
+    expect(html).toContain('Pre-installed');
+    expect(html).toContain('Starship-detected');
+    expect(html).toContain('Add-on-carried');
+    // Each route names an example that actually arrives that way.
+    expect(html).toContain('Computer control arrives this way');
+    expect(html).toContain('The Forge ↔ Persona Plex bridge arrives this way');
+  });
+
+  it('describes Modules as the container for all three segment kinds, not just starships', () => {
+    expect(MODULES_PLUGIN.description).toContain('Container for Segments');
+    expect(MODULES_PLUGIN.description).toContain('pre-installed segments');
+    expect(MODULES_PLUGIN.description).toContain('starship segments');
+    expect(MODULES_PLUGIN.description).toContain('bridges carried by installed add-ons');
+    const html = renderSettings('modules');
+    expect(html).toContain('pre-installed segments');
   });
 });

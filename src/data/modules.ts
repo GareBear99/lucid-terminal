@@ -25,6 +25,6 @@ export const MODULES_PLUGIN: AnchoredPlugin = {
   id: 'modules',
   name: 'Modules',
   description:
-    'Container for Segments — the starship\u2019s segments appear in the Modules tab when a starship is detected.',
+    'Container for Segments — pre-installed segments, starship segments when a starship is detected, and bridges carried by installed add-ons.',
   icon: Boxes,
 };

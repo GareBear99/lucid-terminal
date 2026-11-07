@@ -723,7 +723,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Commands</h3>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
-                  Every command the terminal understands, grouped by kind. The same catalogue the Help screen is built from — what the router actually routes, plus what Help documents.
+                  Every command the terminal understands, grouped by kind. The same catalogue the Help screen is built from — what the router actually routes, plus what Help documents. The list shows only what the terminal will actually run: while LuciferAI is off, its commands are hidden, because the terminal refuses them.
                 </p>
                 <input
                   type="text"
@@ -733,7 +733,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   onChange={(e) => setCommandFilter(e.target.value)}
                 />
                 {(() => {
-                  const filtered = searchCommandCatalogue(commandFilter);
+                  const filtered = searchCommandCatalogue(commandFilter, luciferAiEnabled);
                   return COMMAND_CATEGORIES.map((category) => {
                     const entries = category.entries.filter((entry) => filtered.includes(entry));
                     if (entries.length === 0) return null;

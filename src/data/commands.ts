@@ -28,6 +28,7 @@ import {
   getCommandDescription,
   LUCIFERAI_COMMANDS,
   MULTI_WORD_COMMANDS,
+  parseCommand,
   SHELL_COMMANDS,
   type CommandType,
 } from '../utils/commandRouter';
@@ -231,16 +232,64 @@ export const COMMAND_CATEGORIES: CommandCategory[] = groupCatalogue(
 );
 
 /** Filter the catalogue by substring over name, syntax, and
- * description. An empty query returns everything. */
+ * description. An empty query returns everything.
+ *
+ * `luciferAiEnabled` (default true) is the display gate for the
+ * Terminal tab: while LuciferAI is off, entries that need the
+ * plugin are left out, so the list shows only what the terminal
+ * will actually run. See requiresLuciferAI for the rule. */
 export function searchCommandCatalogue(
   query: string,
+  luciferAiEnabled = true,
 ): CommandCatalogueEntry[] {
   const q = query.trim().toLowerCase();
-  if (!q) return COMMAND_CATALOGUE;
-  return COMMAND_CATALOGUE.filter(
-    (entry) =>
-      entry.name.toLowerCase().includes(q) ||
-      entry.syntax.toLowerCase().includes(q) ||
-      entry.description.toLowerCase().includes(q),
-  );
+  const base = q
+    ? COMMAND_CATALOGUE.filter(
+        (entry) =>
+          entry.name.toLowerCase().includes(q) ||
+          entry.syntax.toLowerCase().includes(q) ||
+          entry.description.toLowerCase().includes(q),
+      )
+    : COMMAND_CATALOGUE;
+  if (luciferAiEnabled) return base;
+  return base.filter((entry) => !requiresLuciferAI(entry));
+}
+
+/**
+ * Whether this catalogue entry needs the LuciferAI plugin to run
+ * (Gary, 2026-11-07: "when lucifer AI disabled its commands
+ * shouldnt be in the terminal setting panel").
+ *
+ * The rule is the terminal's own behaviour in
+ * src/components/Terminal/Terminal.tsx — the panel lists only what
+ * the terminal will actually run while the plugin is off:
+ *
+ * - Shell commands run in the PTY and never touch the plugin.
+ * - The router's LuciferAI set (kind 'luciferai': help, plan, fix,
+ *   fixnet, llm, build, create, workflow, tokens, history, agent)
+ *   is LuciferAI's: the terminal refuses them while the plugin is
+ *   off — the `llm` and `tokens` cases refuse outright, and
+ *   everything else in the set falls to the default branch, which
+ *   refuses before any plugin or shell fallback. `fix` and bare
+ *   `fixnet` are the exception that proves the set: they run the
+ *   local FixNet orchestrator even while off, but they are the
+ *   router's LuciferAI set, so they go with it — the multi-word
+ *   FixNet commands below are the local FixNet surface that stays.
+ * - Help-only entries (kind 'lucid': github, env, install,
+ *   daemon, ...) are plugin commands documented in Help that the
+ *   router does not enumerate; typed, they parse to type 'agent'
+ *   and hit the same default-branch refusal.
+ * - Multi-word commands stay only when they run locally: the
+ *   FixNet phrases run the local orchestrator and `browser
+ *   diagnose` reads the local browser service. `llm ...` is
+ *   refused like bare `llm`, and `workflow status` / `clear
+ *   history` call the LuciferAI backend (`lucidAPI.lucid.*`) with
+ *   no disable guard, so they cannot run while the plugin is off.
+ */
+export function requiresLuciferAI(entry: CommandCatalogueEntry): boolean {
+  if (entry.kind === 'shell') return false;
+  if (entry.kind === 'luciferai' || entry.kind === 'lucid') return true;
+  // Multi-word: only the local ones stay.
+  const type = parseCommand(entry.name).type;
+  return type !== 'fixnet' && type !== 'browser';
 }

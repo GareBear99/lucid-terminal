@@ -79,7 +79,7 @@ export function PipelinePanel() {
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
+    <div className="flex min-w-0 flex-1 flex-col gap-3">
       {lowMemory && (
         <p
           role="alert"

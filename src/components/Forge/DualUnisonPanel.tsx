@@ -82,7 +82,7 @@ export function DualUnisonPanel() {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+    <div className="flex flex-col gap-3">
       <section className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-3">
         <p className="text-xs text-[var(--text-muted)]">
           Listen to the Dual Unison voice message:

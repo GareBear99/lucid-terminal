@@ -32,7 +32,7 @@ export function ScoreboardPanel() {
   const latest = scoreboard[scoreboard.length - 1] ?? null;
 
   return (
-    <div className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto">
+    <div className="flex w-80 shrink-0 flex-col gap-3">
       <div className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-3">
         <h3 className="mb-2 text-sm font-semibold text-[var(--text-primary)]">
           Model registry

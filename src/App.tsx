@@ -270,7 +270,17 @@ function App() {
               {currentView === 'synth' ? (
                 <SynthView />
               ) : currentView === 'forge' ? (
-                <ForgeView />
+                // Full-page scroll (Gary, 2026-11-07): the Forge is
+                // one flowing page, not a fixed-height column. The
+                // main panel is overflow-hidden, so the Forge view
+                // gets its own scroll container here; ForgeView
+                // itself is a plain flow container (see its root
+                // comment). In Settings the scroll container is the
+                // Settings content area instead — same page, one
+                // scroll, never nested.
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <ForgeView />
+                </div>
               ) : currentView === 'persona-plex' ? (
                 <PersonaPlexView />
               ) : currentView === 'settings' ? (

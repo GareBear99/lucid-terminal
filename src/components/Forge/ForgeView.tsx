@@ -131,8 +131,19 @@ export function ForgeView() {
     }
   };
 
+  // Full-page scroll (Gary, 2026-11-07): the Forge is one flowing
+  // page, not a fixed-height column. This root is a plain flow
+  // container on purpose — it must NOT constrain height
+  // (`h-full`) or clip (`overflow-hidden`), or the page bunches
+  // into the viewport again and the bottom (Ask the brain, the
+  // explanation audio) is unreachable. The page scroll lives in
+  // the parent, in both mount points: the App main panel wraps
+  // the Forge view in a scroll container, and the Settings content
+  // area already scrolls. The three columns and the Dual Unison /
+  // Tail Generator panels flow with the page the same way — no
+  // inner scrolls except the bounded run log inside PipelinePanel.
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[var(--bg-primary)] p-4">
+    <div className="bg-[var(--bg-primary)] p-4">
       <header className="mb-3 shrink-0">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           Forge
@@ -246,9 +257,9 @@ export function ForgeView() {
             />
             <HomunculusVoiceNote />
           </div>
-      <div className="flex min-h-0 flex-1 gap-3">
+      <div className="flex gap-3">
         {/* Roster (left) */}
-        <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto">
+        <div className="flex w-72 shrink-0 flex-col gap-3">
           {roster.length === 0 ? (
             <div className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-3">
               <p className="text-sm text-[var(--text-secondary)]">

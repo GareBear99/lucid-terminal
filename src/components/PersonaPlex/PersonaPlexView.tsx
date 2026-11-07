@@ -35,6 +35,8 @@ import {
   newCustomPersona,
 } from '../../lib/personaPlex';
 import { Toggle } from '../Settings/Toggle';
+import { PluginVoiceButton } from '../PluginVoiceButton';
+import { pluginVoiceSrc } from '../../lib/pluginVoice';
 import { usePersonaRoster } from './usePersonaRoster';
 
 export function PersonaPlexView() {
@@ -111,6 +113,15 @@ export function PersonaPlexView() {
             persona&rsquo;s voice meets its Homunculus. A voice picked
             there is the same voice here.
           </p>
+          {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST):
+              plugins have voice recordings all throughout. */}
+          <div className="mt-2">
+            <PluginVoiceButton
+              voiceId="persona-plex-view"
+              title="Persona Plex"
+              src={pluginVoiceSrc('persona-plex-view')}
+            />
+          </div>
         </header>
 
         {/* Speak — the right-click Speak toggle (Gary, 2026-11-06).

@@ -33,6 +33,8 @@ import {
 import { useWindowMaximized } from '../../hooks/useWindowMaximized';
 import { synthScaleStyle } from './windowedScale';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { PluginVoiceButton } from '../PluginVoiceButton';
+import { pluginVoiceSrc } from '../../lib/pluginVoice';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
   HOMUNCULUS_REVEAL_MS,
@@ -257,6 +259,15 @@ export function SynthView() {
 
       {/* Inspector */}
       <div className="w-[300px] shrink-0 h-full overflow-y-auto border-l border-[var(--border)] bg-[var(--bg-secondary)] flex flex-col gap-3 p-3 text-sm">
+        {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST): plugins
+            have voice recordings all throughout. */}
+        <div className="flex items-center gap-2">
+          <PluginVoiceButton
+            voiceId="synth-main"
+            title="Synth"
+            src={pluginVoiceSrc('synth-main')}
+          />
+        </div>
         {/* Shell state */}
         <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">

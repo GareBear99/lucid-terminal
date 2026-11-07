@@ -35,7 +35,7 @@ interface TerminalProps {
 }
 
 function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps) {
-  const { currentTheme, settings } = useSettingsStore();
+  const { settings } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
   // this value, never the raw setting (missing key = ON).
@@ -934,10 +934,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge }: TerminalProps
   return (
     <>
       <div className="h-full w-full flex overflow-hidden">
-        {/* Terminal Content (the chats live in the main Sidebar now) */}
+        {/* Terminal Content (the chats live in the main Sidebar now).
+            Main-screen mist (Gary, 2026-11-07): NO background here — the
+            terminal IS the main screen and it must stay splashscreen
+            misty black, so the App root's pure black #000 + the
+            SplashMist smoke show through. The old inline backgroundColor
+            (the theme's opaque terminal.background — Sunset #1f1315,
+            every theme's is an opaque hex) painted over the mist and
+            Gary saw no blackness at all. The theme still colours the
+            text, cursor and accents; only the backdrop is the mist. */}
         <div
           className="flex-1 flex flex-col overflow-hidden"
-          style={{ backgroundColor: currentTheme.colors.terminal.background }}
+          data-testid="terminal-content"
         >
           {/* FixNet Status Bar */}
           <FixNetStatus />

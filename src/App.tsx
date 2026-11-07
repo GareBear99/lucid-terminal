@@ -11,13 +11,17 @@ import Sidebar from './components/Layout/Sidebar';
 import StatusBar from './components/Layout/StatusBar';
 import Terminal from './components/Terminal/Terminal';
 import TerminalTabs from './components/Terminal/TerminalTabs';
+import { EmptyTerminalState } from './components/Terminal/EmptyTerminalState';
 import AIPanel from './components/AI/AIPanel';
 import CodeEditor from './components/Editor/CodeEditor';
 import SettingsPanel from './components/Settings/SettingsPanel';
 import { SynthView } from './components/Synth/SynthView';
 import { toggleSynthView } from './lib/synthToggle';
 import { ForgeView } from './components/Forge/ForgeView';
+import { PersonaPlexView } from './components/PersonaPlex/PersonaPlexView';
 import { toggleForgeView } from './lib/forgeView';
+import { togglePersonaPlexView } from './lib/personaPlexView';
+import { toggleSettingsView } from './lib/settingsView';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
@@ -34,7 +38,7 @@ function App() {
   const luciferAiEnabled = isLuciferAiEnabled(settings);
   const { notifications, dismissToast } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
-  const { openFiles, currentDir, setCurrentDir } = useFileStore();
+  const { currentDir, setCurrentDir } = useFileStore();
 
   const [currentView, setCurrentView] = useState<View>('terminal');
   // The Synth button toggles: first press opens the Synth view, a
@@ -45,6 +49,14 @@ function App() {
   // Forge view, a second press exits back to the terminal.
   const toggleForge = () =>
     setCurrentView((view) => toggleForgeView(view));
+  // The Persona Plex button toggles the same way: first press opens
+  // the Plex setup page, a second press exits back to the terminal.
+  const togglePersonaPlex = () =>
+    setCurrentView((view) => togglePersonaPlexView(view));
+  // The Settings button toggles the same way: first press opens
+  // the Settings view, a second press exits back to the terminal.
+  const toggleSettings = () =>
+    setCurrentView((view) => toggleSettingsView(view));
   const [showAI, setShowAI] = useState(false); // Hidden by default - use command router instead
   // The AI button always lands on AI Chat: opening the panel from the
   // Browser tab (or with the panel already open on Browser) switches to
@@ -85,6 +97,7 @@ function App() {
       useBrowserStore.getState().setPanelTab('browser');
     }
     if (currentView === 'synth') setCurrentView('terminal');
+    if (currentView === 'persona-plex') setCurrentView('terminal');
     if (showHelp) setShowHelp(false);
   }, [luciferAiEnabled, showAI, currentView, showHelp]);
   // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).
@@ -245,8 +258,11 @@ function App() {
               onViewChange={setCurrentView}
               showAI={showAI}
               onToggleAI={handleToggleAI}
+              onOpenHelp={openHelp}
               onToggleSynth={toggleSynth}
               onToggleForge={toggleForge}
+              onTogglePersonaPlex={togglePersonaPlex}
+              onToggleSettings={toggleSettings}
             />
 
             {/* Main Panel */}
@@ -255,9 +271,17 @@ function App() {
                 <SynthView />
               ) : currentView === 'forge' ? (
                 <ForgeView />
+              ) : currentView === 'persona-plex' ? (
+                <PersonaPlexView />
               ) : currentView === 'settings' ? (
-                <SettingsPanel onClose={() => setCurrentView('terminal')} />
-              ) : currentView === 'editor' && openFiles.length > 0 ? (
+                <SettingsPanel onClose={() => setCurrentView('terminal')} onOpenPersonaPlex={() => setCurrentView('persona-plex')} />
+              ) : currentView === 'editor' ? (
+                // The editor renders even with no files open yet — its
+                // own empty state points at the Explorer to pick a
+                // file. (The old openFiles.length > 0 gate sent the
+                // editor icon to the terminal instead whenever no
+                // file was open, so the editor was unreachable from
+                // a fresh start.)
                 <CodeEditor />
               ) : (
                 <>
@@ -273,21 +297,14 @@ function App() {
                           key={tab.id}
                           className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                         >
-                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} />
+                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} />
                         </div>
                       ))}
                       {tabs.length === 0 && (
-                        <div className="h-full flex items-center justify-center text-[var(--text-muted)]">
-                          <div className="text-center">
-                            <p className="text-lg mb-2">No terminal open</p>
-                            <button
-                              onClick={() => createTab()}
-                              className="btn btn-primary"
-                            >
-                              Create Terminal
-                            </button>
-                          </div>
-                        </div>
+                        <EmptyTerminalState
+                          onCreateTerminal={() => createTab()}
+                          onCreateEditor={() => setCurrentView('editor')}
+                        />
                       )}
                     </div>
 

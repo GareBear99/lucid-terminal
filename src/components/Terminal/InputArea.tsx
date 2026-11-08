@@ -38,15 +38,17 @@ interface InputAreaProps {
     input: string;
     setInput: (value: string) => void;
     isProcessing?: boolean;
-    /** Flat prompt (LuciferAI disabled): no bubble — the rainbow
-     *  processing glow (a border drawn around the input) is part of
-     *  the bubble chrome, so it stays off too. The squared glass
-     *  backwall is the prompt panel itself (Terminal.tsx), not bubble
-     *  chrome, so it shows in both states. */
+    /** Flat prompt (LuciferAI disabled): no bubble. The rainbow
+     *  processing glow is NOT bubble chrome — it is a platform
+     *  appearance trait (Gary, 2026-11-08), governed only by its
+     *  own settings (processingGlowColor / Intensity / Speed), so
+     *  flat does not suppress it. The squared glass backwall is
+     *  the prompt panel itself (Terminal.tsx), not bubble chrome,
+     *  so it shows in both states. */
     flat?: boolean;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // Content height from the editor (Monaco) or the fallback textarea;
   // the input height derives from it plus the dragged cap (below).
@@ -227,9 +229,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
 
     return (
         <div className="w-full h-auto min-h-[40px] flex items-center relative px-3">
-            {/* Rainbow swirl processing glow — bubble chrome: off while
-                the prompt is flat (LuciferAI disabled). */}
-            {!flat && <ProcessingGlow isProcessing={isProcessing} />}
+            {/* Rainbow swirl processing glow — a platform appearance
+                trait, not a LuciferAI trait (Gary, 2026-11-08): it
+                shows while a command is processing in ALL modes,
+                flat or not, devmode or not. Governed only by its
+                own appearance settings. Processing-only, not
+                always-on. */}
+            <ProcessingGlow isProcessing={isProcessing} />
             {monacoFailed ? (
                 <textarea
                     ref={fallbackRef}

@@ -185,17 +185,26 @@ describe('prompt input bubble', () => {
 });
 
 describe('prompt input flat (LuciferAI disabled — no bubble)', () => {
-  test('flat prompt shows no processing glow while processing', async () => {
+  test('flat prompt still shows the processing glow while processing', async () => {
     mockState.initImpl = () => Promise.resolve();
     const { container } = render(<Harness processing flat />);
     await screen.findByTestId('monaco-editor');
-    // The rainbow swirl is bubble chrome: a flat prompt draws no
-    // border around the input, even while a command runs.
-    expect(container.querySelector('.processing-glow-border')).toBeNull();
-    expect(container.querySelector('.processing-glow-pulse')).toBeNull();
+    // The rainbow swirl is a platform appearance trait, not a
+    // LuciferAI trait (Gary, 2026-11-08): flat does not suppress it.
+    // It shows while a command runs, LuciferAI off or on.
+    expect(container.querySelector('.processing-glow-border')).not.toBeNull();
+    expect(container.querySelector('.processing-glow-pulse')).not.toBeNull();
     // And there is no drag handle on the prompt at all (Gary,
     // 2026-11-07): the prompt area must not be drag-extendable.
     expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+  });
+
+  test('flat prompt shows no glow while idle — the swirl is processing-only', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    const { container } = render(<Harness flat />);
+    await screen.findByTestId('monaco-editor');
+    expect(container.querySelector('.processing-glow-border')).toBeNull();
+    expect(container.querySelector('.processing-glow-pulse')).toBeNull();
   });
 
   test('non-flat prompt still shows the processing glow while processing', async () => {

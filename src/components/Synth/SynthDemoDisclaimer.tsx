@@ -47,10 +47,20 @@ import {
 
 export function SynthDemoDisclaimer({
   onChoose,
+  onContinue,
   knownChoice = null,
   knownVersionLabel = 'Iteration 8',
 }: {
   onChoose: (choice: SynthDisclaimerChoice, version?: SynthVersion) => void;
+  /**
+   * Resume where you left off — "Continue building" / "Continue in the
+   * demo". This is NOT a mode choice and NOT Iteration 8 (Gary, 2026-11-08
+   * ~00:46 PST: "continue building was obviously not iteration 8"). It
+   * just dismisses the prompt and resumes; it does not re-assert the
+   * choice, does not touch the version, and does not wipe anything.
+   * When omitted it falls back to re-affirming the known choice.
+   */
+  onContinue?: () => void;
   /** The saved mode, or null when the entry genuinely doesn't know. */
   knownChoice?: SynthDisclaimerChoice | null;
   /** Label for the version a stored build is on (Iteration 8 default). */
@@ -61,6 +71,17 @@ export function SynthDemoDisclaimer({
   const [pickingVersion, setPickingVersion] = useState(false);
   const [selectedVersion, setSelectedVersion] =
     useState<SynthVersion>(DEFAULT_SYNTH_VERSION);
+
+  // Resume: "Continue building" is its own action — continue where you
+  // left off — not the Iteration 8 choice. Only the switch buttons call
+  // onChoose (a mode change); the confirm button just resumes.
+  const handleContinue = () => {
+    if (onContinue) {
+      onContinue();
+    } else if (knownChoice !== null) {
+      onChoose(knownChoice);
+    }
+  };
 
   // Known mode (most entries): confirm or switch — not a from-scratch
   // question. Continue re-affirms the saved choice; switching to build
@@ -90,7 +111,7 @@ export function SynthDemoDisclaimer({
           <div className="mt-5 flex justify-center gap-3">
             <button
               type="button"
-              onClick={() => onChoose(knownChoice)}
+              onClick={handleContinue}
               className="rounded-md border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)]"
             >
               {inDemo ? 'Continue in the demo' : 'Continue building'}

@@ -92,6 +92,39 @@ export function SynthView() {
     );
   }, [mounted, seedHex]);
 
+  // Demo progress wipe — Gary (2026-11-08 ~00:46 PST): leaving the demo to
+  // build your own wipes the demo progress; the build starts fresh, demo
+  // progress does NOT carry over. The wipe is a postMessage to the shell
+  // iframe ({type:'lucid-synth-wipe-demo'}); the shell clears its persisted
+  // demo state (world state, restore flag, survey save, bookmarks) and
+  // reloads itself fresh. The parent re-posts the mount on iframe load,
+  // so the fresh shell mounts the same way. If the shell hasn't loaded
+  // yet the wipe would be lost (no listener registered) — it is deferred
+  // to the iframe load and posted exactly once, so a wipe can never
+  // re-fire on the reload the wipe itself triggers.
+  const iframeLoadedRef = useRef(false);
+  const pendingDemoWipeRef = useRef(false);
+  const postDemoWipe = useCallback(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage({ type: 'lucid-synth-wipe-demo' }, '*');
+  }, []);
+  const wipeDemoProgress = useCallback(() => {
+    if (iframeLoadedRef.current) {
+      postDemoWipe();
+    } else {
+      pendingDemoWipeRef.current = true;
+    }
+  }, [postDemoWipe]);
+  const handleIframeLoad = useCallback(() => {
+    iframeLoadedRef.current = true;
+    if (pendingDemoWipeRef.current) {
+      pendingDemoWipeRef.current = false;
+      postDemoWipe();
+    }
+    postMount();
+  }, [postDemoWipe, postMount]);
+
   useEffect(() => {
     postMount();
   }, [postMount]);
@@ -215,6 +248,18 @@ export function SynthView() {
   const chooseSynthDisclaimer = useCallback(
     (choice: SynthDisclaimerChoice, version?: SynthVersion) => {
       const store = useSettingsStore.getState();
+      // Leaving the demo to build your own wipes the demo progress
+      // (Gary, 2026-11-08 ~00:46 PST) — the build starts fresh; demo
+      // progress does not carry over. Entering build from any non-build
+      // state wipes: demo ('explore'), or no choice yet (the demo is the
+      // implicit mode before the first answer). Re-affirming build does
+      // not wipe — there is no demo progress to carry over.
+      const prevChoice = parseSynthDisclaimerChoice(
+        store.settings?.synthDisclaimerChoice,
+      );
+      if (choice === 'build' && prevChoice !== 'build') {
+        wipeDemoProgress();
+      }
       void store.updateSetting('synthDisclaimerChoice', choice);
       // Build only: record the synth version from the drop-down.
       // Only exact known values are stored; anything else leaves the
@@ -227,8 +272,16 @@ export function SynthView() {
       }
       setSynthDisclaimerDone(true);
     },
-    [],
+    [wipeDemoProgress],
   );
+  // "Continue building" / "Continue in the demo" is a resume, not a mode
+  // choice (Gary, 2026-11-08 ~00:46 PST: continue building is obviously
+  // not iteration 8). It dismisses the prompt and resumes where you left
+  // off — it does not re-assert the choice, does not touch the version,
+  // and does not wipe anything.
+  const continueSynthDisclaimer = useCallback(() => {
+    setSynthDisclaimerDone(true);
+  }, []);
   // The version the build starts from — the drop-down choice, or
   // Iteration 8 when nothing was recorded (choice predates the
   // drop-down, or explore was chosen).
@@ -254,7 +307,7 @@ export function SynthView() {
           title="Lucid synth shell"
           src={spec?.shellSrc ?? './synth/matrix-synth-v67.html'}
           sandbox="allow-scripts"
-          onLoad={postMount}
+          onLoad={handleIframeLoad}
           className="w-full h-full border-0 bg-black"
         />
         <div
@@ -436,6 +489,7 @@ export function SynthView() {
         <SynthDemoDisclaimerErrorBoundary>
           <SynthDemoDisclaimer
             onChoose={chooseSynthDisclaimer}
+            onContinue={continueSynthDisclaimer}
             knownChoice={knownSynthDisclaimerChoice}
             knownVersionLabel={buildVersionLabel}
           />

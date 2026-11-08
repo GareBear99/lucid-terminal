@@ -17,6 +17,15 @@
  * knows, so going in is frictionless. A disclaimer crash must never
  * block the Synth view.
  *
+ * Gary (2026-11-08 ~00:46 PST): "continue building was obviously not
+ * iteration 8" — Continue building is its own action (resume where you
+ * left off), NOT the Iteration 8 choice; it dismisses the prompt without
+ * re-asserting the choice or touching the version. And "leave demo and
+ * wipe progress from demo to build your own" — switching from the demo
+ * to build-your-own wipes the demo progress (a postMessage to the shell
+ * iframe, which clears its persisted demo state and reloads fresh), so
+ * the build starts fresh and demo progress does not carry over.
+ *
  * Iteration 8 itself does not exist yet: "build my own" only records
  * the choice and names Iteration 8 as the creator builder in the
  * inspector — it does not fake a builder UI.
@@ -209,8 +218,13 @@ describe('SynthDemoDisclaimer', () => {
 
   test('known explore mode shows the saved mode with confirm/switch', () => {
     const onChoose = vi.fn();
+    const onContinue = vi.fn();
     render(
-      <SynthDemoDisclaimer onChoose={onChoose} knownChoice="explore" />,
+      <SynthDemoDisclaimer
+        onChoose={onChoose}
+        onContinue={onContinue}
+        knownChoice="explore"
+      />,
     );
     const dialog = screen.getByRole('dialog');
     expect(dialog.textContent).toContain("You're exploring the demo");
@@ -221,10 +235,10 @@ describe('SynthDemoDisclaimer', () => {
       screen.getByRole('button', { name: 'Build my own instead' }),
     ).toBeTruthy();
     expect(screen.getAllByRole('button')).toHaveLength(2);
-    // Confirm re-affirms the saved choice, no version step.
+    // Confirm resumes — it is NOT a mode choice, so onChoose is not called.
     fireEvent.click(screen.getByRole('button', { name: 'Continue in the demo' }));
-    expect(onChoose).toHaveBeenCalledTimes(1);
-    expect(onChoose).toHaveBeenCalledWith('explore');
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    expect(onChoose).not.toHaveBeenCalled();
   });
 
   test('switching from known explore mode opens the version step', () => {
@@ -249,9 +263,11 @@ describe('SynthDemoDisclaimer', () => {
 
   test('known build mode shows the saved mode with confirm/switch', () => {
     const onChoose = vi.fn();
+    const onContinue = vi.fn();
     render(
       <SynthDemoDisclaimer
         onChoose={onChoose}
+        onContinue={onContinue}
         knownChoice="build"
         knownVersionLabel="Iteration 8"
       />,
@@ -267,10 +283,22 @@ describe('SynthDemoDisclaimer', () => {
       screen.getByRole('button', { name: 'Explore the demo instead' }),
     ).toBeTruthy();
     expect(screen.getAllByRole('button')).toHaveLength(2);
-    // Continue re-affirms the build choice, no version step.
+    // Continue building is its own action — NOT the Iteration 8 choice
+    // (Gary, 2026-11-08 ~00:46 PST) — so it resumes without calling
+    // onChoose and without a version step.
     fireEvent.click(
       screen.getByRole('button', { name: 'Continue building' }),
     );
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    expect(onChoose).not.toHaveBeenCalled();
+  });
+
+  test('confirm without onContinue falls back to re-affirming the known choice', () => {
+    const onChoose = vi.fn();
+    render(
+      <SynthDemoDisclaimer onChoose={onChoose} knownChoice="build" />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Continue building' }));
     expect(onChoose).toHaveBeenCalledTimes(1);
     expect(onChoose).toHaveBeenCalledWith('build');
   });
@@ -440,5 +468,112 @@ describe('SynthView disclaimer flow', () => {
     expect(disclaimerDialog()?.textContent).toContain(
       "You're exploring the demo",
     );
+  });
+
+  // Gary (2026-11-08 ~00:46 PST): leaving the demo to build your own
+  // wipes the demo progress — the build starts fresh, demo progress does
+  // NOT carry over. The wipe is a postMessage to the shell iframe.
+  function shellIframe(container: HTMLElement) {
+    const iframe = container.querySelector('iframe');
+    if (!iframe || !iframe.contentWindow) {
+      throw new Error('synth shell iframe missing');
+    }
+    return iframe;
+  }
+
+  function wipeCalls(postMessage: ReturnType<typeof vi.spyOn>) {
+    return postMessage.mock.calls.filter(
+      (c) =>
+        (c[0] as { type?: string }).type === 'lucid-synth-wipe-demo',
+    );
+  }
+
+  test('leaving the demo to build your own wipes the demo progress', async () => {
+    seedHomunculusColor('pink');
+    seedSynthDisclaimerChoice('explore');
+    const { container } = render(<SynthView />);
+    const iframe = shellIframe(container);
+    const postMessage = vi.spyOn(iframe.contentWindow, 'postMessage');
+    // The shell has loaded, so the wipe posts at once when chosen.
+    fireEvent.load(iframe);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Build my own instead' }),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start with Iteration 8' }),
+    );
+    await waitFor(() =>
+      expect(
+        useSettingsStore.getState().settings.synthDisclaimerChoice,
+      ).toBe('build'),
+    );
+    expect(wipeCalls(postMessage)).toHaveLength(1);
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'lucid-synth-wipe-demo' },
+      '*',
+    );
+    expect(disclaimerDialog()).toBeNull();
+  });
+
+  test('the wipe is deferred to the shell load when the shell has not loaded yet', async () => {
+    seedHomunculusColor('pink');
+    seedSynthDisclaimerChoice('explore');
+    const { container } = render(<SynthView />);
+    const iframe = shellIframe(container);
+    const postMessage = vi.spyOn(iframe.contentWindow, 'postMessage');
+    // The shell has NOT loaded — nothing posts at choice time.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Build my own instead' }),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start with Iteration 8' }),
+    );
+    await waitFor(() =>
+      expect(
+        useSettingsStore.getState().settings.synthDisclaimerChoice,
+      ).toBe('build'),
+    );
+    expect(wipeCalls(postMessage)).toHaveLength(0);
+    // The shell loads — the deferred wipe posts exactly once, and the
+    // reload it triggers does not re-post it.
+    fireEvent.load(iframe);
+    expect(wipeCalls(postMessage)).toHaveLength(1);
+    fireEvent.load(iframe);
+    expect(wipeCalls(postMessage)).toHaveLength(1);
+  });
+
+  test('continuing a build does not wipe anything', async () => {
+    seedHomunculusColor('pink');
+    seedSynthDisclaimerChoice('build');
+    const { container } = render(<SynthView />);
+    const iframe = shellIframe(container);
+    const postMessage = vi.spyOn(iframe.contentWindow, 'postMessage');
+    fireEvent.load(iframe);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue building' }));
+    expect(disclaimerDialog()).toBeNull();
+    expect(wipeCalls(postMessage)).toHaveLength(0);
+    // Resume does not re-assert the choice — it stays build.
+    expect(
+      useSettingsStore.getState().settings.synthDisclaimerChoice,
+    ).toBe('build');
+  });
+
+  test('choosing build with no stored choice wipes (the demo is the implicit mode)', async () => {
+    seedHomunculusColor('pink');
+    seedSynthDisclaimerChoice(null);
+    const { container } = render(<SynthView />);
+    const iframe = shellIframe(container);
+    const postMessage = vi.spyOn(iframe.contentWindow, 'postMessage');
+    fireEvent.load(iframe);
+    fireEvent.click(screen.getByRole('button', { name: 'Build my own' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start with Iteration 8' }),
+    );
+    await waitFor(() =>
+      expect(
+        useSettingsStore.getState().settings.synthDisclaimerChoice,
+      ).toBe('build'),
+    );
+    expect(wipeCalls(postMessage)).toHaveLength(1);
   });
 });

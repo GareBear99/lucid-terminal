@@ -6,11 +6,19 @@
  * drag-extendable, and it gets a squared glass backwall like the
  * Warp AI terminal. The backwall is the prompt's own panel
  * (prompt-input-wrap in Terminal.tsx): frosted translucent glass,
- * subtle border, SQUARE corners (no rounding) — in BOTH states,
- * LuciferAI on and flat (plugin off). The backwall is the prompt's
+ * subtle border, SQUARE corners (no rounding) — in BOTH LuciferAI
+ * states, on and flat (plugin off). The backwall is the prompt's
  * panel, not bubble chrome, so it shows while flat too; the rainbow
  * processing glow stays off while flat (covered in
  * tests/inputArea.test.tsx).
+ *
+ * WHERE THE GLASS LIVES NOW (Gary, 2026-11-08 ~07:05 PST): the
+ * non-devmode terminal page is a clean unison — full black page,
+ * black prompt bar, like Warp AI — so the glass backwall and the
+ * glass prompt section are the DEV-MODE look now. These tests run
+ * with devMode ON; the black non-devmode look is covered in
+ * tests/nonDevModeTopology.test.tsx. The LuciferAI on/off split
+ * still applies inside dev mode: glass in both states.
  *
  * Segregation (Gary, 2026-11-07): Warp marks where the output ends and
  * the input begins. The prompt panel's top edge is that divider —
@@ -48,6 +56,7 @@ vi.mock('../src/components/FixNet/FixNetStatus', () => ({
 const win = window as unknown as { lucidAPI?: unknown };
 let prevLucidAPI: unknown;
 let prevLuciferAiEnabled: boolean | undefined;
+let prevDevMode: boolean | undefined;
 
 beforeEach(() => {
   if (!window.matchMedia) {
@@ -80,6 +89,11 @@ beforeEach(() => {
   useHistoryStore.setState({ blocksByTab: {} });
   prevLuciferAiEnabled =
     useSettingsStore.getState().settings.luciferAiEnabled;
+  // The glass is the DEV-MODE look now (Gary, 2026-11-08): these
+  // tests run with devMode ON.
+  prevDevMode = useSettingsStore.getState().settings.devMode;
+  const base = useSettingsStore.getState().settings;
+  useSettingsStore.setState({ settings: { ...base, devMode: true } });
 });
 
 afterEach(() => {
@@ -88,7 +102,7 @@ afterEach(() => {
   useHistoryStore.setState({ blocksByTab: {} });
   const base = useSettingsStore.getState().settings;
   useSettingsStore.setState({
-    settings: { ...base, luciferAiEnabled: prevLuciferAiEnabled },
+    settings: { ...base, luciferAiEnabled: prevLuciferAiEnabled, devMode: prevDevMode },
   });
 });
 
@@ -144,8 +158,10 @@ describe('terminal prompt panel — squared glass backwall, segregation divider,
  * for our section". Warp's prompt box is a full-width panel with its
  * own header/identity line and context lines — Lucid's prompt is the
  * same shape, more glass: a distinct frosted section (header row +
- * input row) with a 2px top divider, in BOTH states. The section sits
- * ON the misty-black main screen: translucent gradient, never opaque.
+ * input row) with a 2px top divider, in BOTH LuciferAI states. The
+ * section sits ON the misty-black main screen: translucent gradient,
+ * never opaque. DEV MODE ONLY now (Gary, 2026-11-08): non-devmode is
+ * the solid black Warp bar instead.
  */
 describe('terminal prompt — whole glass section', () => {
   /** The section's glass: 2px top divider + translucent gradient. */
@@ -169,7 +185,10 @@ describe('terminal prompt — whole glass section', () => {
     expectPromptSection(section);
     const header = screen.getByTestId('prompt-section-header');
     expect(header.textContent).toContain('Terminal');
-    expect(header.textContent).toContain('plain shell');
+    // Dev mode: the header carries the delinked badge + note, not
+    // the 'plain shell' label (that label is the synced header).
+    expect(header.textContent).toContain('DEV — prompt bar delinked');
+    expect(header.textContent).toContain('delinked — no live cwd');
     // The backwall inside is still the squared glass panel.
     expectSquaredGlassBackwall(screen.getByTestId('prompt-input-wrap'));
   });
@@ -189,6 +208,11 @@ describe('terminal prompt — whole glass section', () => {
 
   test('the header shows the tab working directory as the context line', async () => {
     setLuciferAiEnabled(true);
+    // The live cwd is the NON-DEVMODE header: dev mode delinks the
+    // bar and shows "delinked — no live cwd" instead, so this test
+    // runs with devMode OFF (it asserts no glass).
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({ settings: { ...base, devMode: false } });
     useTerminalStore.setState({
       tabs: [{ id: 'tab-1', title: 'Terminal 1', cwd: '/Users/gary', isActive: true }],
       activeTabId: 'tab-1',

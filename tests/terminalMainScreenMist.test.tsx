@@ -25,6 +25,13 @@
  * the text, cursor and accents; only the backdrop is the mist now.
  * (Gary: "the main screen should always be splashscreen misty black".)
  *
+ * WHERE THE MIST LIVES NOW (Gary, 2026-11-08 ~07:05 PST): the
+ * non-devmode terminal page is a clean unison — FULL BLACK, opaque
+ * black root — so the mist is covered there by design. The mist
+ * still shows in DEV MODE (transparent page, glass panels over the
+ * mist). These tests run with devMode ON; the black non-devmode
+ * page is covered in tests/nonDevModeTopology.test.tsx.
+ *
  * This renders the real Terminal (same harness pattern as
  * tests/terminalPromptGlass.test.tsx) with the Monaco editor mocked
  * and the heavy children stubbed, and asserts the terminal content
@@ -53,6 +60,7 @@ vi.mock('../src/components/FixNet/FixNetStatus', () => ({
 const win = window as unknown as { lucidAPI?: unknown };
 let prevLucidAPI: unknown;
 let prevLuciferAiEnabled: boolean | undefined;
+let prevDevMode: boolean | undefined;
 
 beforeEach(() => {
   if (!window.matchMedia) {
@@ -85,6 +93,11 @@ beforeEach(() => {
   useHistoryStore.setState({ blocksByTab: {} });
   prevLuciferAiEnabled =
     useSettingsStore.getState().settings.luciferAiEnabled;
+  // The mist shows in DEV MODE now (Gary, 2026-11-08): the
+  // non-devmode page is opaque black by design.
+  prevDevMode = useSettingsStore.getState().settings.devMode;
+  const base = useSettingsStore.getState().settings;
+  useSettingsStore.setState({ settings: { ...base, devMode: true } });
 });
 
 afterEach(() => {
@@ -93,7 +106,7 @@ afterEach(() => {
   useHistoryStore.setState({ blocksByTab: {} });
   const base = useSettingsStore.getState().settings;
   useSettingsStore.setState({
-    settings: { ...base, luciferAiEnabled: prevLuciferAiEnabled },
+    settings: { ...base, luciferAiEnabled: prevLuciferAiEnabled, devMode: prevDevMode },
   });
 });
 

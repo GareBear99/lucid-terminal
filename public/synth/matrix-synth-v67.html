@@ -4034,7 +4034,7 @@ function eyeStep(){
     if(!sh) return '';
     return `synth_survey_${sh.shellId}_${(sh.seed>>>0).toString(16)}`;
   }
-  function buildSurveyPayload(sh){
+  function buildSurveyPayload(sh, light){
     return {
       version: 'v67_accounted_routes_autowrap_reduction',
       shellId: sh.shellId,
@@ -4056,7 +4056,7 @@ function eyeStep(){
       bookmarks,
       eyeMode: EyeCtl.mode,
       scanfx: { evidenceWrites: SCANFX.evidenceWrites, edgeLinks: SCANFX.edgeLinks, result: SCANFX.result },
-      microResidency: microSnapshotAll(),
+      microResidency: microSnapshotAll(light),
       microAggregate: sh.microAggregate || null,
       objectRegistry: authorityRegistrySnapshot(sh),
       objectRegistryStats: sh.objectRegistryStats || null,
@@ -4103,12 +4103,16 @@ function eyeStep(){
     rebuildAuthorityRegistry(sh);
     return true;
   }
+  // Runtime fix #2: autosave throttle state — the per-tile autosave did
+  // a full payload + JSON + sync localStorage write + recovery save on
+  // EVERY mapped tile. At most one autosave per ~5 s (300 ticks).
+  let _lastAutosaveTick = -1e9;
   function saveSurveyState(reason='manual'){
     const sh = shells.get(activeShellId);
     if(!sh) return false;
     ensureShellEvidence(sh);
     ensureDecisionMemory(sh);
-    const payload = buildSurveyPayload(sh);
+    const payload = buildSurveyPayload(sh, reason === 'autosave');
     try{
       const storageKey = surveyStorageKey();
       localStorage.setItem(storageKey, JSON.stringify(payload));
@@ -4117,7 +4121,10 @@ function eyeStep(){
         if(slotMeta){ ARC_RECOVERY.selectedSlot = slotMeta.slot|0; ARC_RECOVERY.lastSlotMeta = slotMeta; }
       }
       EyeCtl.note = `${reason} survey saved`;
-      appendReceipt('survey_save', {reason, storageKey, mappedCount: sh.mappedCount, recoverySlot: ARC_RECOVERY.lastSlotMeta ? ARC_RECOVERY.lastSlotMeta.slot : null});
+      // Runtime fix #2: no receipt for throttled autosaves — the
+      // survey_save receipt itself was one of the per-tile receipts
+      // flooding the history/swarm panels. Manual saves still log one.
+      if(reason !== 'autosave') appendReceipt('survey_save', {reason, storageKey, mappedCount: sh.mappedCount, recoverySlot: ARC_RECOVERY.lastSlotMeta ? ARC_RECOVERY.lastSlotMeta.slot : null});
       syncEyeHud();
       return true;
     }catch(err){
@@ -5118,6 +5125,13 @@ if(buildState === Build.MAPPING){
     SCANFX.result = `pivot#${idx} locked`;
   }
 
+  // Runtime fix #3: dedupe segment links — evidence values are
+  // monotonic (Math.max), so once a tile crossed 0.62 it stayed there
+  // and every re-scan pushed 1-2 duplicate links forever. This was the
+  // one genuinely unbounded array in the shell.
+  function pushSegmentLink(sh, a, b){
+    if(!sh.segmentLinks.some(l => l[0] === a && l[1] === b)) sh.segmentLinks.push([a, b, 'wall']);
+  }
   function writeTileEvidence(sh, idx){
     ensureShellEvidence(sh);
     if(idx < 0 || idx >= sh.tileEvidence.length) return;
@@ -5135,8 +5149,8 @@ if(buildState === Build.MAPPING){
     ev.class = classifyEvidence(ev);
     sh.tileScanCount[idx] = (sh.tileScanCount[idx] || 0) + 1;
     if(ev.edgeStrength >= 0.62){
-      if(idx > 0 && sh.tileEvidence[idx-1] && sh.tileEvidence[idx-1].edgeStrength >= 0.62) sh.segmentLinks.push([idx-1, idx, 'wall']);
-      if(idx < sh.tileEvidence.length-1 && sh.tileEvidence[idx+1] && sh.tileEvidence[idx+1].edgeStrength >= 0.62) sh.segmentLinks.push([idx, idx+1, 'wall']);
+      if(idx > 0 && sh.tileEvidence[idx-1] && sh.tileEvidence[idx-1].edgeStrength >= 0.62) pushSegmentLink(sh, idx-1, idx);
+      if(idx < sh.tileEvidence.length-1 && sh.tileEvidence[idx+1] && sh.tileEvidence[idx+1].edgeStrength >= 0.62) pushSegmentLink(sh, idx, idx+1);
     }
     SCANFX.evidenceWrites++;
     SCANFX.justWroteAt = tick;
@@ -5147,7 +5161,8 @@ if(buildState === Build.MAPPING){
     sh.edgeReconstructionCount += links;
     SCANFX.edgeLinks = sh.edgeReconstructionCount;
     rebuildAuthorityRegistry(sh);
-    saveSurveyState('autosave');
+    // Runtime fix #2: throttled autosave (see _lastAutosaveTick).
+    if(tick - _lastAutosaveTick >= 300){ _lastAutosaveTick = tick; saveSurveyState('autosave'); }
   }
 
   function buildProbeQueueEntry(kind, index, dir, reason, priority=0.5){
@@ -7288,7 +7303,12 @@ function render(){
   }
 
 
-  function microSnapshotAll(){
+  // Runtime fix #2: light snapshots for the throttled autosave — the
+  // full snapshot deep-copies 256 cells + up to 128 receipt objects per
+  // resident tile. In the autosave path only the receipt COUNT is kept
+  // (microApplyAll already ignores a non-array microReceipts, so an
+  // autosave payload restores safely without the receipt objects).
+  function microSnapshotAll(light){
     const out = [];
     for(const [key, rec] of TILE_RESIDENCY.entries()){
       if(!rec) continue;
@@ -7302,7 +7322,7 @@ function render(){
         scanner: rec.scanner ? {...rec.scanner} : null,
         graph: rec.graph ? {...rec.graph} : null,
         summary: rec.summary ? {...rec.summary} : null,
-        microReceipts: Array.isArray(rec.microReceipts) ? rec.microReceipts.slice(-128) : [],
+        microReceipts: light ? (Array.isArray(rec.microReceipts) ? rec.microReceipts.length : 0) : (Array.isArray(rec.microReceipts) ? rec.microReceipts.slice(-128) : []),
         builders: Array.isArray(rec.builders) ? rec.builders.map(b=>({...b})) : [],
         macroPenalty: +(rec.macroPenalty||0),
         localView: rec.localView ? {...rec.localView, drillPath:Array.isArray(rec.localView.drillPath)?rec.localView.drillPath.slice(0,16):[]} : null

@@ -21,7 +21,6 @@ import {
   SHELL_COMMANDS,
   LUCIFERAI_COMMANDS,
   MULTI_WORD_COMMANDS,
-  PLAIN_TERMINAL_KEEPERS,
   parseCommand,
 } from '../src/utils/commandRouter';
 import { helpCategories } from '../src/data/helpData';
@@ -95,14 +94,23 @@ describe('commands catalogue invariants', () => {
 });
 
 describe('parseCommand round-trips the catalogue commands', () => {
-  it("routes 'fixnet stats' as the full phrase, not the first word", () => {
-    const parsed = parseCommand('fixnet stats');
+  // REAL TERMINAL (Gary, 2026-11-07: "terminal is not a terminal at
+  // all"): bare words go to the SHELL, always — the router no longer
+  // intercepts them. Lucid commands are slash-only. The old
+  // expectations below (bare 'fixnet stats' routing to FixNet,
+  // bare 'tokens' routing to tokens, bare 'clear history' clearing
+  // history) pinned the simulation-era dispatcher and are
+  // superseded by Gary's real-terminal order: the same phrases
+  // route only with the slash, and bare they are shell commands.
+
+  it("routes '/fixnet stats' as the full phrase, not the first word", () => {
+    const parsed = parseCommand('/fixnet stats');
     expect(parsed.type).toBe('fixnet');
     expect(parsed.command).toBe('fixnet stats');
   });
 
-  it("routes 'llm list' as the full phrase", () => {
-    const parsed = parseCommand('llm list');
+  it("routes '/llm list' as the full phrase", () => {
+    const parsed = parseCommand('/llm list');
     expect(parsed.type).toBe('llm');
     expect(parsed.command).toBe('llm list');
   });
@@ -120,58 +128,88 @@ describe('parseCommand round-trips the catalogue commands', () => {
     expect(parsed.isSlashCommand).toBe(true);
   });
 
-  it("routes 'clear history' to the history type (not shell-clear)", () => {
-    const parsed = parseCommand('clear history');
+  it("routes bare 'fixnet stats' to the shell — only '/fixnet stats' is FixNet", () => {
+    expect(parseCommand('fixnet stats').type).toBe('shell');
+    expect(parseCommand('fixnet stats').command).toBe('fixnet');
+  });
+
+  it("routes '/history clear' to the history type (not shell-clear)", () => {
+    const parsed = parseCommand('/history clear');
     expect(parsed.type).toBe('history');
     expect(parsed.command).toBe('history');
     expect(parsed.args).toEqual(['clear']);
   });
 
-  it("routes 'workflow status' to the workflow type", () => {
-    const parsed = parseCommand('workflow status');
+  it("routes bare 'clear history' to the shell — it is not a Lucid command any more", () => {
+    expect(parseCommand('clear history').type).toBe('shell');
+  });
+
+  it("routes '/workflow status' to the workflow type", () => {
+    const parsed = parseCommand('/workflow status');
     expect(parsed.type).toBe('workflow');
     expect(parsed.command).toBe('workflow');
     expect(parsed.args).toEqual(['status']);
   });
 
-  it("routes 'tokens' and '/tokens' to the tokens type (its own case)", () => {
-    expect(parseCommand('tokens').type).toBe('tokens');
+  it("routes bare 'workflow status' to the shell", () => {
+    expect(parseCommand('workflow status').type).toBe('shell');
+  });
+
+  it("routes '/tokens' to the tokens type; bare 'tokens' is a shell command", () => {
     expect(parseCommand('/tokens').type).toBe('tokens');
     expect(parseCommand('/tokens').command).toBe('tokens');
+    expect(parseCommand('tokens').type).toBe('shell');
   });
 
-  it("routes 'browser diagnose' as a browser command", () => {
-    const parsed = parseCommand('browser diagnose');
+  it("routes '/browser diagnose' as a browser command; bare is shell", () => {
+    const parsed = parseCommand('/browser diagnose');
     expect(parsed.type).toBe('browser');
     expect(parsed.command).toBe('browser diagnose');
+    expect(parseCommand('browser diagnose').type).toBe('shell');
   });
 
-  it("routes 'lucifer what is the time' to the agent (the plugin path)", () => {
+  it("routes bare 'history', 'help', 'llm' to the shell — they are shell words now", () => {
+    expect(parseCommand('history').type).toBe('shell');
+    expect(parseCommand('help').type).toBe('shell');
+    expect(parseCommand('llm list').type).toBe('shell');
+  });
+
+  it("routes a natural-language sentence to the shell, not the agent", () => {
     const parsed = parseCommand('lucifer what is the time');
+    expect(parsed.type).toBe('shell');
+  });
+
+  it("routes '/agent ...' to the agent (the plugin path)", () => {
+    const parsed = parseCommand('/agent what is the time');
     expect(parsed.type).toBe('agent');
+    expect(parsed.isSlashCommand).toBe(true);
   });
 });
 
-describe('PLAIN_TERMINAL_KEEPERS — what keeps its handling when LuciferAI is off', () => {
-  // Gary, 2026-11-07 ~20:17 PST: when LuciferAI is off the terminal
-  // is a plain terminal. Only the shell itself and the Lucid-local
-  // paths keep their handling; every other type is rewritten to
-  // 'shell' in Terminal.handleSubmit, so the command goes to the
-  // shell PTY instead of the terminal printing a LuciferAI refusal.
-  it('keeps shell, fix, fixnet, browser, history and workflow', () => {
-    expect([...PLAIN_TERMINAL_KEEPERS].sort()).toEqual([
-      'browser',
-      'fix',
-      'fixnet',
-      'history',
-      'shell',
-      'workflow',
-    ]);
-  });
-
-  it('does NOT keep any LuciferAI command word', () => {
-    for (const type of ['help', 'plan', 'llm', 'build', 'create', 'tokens', 'agent', 'unknown']) {
-      expect(PLAIN_TERMINAL_KEEPERS.has(type as never)).toBe(false);
+describe('bare words are never Lucid commands', () => {
+  // The simulation-era PLAIN_TERMINAL_KEEPERS set is gone with the
+  // dispatcher it served: there is nothing left to "keep" when
+  // LuciferAI is off, because NOTHING bare is intercepted at all.
+  // The rule is one line now — parseCommand of any bare input is
+  // type 'shell' — and the slash form is what carries the Lucid
+  // type. This pins both halves for every Lucid word.
+  it('every Lucid word parses to shell bare and to its type slashed', () => {
+    const cases: Array<[string, string]> = [
+      ['help', 'help'],
+      ['plan', 'plan'],
+      ['fix', 'fix'],
+      ['fixnet', 'fixnet'],
+      ['llm', 'llm'],
+      ['build', 'build'],
+      ['create', 'create'],
+      ['workflow', 'workflow'],
+      ['tokens', 'tokens'],
+      ['history', 'history'],
+      ['agent', 'agent'],
+    ];
+    for (const [bare, type] of cases) {
+      expect(parseCommand(bare).type).toBe('shell');
+      expect(parseCommand(`/${bare}`).type).toBe(type);
     }
   });
 });

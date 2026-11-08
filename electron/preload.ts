@@ -64,6 +64,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('terminal:exit', listener);
       return () => ipcRenderer.removeListener('terminal:exit', listener);
     },
+    // The shell moved (OSC 7 / cd) - the tab header follows the
+    // live cwd. Same listener shape as onData/onExit.
+    onCwd: (callback: (id: string, cwd: string) => void) => {
+      const listener = (_: any, id: string, cwd: string) => callback(id, cwd);
+      ipcRenderer.on('terminal:cwd', listener);
+      return () => ipcRenderer.removeListener('terminal:cwd', listener);
+    },
     getCwd: (id: string) => ipcRenderer.invoke('terminal:getCwd', id),
     executeCommand: (command: string) =>
       ipcRenderer.invoke('terminal:executeCommand', command),
@@ -545,6 +552,7 @@ export interface LucidAPI {
     destroy: (id: string) => void;
     onData: (callback: (id: string, data: string) => void) => void;
     onExit: (callback: (id: string, code: number) => void) => void;
+    onCwd: (callback: (id: string, cwd: string) => void) => void;
     getCwd: (id: string) => Promise<string>;
     executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
   };

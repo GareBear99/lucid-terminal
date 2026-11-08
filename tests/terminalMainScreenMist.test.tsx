@@ -39,50 +39,6 @@ import Terminal from '../src/components/Terminal/Terminal';
 import { useHistoryStore } from '../src/stores/historyStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
 
-// --- Monaco mock (same pattern as tests/terminalPromptGlass.test.tsx) ---
-const mockState = vi.hoisted(() => ({
-  initImpl: null as null | (() => Promise<unknown>),
-  editorProps: null as null | Record<string, any>,
-  mounted: false,
-}));
-
-vi.mock('@monaco-editor/react', () => {
-  const fakeEditor = {
-    getValue: () => '',
-    setValue: () => {},
-    getModel: () => null,
-    setPosition: () => {},
-    addCommand: () => {},
-    focus: () => {},
-    getContentHeight: () => 40,
-    onDidContentSizeChange: () => ({ dispose: () => {} }),
-  };
-  const fakeMonaco = {
-    editor: { defineTheme: () => {}, setTheme: () => {} },
-    KeyCode: { Enter: 3, UpArrow: 16, DownArrow: 18 },
-  };
-  return {
-    loader: {
-      init: () =>
-        mockState.initImpl ? mockState.initImpl() : new Promise(() => {}),
-      config: () => {},
-    },
-    default: (props: Record<string, any>) => {
-      mockState.editorProps = props;
-      return (
-        <div
-          data-testid="monaco-editor"
-          ref={(el: unknown) => {
-            if (el && !mockState.mounted) {
-              mockState.mounted = true;
-              props.onMount?.(fakeEditor, fakeMonaco);
-            }
-          }}
-        />
-      );
-    },
-  };
-});
 
 // Heavy children the test does not care about — stub them so the render
 // stays light (SentinelFace runs a rAF gaze loop; FixNetStatus fetches
@@ -99,12 +55,6 @@ let prevLucidAPI: unknown;
 let prevLuciferAiEnabled: boolean | undefined;
 
 beforeEach(() => {
-  mockState.initImpl = () => Promise.resolve();
-  mockState.editorProps = null;
-  mockState.mounted = false;
-  // jsdom has no scrollIntoView; the terminal auto-scrolls on new blocks.
-  (Element.prototype as unknown as Record<string, unknown>).scrollIntoView =
-    vi.fn();
   if (!window.matchMedia) {
     Object.defineProperty(window, 'matchMedia', {
       value: vi.fn().mockImplementation((q: string) => ({
@@ -165,7 +115,7 @@ describe('terminal main screen — splash mist visible, no opaque background', (
   test('LuciferAI on: the terminal content has NO opaque background', async () => {
     setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('monaco-editor');
+    await screen.findByTestId('xterm-surface');
     const content = screen.getByTestId('terminal-content');
     expectNoOpaqueBackground(content);
   });
@@ -173,7 +123,7 @@ describe('terminal main screen — splash mist visible, no opaque background', (
   test('LuciferAI off (flat): the terminal content STILL has no opaque background', async () => {
     setLuciferAiEnabled(false);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('monaco-editor');
+    await screen.findByTestId('xterm-surface');
     const content = screen.getByTestId('terminal-content');
     expectNoOpaqueBackground(content);
   });

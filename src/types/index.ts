@@ -726,6 +726,7 @@ declare global {
         destroy: (id: string) => void;
         onData: (callback: (id: string, data: string) => void) => () => void;
         onExit: (callback: (id: string, code: number) => void) => () => void;
+        onCwd: (callback: (id: string, cwd: string) => void) => () => void;
         getCwd: (id: string) => Promise<string>;
         executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
       };

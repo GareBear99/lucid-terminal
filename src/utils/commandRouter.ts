@@ -1,9 +1,22 @@
 /**
  * Warp-Style Command Router for LuciferAI
- * Routes /commands and auto-routes unrecognized input to /agent
+ *
+ * REAL TERMINAL (Gary, 2026-11-07: "terminal is not a terminal at
+ * all"): bare words typed at the prompt go to the SHELL, always.
+ * The router no longer intercepts them — `history` is zsh history,
+ * `help` is the shell's help, `clear` clears the screen. Lucid
+ * commands are EXPLICIT slash commands (`/fix`, `/llm`, `/help`,
+ * ...) or nothing at all. The old dispatcher — which parsed every
+ * submission, routed LuciferAI words to the plugin, and sent only
+ * the leftovers to the shell — is retired as gatekeeper.
+ *
+ * parseCommand therefore has exactly two outcomes:
+ * - input starts with '/' -> a Lucid slash command (or an agent
+ *   query for an unknown slash word);
+ * - anything else -> type 'shell', the whole line verbatim.
  */
 
-export type CommandType = 
+export type CommandType =
   | 'help'
   | 'plan'
   | 'fix'
@@ -35,7 +48,10 @@ export interface ParsedCommand {
   canFallbackToShell?: boolean; // True if can try shell as fallback
 }
 
-// Shell commands that should be executed directly (not routed to agent)
+// Shell commands that should be executed directly (not routed to agent).
+// Kept for the Settings catalogue (src/data/commands.ts), which lists
+// them as the shell surface — the router itself no longer needs the
+// set, because EVERY bare word is a shell command now.
 export const SHELL_COMMANDS = new Set([
   'ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'touch',
   'grep', 'find', 'which', 'whoami', 'date', 'clear', 'exit', 'git',
@@ -44,46 +60,32 @@ export const SHELL_COMMANDS = new Set([
   'zip', 'unzip', 'chmod', 'chown', 'ps', 'kill', 'top', 'df', 'du'
 ]);
 
-// Command types that keep their handling when LuciferAI is off —
-// the plain terminal (Gary, 2026-11-07 ~20:17 PST). These are the
-// main-process-local paths, none of them the LuciferAI plugin:
-// the shell PTY itself; the local FixNet workflow (fix/fixnet run
-// the main-process orchestrator's FixNetRouter, not the plugin);
-// the browser diagnostic (the Lucid browser service); the
-// conversation history and the workflow status (LucidCore's own
-// workflow state, pinned by tests/terminalClearHistory.test.tsx
-// for history). Every OTHER type is a LuciferAI command word: when
-// the plugin is off the Terminal rewrites it to 'shell', so the
-// command goes to the shell PTY (bash builtins like help/history/
-// env work; anything else is "command not found") instead of the
-// terminal printing a LuciferAI refusal — the terminal speaking
-// LuciferAI while off. A plain terminal has no LuciferAI words.
-export const PLAIN_TERMINAL_KEEPERS: ReadonlySet<CommandType> = new Set([
-  'shell',
-  'fix',
-  'fixnet',
-  'browser',
-  'history',
-  'workflow',
-]);
-
-// LuciferAI /commands (slash commands)
+// Lucid slash commands (the words after the '/'). Bare words are
+// NEVER these: typing `llm` at the prompt runs the shell's `llm`
+// (command not found), and only `/llm` reaches Lucid. This set is
+// the catalogue's LuciferAI surface and the slash parser's dispatch
+// table — it is not a bare-word intercept list any more.
 export const LUCIFERAI_COMMANDS = new Set([
-  'help', 'plan', 'fix', 'fixnet', 'llm', 'build', 'create', 
+  'help', 'plan', 'fix', 'fixnet', 'llm', 'build', 'create',
   'workflow', 'tokens', 'history', 'agent'
 ]);
 
 /**
- * Multi-word commands, matched as a phrase BEFORE the single-word
- * sets: the old code checked the single first word first, so
- * 'fixnet stats' returned command='fixnet' (the first word only)
- * and the Terminal's `parsed.command === 'fixnet stats'` branch
- * could never match — every direct-IPC branch in the Terminal was
- * dead. The full matched phrase is the command now.
+ * Multi-word slash commands, matched as a phrase BEFORE the
+ * single-word dispatch: the old code checked the single first word
+ * first, so 'fixnet stats' returned command='fixnet' (the first
+ * word only) and the Terminal's `parsed.command === 'fixnet stats'`
+ * branch could never match — every direct-IPC branch in the
+ * Terminal was dead. The full matched phrase is the command now.
  *
  * `command` / `args` override the defaults (command = the phrase,
  * args = the words after it) for the two phrases whose Terminal
  * branch expects a fixed shape.
+ *
+ * These phrases are matched WITHOUT the leading slash (the slash
+ * parser strips it first) and are invoked WITH it: `/fixnet stats`,
+ * `/llm list`, `/browser diagnose`, `/workflow status`,
+ * `/history clear`.
  */
 export interface MultiWordCommand {
   phrase: string;
@@ -111,11 +113,16 @@ export const MULTI_WORD_COMMANDS: MultiWordCommand[] = [
 ];
 
 /**
- * Parse user input and determine command type
+ * Parse user input and determine command type.
+ *
+ * Slash input (`/...`) is a Lucid command. Anything else is a shell
+ * command — the router does not inspect it, does not rewrite it,
+ * and does not route it anywhere else. That is the whole point of
+ * the real terminal: the shell decides what a bare word means.
  */
 export function parseCommand(input: string): ParsedCommand {
   const trimmed = input.trim();
-  
+
   // Empty input
   if (!trimmed) {
     return {
@@ -128,78 +135,20 @@ export function parseCommand(input: string): ParsedCommand {
     };
   }
 
-  // Check for slash command (/command)
+  // Slash command (/command) — the ONLY Lucid invocation.
   if (trimmed.startsWith('/')) {
     return parseSlashCommand(trimmed);
   }
 
-  // Check for direct LuciferAI commands (without slash)
-  const firstWord = trimmed.split(/\s+/)[0].toLowerCase();
+  // Bare words go to the shell, always. No intercept, no rewrite,
+  // no agent fallback: `history` is zsh history, `help` is the
+  // shell's help, `llm` is "command not found", and a natural
+  // sentence is the shell's problem too.
   const words = trimmed.split(/\s+/);
-  const twoWords = words.slice(0, 2).join(' ').toLowerCase();
-
-  // Multi-word commands FIRST — matched as a phrase from
-  // MULTI_WORD_COMMANDS, before the single-word sets (see the
-  // table's comment for why the order matters).
-  const multiWord = MULTI_WORD_COMMANDS.find((m) => m.phrase === twoWords);
-  if (multiWord) {
-    return {
-      type: multiWord.type,
-      command: multiWord.command ?? twoWords,
-      args: multiWord.args ?? words.slice(2),
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-
-  // Check if it's a shell command
-  if (SHELL_COMMANDS.has(firstWord)) {
-    return {
-      type: 'shell',
-      command: firstWord,
-      args: trimmed.split(/\s+/).slice(1),
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-
-  // Check if it's a LuciferAI command (without slash)
-  if (LUCIFERAI_COMMANDS.has(firstWord)) {
-    const args = trimmed.split(/\s+/).slice(1);
-
-    // Special case: "help" command shows help panel
-    if (firstWord === 'help') {
-      return {
-        type: 'help',
-        command: 'help',
-        args: [],
-        raw: input,
-        isSlashCommand: false,
-        shouldShowHelp: true
-      };
-    }
-
-    return {
-      type: firstWord as CommandType,
-      command: firstWord,
-      args,
-      raw: input,
-      isSlashCommand: false,
-      shouldShowHelp: false
-    };
-  }
-  
-  // (No multi-word fallbacks here — 'workflow status' and
-  // 'clear history' are in MULTI_WORD_COMMANDS above and matched
-  // first, so the blocks that used to live here were dead code.)
-
-  // Default: route to agent (natural language)
   return {
-    type: 'agent',
-    command: 'agent',
-    args: [trimmed],
+    type: 'shell',
+    command: words[0].toLowerCase(),
+    args: words.slice(1),
     raw: input,
     isSlashCommand: false,
     shouldShowHelp: false
@@ -214,6 +163,37 @@ function parseSlashCommand(input: string): ParsedCommand {
   const parts = withoutSlash.split(/\s+/);
   const command = parts[0].toLowerCase();
   const args = parts.slice(1);
+
+  // Multi-word slash commands FIRST — matched as a phrase from
+  // MULTI_WORD_COMMANDS, before the single-word dispatch.
+  // `/fixnet stats`, `/llm list`, `/browser diagnose`,
+  // `/workflow status` all land here.
+  const twoWords = parts.slice(0, 2).join(' ').toLowerCase();
+  const multiWord = MULTI_WORD_COMMANDS.find((m) => m.phrase === twoWords);
+  if (multiWord) {
+    return {
+      type: multiWord.type,
+      command: multiWord.command ?? twoWords,
+      args: multiWord.args ?? parts.slice(2),
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  // `/history clear` — the clear form of the history command. The
+  // phrase table holds 'clear history' (the old bare form); the
+  // slash form spells it the other way round.
+  if (command === 'history' && args[0]?.toLowerCase() === 'clear') {
+    return {
+      type: 'history',
+      command: 'history',
+      args: ['clear'],
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
 
   // Help command
   if (command === 'help' || command === 'h' || command === '?') {
@@ -275,6 +255,18 @@ function parseSlashCommand(input: string): ParsedCommand {
     };
   }
 
+  // Browser commands
+  if (command === 'browser') {
+    return {
+      type: 'browser',
+      command: 'browser',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
   // Build/Create commands
   if (command === 'build' || command === 'b') {
     return {
@@ -327,6 +319,54 @@ function parseSlashCommand(input: string): ParsedCommand {
     return {
       type: 'history',
       command: 'history',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  // GitHub / environment / install / daemon — Help-documented Lucid
+  // commands that run through LucidCore (the plugin when it needs a
+  // model). They used to be bare words parsed as 'agent'; now they
+  // are slash-only, like every other Lucid command.
+  if (command === 'github') {
+    return {
+      type: 'github',
+      command: 'github',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  if (command === 'env' || command === 'environments') {
+    return {
+      type: 'env',
+      command: 'env',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  if (command === 'install') {
+    return {
+      type: 'install',
+      command: 'install',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  if (command === 'daemon') {
+    return {
+      type: 'daemon',
+      command: 'daemon',
       args,
       raw: input,
       isSlashCommand: true,
@@ -427,7 +467,7 @@ export function getCommandExamples(prefix: string): string[] {
   ];
 
   if (!prefix) return examples;
-  
+
   const lower = prefix.toLowerCase();
   return examples.filter(ex => ex.toLowerCase().startsWith(lower));
 }
@@ -480,7 +520,7 @@ export function findClosestCommand(input: string): string | null {
 
   for (const command of allCommands) {
     const distance = levenshteinDistance(firstWord, command.split(/\s+/)[0]);
-    
+
     // Only suggest if distance is 1-2 (minor typo)
     if (distance > 0 && distance <= 2 && distance < bestDistance) {
       bestDistance = distance;
@@ -505,10 +545,10 @@ export function getFallbackMessage(parsed: ParsedCommand): string {
   if (parsed.type === 'agent' || parsed.type === 'unknown') {
     const suggestion = findClosestCommand(parsed.raw);
     if (suggestion) {
-      return `❓ Unknown command: "${parsed.raw}"\n\n💡 Did you mean: ${suggestion}\n\nTry: help for available commands`;
+      return `❓ Unknown command: "${parsed.raw}"\n\n💡 Did you mean: ${suggestion}\n\nTry: /help for available commands`;
     }
-    return `❓ Unknown command: "${parsed.raw}"\n\n💡 This might be a natural language query that requires the LuciferAI plugin.\n\nWithout LuciferAI, try shell commands like: ls, pwd, git, npm, etc.\n\nTry: help for available commands`;
+    return `❓ Unknown command: "${parsed.raw}"\n\n💡 This might be a natural language query that requires the LuciferAI plugin.\n\nWithout LuciferAI, try shell commands like: ls, pwd, git, npm, etc.\n\nTry: /help for available commands`;
   }
-  
+
   return `⚠️  LuciferAI Plugin Required\n\nThe "${parsed.command}" command requires the LuciferAI backend.\n\nTo enable AI features:\n1. Start: python3 LUCID-BACKEND/core/stdio_agent.py\n2. Terminal will auto-reconnect in 30 seconds\n\nThe terminal works in standalone mode with shell commands.`;
 }

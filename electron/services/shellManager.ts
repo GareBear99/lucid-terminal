@@ -50,7 +50,8 @@ export function createTerminal(
   id: string,
   cwd?: string,
   onData?: (data: string) => void,
-  onExit?: (code: number) => void
+  onExit?: (code: number) => void,
+  onCwd?: (cwd: string) => void
 ): void {
   if (terminals.has(id)) {
     destroyTerminal(id);
@@ -69,7 +70,18 @@ export function createTerminal(
   console.log(`Creating terminal ${id} with shell: ${shell}, cwd: ${workingDir}`);
 
   try {
-    const ptyProcess = pty.spawn(shell, [], {
+    // REAL terminal (Gary, 2026-11-07: "terminal is not a terminal at
+    // all"): node-pty spawns the user's shell as a LOGIN interactive
+    // shell on a real TTY, so it reads its rc files, prints a prompt,
+    // and owns readline, history, completion and job control. The
+    // plain child_process pipe (simpleTerminal) is retired - a pipe
+    // is not a TTY, so the shell never went interactive.
+    const shellName = shell.split('/').pop() ?? '';
+    const loginArgs =
+      shellName === 'zsh' || shellName === 'bash' || shellName === 'fish'
+        ? ['-l']
+        : [];
+    const ptyProcess = pty.spawn(shell, loginArgs, {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
@@ -93,7 +105,7 @@ export function createTerminal(
       if (terminalInstance.isDestroyed) return;
       try {
         onData?.(data);
-        updateCwd(id, data);
+        updateCwd(id, data, onCwd);
       } catch (err) {
         console.error(`Error handling terminal data for ${id}:`, err);
       }
@@ -111,6 +123,10 @@ export function createTerminal(
     });
   } catch (error) {
     console.error(`Failed to create terminal ${id}:`, error);
+    // Rethrow: a spawn failure must reach the renderer (the store
+    // records it as a create error and the tab shows it) instead of
+    // leaving a normal-looking but dead terminal behind.
+    throw error;
   }
 }
 
@@ -155,10 +171,36 @@ export function getTerminalCwd(id: string): string {
   return terminal?.cwd || getDefaultCwd();
 }
 
-// Basic cwd tracking - tries to detect cd commands
-function updateCwd(id: string, data: string): void {
+// Basic cwd tracking: OSC 7 (file://<host><path>, emitted by shells
+// that report their cwd, terminated by BEL or ST) first, then the
+// echoed `cd` command as a fallback. Only reports a change, via
+// onCwd, so the renderer's header follows the shell.
+function updateCwd(
+  id: string,
+  data: string,
+  onCwd?: (cwd: string) => void
+): void {
   const terminal = terminals.get(id);
   if (!terminal || terminal.isDestroyed) return;
+
+  const report = (cwd: string) => {
+    if (cwd && cwd !== terminal.cwd) {
+      terminal.cwd = cwd;
+      onCwd?.(cwd);
+    }
+  };
+
+  // OSC 7: ESC ] 7 ; file://host/path BEL (or ESC \). The path is
+  // percent-encoded; decode it, and ignore the host part.
+  const osc7 = data.match(/\x1b\]7;file:\/\/[^\x07\x1b]*?(\/[^\x07\x1b]*)(?:\x07|\x1b\\)/);
+  if (osc7) {
+    try {
+      report(decodeURIComponent(osc7[1]));
+    } catch {
+      report(osc7[1]);
+    }
+    return;
+  }
 
   // This is a simplified approach - in production, you might want
   // to use more sophisticated methods like reading /proc on Linux
@@ -168,13 +210,13 @@ function updateCwd(id: string, data: string): void {
     const newDir = cdMatch[1].trim().replace(/["']/g, '');
     // Handle relative and absolute paths
     if (newDir.startsWith('/') || /^[A-Za-z]:/.test(newDir)) {
-      terminal.cwd = newDir;
+      report(newDir);
     } else if (newDir === '..') {
       const parts = terminal.cwd.split(/[\\/]/);
       parts.pop();
-      terminal.cwd = parts.join('\\') || 'C:\\';
-    } else if (newDir === '~') {
-      terminal.cwd = os.homedir();
+      report(parts.join('\\') || 'C:\\');
+    } else if (newDir === '~' || newDir === '') {
+      report(os.homedir());
     }
   }
 }

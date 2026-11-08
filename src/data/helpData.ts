@@ -1,6 +1,11 @@
 /**
  * LuciferAI Help Data - Warp-Style Compartmentalized Structure
  * Organized, searchable, and visually hierarchical
+ *
+ * REAL TERMINAL (Gary, 2026-11-07): bare words typed at the prompt
+ * go to the SHELL — only slash commands (`/fix`, `/llm`, `/help`,
+ * ...) reach Lucid. Every Lucid syntax below is the slash form.
+ * Shell commands (ls, cd, pwd, cat, clear, exit) stay bare.
  */
 
 import { MODEL_TIERS } from './tiers';
@@ -84,9 +89,9 @@ export const helpCategories: HelpCategory[] = [
       },
       {
         name: 'help',
-        syntax: 'help',
+        syntax: '/help',
         description: 'Show this help panel',
-        examples: ['help'],
+        examples: ['/help'],
         tags: ['info', 'instant']
       },
       {
@@ -110,7 +115,7 @@ export const helpCategories: HelpCategory[] = [
         name: 'plan',
         syntax: '/plan',
         description: 'Open planning panel to manage implementation plans',
-        examples: ['/plan', 'plan'],
+        examples: ['/plan'],
         aliases: ['p'],
         tags: ['planning', 'project', 'track']
       }
@@ -129,54 +134,54 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'fix',
-        syntax: 'fix <file|error>',
+        syntax: '/fix <file|error>',
         description: 'Auto-fix a file or an error: offline lookup first, then the model (Tier 2) for new fixes',
         examples: [
-          'fix broken_script.py',
-          'fix ModuleNotFoundError',
-          'fix TypeError: cannot read property',
-          'fix EACCES permission denied',
-          'fix npm ERR! code ENOENT'
+          '/fix broken_script.py',
+          '/fix ModuleNotFoundError',
+          '/fix TypeError: cannot read property',
+          '/fix EACCES permission denied',
+          '/fix npm ERR! code ENOENT'
         ],
         tags: ['error', 'debugging', 'offline', 'auto-fix']
       },
       {
         name: 'fixnet stats',
-        syntax: 'fixnet stats',
+        syntax: '/fixnet stats',
         description: 'Show FixNet statistics and coverage',
-        examples: ['fixnet stats'],
+        examples: ['/fixnet stats'],
         tags: ['info', 'stats', 'offline']
       },
       {
         name: 'fixnet search',
-        syntax: 'fixnet search <query>',
+        syntax: '/fixnet search <query>',
         description: 'Search offline fix dictionary',
         examples: [
-          'fixnet search module',
-          'fixnet search permission',
-          'fixnet search npm'
+          '/fixnet search module',
+          '/fixnet search permission',
+          '/fixnet search npm'
         ],
         tags: ['search', 'offline', 'dictionary']
       },
       {
         name: 'fixnet report',
-        syntax: 'fixnet report <fix_hash> <success|failure>',
+        syntax: '/fixnet report <fix_hash> <success|failure>',
         description: 'Record whether a served fix actually worked',
-        examples: ['fixnet report abc123 success'],
+        examples: ['/fixnet report abc123 success'],
         tags: ['info', 'stats', 'offline']
       },
       {
         name: 'fixnet apply',
-        syntax: 'fixnet apply <fix_hash> [file]',
+        syntax: '/fixnet apply <fix_hash> [file]',
         description: 'Apply a stored fix to a file and verify it by re-running',
-        examples: ['fixnet apply abc123 script.py'],
+        examples: ['/fixnet apply abc123 script.py'],
         tags: ['error', 'debugging', 'offline', 'auto-fix']
       },
       {
         name: 'fixnet delete',
-        syntax: 'fixnet delete <fix_hash>',
+        syntax: '/fixnet delete <fix_hash>',
         description: 'Delete a stored fix from the local dictionary',
-        examples: ['fixnet delete abc123'],
+        examples: ['/fixnet delete abc123'],
         tags: ['info', 'offline', 'dictionary']
       }
     ]
@@ -190,36 +195,36 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'llm list',
-        syntax: 'llm list',
+        syntax: '/llm list',
         description: 'List all available models and their status',
-        examples: ['llm list'],
+        examples: ['/llm list'],
         tags: ['models', 'info', 'ai']
       },
       {
         name: 'llm status',
-        syntax: 'llm status',
+        syntax: '/llm status',
         description: 'Show detailed status of all models',
-        examples: ['llm status'],
+        examples: ['/llm status'],
         tags: ['models', 'info', 'ai', 'status']
       },
       {
         name: 'llm enable',
-        syntax: 'llm enable <model>',
+        syntax: '/llm enable <model>',
         description: 'Enable a specific model',
         examples: [
-          'llm enable tinyllama',
-          'llm enable mistral',
-          'llm enable llama3.1:8b'
+          '/llm enable tinyllama',
+          '/llm enable mistral',
+          '/llm enable llama3.1:8b'
         ],
         tags: ['models', 'config', 'ai']
       },
       {
         name: 'llm disable',
-        syntax: 'llm disable <model>',
+        syntax: '/llm disable <model>',
         description: 'Disable a specific model',
         examples: [
-          'llm disable tinyllama',
-          'llm disable deepseek-coder:33b'
+          '/llm disable tinyllama',
+          '/llm disable deepseek-coder:33b'
         ],
         tags: ['models', 'config', 'ai']
       }
@@ -234,23 +239,23 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'build',
-        syntax: 'build <description>',
+        syntax: '/build <description>',
         description: 'Generate a script from natural language',
         examples: [
-          'build a Python script that sorts a CSV file',
-          'build a bash script to backup my photos',
-          'build a JavaScript function to validate emails'
+          '/build a Python script that sorts a CSV file',
+          '/build a bash script to backup my photos',
+          '/build a JavaScript function to validate emails'
         ],
         tags: ['ai', 'code-gen', 'script']
       },
       {
         name: 'create',
-        syntax: 'create <description>',
+        syntax: '/create <description>',
         description: 'Create code, files, or projects',
         examples: [
-          'create a Node.js API with Express',
-          'create a React component for a user profile',
-          'create a Dockerfile for a Python app'
+          '/create a Node.js API with Express',
+          '/create a React component for a user profile',
+          '/create a Dockerfile for a Python app'
         ],
         tags: ['ai', 'code-gen', 'project']
       }
@@ -265,30 +270,30 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'workflow status',
-        syntax: 'workflow status',
+        syntax: '/workflow status',
         description: 'Show complete workflow health and stats',
-        examples: ['workflow status'],
+        examples: ['/workflow status'],
         tags: ['info', 'stats', 'system']
       },
       {
         name: 'tokens',
-        syntax: 'tokens',
+        syntax: '/tokens',
         description: 'Display token usage statistics',
-        examples: ['tokens'],
+        examples: ['/tokens'],
         tags: ['info', 'stats', 'ai', 'tokens']
       },
       {
         name: 'history',
-        syntax: 'history',
+        syntax: '/history',
         description: 'Show conversation history',
-        examples: ['history'],
+        examples: ['/history'],
         tags: ['info', 'history']
       },
       {
         name: 'clear history',
-        syntax: 'clear history',
+        syntax: '/history clear',
         description: 'Clear conversation history',
-        examples: ['clear history'],
+        examples: ['/history clear'],
         tags: ['history', 'clear']
       }
     ]
@@ -302,37 +307,37 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'github link',
-        syntax: 'github link',
+        syntax: '/github link',
         description: 'Link your GitHub account for permanent ID',
-        examples: ['github link'],
+        examples: ['/github link'],
         tags: ['github', 'sync', 'account']
       },
       {
         name: 'github upload',
-        syntax: 'github upload',
+        syntax: '/github upload',
         description: 'Upload fixes to your GitHub repository',
-        examples: ['github upload'],
+        examples: ['/github upload'],
         tags: ['github', 'upload', 'sync']
       },
       {
         name: 'github update',
-        syntax: 'github update',
+        syntax: '/github update',
         description: 'Update fixes on GitHub',
-        examples: ['github update'],
+        examples: ['/github update'],
         tags: ['github', 'update', 'sync']
       },
       {
         name: 'github status',
-        syntax: 'github status',
+        syntax: '/github status',
         description: 'Show GitHub sync status',
-        examples: ['github status'],
+        examples: ['/github status'],
         tags: ['github', 'status', 'info']
       },
       {
         name: 'github projects',
-        syntax: 'github projects',
+        syntax: '/github projects',
         description: 'List your GitHub projects',
-        examples: ['github projects'],
+        examples: ['/github projects'],
         tags: ['github', 'projects', 'list']
       }
     ]
@@ -346,29 +351,29 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'environments',
-        syntax: 'environments',
+        syntax: '/environments',
         description: 'List all available environments',
-        examples: ['environments', 'envs'],
+        examples: ['/environments'],
         aliases: ['envs'],
         tags: ['env', 'list', 'management']
       },
       {
         name: 'env search',
-        syntax: 'env search <query>',
+        syntax: '/env search <query>',
         description: 'Search for environments',
         examples: [
-          'env search python',
-          'env search node'
+          '/env search python',
+          '/env search node'
         ],
         tags: ['env', 'search']
       },
       {
         name: 'env activate',
-        syntax: 'env activate <name>',
+        syntax: '/env activate <name>',
         description: 'Activate a specific environment',
         examples: [
-          'env activate myproject',
-          'activate python-3.11'
+          '/env activate myproject',
+          '/env activate python-3.11'
         ],
         aliases: ['activate'],
         tags: ['env', 'activate']
@@ -388,52 +393,52 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'install',
-        syntax: 'install <model>',
+        syntax: '/install <model>',
         description: 'Install a specific model by name',
         examples: [
-          'install mistral',
-          'install llama3.1',
-          'install deepseek-coder'
+          '/install mistral',
+          '/install llama3.1',
+          '/install deepseek-coder'
         ],
         tags: ['install', 'models', 'download']
       },
       {
         name: 'install tier',
-        syntax: 'install tier <0-4>',
+        syntax: '/install tier <0-4>',
         description: 'Install all models in a tier',
         examples: [
-          'install tier 0',
-          'install tier 2',
-          'install tier 4'
+          '/install tier 0',
+          '/install tier 2',
+          '/install tier 4'
         ],
         tags: ['install', 'models', 'tier']
       },
       {
         name: 'install core models',
-        syntax: 'install core models',
+        syntax: '/install core models',
         description: 'Install essential core models',
-        examples: ['install core models'],
+        examples: ['/install core models'],
         tags: ['install', 'models', 'core']
       },
       {
         name: 'install all models',
-        syntax: 'install all models',
+        syntax: '/install all models',
         description: 'Install all available models',
-        examples: ['install all models'],
+        examples: ['/install all models'],
         tags: ['install', 'models', 'all']
       },
       {
         name: 'backup models',
-        syntax: 'backup models',
+        syntax: '/backup models',
         description: 'Backup installed models',
-        examples: ['backup models'],
+        examples: ['/backup models'],
         tags: ['backup', 'models']
       },
       {
         name: 'show backup models',
-        syntax: 'show backup models',
+        syntax: '/show backup models',
         description: 'List backed up models',
-        examples: ['show backup models'],
+        examples: ['/show backup models'],
         tags: ['backup', 'models', 'list']
       }
     ]
@@ -465,23 +470,23 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'info',
-        syntax: 'info',
+        syntax: '/info',
         description: 'Show system information',
-        examples: ['info'],
+        examples: ['/info'],
         tags: ['system', 'info']
       },
       {
         name: 'memory',
-        syntax: 'memory',
+        syntax: '/memory',
         description: 'Show memory usage statistics',
-        examples: ['memory'],
+        examples: ['/memory'],
         tags: ['system', 'memory', 'stats']
       },
       {
         name: 'mainmenu',
-        syntax: 'mainmenu',
+        syntax: '/mainmenu',
         description: 'Show main menu',
-        examples: ['mainmenu', 'main menu'],
+        examples: ['/mainmenu'],
         aliases: ['main menu'],
         tags: ['system', 'menu']
       }
@@ -496,27 +501,27 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'daemon',
-        syntax: 'daemon',
+        syntax: '/daemon',
         description: 'Start file watcher daemon',
-        examples: ['daemon', 'watch', 'daemon watch'],
+        examples: ['/daemon'],
         aliases: ['watch', 'daemon watch'],
         tags: ['dev', 'watch', 'daemon']
       },
       {
         name: 'run',
-        syntax: 'run <script>',
+        syntax: '/run <script>',
         description: 'Execute a script or command',
         examples: [
-          'run test.py',
-          'run build.sh'
+          '/run test.py',
+          '/run build.sh'
         ],
         tags: ['dev', 'execute', 'run']
       },
       {
         name: 'test suite',
-        syntax: 'test suite',
+        syntax: '/test suite',
         description: 'Run full test suite',
-        examples: ['test suite'],
+        examples: ['/test suite'],
         tags: ['dev', 'test', 'suite']
       }
     ]
@@ -530,16 +535,16 @@ export const helpCategories: HelpCategory[] = [
     commands: [
       {
         name: 'diabolical mode',
-        syntax: 'diabolical mode',
+        syntax: '/diabolical mode',
         description: 'Enter enhanced diabolical mode',
-        examples: ['diabolical mode'],
+        examples: ['/diabolical mode'],
         tags: ['mode', 'enhanced']
       },
       {
         name: 'diabolical exit',
-        syntax: 'diabolical exit',
+        syntax: '/diabolical exit',
         description: 'Exit diabolical mode',
-        examples: ['diabolical exit'],
+        examples: ['/diabolical exit'],
         tags: ['mode', 'exit']
       }
     ]

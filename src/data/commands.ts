@@ -61,6 +61,14 @@ export interface CommandCategory {
 /** Help categories that are not commands. */
 const EXCLUDED_HELP_CATEGORIES = new Set(['tiers', 'natural']);
 
+/** Fallback group for a Lucid-local single word Help does not document. */
+const LUCIFERAI_FALLBACK_CATEGORY: Record<string, string> = {
+  fix: 'FixNet Commands',
+  fixnet: 'FixNet Commands',
+  workflow: 'Workflow & System',
+  history: 'Workflow & System',
+};
+
 /** Fallback group for a multi-word command Help does not document. */
 const MULTI_WORD_FALLBACK_CATEGORY: Record<string, string> = {
   fixnet: 'FixNet Commands',
@@ -122,7 +130,9 @@ function buildCommandCatalogue(): CommandCatalogueEntry[] {
     });
   }
 
-  // 2. LuciferAI commands — slash or bare word.
+  // 2. LuciferAI commands — slash-only. Bare words go to the
+  // shell now (Gary, 2026-11-07: the real terminal), so the
+  // syntax shown here is the slash form.
   for (const name of [...LUCIFERAI_COMMANDS].sort()) {
     const documented = help.get(name);
     add({
@@ -131,7 +141,15 @@ function buildCommandCatalogue(): CommandCatalogueEntry[] {
       description:
         documented?.description ??
         getCommandDescription(name as CommandType),
-      category: documented?.category ?? 'LuciferAI',
+      // Undocumented Lucid-local singles belong with their
+      // function, not under 'LuciferAI': `/fixnet` is a FixNet
+      // command and `/workflow` / `/history` are workflow ones,
+      // so they stay listed (under the right heading) while the
+      // plugin is off instead of vanishing with it.
+      category:
+        documented?.category ??
+        LUCIFERAI_FALLBACK_CATEGORY[name] ??
+        'LuciferAI',
       kind: 'luciferai',
       source: 'router',
       aliases: documented?.aliases,
@@ -144,7 +162,9 @@ function buildCommandCatalogue(): CommandCatalogueEntry[] {
     const documented = help.get(multi.phrase);
     add({
       name: multi.phrase,
-      syntax: documented?.syntax ?? multi.phrase,
+      // Slash form: `/fixnet stats`, not the bare phrase — the
+      // terminal only runs these with the slash now.
+      syntax: documented?.syntax ?? `/${multi.phrase}`,
       description:
         documented?.description ?? getCommandDescription(multi.type),
       category:
@@ -262,34 +282,40 @@ export function searchCommandCatalogue(
  *
  * The rule is the terminal's own behaviour in
  * src/components/Terminal/Terminal.tsx — the panel lists only what
- * the terminal will actually run while the plugin is off:
+ * the terminal will actually run while the plugin is off. Lucid
+ * commands are slash-only now (bare words go to the shell), so
+ * this is judged on the SLASH form (`parseCommand('/' + name)`):
  *
  * - Shell commands run in the PTY and never touch the plugin.
- * - The router's LuciferAI set (kind 'luciferai': help, plan, fix,
+ * - Slash LuciferAI commands (kind 'luciferai': help, plan, fix,
  *   fixnet, llm, build, create, workflow, tokens, history, agent)
- *   is LuciferAI's: the terminal refuses them while the plugin is
- *   off — the `llm` and `tokens` cases refuse outright, and
- *   everything else in the set falls to the default branch, which
- *   refuses before any plugin or shell fallback. `fix` and bare
- *   `fixnet` are the exception that proves the set: they run the
- *   local FixNet orchestrator even while off, but they are the
- *   router's LuciferAI set, so they go with it — the multi-word
- *   FixNet commands below are the local FixNet surface that stays.
+ *   need the plugin EXCEPT the Lucid-local ones: `fix` / `fixnet`
+ *   run the local FixNet orchestrator, `workflow` reads local
+ *   workflow status, and `history` reads Lucid's own conversation
+ *   history — all main-process, no plugin.
  * - Help-only entries (kind 'lucid': github, env, install,
- *   daemon, ...) are plugin commands documented in Help that the
- *   router does not enumerate; typed, they parse to type 'agent'
- *   and hit the same default-branch refusal.
+ *   daemon, ...) are plugin commands documented in Help; typed
+ *   as `/github`, `/install`, ... they hit the plugin path.
  * - Multi-word commands stay only when they run locally: the
- *   FixNet phrases run the local orchestrator and `browser
- *   diagnose` reads the local browser service. `llm ...` is
- *   refused like bare `llm`, and `workflow status` / `clear
- *   history` call the LuciferAI backend (`lucidAPI.lucid.*`) with
- *   no disable guard, so they cannot run while the plugin is off.
+ *   FixNet phrases run the local orchestrator, `browser diagnose`
+ *   reads the local browser service, `workflow status` reads
+ *   local workflow state, and `history` / `clear history` read
+ *   and clear Lucid's own conversation history. `llm ...` needs
+ *   the plugin like bare `/llm` does.
  */
 export function requiresLuciferAI(entry: CommandCatalogueEntry): boolean {
   if (entry.kind === 'shell') return false;
-  if (entry.kind === 'luciferai' || entry.kind === 'lucid') return true;
-  // Multi-word: only the local ones stay.
-  const type = parseCommand(entry.name).type;
-  return type !== 'fixnet' && type !== 'browser';
+  if (entry.kind === 'lucid') return true;
+  if (entry.kind === 'luciferai') {
+    // The Lucid-local single words run without the plugin.
+    return !['fix', 'fixnet', 'workflow', 'history'].includes(entry.name);
+  }
+  // Multi-word: judge the slash form — only the local ones stay.
+  const type = parseCommand(`/${entry.name}`).type;
+  return (
+    type !== 'fixnet' &&
+    type !== 'browser' &&
+    type !== 'workflow' &&
+    type !== 'history'
+  );
 }

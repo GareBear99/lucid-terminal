@@ -1,12 +1,15 @@
 import { IpcMain, BrowserWindow } from 'electron';
-// Switched to simpleTerminal (child_process) instead of node-pty
+// REAL terminal (Gary, 2026-11-07: "terminal is not a terminal at
+// all"): node-pty via shellManager - a real TTY with a login
+// interactive shell. simpleTerminal (plain child_process pipe) is
+// retired: a pipe is not a TTY, so the shell never went interactive.
 import {
   createTerminal,
   writeToTerminal,
   resizeTerminal,
   destroyTerminal,
   getTerminalCwd,
-} from '../services/simpleTerminal';
+} from '../services/shellManager';
 import { runCommand } from '../core/tools/commandTools';
 
 export function setupTerminalHandlers(ipcMain: IpcMain): void {
@@ -26,6 +29,13 @@ export function setupTerminalHandlers(ipcMain: IpcMain): void {
         // Notify renderer that terminal has exited
         if (!sender.isDestroyed()) {
           sender.send('terminal:exit', id, code);
+        }
+      },
+      (cwd) => {
+        // The shell moved (OSC 7 / cd) - the renderer's header
+        // follows the live cwd.
+        if (!sender.isDestroyed()) {
+          sender.send('terminal:cwd', id, cwd);
         }
       }
     );

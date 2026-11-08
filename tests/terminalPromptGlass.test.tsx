@@ -19,8 +19,10 @@
  * unmistakable, in both states.
  *
  * This renders the real Terminal (same harness pattern as
- * tests/terminalClearHistory.test.tsx) with the Monaco editor mocked
- * and the heavy children stubbed, and asserts on the prompt panel.
+ * tests/terminalClearHistory.test.tsx) with the heavy children
+ * stubbed, and asserts on the prompt panel. jsdom has no canvas
+ * 2d context, so XtermSurface renders its plain-text fallback —
+ * the prompt panel under test is the same element either way.
  *
  * Run with: npm test
  */
@@ -32,50 +34,6 @@ import { useHistoryStore } from '../src/stores/historyStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import { useTerminalStore } from '../src/stores/terminalStore';
 
-// --- Monaco mock (same pattern as tests/inputArea.test.tsx) ---
-const mockState = vi.hoisted(() => ({
-  initImpl: null as null | (() => Promise<unknown>),
-  editorProps: null as null | Record<string, any>,
-  mounted: false,
-}));
-
-vi.mock('@monaco-editor/react', () => {
-  const fakeEditor = {
-    getValue: () => '',
-    setValue: () => {},
-    getModel: () => null,
-    setPosition: () => {},
-    addCommand: () => {},
-    focus: () => {},
-    getContentHeight: () => 40,
-    onDidContentSizeChange: () => ({ dispose: () => {} }),
-  };
-  const fakeMonaco = {
-    editor: { defineTheme: () => {}, setTheme: () => {} },
-    KeyCode: { Enter: 3, UpArrow: 16, DownArrow: 18 },
-  };
-  return {
-    loader: {
-      init: () =>
-        mockState.initImpl ? mockState.initImpl() : new Promise(() => {}),
-      config: () => {},
-    },
-    default: (props: Record<string, any>) => {
-      mockState.editorProps = props;
-      return (
-        <div
-          data-testid="monaco-editor"
-          ref={(el: unknown) => {
-            if (el && !mockState.mounted) {
-              mockState.mounted = true;
-              props.onMount?.(fakeEditor, fakeMonaco);
-            }
-          }}
-        />
-      );
-    },
-  };
-});
 
 // Heavy children the test does not care about — stub them so the render
 // stays light (SentinelFace runs a rAF gaze loop; FixNetStatus fetches
@@ -92,12 +50,6 @@ let prevLucidAPI: unknown;
 let prevLuciferAiEnabled: boolean | undefined;
 
 beforeEach(() => {
-  mockState.initImpl = () => Promise.resolve();
-  mockState.editorProps = null;
-  mockState.mounted = false;
-  // jsdom has no scrollIntoView; the terminal auto-scrolls on new blocks.
-  (Element.prototype as unknown as Record<string, unknown>).scrollIntoView =
-    vi.fn();
   if (!window.matchMedia) {
     Object.defineProperty(window, 'matchMedia', {
       value: vi.fn().mockImplementation((q: string) => ({
@@ -168,7 +120,7 @@ describe('terminal prompt panel — squared glass backwall, segregation divider,
   test('LuciferAI on: the prompt panel is a squared glass backwall', async () => {
     setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('monaco-editor');
+    await screen.findByTestId('xterm-surface');
     const wrap = screen.getByTestId('prompt-input-wrap');
     expectSquaredGlassBackwall(wrap);
     // No drag handle anywhere in the terminal prompt.
@@ -178,7 +130,7 @@ describe('terminal prompt panel — squared glass backwall, segregation divider,
   test('LuciferAI off (flat): the prompt panel is STILL a squared glass backwall', async () => {
     setLuciferAiEnabled(false);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('monaco-editor');
+    await screen.findByTestId('xterm-surface');
     const wrap = screen.getByTestId('prompt-input-wrap');
     expectSquaredGlassBackwall(wrap);
     // No drag handle while flat either.
@@ -212,7 +164,7 @@ describe('terminal prompt — whole glass section', () => {
   test('LuciferAI on: the prompt is a whole glass section with a header', async () => {
     setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('monaco-editor');
+    await screen.findByTestId('xterm-surface');
     const section = screen.getByTestId('prompt-section');
     expectPromptSection(section);
     const header = screen.getByTestId('prompt-section-header');
@@ -225,7 +177,7 @@ describe('terminal prompt — whole glass section', () => {
   test('LuciferAI off (flat): the prompt is STILL a whole glass section', async () => {
     setLuciferAiEnabled(false);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('monaco-editor');
+    await screen.findByTestId('xterm-surface');
     const section = screen.getByTestId('prompt-section');
     expectPromptSection(section);
     const header = screen.getByTestId('prompt-section-header');
@@ -243,7 +195,7 @@ describe('terminal prompt — whole glass section', () => {
     });
     try {
       render(<Terminal tabId="tab-1" />);
-      await screen.findByTestId('monaco-editor');
+      await screen.findByTestId('xterm-surface');
       const header = screen.getByTestId('prompt-section-header');
       expect(header.textContent).toContain('/Users/gary');
     } finally {
@@ -254,7 +206,7 @@ describe('terminal prompt — whole glass section', () => {
   test('glass match (Gary, 2026-11-07 ~09:26 PST): everything ON the glass is glass, not opaque', async () => {
     setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" luciferToggleActive={false} onToggleLuciferAi={() => {}} />);
-    await screen.findByTestId('monaco-editor');
+    await screen.findByTestId('xterm-surface');
     // An on-glass element carries no opaque fill: every bg- token is
     // either a hover: sheen or a translucent (/NN) tint.
     const expectGlassMatched = (el: HTMLElement) => {
@@ -265,11 +217,12 @@ describe('terminal prompt — whole glass section', () => {
     };
     // The blood drop toggle (LuciferAI on): lit, transparent, no fill.
     expectGlassMatched(screen.getByRole('button', { name: 'Toggle LuciferAI' }));
-    // The send arrow: transparent at rest, white sheen on hover only.
-    expectGlassMatched(screen.getByRole('button', { name: 'Send command' }));
-    // The `~` and the header row: plain text, no fill.
+    // The hint line in the prompt row: plain text, no fill. (The
+    // send arrow and the `~` are gone with the Monaco prompt — the
+    // terminal surface IS the input now, so there is no send button
+    // left to match. That is the real terminal, not a regression.)
     const section = screen.getByTestId('prompt-section');
-    expectGlassMatched(within(section).getByText('~'));
+    expectGlassMatched(within(section).getByText(/Real shell/));
     const header = screen.getByTestId('prompt-section-header');
     expectGlassMatched(header);
     header.querySelectorAll('span').forEach((s) => expectGlassMatched(s as unknown as HTMLElement));

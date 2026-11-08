@@ -4,18 +4,13 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { useAIStore } from '../../stores/aiStore';
-import { useHistoryStore, EMPTY_BLOCKS, BlocksUpdater } from '../../stores/historyStore';
+import { useHistoryStore } from '../../stores/historyStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
-import { useGazeStore, ATTENTION_DURATION_MS } from '../../stores/gazeStore';
 import { useHornWiggleStore } from '../../stores/hornWiggleStore';
-import { TerminalBlock } from '../../types';
-import { Block } from './Block';
-import { InputArea } from './InputArea';
-import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM, PLAIN_TERMINAL_KEEPERS } from '../../utils/commandRouter';
+import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
+import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
 import { HelpPanel } from '../Help/HelpPanel';
 import { PlanningPanel } from '../Planning/PlanningPanel';
-import { ValidationStepFactory } from './ValidationIndicator';
-import { parseTokenStatsFromResponse } from './TokenDisplay';
 import { FixNetStatus } from '../FixNet/FixNetStatus';
 import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
@@ -38,37 +33,49 @@ interface TerminalProps {
   onToggleLuciferAi?: () => void;
 }
 
+/**
+ * REAL terminal (Gary, 2026-11-07: "terminal is not a terminal at
+ * all"). The surface is xterm.js attached to a node-pty login
+ * interactive shell — the shell owns echo, line editing, history,
+ * completion and job control. Every keystroke reaches the PTY the
+ * moment it is typed; PTY output streams into the terminal as it
+ * arrives, for as long as it arrives. There is no Monaco prompt,
+ * no send arrow, no block list, no 500ms fake-completion timer,
+ * and no dispatcher intercepting bare words.
+ *
+ * Bare words go to the shell, always. Lucid commands are EXPLICIT
+ * slash commands (`/fix`, `/llm`, `/help`, ...): the input handler
+ * tracks the current line, and on Enter a line starting with '/'
+ * is wiped from the shell's line (Ctrl+U) and run as a Lucid
+ * command instead, its output printed into the stream. A slash
+ * line that used Tab/arrows cannot be tracked reliably — it falls
+ * through to the shell, which reports it as not found.
+ *
+ * The prompt section keeps its Warp-style glass (header, blood
+ * drop, Sentinel face) around the real surface: the glass is the
+ * frame, not the terminal.
+ */
 function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleActive, onToggleLuciferAi }: TerminalProps) {
   const { settings } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
   // this value, never the raw setting (missing key = ON).
   const luciferAiEnabled = isLuciferAiEnabled(settings);
-  const { createTab, closeTab, createErrors, clearCreateError } = useTerminalStore();
+  const { createTab, closeTab, createErrors, clearCreateError, updateTabCwd } = useTerminalStore();
   // This tab's working directory — the prompt section's
-  // context line (Warp's attached path, Gary 2026-11-07).
+  // context line (Warp's attached path, Gary 2026-11-07). It
+  // follows the live shell now: the main process reports OSC 7 /
+  // cd moves over `terminal:cwd`.
   const tabCwd = useTerminalStore((st) => st.tabs.find((t) => t.id === tabId)?.cwd);
-  // Command blocks live in the history store, keyed by this tab — the
-  // chats (Conversation History) render in the main Sidebar, outside
-  // this component, so local state can't reach them. This wrapper keeps
-  // the exact setState signature, so every existing setBlocks call site
-  // below works unchanged; the store is the single source of truth.
-  const blocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS);
-  const setBlocks = useCallback(
-    (updater: BlocksUpdater) =>
-      useHistoryStore.getState().setBlocks(tabId, updater),
-    [tabId]
-  );
-  const [input, setInput] = useState('');
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  // The prompt input wrapper (InputArea). The send arrow is a button next
-  // to the editor, so after it submits we return keyboard focus here —
-  // Enter keeps focus in the editor naturally, a mouse click would
-  // otherwise leave focus on the button.
-  const inputWrapRef = useRef<HTMLDivElement>(null);
+  // A slash command is running (the 'command' loading key). The
+  // shell itself never sets this — only Lucid work does.
+  const [slashRunning, setSlashRunning] = useState(false);
+  const termRef = useRef<XtermSurfaceHandle>(null);
+  // The current shell line, as typed — tracked so a slash command
+  // can be recognised on Enter. `null` means "unknown": Tab,
+  // arrows or reverse-search changed the line in a way this
+  // tracker cannot follow, so the line is left to the shell.
+  const lineBuffer = useRef<string | null>('');
   // Click-and-hold on the face button (Gary, 2026-11-06): holding
   // the main displayed face opens the roster (the Forge); a quick
   // click still toggles the Synth view as before. The timer and the
@@ -88,7 +95,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   const [modelAvailable, setModelAvailable] = useState(false);
   const [modelNames, setModelNames] = useState<string[]>([]);
   // Busy signals for the idle heartbeat: it shows only while the
-  // plugin is active AND idle. A terminal command, an AI-chat
+  // plugin is active AND idle. A Lucid slash command, an AI-chat
   // generation, or a plugin task all count as busy. EXCEPT: while
   // the fangs drip (AI-chat generation or LuciferAI plugin task)
   // the heartbeat does NOT hide — it shifts to the blood-drop
@@ -97,22 +104,27 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // computed here once and shared, so the two stay in sync.
   const aiChatLoading = useAIStore((s) => s.isLoading);
   const luciferTaskActive = useLoadingStore((s) => s.active['lucifer-task'] > 0);
-  const heartbeatBusy = isProcessing || aiChatLoading || luciferTaskActive;
+  const heartbeatBusy = slashRunning || aiChatLoading || luciferTaskActive;
   const heartbeatDripping = shouldDrip(aiChatLoading, luciferTaskActive);
 
   // Terminal failed to start (shell would not spawn). Set when the shell
   // exits non-zero shortly after this tab was created.
   const [terminalFailed, setTerminalFailed] = useState<{ code: number; message: string } | null>(null);
+  // The shell exited (any code, any time — typing `exit` included).
+  // Input stops, the surface reports it, and the banner offers a
+  // restart. A live-looking dead terminal is the old bug.
+  const [shellExited, setShellExited] = useState<{ code: number } | null>(null);
+  const shellExitedRef = useRef(false);
   const terminalCreatedAt = useRef(Date.now());
   const terminalReadyLogged = useRef(false);
   const lastTerminalData = useRef('');
-  
+
   // Help panel state
   const [showHelpPanel, setShowHelpPanel] = useState(false);
-  
+
   // Planning panel state
   const [showPlanningPanel, setShowPlanningPanel] = useState(false);
-  
+
   // The chats live in the main Sidebar now (paper button, under the
   // Explorer) — Cmd+B toggles that panel from the Sidebar, not here.
 
@@ -138,10 +150,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       useLoadingStore.getState().start('lucifer-check');
       try {
         console.log('[Plugin] Checking LuciferAI availability...');
-        
+
         // Attempt to initialize LuciferAI backend
         const result = await window.lucidAPI.lucid.init();
-        
+
         if (!result.success) {
           console.log('[Plugin] ⚠️  LuciferAI plugin unavailable:', result.error);
           setLuciferAIAvailable(false);
@@ -149,7 +161,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           setModelNames([]);
           return;
         }
-        
+
         // The wrapper being up is not enough - check for a real model.
         const statuses = await window.lucidAPI.lucid.getModelStatuses();
         // The setting may have flipped off mid-probe: re-check the
@@ -182,10 +194,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         useLoadingStore.getState().finish('lucifer-check');
       }
     };
-    
+
     // Try to connect to plugin
     initLuciferAI();
-    
+
     // Retry every 30s while the plugin is down or no model is loaded, so a
     // model installed later is picked up without a restart.
     const retryInterval = setInterval(() => {
@@ -194,11 +206,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         initLuciferAI();
       }
     }, 30000);
-    
+
     return () => clearInterval(retryInterval);
   }, [luciferAIAvailable, modelAvailable, luciferAiEnabled]);
 
-  // Initialize first block or listen to PTY
+  // PTY stream in, PTY exit, live cwd — straight into the surface.
   useEffect(() => {
     // Handler for incoming data from PTY
     const handleData = (id: string, data: string) => {
@@ -221,67 +233,57 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         console.log('[INIT] ✅ Terminal ready!');
       }
 
-      setBlocks(prev => {
-        // No blocks yet: the shell's first output (including a spawn error
-        // such as "Error: spawn ... ENOENT") used to be dropped here, so a
-        // dead shell looked like an empty, working terminal. Keep it as a
-        // block so the error is visible.
-        if (prev.length === 0) {
-          return [{
-            id: `terminal-${Date.now()}`,
-            command: 'Terminal error',
-            output: cleaned,
-            timestamp: Date.now(),
-            isComplete: true,
-            isCollapsed: false,
-            isProcessing: false,
-          }];
-        }
-
-        const lastBlock = prev[prev.length - 1];
-        if (lastBlock.isComplete) return prev; // Data arrived after completion? (Race condition)
-
-        // Create new array with updated last block
-        const newBlocks = [...prev];
-        newBlocks[newBlocks.length - 1] = {
-          ...lastBlock,
-          output: lastBlock.output + cleaned
-        };
-        return newBlocks;
-      });
+      // Streamed, as it arrives, for as long as it arrives. No
+      // timer, no block completion, no re-parse: xterm.js owns the
+      // screen and the ANSI.
+      termRef.current?.write(cleaned);
     };
 
-    // A shell that exits non-zero shortly after the tab was created never
-    // spawned (bad SHELL, missing binary). Surface it instead of leaving a
-    // normal-looking but dead terminal.
+    // Any shell exit — `exit`, Ctrl+D, a crash, a spawn failure —
+    // stops input and says so on the surface. The old code only
+    // surfaced an early non-zero exit and left the rest looking
+    // live.
     const handleExit = (id: string, code: number) => {
-      if (id !== tabId || code === 0) return;
-      if (Date.now() - terminalCreatedAt.current > 10000) return;
-      const message = (lastTerminalData.current || '').trim()
-        || `Shell exited with code ${code}`;
-      console.log(`[INIT] ❌ Terminal failed to start (exit code ${code}): ${message}`);
-      setTerminalFailed({ code, message });
-      useToastStore.getState().error(`Terminal failed to start: ${message}`);
+      if (id !== tabId) return;
+      shellExitedRef.current = true;
+      setShellExited({ code });
+      termRef.current?.write(`\r\n\x1b[31mShell exited (code ${code}).\x1b[0m\r\n`);
+      if (code !== 0 && Date.now() - terminalCreatedAt.current <= 10000) {
+        const message = (lastTerminalData.current || '').trim()
+          || `Shell exited with code ${code}`;
+        console.log(`[INIT] ❌ Terminal failed to start (exit code ${code}): ${message}`);
+        setTerminalFailed({ code, message });
+        useToastStore.getState().error(`Terminal failed to start: ${message}`);
+      }
+    };
+
+    // The shell moved (OSC 7 / cd): the prompt section's context
+    // line follows the live cwd.
+    const handleCwd = (id: string, cwd: string) => {
+      if (id !== tabId) return;
+      updateTabCwd(tabId, cwd);
     };
 
     const cleanupData = window.lucidAPI.terminal.onData(handleData);
     const cleanupExit = window.lucidAPI.terminal.onExit(handleExit);
-
-    // No initial block needed - terminal is ready for input immediately
+    const cleanupCwd = window.lucidAPI.terminal.onCwd?.(handleCwd) ?? (() => {});
 
     return () => {
       cleanupData();
       cleanupExit();
+      cleanupCwd();
     };
-  }, [tabId]);
+  }, [tabId, updateTabCwd]);
 
-  // Auto-scroll to bottom on a new block. Keystrokes are NOT a
-  // trigger: scrolling (smooth) on every keystroke made typing
-  // visibly janky - Warp keeps the prompt still while you type and
-  // only scrolls when output lands.
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [blocks]);
+  // Write Lucid output into the terminal stream, as its own lines.
+  // The shell already printed a fresh prompt for the wiped slash
+  // line; a short delay lets that prompt land first so the output
+  // does not interleave with it.
+  const termWriteLines = useCallback(async (text: string) => {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+    termRef.current?.write(`\r\n${normalized}\r\n`);
+  }, []);
 
   // Run a command through the LuciferAI plugin (LucidCore.processCommand
   // → workflow orchestrator → plugin backend). While it runs, the
@@ -303,15 +305,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // Local commands (fix / fixnet) go through the same `lucid:command`
   // IPC but WITHOUT the 'lucifer-task' loading key: they run in the
   // local FixNet path, not the LuciferAI plugin, so the Sentinel face
-  // must not drip for them. (The 'command' key is already started by
-  // handleSubmit for every submission, so the top-left swirl still
-  // shows while a local command runs.)
+  // must not drip for them.
   const runLocalCommand = async (cmd: string) => {
     return await window.lucidAPI.lucid.command(cmd);
   };
 
-  // Render a `lucid:command` result into a terminal block: the
-  // formatted terminal output when the workflow ran, else the error.
+  // Render a `lucid:command` result as plain text: the formatted
+  // terminal output when the workflow ran, else the error.
   const renderLocalResult = (result: any): string => {
     if (!result) return '❌ No response from the local workflow.';
     if (typeof result.terminalOutput === 'string' && result.terminalOutput) {
@@ -326,213 +326,73 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     return '❌ No response from the local workflow.';
   };
 
-  const handleSubmit = async (command: string) => {
-    if (!command.trim()) return;
-
+  // A Lucid slash command, already wiped from the shell's line.
+  // Only slash lines reach here — bare words never do. Lucid-local
+  // commands (fix, fixnet, browser diagnose, workflow, history)
+  // run whether LuciferAI is on or off; plugin commands (help,
+  // plan, llm, tokens, agent, build, create, github, env, install,
+  // daemon) need it on, and say so in one line when it is off.
+  // (That note answers an EXPLICIT slash invocation — bare LuciferAI
+  // words still go to the shell with no LuciferAI message at all.)
+  const runSlashCommand = async (line: string) => {
     // A submitted prompt feeds the Sentinel face's horns — the prompting
     // pace grows them, and the pace decays when prompting slows.
     usePromptPaceStore.getState().recordPrompt();
 
-    // The Sentinel face's eyes follow your actions — on submit they
-    // look at the prompt input for a beat, then drift back to
-    // wandering once the attention expires.
-    const wrapRect = inputWrapRef.current?.getBoundingClientRect();
-    if (wrapRect) {
-      useGazeStore.getState().setAttention(
-        wrapRect.left + wrapRect.width / 2,
-        wrapRect.top + wrapRect.height / 2,
-        ATTENTION_DURATION_MS,
-      );
-    }
+    const parsed = parseCommand(line);
+    console.log('[Slash] Processing:', parsed);
 
-    console.log('[Command Router] Processing:', command);
-
-    // 1. Add command to history
-    setHistory(prev => [...prev, command]);
-    setHistoryIndex(-1);
-
-    // 2. Parse command with deterministic router
-    const rawParsed = parseCommand(command);
-    // Plain terminal (Gary, 2026-11-07 ~20:17 PST): when LuciferAI
-    // is off, its command words are NOT intercepted at all — the
-    // prompt is a plain shell, so they go to the shell PTY like any
-    // other text. Only the shell itself and the Lucid-local paths
-    // keep their handling (PLAIN_TERMINAL_KEEPERS: shell, the local
-    // FixNet workflow, the browser diagnostic, the conversation
-    // history, the workflow status). Everything else (help, plan,
-    // llm, tokens, agent, ...) is rewritten to 'shell' here, so
-    // the help/plan handling and the switch below never see a
-    // LuciferAI type while off — the terminal never prints a
-    // LuciferAI refusal and never calls the plugin. The shell runs
-    // the command (bash builtins help/history/env work; anything
-    // else is "command not found"). That is what "no different
-    // than a terminal" means: the router stops being LuciferAI-
-    // first and the shell decides.
-    const parsed = !luciferAiEnabled && !PLAIN_TERMINAL_KEEPERS.has(rawParsed.type)
-      ? { ...rawParsed, type: 'shell' as const }
-      : rawParsed;
-    console.log('[Command Router] Parsed:', parsed);
-
-    // 3. Handle HELP command - open help modal instead of creating block.
-    // (Only reachable while LuciferAI is on: when off, 'help' is
-    // rewritten to 'shell' above, so it goes to the shell PTY and
-    // bash prints its own help — a plain terminal's help.)
+    // Help / plan open panels, not the stream.
     if (parsed.type === 'help') {
+      if (!luciferAiEnabled) {
+        await termWriteLines('/help needs LuciferAI — enable it in Settings → Plugins.');
+        return;
+      }
       console.log('[Help] Opening help modal');
       if (onOpenHelp) {
         onOpenHelp();
       } else {
-        // Fallback to old panel if callback not provided
         setShowHelpPanel(true);
       }
       return;
     }
-
-    // 4. Handle PLAN command - open planning panel instead of creating block
     if (parsed.type === 'plan') {
+      if (!luciferAiEnabled) {
+        await termWriteLines('/plan needs LuciferAI — enable it in Settings → Plugins.');
+        return;
+      }
       console.log('[Planning] Opening planning panel');
       setShowPlanningPanel(true);
       return;
     }
 
-    // 5. Generate validation steps based on command type
-    let validationSteps = ValidationStepFactory.shellCommand(command);
-    
-    if (parsed.type === 'fixnet' || parsed.type === 'fix') {
-      if (command.startsWith('fix ')) {
-        validationSteps = ValidationStepFactory.fixNetAutoFix(command);
-      } else {
-        validationSteps = ValidationStepFactory.directSystemCommand(command);
-      }
-    } else if (parsed.type === 'llm') {
-      validationSteps = ValidationStepFactory.llmManagement(command);
-    } else if (parsed.type === 'install') {
-      validationSteps = ValidationStepFactory.modelInstallation(command);
-    } else if (command.includes('make') && command.includes('script')) {
-      // Extract script name from command
-      const scriptMatch = command.match(/\b(\w+\.\w+)\b/);
-      const scriptName = scriptMatch ? scriptMatch[1] : 'script.py';
-      validationSteps = ValidationStepFactory.multiStepScriptCreation(scriptName);
-    } else if (parsed.type === 'daemon') {
-      validationSteps = ValidationStepFactory.shellCommand(command); // Will add daemon-specific factory later
-    } else if (parsed.type === 'agent' || parsed.type === 'unknown') {
-      validationSteps = ValidationStepFactory.generalLLMQuery();
-    }
-    
-    // 6. Create new Block with validation
-    const newBlock: TerminalBlock = {
-      id: Date.now().toString(),
-      command: command,
-      output: '',
-      timestamp: Date.now(),
-      isComplete: false,
-      isCollapsed: false,
-      isProcessing: true,
-      validation: {
-        steps: validationSteps,
-        currentStep: 0,
-        status: 'running'
-      }
-    };
-
-    // 7. Mark previous block as complete (if any)
-    setBlocks(prev => {
-      const completed = prev.map(b => ({ ...b, isComplete: true, isProcessing: false }));
-      return [...completed, newBlock];
-    });
-
-    // 8. Set processing state and clear input. The command key is the
-    // background-loading signal for the top-left dot — it is finished in
-    // the finally below, so it can never stick on (several branches below
-    // never clear isProcessing themselves).
-    setIsProcessing(true);
+    setSlashRunning(true);
     useLoadingStore.getState().start('command');
-    setInput('');
-
-    // 8. Route based on command type
     try {
       switch (parsed.type) {
-        case 'shell':
-          // Execute directly in PTY (ls, git, npm, etc.)
-          console.log('[Shell] Direct execution:', command);
-          window.lucidAPI.terminal.write(tabId, command + '\n');
-          setTimeout(() => {
-            setBlocks(prev => prev.map(b => 
-              b.id === newBlock.id ? { ...b, isComplete: true, isProcessing: false } : b
-            ));
-            setIsProcessing(false);
-          }, 500);
-          break;
-
         case 'fix':
-          // `fix <file|error>` — the local FixNet path. It used to have
-          // no case here at all, so it fell to the default branch and
-          // was sent to the plugin (or to the shell). It now runs the
-          // workflow orchestrator's dual-form fix directly.
-          console.log('[Fix] Processing:', parsed.command);
-          {
-            const result = await runLocalCommand(command);
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = renderLocalResult(result);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
-          }
-          break;
-
-        case 'fixnet':
-          // FixNet commands — ALL local now (stats, search, report,
-          // apply, delete, and the honest `fixnet sync` answer). They
-          // used to render raw JSON from direct IPC branches that could
-          // never match (the renderer router stored only the first word),
-          // and anything else fell through to the plugin with a
-          // "LuciferAI plugin required" lie. The orchestrator formats
-          // the output, so the Terminal renders terminalOutput.
+        case 'fixnet': {
           console.log('[FixNet] Processing:', parsed.command);
-          {
-            const result = await runLocalCommand(command);
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = renderLocalResult(result);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
-          }
+          const result = await runLocalCommand(line.slice(1));
+          await termWriteLines(renderLocalResult(result));
           break;
+        }
 
-        case 'llm':
-          // LLM management commands
-          // (When LuciferAI is off, 'llm' never reaches this case:
-          // it is rewritten to 'shell' before the switch, so it goes
-          // to the shell PTY. There is no refusal branch here any
-          // more — the terminal does not speak LuciferAI while off.)
+        case 'llm': {
           console.log('[LLM] Processing:', parsed.command);
+          if (!luciferAiEnabled) {
+            await termWriteLines('/llm needs LuciferAI — enable it in Settings → Plugins.');
+            break;
+          }
+          const bare = line.slice(1);
           if (parsed.command === 'llm list') {
             const result = await window.lucidAPI.lucid.llmList();
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = JSON.stringify(result, null, 2);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines(JSON.stringify(result, null, 2));
           } else if (parsed.command.startsWith('llm enable')) {
             const model = parsed.args[0];
-            // Print success ONLY when the backend confirms it — the
-            // old code printed success unconditionally while the
-            // backend was a no-op.
             let output: string;
             if (!model) {
-              output = 'Usage: llm enable <model>';
+              output = 'Usage: /llm enable <model>';
             } else {
               try {
                 const result = await window.lucidAPI.lucid.llmSetEnabled(model, true);
@@ -543,20 +403,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 output = `❌ Failed to enable model: ${model}: ${error?.message ?? String(error)}`;
               }
             }
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = output;
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines(output);
           } else if (parsed.command.startsWith('llm disable')) {
             const model = parsed.args[0];
             let output: string;
             if (!model) {
-              output = 'Usage: llm disable <model>';
+              output = 'Usage: /llm disable <model>';
             } else {
               try {
                 const result = await window.lucidAPI.lucid.llmSetEnabled(model, false);
@@ -567,47 +419,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 output = `❌ Failed to disable model: ${model}: ${error?.message ?? String(error)}`;
               }
             }
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = output;
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines(output);
+          } else if (luciferAIAvailable) {
+            const result = await runPluginCommand(bare);
+            await termWriteLines(result.terminalOutput || result.output || '');
           } else {
-            // Other LLM commands - route to Python backend
-            if (luciferAIAvailable) {
-              const result = await runPluginCommand(command);
-              setBlocks(prev => {
-                const updated = [...prev];
-                const lastBlock = updated[updated.length - 1];
-                if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = result.terminalOutput || result.output || '';
-                  lastBlock.isComplete = true;
-                }
-                return updated;
-              });
-            } else {
-              setBlocks(prev => {
-                const updated = [...prev];
-                const lastBlock = updated[updated.length - 1];
-                if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = '⚠️  LuciferAI plugin required for LLM commands.\nSee "help" for available commands.';
-                  lastBlock.isComplete = true;
-                }
-                return updated;
-              });
-            }
+            await termWriteLines('⚠️  LuciferAI plugin required for LLM commands.\nSee /help for available commands.');
           }
           break;
+        }
 
-        case 'browser':
-          // `browser diagnose` — where the active BrowserView is
-          // attached, its bounds, the window's bounds and focus,
-          // and a capturePage screenshot saved to disk. Built to
-          // answer "the page loaded but the view shows blank white".
+        case 'browser': {
           console.log('[Browser] Processing:', parsed.command);
           if (parsed.command === 'browser diagnose') {
             let output: string;
@@ -628,257 +450,104 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             } catch (error: any) {
               output = `❌ Browser diagnose failed: ${error?.message ?? String(error)}`;
             }
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = output;
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines(output);
           } else {
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = 'Usage: browser diagnose';
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines('Usage: /browser diagnose');
           }
           break;
+        }
 
-        case 'workflow':
-          // Workflow status commands. The router returns command
-          // 'workflow' with args ['status'] for `workflow status`
-          // (see MULTI_WORD_COMMANDS) - matching on the phrase
-          // 'workflow status' here could never be true, so the
-          // block was created and never completed (Part 2C fix).
+        case 'workflow': {
           console.log('[Workflow] Processing:', parsed.command);
           if (parsed.command === 'workflow' && parsed.args[0] === 'status') {
             const status = await window.lucidAPI.lucid.workflowStatus();
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = JSON.stringify(status, null, 2);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines(JSON.stringify(status, null, 2));
           } else {
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = 'Usage: workflow status';
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines('Usage: /workflow status');
           }
           break;
+        }
 
-        case 'tokens':
-          // `tokens` / `/tokens` - token stats for the plugin. It
-          // used to have no case at all: the only branch that
-          // mentioned it lived inside case 'workflow', where it
-          // could never run, so the command fell to the default
-          // branch (plugin / shell fallback). When LuciferAI is
-          // off, 'tokens' never reaches this case: it is rewritten
-          // to 'shell' before the switch, so it goes to the shell
-          // PTY. No refusal branch — the terminal does not speak
-          // LuciferAI while off.
+        case 'tokens': {
           console.log('[Tokens] Processing:', parsed.command);
-          {
-            const stats = await window.lucidAPI.lucid.getTokenStats();
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = JSON.stringify(stats, null, 2);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+          if (!luciferAiEnabled) {
+            await termWriteLines('/tokens needs LuciferAI — enable it in Settings → Plugins.');
+            break;
           }
+          const stats = await window.lucidAPI.lucid.getTokenStats();
+          await termWriteLines(JSON.stringify(stats, null, 2));
           break;
+        }
 
-        case 'history':
-          // `history` / `clear history` - the router returns type
-          // 'history' for both, with command 'history' and args
-          // ['clear'] for the clear form (see MULTI_WORD_COMMANDS).
-          // Matching on the phrase 'clear history' here could never
-          // be true, so `clear history` used to SHOW history instead
-          // of clearing it (Part 2C fix). Match on the arg.
+        case 'history': {
           console.log('[History] Processing:', parsed.command);
           if (parsed.args[0] === 'clear') {
             await window.lucidAPI.lucid.clearHistory();
-            // Clear the VISIBLE history too — the terminal blocks
-            // and the History panel both read this tab's blocks
-            // from the history store, so clearing the store clears
-            // both. The confirmation block itself is wiped as well:
-            // an empty terminal IS the confirmation, like Unix
-            // `clear`. (Before this, only the backend AI
-            // conversation was cleared and every block stayed on
-            // screen, so `clear history` looked like it did
-            // nothing — live failure, 2026-11-06.)
+            // Clear the VISIBLE history too — the terminal surface
+            // and the History panel (which reads this tab's blocks
+            // from the history store). The screen going empty IS the
+            // confirmation, like Unix `clear`.
             useHistoryStore.getState().clearBlocks(tabId);
+            termRef.current?.clear();
           } else if (parsed.command === 'history') {
             const hist = await window.lucidAPI.lucid.getHistory();
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = JSON.stringify(hist, null, 2);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines(JSON.stringify(hist, null, 2));
           }
           break;
+        }
 
         case 'install':
         case 'github':
         case 'env':
         case 'daemon':
         case 'agent':
+        case 'build':
+        case 'create':
         case 'unknown':
-        default:
-          // All other commands - route to LuciferAI plugin if available
+        default: {
           console.log('[Backend] Command type:', parsed.type);
-
-          // (When LuciferAI is off this case is unreachable: agent /
-          // unknown / install / ... are rewritten to 'shell' before
-          // the switch, so they go to the shell PTY. No refusal
-          // branch — the terminal does not speak LuciferAI while
-          // off. What follows is the ON-state routing only.)
+          if (!luciferAiEnabled) {
+            await termWriteLines(`${line} needs LuciferAI — enable it in Settings → Plugins.`);
+            break;
+          }
           if (luciferAIAvailable) {
-            // LuciferAI plugin is available - use it
             console.log('[Plugin] Routing to LuciferAI:', parsed.type);
             try {
-              const result = await runPluginCommand(command);
-              const tokens = parseTokenStatsFromResponse(result);
-              
+              const result = await runPluginCommand(line.slice(1));
               if (result.success) {
-                setBlocks(prev => {
-                  const updated = [...prev];
-                  const lastBlock = updated[updated.length - 1];
-                  if (lastBlock?.id === newBlock.id) {
-                    lastBlock.output = result.terminalOutput || result.output || '';
-                    lastBlock.isComplete = true;
-                    lastBlock.isProcessing = false;
-                    if (tokens) lastBlock.tokens = tokens;
-                  }
-                  return updated;
-                });
-                setIsProcessing(false);
+                await termWriteLines(result.terminalOutput || result.output || '');
               } else {
-                setBlocks(prev => {
-                  const updated = [...prev];
-                  const lastBlock = updated[updated.length - 1];
-                  if (lastBlock?.id === newBlock.id) {
-                    lastBlock.output = `❌ Command failed: ${result.error || 'Unknown error'}\n\nTry: help for available commands`;
-                    lastBlock.isComplete = true;
-                  }
-                  return updated;
-                });
+                await termWriteLines(`❌ Command failed: ${result.error || 'Unknown error'}\n\nTry: /help for available commands`);
               }
             } catch (error) {
               console.error('[Plugin] LuciferAI error:', error);
-              setBlocks(prev => {
-                const updated = [...prev];
-                const lastBlock = updated[updated.length - 1];
-                if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = `❌ LuciferAI plugin error: ${String(error)}\n\nThe plugin may have disconnected. Retrying in 30s...`;
-                  lastBlock.isComplete = true;
-                }
-                return updated;
-              });
-              // Plugin might have died - mark as unavailable
+              await termWriteLines(`❌ LuciferAI plugin error: ${String(error)}\n\nThe plugin may have disconnected. Retrying in 30s...`);
               setLuciferAIAvailable(false);
             }
           } else if (luciferAIChecking) {
-            // Still checking if plugin is available
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = '⏳ Connecting to LuciferAI plugin...\n\nPlease wait while we establish connection.';
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
+            await termWriteLines('⏳ Connecting to LuciferAI plugin...\n\nPlease wait while we establish connection.');
           } else {
-            // LuciferAI plugin not available - use fallback system
             console.log('[Fallback] Plugin unavailable, checking alternatives');
-
             const commandRequiresLLM = requiresLLM(parsed.type);
-            
             if (commandRequiresLLM) {
-              // Command definitely needs LLM - show helpful message with typo correction
-              const fallbackMsg = getFallbackMessage(parsed);
-              setBlocks(prev => {
-                const updated = [...prev];
-                const lastBlock = updated[updated.length - 1];
-                if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = fallbackMsg;
-                  lastBlock.isComplete = true;
-                  lastBlock.isProcessing = false;
-                }
-                return updated;
-              });
-              setIsProcessing(false);
+              await termWriteLines(getFallbackMessage(parsed));
             } else {
-              // Unknown command - try fuzzy match first
-              const suggestion = findClosestCommand(command);
-              
-              if (suggestion && suggestion !== command.split(/\s+/)[0]) {
-                // Found typo - suggest correction
-                setBlocks(prev => {
-                  const updated = [...prev];
-                  const lastBlock = updated[updated.length - 1];
-                  if (lastBlock?.id === newBlock.id) {
-                    lastBlock.output = `❓ Unknown command: "${command}"\n\n💡 Did you mean: ${suggestion}\n\nTry: help for available commands`;
-                    lastBlock.isComplete = true;
-                    lastBlock.isProcessing = false;
-                  }
-                  return updated;
-                });
-                setIsProcessing(false);
+              const suggestion = findClosestCommand(line.slice(1));
+              if (suggestion && suggestion !== line.slice(1).split(/\s+/)[0]) {
+                await termWriteLines(`❓ Unknown command: "${line}"\n\n💡 Did you mean: /${suggestion}\n\nTry: /help for available commands`);
               } else {
-                // No typo detected - try shell as fallback
-                console.log('[Fallback] Trying shell execution');
-                window.lucidAPI.terminal.write(tabId, command + '\n');
-                setTimeout(() => {
-                  setBlocks(prev => prev.map(b => 
-                    b.id === newBlock.id ? { ...b, isComplete: true, isProcessing: false } : b
-                  ));
-                  setIsProcessing(false);
-                }, 500);
+                await termWriteLines(getFallbackMessage(parsed));
               }
             }
           }
           break;
+        }
       }
     } catch (error) {
-      console.error('[Command Router] Error:', error);
-      setBlocks(prev => {
-        const updated = [...prev];
-        const lastBlock = updated[updated.length - 1];
-        if (lastBlock?.id === newBlock.id) {
-          lastBlock.output = `❌ Error: ${String(error)}\n\nTry: help for available commands`;
-          lastBlock.isComplete = true;
-        }
-        return updated;
-      });
+      console.error('[Slash] Error:', error);
+      await termWriteLines(`❌ Error: ${String(error)}\n\nTry: /help for available commands`);
     } finally {
-      // Always clear: the fixnet / llm / workflow cases and the failure
-      // branches never clear isProcessing themselves, which used to leave
-      // the processing glow stuck on after a command finished.
-      setIsProcessing(false);
+      setSlashRunning(false);
       useLoadingStore.getState().finish('command');
       // A command completing wiggles the Sentinel face's horns inward
       // once — a little celebration that the task is done.
@@ -886,33 +555,75 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     }
   };
 
-  const handleHistoryUp = () => {
-    if (history.length > 0) {
-      const newIndex = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
-      setHistoryIndex(newIndex);
-      setInput(history[newIndex]);
-    }
-  };
-
-  const handleHistoryDown = () => {
-    if (historyIndex !== -1) {
-      const newIndex = historyIndex + 1;
-      if (newIndex >= history.length) {
-        setHistoryIndex(-1);
-        setInput('');
-      } else {
-        setHistoryIndex(newIndex);
-        setInput(history[newIndex]);
+  // Per-keystroke input to the PTY. Every key reaches the shell the
+  // moment it is typed — the shell owns echo, history, completion
+  // and line editing, so this handler never re-implements them. It
+  // only watches the line so a slash command can be recognised on
+  // Enter: the typed line was already echoed by the shell, so it is
+  // wiped with Ctrl+U and an empty line submitted for a fresh
+  // prompt, then the Lucid command runs and its output is printed
+  // into the stream. Tab, arrows and reverse-search change the
+  // line in ways this tracker cannot follow — after any of those
+  // the line is unknown (null) and left to the shell.
+  const handleXtermInput = (data: string) => {
+    if (shellExitedRef.current) return;
+    lastKeystrokeAt.current = Date.now();
+    let pending = '';
+    const flush = () => {
+      if (pending) {
+        window.lucidAPI.terminal.write(tabId, pending);
+        pending = '';
       }
+    };
+    for (const ch of data) {
+      if (ch === '\r' || ch === '\n') {
+        flush();
+        const line = lineBuffer.current;
+        lineBuffer.current = '';
+        if (line !== null && line.trim().startsWith('/')) {
+          window.lucidAPI.terminal.write(tabId, '\x15\r');
+          void runSlashCommand(line.trim());
+        } else {
+          window.lucidAPI.terminal.write(tabId, ch);
+        }
+        continue;
+      }
+      if (lineBuffer.current !== null) {
+        if (ch === '\x7f') {
+          lineBuffer.current = lineBuffer.current.slice(0, -1);
+        } else if (ch === '\x03' || ch === '\x04' || ch === '\x0c' || ch === '\x15') {
+          // Ctrl+C / Ctrl+D / Ctrl+L / Ctrl+U: the line is gone.
+          lineBuffer.current = '';
+        } else if (ch === '\x1b' || ch === '\t' || ch === '\x12' || ch === '\x1a' || ch === '\x17') {
+          // Escape sequences, Tab completion, Ctrl+R, Ctrl+Z,
+          // Ctrl+W: the line changed beyond what this tracker knows.
+          lineBuffer.current = null;
+        } else if (ch >= ' ') {
+          lineBuffer.current += ch;
+        }
+      }
+      pending += ch;
     }
+    flush();
   };
 
-  const handleToggleBlock = (id: string) => {
-    setBlocks(prev => prev.map(b =>
-      b.id === id ? { ...b, isCollapsed: !b.isCollapsed } : b
-    ));
-  };
+  // Real resize: the surface measures itself and the PTY follows.
+  const handleResize = useCallback(
+    (cols: number, rows: number) => {
+      window.lucidAPI.terminal.resize?.(tabId, cols, rows);
+    },
+    [tabId],
+  );
 
+  // Restart a dead shell: close this tab and open a fresh one.
+  const restartShell = () => {
+    shellExitedRef.current = false;
+    setShellExited(null);
+    setTerminalFailed(null);
+    clearCreateError(tabId);
+    closeTab(tabId);
+    createTab();
+  };
 
   return (
     <>
@@ -921,18 +632,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             Main-screen mist (Gary, 2026-11-07): NO background here — the
             terminal IS the main screen and it must stay splashscreen
             misty black, so the App root's pure black #000 + the
-            SplashMist smoke show through. The old inline backgroundColor
-            (the theme's opaque terminal.background — Sunset #1f1315,
-            every theme's is an opaque hex) painted over the mist and
-            Gary saw no blackness at all. The theme still colours the
-            text, cursor and accents; only the backdrop is the mist. */}
+            SplashMist smoke show through. The xterm surface is
+            transparent for the same reason. */}
         <div
           className="flex-1 flex flex-col overflow-hidden"
           data-testid="terminal-content"
         >
           {/* FixNet Status Bar */}
           <FixNetStatus />
-          
+
           {/* Terminal failed to start (shell would not spawn). Covers both
               the async spawn error (onExit) and a synchronous spawn throw
               (bad cwd), which the store records as a create error. */}
@@ -942,10 +650,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               <p className="mt-1 font-mono text-xs text-red-200/80 whitespace-pre-wrap">{terminalFailed ? terminalFailed.message : createErrors[tabId]}</p>
               <div className="mt-3 flex gap-2">
                 <button
-                  onClick={() => {
-                    closeTab(tabId);
-                    createTab();
-                  }}
+                  onClick={restartShell}
                   className="btn btn-primary text-sm py-1 px-3"
                 >
                   New Terminal
@@ -962,20 +667,42 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               </div>
             </div>
           )}
-          
-          {/* Blocks List */}
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-            {blocks.map(block => (
-              <div key={block.id} id={`block-${block.id}`}>
-                <Block
-                  block={block}
-                  isActive={!block.isComplete}
-                  onToggle={() => handleToggleBlock(block.id)}
-                  flat={!luciferAiEnabled}
-                />
+
+          {/* The shell exited (typing `exit`, Ctrl+D, a crash). The
+              surface already printed the exit line; this banner stops
+              the tab looking live and offers a restart. */}
+          {shellExited && !terminalFailed && !createErrors[tabId] && (
+            <div className="mx-4 mt-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3">
+              <p className="text-sm font-semibold text-yellow-200">Shell exited (code {shellExited.code})</p>
+              <p className="mt-1 text-xs text-yellow-200/70">This terminal is no longer accepting input.</p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={restartShell}
+                  className="btn btn-primary text-sm py-1 px-3"
+                >
+                  New Terminal
+                </button>
               </div>
-            ))}
-            <div ref={bottomRef} />
+            </div>
+          )}
+
+          {/* Real terminal surface — xterm.js on the PTY stream.
+              The squared glass backwall (Gary, 2026-11-07) now wraps
+              the surface itself: the terminal IS the prompt, so its
+              panel is the prompt's panel — frosted translucent
+              glass, subtle border, SQUARE corners, in BOTH states,
+              with the 2px top edge marking where the output ends
+              and the prompt begins. */}
+          <div className="flex-1 overflow-hidden p-4">
+            <div data-testid="prompt-input-wrap"
+                 className="h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-[var(--bg-tertiary)]/50 backdrop-blur-md">
+              <XtermSurface
+                ref={termRef}
+                onInput={handleXtermInput}
+                onResize={handleResize}
+                disabled={shellExited !== null}
+              />
+            </div>
           </div>
 
           {/* Idle heartbeat — the original "Idle • Awaiting Commands..."
@@ -997,16 +724,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               tab's working directory, the attached-path context
               line), a 2px top divider that marks where the output
               ends and the prompt begins, and a stronger blur. It is
-              glass in BOTH states now (the flat outer bar carried
-              no glass before — that rule is superseded for the
-              section); the backwall inside stays the squared glass
-              panel it was, and the rainbow processing glow still
-              stays off while flat. The section sits ON the misty
-              black main screen (66ca165): translucent gradient,
-              never opaque. */}
+              glass in BOTH states now; the backwall inside stays the
+              squared glass panel it was, and the rainbow processing
+              glow still stays off while flat. The section sits ON the
+              misty black main screen (66ca165): translucent gradient,
+              never opaque.
+              The input itself is the terminal surface above now —
+              there is no Monaco prompt and no send arrow any more
+              (that was the simulation's input). This row keeps the
+              prompt-section controls: the blood drop (LuciferAI's
+              quick disable, on-state only) and the Sentinel face. */}
           <div data-testid="prompt-section"
                className="input-container border-t-2 border-t-[var(--text-muted)] pb-safe"
-               onKeyDown={() => { lastKeystrokeAt.current = Date.now(); }}
                style={{
                  background: 'linear-gradient(180deg, rgba(38, 45, 56, 0.55), rgba(22, 27, 34, 0.65))',
                  boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.35)',
@@ -1027,7 +756,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   2026-11-07 ~20:17 PST): a plain terminal has no
                   blood drop, so when the plugin is off there is no
                   drop here at all — not darkened, not clickable —
-                  and the flex row reflows with the input stretching
+                  and the flex row reflows with the hint stretching
                   to fill the gap. It is LuciferAI's quick disable:
                   lit while on, clicking it flips the plugin off and
                   the drop disappears with it; it never prints or
@@ -1045,59 +774,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   onToggleBloodDrop={onToggleLuciferAi}
                 />
               )}
-              
-              {/* Send arrow — this used to be a decorative span, so clicking it
-                  did nothing and the prompt could only be sent with Enter.
-                  It now submits exactly like Enter: the current prompt text,
-                  read from the same `input` state both editor modes sync to,
-                  so it works whether Monaco loaded or the plain-textarea
-                  fallback is active. Disabled while the prompt is empty. */}
-              <Tooltip content="Send" shortcut="Enter">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleSubmit(input);
-                    // Return keyboard focus to the prompt so the next command
-                    // can be typed without clicking back into the editor.
-                    inputWrapRef.current?.querySelector('textarea')?.focus();
-                  }}
-                  disabled={!input.trim()}
-                  aria-label="Send command"
-                  className="shrink-0 rounded px-1 text-[var(--accent)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                  style={{ textShadow: '0 0 8px rgba(88, 166, 255, 0.5)' }}>
-                  ➜
-                </button>
-              </Tooltip>
-              <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">
-                ~
+
+              {/* The terminal surface above IS the input now — type
+                  straight into it. Slash commands (`/fix`, `/llm`,
+                  `/help`) are Lucid's; everything else is the shell. */}
+              <span className="flex-1 truncate font-mono text-[12px] text-[var(--text-muted)] opacity-80">
+                Real shell — type /help for Lucid commands
               </span>
-              {/* Squared glass backwall behind the prompt (Gary,
-                  2026-11-07) — Warp-AI-terminal style: frosted
-                  translucent glass, subtle border, SQUARE corners
-                  (no rounding). The backwall is the prompt's own
-                  panel, not bubble chrome, so it shows in BOTH
-                  states: LuciferAI on and flat (plugin off).
-                  Segregation (Gary, 2026-11-07): Warp marks where
-                  the output ends and the input begins. The panel's
-                  top edge is that divider — thicker (2px) and
-                  brighter than the other sides, so the boundary is
-                  unmistakable, not just a background change. */}
-              <div ref={inputWrapRef} data-glow-anchor="prompt-input" data-testid="prompt-input-wrap"
-                   className="flex-1 overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-[var(--bg-tertiary)]/50 backdrop-blur-md">
-                <InputArea
-                  flat={!luciferAiEnabled}
-                  input={input}
-                  setInput={setInput}
-                  onSubmit={handleSubmit}
-                  onHistoryUp={handleHistoryUp}
-                  onHistoryDown={handleHistoryDown}
-                  isProcessing={isProcessing}
-                />
-              </div>
 
               {/* Sentinel face — press to toggle the Synth view, the Sentinel's home.
                   A LuciferAI surface: gone while the plugin is disabled, so the
-                  input stretches into the space it leaves too. */}
+                  hint stretches into the space it leaves too. */}
               {onOpenSynth && luciferAiEnabled && (
                 <Tooltip content="Toggle the Synth view — hold to open the roster">
                   <button

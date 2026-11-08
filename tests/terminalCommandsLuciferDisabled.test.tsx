@@ -59,21 +59,28 @@ function categoryTitles(container: HTMLElement): string[] {
 }
 
 describe('requiresLuciferAI — the rule', () => {
-  test('LuciferAI commands need the plugin', () => {
+  // REAL TERMINAL (Gary, 2026-11-07): Lucid commands are slash-only
+  // and the local ones run without the plugin — `/fix` / `/fixnet`
+  // run the local FixNet orchestrator, `/workflow` reads local
+  // workflow state, `/history` reads Lucid's own conversation
+  // history. Only the plugin commands need LuciferAI.
+  test('plugin LuciferAI commands need the plugin', () => {
     for (const name of [
       'help',
       'plan',
-      'fix',
-      'fixnet',
       'llm',
       'build',
       'create',
-      'workflow',
       'tokens',
-      'history',
       'agent',
     ]) {
       expect(requiresLuciferAI(entry(name))).toBe(true);
+    }
+  });
+
+  test('Lucid-local slash commands do NOT need the plugin', () => {
+    for (const name of ['fix', 'fixnet', 'workflow', 'history']) {
+      expect(requiresLuciferAI(entry(name))).toBe(false);
     }
   });
 
@@ -96,26 +103,29 @@ describe('requiresLuciferAI — the rule', () => {
     }
   });
 
-  test('llm / workflow / history phrases need the plugin', () => {
+  test('llm phrases need the plugin; workflow / history phrases do not', () => {
     for (const name of [
       'llm list',
       'llm status',
       'llm enable',
       'llm disable',
-      'workflow status',
-      'clear history',
     ]) {
       expect(requiresLuciferAI(entry(name))).toBe(true);
     }
+    for (const name of ['workflow status', 'clear history']) {
+      expect(requiresLuciferAI(entry(name))).toBe(false);
+    }
   });
 
-  test('shell, FixNet and browser diagnose do not need the plugin', () => {
+  test('shell, FixNet, browser diagnose, workflow and history do not need the plugin', () => {
     for (const name of [
       'ls',
       'cd',
       'git',
       'npm',
       'clear',
+      'fix',
+      'fixnet',
       'fixnet stats',
       'fixnet search',
       'fixnet report',
@@ -123,17 +133,22 @@ describe('requiresLuciferAI — the rule', () => {
       'fixnet delete',
       'fixnet sync',
       'browser diagnose',
+      'workflow',
+      'workflow status',
+      'history',
+      'clear history',
     ]) {
       expect(requiresLuciferAI(entry(name))).toBe(false);
     }
   });
 
   test('searchCommandCatalogue hides LuciferAI entries while disabled', () => {
-    // 89 entries with the plugin on; 50 without it (43 shell +
-    // 6 FixNet phrases + browser diagnose).
+    // 89 entries with the plugin on; 56 without it (43 shell +
+    // 4 Lucid-local singles + 6 FixNet phrases + browser diagnose
+    // + workflow status + history + clear history).
     expect(searchCommandCatalogue('').length).toBe(89);
     expect(searchCommandCatalogue('', true).length).toBe(89);
-    expect(searchCommandCatalogue('', false).length).toBe(50);
+    expect(searchCommandCatalogue('', false).length).toBe(56);
     expect(searchCommandCatalogue('llm', false)).toEqual([]);
     expect(searchCommandCatalogue('llm', true).map((e) => e.name)).toContain(
       'llm list',
@@ -141,6 +156,7 @@ describe('requiresLuciferAI — the rule', () => {
     expect(
       searchCommandCatalogue('fixnet', false).map((e) => e.name),
     ).toEqual([
+      'fixnet',
       'fixnet apply',
       'fixnet delete',
       'fixnet report',
@@ -189,40 +205,37 @@ describe('Terminal tab Commands section', () => {
   test('disabled: no LuciferAI command appears, and the LuciferAI category is gone', () => {
     const { container } = renderTerminalTab(false);
     const codes = codeTexts(container);
-    // Every LuciferAI entry, by its syntax chip.
+    // Every plugin LuciferAI entry, by its slash syntax chip.
+    // (The Lucid-local slash commands — /fix, /fixnet, /workflow,
+    // /history and the FixNet phrases — DO show while disabled.)
     for (const syntax of [
-      'help',
+      '/help',
       '/plan',
-      'fix <file|error>',
-      '/fixnet',
       '/llm',
-      'build <description>',
-      'create <description>',
-      '/workflow',
-      'tokens',
-      'history',
+      '/build <description>',
+      '/create <description>',
+      '/tokens',
       '/agent',
-      'llm list',
-      'llm status',
-      'llm enable',
-      'llm disable',
-      'workflow status',
-      'clear history',
-      'github link',
-      'install <model>',
-      'daemon',
-      'diabolical mode',
+      '/llm list',
+      '/llm status',
+      '/llm enable',
+      '/llm disable',
+      '/github link',
+      '/install <model>',
+      '/daemon',
+      '/diabolical mode',
     ]) {
       expect(codes).not.toContain(syntax);
     }
     // The categories that were only LuciferAI are gone entirely.
+    // ('Workflow & System' stays: it now holds the Lucid-local
+    // /workflow and /history commands, which run without the plugin.)
     const titles = categoryTitles(container);
     for (const title of [
       'LuciferAI',
       'Planning',
       'Model Management',
       'AI Code Generation',
-      'Workflow & System',
       'GitHub Integration',
       'Environment Management',
       'Model Installation',
@@ -232,15 +245,23 @@ describe('Terminal tab Commands section', () => {
     ]) {
       expect(titles).not.toContain(title);
     }
-    // What still runs without the plugin stays listed.
+    // What still runs without the plugin stays listed — shell,
+    // Lucid-local slash commands, FixNet phrases, browser diagnose.
     expect(codes).toContain('ls [path]');
     expect(codes).toContain('git');
-    expect(codes).toContain('fixnet stats');
-    expect(codes).toContain('browser diagnose');
+    expect(codes).toContain('/fix <file|error>');
+    expect(codes).toContain('/fixnet');
+    expect(codes).toContain('/fixnet stats');
+    expect(codes).toContain('/browser diagnose');
+    expect(codes).toContain('/workflow');
+    expect(codes).toContain('/workflow status');
+    expect(codes).toContain('/history');
+    expect(codes).toContain('/history clear');
     expect(titles).toEqual([
       'Shell',
       'Direct Commands',
       'FixNet Commands',
+      'Workflow & System',
       'Browser',
     ]);
   });
@@ -253,19 +274,19 @@ describe('Terminal tab Commands section', () => {
       'input[placeholder="Filter commands…"]',
     );
     expect(input).not.toBeNull();
-    expect(searchCommandCatalogue('fixnet', false).length).toBe(6);
+    expect(searchCommandCatalogue('fixnet', false).length).toBe(7);
   });
 
   test('enabled: everything shows exactly as before', () => {
     const { container } = renderTerminalTab(true);
     const codes = codeTexts(container);
-    expect(codes).toContain('llm list');
-    expect(codes).toContain('build <description>');
+    expect(codes).toContain('/llm list');
+    expect(codes).toContain('/build <description>');
     expect(codes).toContain('/fixnet');
-    expect(codes).toContain('tokens');
-    expect(codes).toContain('github link');
-    expect(codes).toContain('fixnet stats');
-    expect(codes).toContain('browser diagnose');
+    expect(codes).toContain('/tokens');
+    expect(codes).toContain('/github link');
+    expect(codes).toContain('/fixnet stats');
+    expect(codes).toContain('/browser diagnose');
     const titles = categoryTitles(container);
     expect(titles).toContain('LuciferAI');
     expect(titles).toContain('Model Management');

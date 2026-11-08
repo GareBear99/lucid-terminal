@@ -1,5 +1,16 @@
 # Lucid Terminal - Complete Command Reference
 
+> **Real terminal (Gary, 2026-11-07: "terminal is not a terminal at
+> all").** The terminal is a real PTY running your login interactive
+> shell: bare words typed at the prompt go to the SHELL, always —
+> `history` is zsh history, `help` is the shell's help, `clear`
+> clears the screen. Lucid commands are EXPLICIT slash commands
+> (`/fix`, `/llm`, `/help`, `/plan`, `/tokens`, `/workflow status`,
+> `/history`, `/browser diagnose`, …). The tables below describe
+> those Lucid commands in their slash form where they are Lucid's;
+> the shell rows (`ls`, `cd`, `pwd`, `cat`, `clear`, `exit`, …) are
+> bare because they are the shell's own commands.
+
 **Total Commands**: 40+ (including aliases: 50+)
 
 All commands work **100% deterministically** without LLM dependency (except where marked with ⚡ LLM).

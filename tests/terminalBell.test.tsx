@@ -6,8 +6,10 @@
  * What was broken: the Terminal tab had a "Terminal bell sound"
  * toggle, but bellSound was write-only — nothing read it, no bell
  * was ever played, and there was no way to preview the sound. The
- * terminal is a custom block renderer (no xterm onBell); the bell
- * arrives as a BEL (\x07) character in PTY data.
+ * terminal is xterm.js on a node-pty stream; the bell arrives as
+ * a BEL character in PTY data, and the Terminal strips it in its
+ * onData path (processTerminalBell) before the chunk reaches
+ * xterm, so xterm's own onBell never fires.
  *
  * Covers:
  * - lib: containsBell / stripBell / processTerminalBell — BEL

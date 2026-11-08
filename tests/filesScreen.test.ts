@@ -58,14 +58,18 @@ describe('Files screen', () => {
 
   it('does not unlock Full Glass as a selectable theme — the lock still gates setTheme', async () => {
     // The Files-screen rule applies the theme directly; it must
-    // not change the lock. Full Glass stays locked without a
-    // referral and an active purchase tier.
+    // not change the lock. Full Glass stays locked without
+    // 2 activated + recognized referrals and an active purchase tier
+    // (Gary, 2026-11-08: 2 temps a year + purchase tier).
     const { isThemeUnlocked } = await import('../src/themes/themes');
     expect(
       isThemeUnlocked(fullGlassTheme, { referralCount: 0, purchaseTierActive: false }),
     ).toBe(false);
     expect(
       isThemeUnlocked(fullGlassTheme, { referralCount: 1, purchaseTierActive: true }),
+    ).toBe(false);
+    expect(
+      isThemeUnlocked(fullGlassTheme, { referralCount: 2, purchaseTierActive: true }),
     ).toBe(true);
   });
 });

@@ -274,6 +274,69 @@ describe('vendored v67 shell', () => {
   });
 });
 
+// Eye / reticle anchor model (Gary 2026-11-08 ~01:52–01:58 PST — final
+// model, supersedes the 00:53 statement): the neural synth IS the center
+// of the blueprint; the eye is locked to the center of the loaded
+// blueprint; the spectrum animation (eye field) is at the center; ONLY the
+// player reticle is on the outside, and it is the user's pointer sentinel
+// — the only thing that moves with W.
+describe('synth eye / reticle anchor model', () => {
+  const shellPath = path.join(
+    process.cwd(),
+    'public',
+    'synth',
+    'matrix-synth-v67.html',
+  );
+  const shellSrc = fs.readFileSync(shellPath, 'utf-8');
+
+  test('neural synth is the center of the blueprint (the core)', () => {
+    expect(shellSrc).toContain('ntDrawThinker(cx, cy, R);');
+    expect(shellSrc).toContain(
+      'The NEURAL SYNTH (ntDrawThinker) IS the center of the blueprint',
+    );
+  });
+
+  test('eye is locked to the center of the loaded blueprint (shell origin)', () => {
+    expect(shellSrc).toContain(
+      'eye = (sh && sh.origin) ? norm(sh.origin) : norm({x:0,y:0,z:1});',
+    );
+    expect(shellSrc).toContain('drawEyeShip(cx, cy, R);');
+  });
+
+  test('spectrum animation (eye field) is at the center, not outside', () => {
+    expect(shellSrc).toContain('drawSynthEyeField(cx, cy, R);');
+    expect(shellSrc).toContain(
+      'the spectrum animation (the eye field) is at the center around the',
+    );
+  });
+
+  test('reticle is the only outside element — the user\'s pointer sentinel', () => {
+    expect(shellSrc).toContain('function reticleScreenPos(cx, cy, R)');
+    expect(shellSrc).toContain('drawReticle(rp.x, rp.y);');
+    expect(shellSrc).toContain('POINTER SENTINEL FOR THE');
+  });
+
+  test('W moves the reticle, not the eye', () => {
+    expect(shellSrc).toContain(
+      'reticleDir = norm(rotateAroundAxis(reticleDir, axis, ang));',
+    );
+    expect(shellSrc).not.toContain(
+      'eye = norm(rotateAroundAxis(eye, axis, ang));',
+    );
+    expect(shellSrc).toContain('function reticleStep(){');
+    expect(shellSrc).not.toContain('function eyeStep(){');
+  });
+
+  test('no stale reticle-center lock remains', () => {
+    expect(shellSrc).not.toContain('drawCenterReticle');
+    expect(shellSrc).not.toContain('lock=RETICLE');
+    expect(shellSrc).not.toContain(
+      'intentionally locked to the reticle center',
+    );
+    expect(shellSrc).toContain('lock=CENTER');
+  });
+});
+
 // HUD panels are solid and borderless (Gary 2026-11-05): the synth
 // windows were blurry (frosted glass, backdrop blur) with a visible
 // outline line around them. The panels are solid dark cards now — no

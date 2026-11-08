@@ -358,9 +358,11 @@
   // - Wraps event listeners to prevent silent crashes
   // - Tracks bind-sites for unwrapped listeners (best-effort)
   // - Provides strict mode for "unwrapped listener" violations
-  // - Tracks reticle placement contract (Gary, 2026-11-08 ~00:53 PST:
-  //   the reticle is on the OUTSIDE of the blueprint, not locked to canvas
-  //   center — the old "center-reticle" lock is superseded).
+  // - Tracks reticle placement contract (Gary, 2026-11-08 ~01:52–01:58 PST:
+  //   the reticle is the user's pointer sentinel on the OUTSIDE of the
+  //   blueprint, not locked to canvas center — the old "center-reticle" lock
+  //   is superseded. The eye / neural synth are locked to the center of the
+  //   loaded blueprint; ONLY the reticle is outside.)
   // ============================================================
 
   const vstrip = document.getElementById('vstrip');
@@ -865,13 +867,14 @@
       if(!IV.reticle.on) return;
       const {x,y,W,H} = IV.reticle;
       const eps = 0.5; // pixels
-      // CORRECTED MODEL (Gary, 2026-11-08 ~00:53 PST): the reticle is on the
-      // OUTSIDE of the blueprint, NOT locked to canvas center — the old DARPA
-      // "reticle must be at true canvas center" assertion is superseded and
-      // must NOT be re-enabled as a center check. This validator is currently
-      // inert (IV.reticle is never populated, so .on is always false); if the
-      // reticle is ever populated, validate it against its outside anchor,
-      // not the canvas center.
+      // FINAL MODEL (Gary, 2026-11-08 ~01:52–01:58 PST): the reticle is the
+      // user's pointer sentinel on the OUTSIDE of the blueprint, NOT locked
+      // to canvas center — the old DARPA "reticle must be at true canvas
+      // center" assertion is superseded and must NOT be re-enabled as a
+      // center check. This validator is currently inert (IV.reticle is never
+      // populated, so .on is always false); if the reticle is ever
+      // populated, validate it against its outside anchor
+      // (reticleScreenPos), not the canvas center.
       const cx = W*0.5, cy = H*0.5;
       const dx = Math.abs(x - cx), dy = Math.abs(y - cy);
       if(dx>eps || dy>eps){
@@ -1908,14 +1911,14 @@
     return pkt;
   }
 
-  // Runtime fix #7: cache the reticle packet — its inputs (camera, eye,
-  // shell, route length, mappedCount, pole, anchor) are stable while
+  // Runtime fix #7: cache the reticle packet — its inputs (camera, reticle,
+  // eye, shell, route length, mappedCount, pole, anchor) are stable while
   // idle, so rebuilding it + an O(routeTiles) resolve every tick is
   // pure waste. validateAuthorityState() still runs every call.
   let _reticleCacheKey = '', _reticleCachePkt = null;
   function syncReticlePacket(){
     const sh0 = shells.get(activeShellId);
-    const __key = [qCam.x.toFixed(6), qCam.y.toFixed(6), qCam.z.toFixed(6), qCam.w.toFixed(6), eye.x.toFixed(6), eye.y.toFixed(6), eye.z.toFixed(6), activeShellId, sh0 ? (sh0.routeTiles ? sh0.routeTiles.length : 0) : 0, sh0 ? (sh0.mappedCount||0) : 0, POLE.label, POLE.alignment, sh0 ? sh0.anchorMode : '', sh0 ? sh0.anchorSource : '', sh0 && sh0.centerShift ? sh0.centerShift.u.toFixed(4) : '', sh0 && sh0.centerShift ? sh0.centerShift.v.toFixed(4) : ''].join('|');
+    const __key = [qCam.x.toFixed(6), qCam.y.toFixed(6), qCam.z.toFixed(6), qCam.w.toFixed(6), reticleDir.x.toFixed(6), reticleDir.y.toFixed(6), reticleDir.z.toFixed(6), eye.x.toFixed(6), eye.y.toFixed(6), eye.z.toFixed(6), activeShellId, sh0 ? (sh0.routeTiles ? sh0.routeTiles.length : 0) : 0, sh0 ? (sh0.mappedCount||0) : 0, POLE.label, POLE.alignment, sh0 ? sh0.anchorMode : '', sh0 ? sh0.anchorSource : '', sh0 && sh0.centerShift ? sh0.centerShift.u.toFixed(4) : '', sh0 && sh0.centerShift ? sh0.centerShift.v.toFixed(4) : ''].join('|');
     if(__key === _reticleCacheKey && _reticleCachePkt){
       RETICLE_PACKET = _reticleCachePkt;
     } else {
@@ -1933,17 +1936,20 @@
     return RETICLE_PACKET;
   }
 
-  function syncCameraToEye(){
-    const b = basisFromForward(eye, lastUpW || {x:0,y:1,z:0});
+  function syncCameraToReticle(){
+    const b = basisFromForward(reticleDir, lastUpW || {x:0,y:1,z:0});
     lastUpW = b.U;
     qCam = worldToCamQuatFromBasis(b);
   }
 
-  function setEyeAnchor(dir, opts={}){
+  // Navigation moves the PLAYER RETICLE (the user's pointer sentinel), never
+  // the eye. The eye is FIXED at the center of the loaded blueprint; seeds,
+  // bookmarks and the reticle-center reset all reposition the reticle.
+  function setReticleAnchor(dir, opts={}){
     const target = norm(dir || {x:0,y:0,z:1});
-    eye = target;
+    reticleDir = target;
     lastUpW = opts.upHint || (Math.abs(target.y) < 0.92 ? {x:0,y:1,z:0} : {x:0,y:0,z:1});
-    syncCameraToEye();
+    syncCameraToReticle();
     updatePoleState();
     if(opts.forcePole){
       POLE.label = opts.forcePole;
@@ -1957,7 +1963,7 @@
 
   function resetToCanonicalApex(reason='canonical_apex'){
     const apex = canonicalApexState();
-    setEyeAnchor(apex.dir, {upHint:{x:0,y:1,z:0}, forcePole:apex.pole, forceAlignment:apex.alignment});
+    setReticleAnchor(apex.dir, {upHint:{x:0,y:1,z:0}, forcePole:apex.pole, forceAlignment:apex.alignment});
     IV.log('ANCHOR', `${reason} => f${apex.face} i${apex.i} j${apex.j} s=0 t=0 pole=${apex.pole}`);
     return apex;
   }
@@ -1973,10 +1979,11 @@
 
   function normalizeCompassOrientation(reason='normalize_compass'){
     // IMPORTANT: this is intentionally NOT a hard reset.
-    // It only normalizes the compass/pole frame by correcting roll around the current eye,
+    // It only normalizes the compass/pole frame by correcting roll around the current reticle,
     // matching the same visual DOF controlled by ArrowLeft/ArrowRight planet spin.
-    lastUpW = canonicalCompassUp(eye);
-    syncCameraToEye();
+    // It must never move the eye anchor (the center of the loaded blueprint).
+    lastUpW = canonicalCompassUp(reticleDir);
+    syncCameraToReticle();
     updatePoleState();
     IV.log('COMPASS', `${reason} => hdg=${POLE.headingDeg.toFixed(1)} pole=${POLE.label} lat=${POLE.latitudeDeg.toFixed(1)}`);
     logLine(`COMPASS NORMALIZED: hdg=${POLE.headingDeg.toFixed(1)}° ${POLE.dominantCardinal}`);
@@ -2036,7 +2043,7 @@
   function gotoReticleSeed(seedStr, source='seed_goto'){
     const dec = decodeReticleSeed(seedStr);
     if(!dec) return false;
-    setEyeAnchor(dec.dir, {forcePole:dec.pole, forceAlignment:dec.alignment});
+    setReticleAnchor(dec.dir, {forcePole:dec.pole, forceAlignment:dec.alignment});
     STATE.seedOk = true;
     seedInput.classList.remove('bad');
     syncReticlePacket();
@@ -2120,7 +2127,7 @@
       gotoReticleSeed(rec.seed, 'bookmark');
       if(rec.upHint && Number.isFinite(rec.upHint.x) && Number.isFinite(rec.upHint.y) && Number.isFinite(rec.upHint.z)){
         lastUpW = norm(rec.upHint);
-        syncCameraToEye();
+        syncCameraToReticle();
       }
       if(Number.isFinite(rec.zoom)){ viewZoom = clamp(rec.zoom, VIEW_ZOOM_MIN, VIEW_ZOOM_MAX); targetViewZoom = viewZoom; }
       syncReticlePacket();
@@ -2804,15 +2811,30 @@ const quatFromTo=(a,b)=>{
   //
   // 1) Blueprint / reticle presentation
   //    - The BLUEPRINT is the core/center of the presentation.
-  //    - The neural synth (ntDrawThinker) and the Lucid spectrum animation
-  //      (drawSynthEyeField) are NOT the core — they live on the OUTSIDE of the
-  //      blueprint and MOVE with the reticle, which is on the outside of the
-  //      blueprint. They follow the reticle around the outside.
-  //      (Gary, 2026-11-08 ~00:53 PST — CORRECTS the old "centered-eye" model,
-  //      which said "the eye is the CENTER authority anchor". That was wrong:
-  //      the eye field + thinker are outside elements, not the center.)
-  //    - The user/rider reads as being on the OUTSIDE surface, aligned to the
-  //      reticle on the outside of the blueprint.
+  //    - The NEURAL SYNTH (ntDrawThinker) IS the center of the blueprint.
+  //      It is the core. It is locked to the center of the loaded blueprint
+  //      (the blueprint's pivot-centroid anchor) and does NOT move with the
+  //      reticle and is NOT outside.
+  //    - The EYE / SENTINEL (drawEyeShip / eye marker) is LOCKED to the
+  //      center of the loaded blueprint (the blueprint's pivot-centroid
+  //      anchor). It is the eye at the center. It is NOT locked to the
+  //      reticle and it is NOT the pointer sentinel.
+  //    - The SPECTRUM ANIMATION (drawSynthEyeField, the eye field) is at the
+  //      CENTER around the eye / neural synth. It is NOT outside and does
+  //      NOT follow the reticle.
+  //    - The PLAYER RETICLE (drawReticle) is a POINTER SENTINEL FOR THE
+  //      USER. It is the user's pointer — it points for the user. It is the
+  //      ONLY thing attached on the outside, and the ONLY thing that moves
+  //      (with W). NOTHING else is on the outside.
+  //      (Gary, 2026-11-08 ~01:52–01:58 PST — CORRECTS the 00:53 statement,
+  //      which wrongly put the neural synth + spectrum animation outside
+  //      following the reticle, and CORRECTS the old "centered-eye" model.
+  //      Final model: neural synth IS the center; eye locked to the center;
+  //      eye field at the center; ONLY the player reticle is outside, and
+  //      it is the user's pointer sentinel.)
+  //    - The user/rider reads as being on the OUTSIDE surface, aligned to
+  //      the reticle (the user's pointer sentinel) on the outside of the
+  //      blueprint.
   //
   // 2) Movement contract
   //    - WASD controls surface traversal and MUST remain stable.
@@ -2858,19 +2880,34 @@ const quatFromTo=(a,b)=>{
   // visited, never evicted. See ensureTileMicro for the LRU eviction.
   const TILE_RESIDENCY_MAX = 12;
   function currentViewRadius(){ return Math.min(W,H) * R_FRAC * viewZoom; }
-  let qCam = quat();               // rotates world so "eye" stays locked
-  let eye = norm({x:0,y:0,z:1}); // canonical apex direction
+  let qCam = quat();               // rotates world so the reticle (user's pointer sentinel) stays locked
+  // FINAL MODEL (Gary, 2026-11-08 ~01:52–01:58 PST):
+  // - `eye` is the CENTER of the loaded blueprint (the blueprint's
+  //   pivot-centroid anchor). It is FIXED — W never moves it. It is set to
+  //   the shell origin in setActiveShell() on blueprint load; the canonical
+  //   apex (0,0,1) when no blueprint is loaded.
+  // - `reticleDir` is the PLAYER RETICLE — the user's pointer sentinel. It
+  //   is the ONLY thing on the outside, and the ONLY thing that moves with
+  //   W (great-circle traversal). The camera follows it, so the globe
+  //   rotates beneath the fixed center and the address under the center
+  //   changes as the globe turns.
+  let eye = norm({x:0,y:0,z:1}); // center of the loaded blueprint (fixed; set to shell origin on load)
+  let reticleDir = norm({x:0,y:0,z:1}); // player reticle — user's pointer sentinel (the movement anchor)
   let lastUpW = {x:0,y:1,z:0}; // roll-stabilized camera up hint (prevents pole flips)
   const CAM_FOLLOW = 8.0;
   const REF_DIR = norm({x:0, y:0.05, z:1}); // slight tilt
 
-  // Movement only for the centered eye / reticle authority anchor.
+  // Movement only for the player reticle (the user's pointer sentinel).
+  // The eye is FIXED at the center of the loaded blueprint and never moves.
   // Scanner executes approved work; the probe only proposes candidates.
-  
+
   // Movement on the sphere surface (GW3-style):
-// - Treat `eye` as a point on the unit sphere (surface anchor).
+// - Treat `reticleDir` (the player reticle, the user's pointer sentinel)
+//   as a point on the unit sphere (surface anchor).
 // - Convert input (WASD / drag) into a tangent direction in *screen space*.
-// - Advance along a great-circle by rotating `eye` around the appropriate axis.
+// - Advance along a great-circle by rotating `reticleDir` around the
+//   appropriate axis. The eye stays locked to the center of the loaded
+//   blueprint; only the reticle moves.
 //
 // This avoids yaw/pitch singularities and allows full 360° traversal with no pole lock.
 let lookVX = 0, lookVY = 0;  // smoothed input (unitless)
@@ -2947,15 +2984,17 @@ function worldToCamQuatFromBasis(b){
   );
 }
 
-function eyeStep(){
+function reticleStep(){
   // INPUT AUTHORITIES
   // ---------------------------------------------------------------------------
   // This function is the single source of truth for shell traversal + planet spin.
+  // It moves ONLY the player reticle (the user's pointer sentinel, `reticleDir`).
+  // The eye is FIXED at the center of the loaded blueprint and never moves here.
   // Keep these mappings locked:
   // - A / D               = lateral traversal on the shell (movement stays as-is)
   // - W / ArrowUp         = forward traversal on the shell
   // - S / ArrowDown       = backward traversal on the shell
-  // - ArrowLeft/Right     = planet/map spin only (visual orbit around centered eye)
+  // - ArrowLeft/Right     = planet/map spin only (visual orbit around the reticle)
   //
   // IMPORTANT:
   // - Do not change movement here when only the cursor/aim line looks wrong.
@@ -2975,7 +3014,9 @@ function eyeStep(){
   mouseDX = 0; mouseDY = 0;
 
   // PRESENTATION INVERSION (intentional)
-  // The shell is presented as the object beneath a centered authority eye.
+  // The shell is presented as the object beneath the fixed center (the eye /
+  // neural synth at the center of the loaded blueprint), with the player
+  // reticle (the user's pointer sentinel) roaming the outside.
   // To preserve the move-around-object feel, input is inverted here ONCE.
   // Do not add another sign flip elsewhere unless replacing this exact rule.
   ix = -ix;
@@ -3007,10 +3048,10 @@ function eyeStep(){
   // Final known-good directional rule:
   //   ArrowLeft  = negative visual planet spin
   //   ArrowRight = positive visual planet spin
-  // This affects only map/planet roll around the centered eye.
+  // This affects only map/planet roll around the reticle (the camera forward).
   const spinDir = (keys.has('arrowright') ? 1 : 0) - (keys.has('arrowleft') ? 1 : 0);
   if(spinDir !== 0){
-    lastUpW = norm(rotateAroundAxis(lastUpW, eye, spinDir * ROLL_SPEED * DT));
+    lastUpW = norm(rotateAroundAxis(lastUpW, reticleDir, spinDir * ROLL_SPEED * DT));
   }
 
   // If no movement, keep stable.
@@ -3019,22 +3060,24 @@ function eyeStep(){
 
   // Derive screen axes in world space from a STABLE basis at the current surface anchor.
   // This removes pole flips/jitter caused by quaternion roll ambiguity near ±Z.
-  const bNow = basisFromForward(eye, lastUpW);
+  const bNow = basisFromForward(reticleDir, lastUpW);
   const camRightW = bNow.R;
   const camUpW    = bNow.U;
 
   // Build desired tangent direction in world space, aligned to screen axes.
   let tdir = add(
-    mul(projectToTangent(camRightW, eye), lookVX),
-    mul(projectToTangent(camUpW,    eye), lookVY)
+    mul(projectToTangent(camRightW, reticleDir), lookVX),
+    mul(projectToTangent(camUpW,    reticleDir), lookVY)
   );
   const tl = len(tdir);
   if(tl < 1e-6) return;
   tdir = mul(tdir, 1/tl);
 
   // Move along great circle in direction `tdir`.
-  // Rotate `eye` around axis perpendicular to (eye, tdir).
-  const axis = cross(tdir, eye);
+  // Rotate `reticleDir` around axis perpendicular to (reticleDir, tdir).
+  // The eye stays locked to the center of the loaded blueprint; only the
+  // reticle (the user's pointer sentinel) moves.
+  const axis = cross(tdir, reticleDir);
   const al = len(axis);
   if(al < 1e-6) return;
 
@@ -3042,15 +3085,19 @@ function eyeStep(){
   const BASE_SPEED = 1.65; // rad/s along surface (tune here)
   const ang = clamp(BASE_SPEED * DT * inMag, 0, 0.30); // per-step cap keeps it stable
 
-  eye = norm(rotateAroundAxis(eye, axis, ang));
+  reticleDir = norm(rotateAroundAxis(reticleDir, axis, ang));
 }
 
 
 
   function cameraStep(){
-  // GW3 rule: keep the surface anchor (eye) at screen center with STABLE roll.
-  // Build a world-space camera basis from `eye` and a roll-continuity up-hint.
-  const b = basisFromForward(eye, lastUpW);
+  // GW3 rule: keep the player reticle (the user's pointer sentinel) at screen
+  // center with STABLE roll. Build a world-space camera basis from
+  // `reticleDir` and a roll-continuity up-hint. The eye stays locked to the
+  // center of the loaded blueprint; the camera follows the reticle, so the
+  // globe rotates beneath the fixed center and the address under the center
+  // changes as the globe turns.
+  const b = basisFromForward(reticleDir, lastUpW);
   lastUpW = b.U;
   const qTarget = worldToCamQuatFromBasis(b);
 
@@ -3393,9 +3440,14 @@ function eyeStep(){
   }
   
   // ---------- reticle resolver (DARPA contract) ----------
-  // Resolves the tile under the CENTER reticle (screen center) by casting the
+  // Resolves the tile under the reticle's world direction by casting the
   // forward camera direction back into world space and selecting the nearest
-  // route tile direction (max dot). This is deterministic and lightweight.
+  // route tile direction (max dot). The camera follows the reticle (the
+  // user's pointer sentinel), so the camera forward IS the reticle's world
+  // direction and the resolved tile is the tile under the reticle. This is
+  // the WORLD resolver — it is distinct from the reticle's DRAWN position,
+  // which is outside the center (see reticleScreenPos). This is deterministic
+  // and lightweight.
   function reticleWorldDir(){
     // In camera space, the forward ray is +Z.
     // projectDir uses r = qrot(qCam, v_world). So inverse is v_world = qrot(qinv(qCam), r_cam).
@@ -3416,6 +3468,42 @@ function eyeStep(){
     }
     const nearestTile = bestI>=0 ? (sh.routeTiles[bestI] || sampleTile) : sampleTile;
     return {idx:bestI, dot:bestDot, tile:nearestTile, sampleTile, fallback:bestDot < 0.985};
+  }
+
+  // ---------- reticle screen position (user's pointer sentinel) ----------
+  // FINAL MODEL (Gary, 2026-11-08 ~01:52–01:58 PST): the player reticle is
+  // the ONLY thing on the outside. It is the user's pointer sentinel — it
+  // points from the blueprint's center (the eye) toward the reticle's world
+  // position. It is drawn OUTSIDE the center (radius R*0.80–R*1.00, always
+  // outside the R*0.60 eye field), in the direction from the eye to the
+  // reticle, so it orbits the center as the reticle moves and sits further
+  // out as the reticle walks away from the center. The eye / neural synth /
+  // eye field stay at the center (cx, cy); only the reticle is outside.
+  // The direction is computed in the eye's own basis (stable — the eye is
+  // fixed), so the pointer is smooth and never jumps at the poles.
+  let _reticleTangent = null; // last valid tangent eye->reticle (for the degenerate reticle==eye case)
+  function reticleScreenPos(cx, cy, R){
+    const bEye = basisFromForward(eye, {x:0,y:1,z:0});
+    const d = dot(reticleDir, eye);
+    const theta = Math.acos(clamp(d, -1, 1));
+    const tx = reticleDir.x - eye.x * d;
+    const ty = reticleDir.y - eye.y * d;
+    const tz = reticleDir.z - eye.z * d;
+    const tl = Math.sqrt(tx*tx + ty*ty + tz*tz);
+    let t;
+    if(tl < 1e-6){
+      // Reticle is at the eye (start / returned to center): keep the last
+      // valid direction so the pointer does not jump; default to up.
+      t = _reticleTangent || bEye.U;
+    } else {
+      t = {x: tx/tl, y: ty/tl, z: tz/tl};
+      _reticleTangent = t;
+    }
+    const radius = R * (0.80 + 0.20 * (theta / Math.PI));
+    return {
+      x: cx + radius * dot(t, bEye.R),
+      y: cy - radius * dot(t, bEye.U)
+    };
   }
 
   function preprojectGrid(){
@@ -3454,7 +3542,7 @@ function eyeStep(){
     try{
       const seedStr = (STATE && STATE.baseSeedStr) ? String(STATE.baseSeedStr) : ((STATE && STATE.seedStr) ? String(STATE.seedStr) : '7F021AE4');
       const seed = fnv1a32('EMERGENCY|' + seedStr + '|' + reason);
-      const baseDir = norm((STATE && STATE.reticleDir) ? STATE.reticleDir : (eye || {x:0,y:0,z:1}));
+      const baseDir = norm((STATE && STATE.reticleDir) ? STATE.reticleDir : (reticleDir || {x:0,y:0,z:1}));
       const tile = faceIJFromSphere(baseDir);
       const key = tileKey(tile);
       const shellId = 'SHELL_EMERGENCY_BOOT';
@@ -3777,6 +3865,11 @@ function eyeStep(){
   function setActiveShell(id){
     activeShellId = id;
     const sh = shells.get(id);
+    // FINAL MODEL (Gary, 2026-11-08 ~01:52 PST): the eye is LOCKED to the
+    // center of the loaded blueprint — the shell's pivot-centroid anchor
+    // (its origin). When no blueprint is loaded the eye is the canonical
+    // apex. The eye never moves with W; only the reticle moves.
+    eye = (sh && sh.origin) ? norm(sh.origin) : norm({x:0,y:0,z:1});
     const pkt = RETICLE_PACKET || STATE.reticlePacket;
     hudShell.textContent = sh ? `${sh.shellId}  shell=${sh.seed.toString(16).padStart(8,'0').toUpperCase()}  live=${STATE.seedStr || STATE.baseSeedStr}  tiles=${sh.routeTiles.length}` : '(none)';
     if(hudAnchor) hudAnchor.textContent = sh ? `${sh.anchorMode} • source=${sh.anchorSource} • shift=(${sh.centerShift.u.toFixed(4)}, ${sh.centerShift.v.toFixed(4)}) • ${pkt?`f${pkt.face}/i${pkt.i}/j${pkt.j}`:'center=waiting'}` : 'center=waiting';
@@ -5381,7 +5474,7 @@ if(buildState === Build.MAPPING){
       const sh = shells.get(activeShellId);
       const summary = sh && sh.contactSummary ? Object.entries(sh.contactSummary).map(([k,v])=>`${k}:${v}`).join(' ') : 'contacts=0';
       const pktBits = pkt ? `  addr=${pkt.address}  occ=${pkt.occupancy}  route=${pkt.routeIndex>=0?pkt.routeIndex:'-'}` : '';
-      setText(truthLine, `lock=RETICLE  pole=${POLE.label}  θ=${POLE.angleDeg.toFixed(1)}°  phase=${scanPhase}  ${summary}${pktBits}  planner=${PRB.plannedKind}${PRB.plannedIndex>=0?`:${PRB.plannedIndex}`:''}  evidence=${SCANFX.evidenceWrites} links=${SCANFX.edgeLinks}`);
+      setText(truthLine, `lock=CENTER  pole=${POLE.label}  θ=${POLE.angleDeg.toFixed(1)}°  phase=${scanPhase}  ${summary}${pktBits}  planner=${PRB.plannedKind}${PRB.plannedIndex>=0?`:${PRB.plannedIndex}`:''}  evidence=${SCANFX.evidenceWrites} links=${SCANFX.edgeLinks}`);
     }
   }
 
@@ -5558,7 +5651,11 @@ if(buildState === Build.MAPPING){
     ctx.restore();
   }
 
-  function drawCenterReticle(cx, cy){
+  // The player reticle — the user's pointer sentinel. Drawn at the reticle's
+  // own outside screen position (from reticleScreenPos), NOT at the center.
+  // The eye / neural synth / eye field own the center; only the reticle is
+  // outside. (Gary, 2026-11-08 ~01:52–01:58 PST.)
+  function drawReticle(cx, cy){
     if(!showReticle) return;
     const t = tick * DT;
     const pulse = 1 + Math.sin(t*2.6)*0.045;
@@ -5880,17 +5977,19 @@ function drawPoleCompass(){
    * voxel, ring and link construction are ported verbatim from that file's
    * rebuildFromSeed(); the draw is adapted to the v67 eye: the thinker is
    * projected into the pupil disc (clipped to R*0.55) and drawn between
-   * drawSynthEyeField() and drawCenterReticle()/drawEyeShip(), so Lucifer
+   * drawSynthEyeField() and drawReticle()/drawEyeShip(), so Lucifer
    * the Sentinel — the LuciferAI plugin embodied — sits on top of it.
    * 8 categories, seed-bound RGB via seededColor().
-   * CORRECTED MODEL (Gary, 2026-11-08 ~00:53 PST): the thinker and the
-   * spectrum animation (drawSynthEyeField) are NOT the core — they live on
-   * the OUTSIDE of the blueprint and move with the reticle. The draw below
-   * still places them at canvas center (cx, cy); repositioning them to
-   * follow the reticle on the outside is a flagged follow-up (see report),
-   * NOT done in this pass — the reticle has no "outside" position defined
-   * in code yet (IV.reticle is never populated; drawCenterReticle is
-   * hardcoded to cx, cy), so the anchor needs Gary's confirmation first.
+   * FINAL MODEL (Gary, 2026-11-08 ~01:52–01:58 PST — CORRECTS the 00:53
+   * statement): the neural synth (the thinker) IS the center of the
+   * blueprint — it is the core, locked to the center of the loaded
+   * blueprint (the blueprint's pivot-centroid anchor). The spectrum
+   * animation (drawSynthEyeField, the eye field) is at the center around
+   * the eye / neural synth. Neither is outside and neither follows the
+   * reticle. ONLY the player reticle is on the outside — it is the user's
+   * pointer sentinel (see reticleScreenPos), drawn at its own outside
+   * position. The eye (drawEyeShip) is locked to the center of the loaded
+   * blueprint, not to the reticle.
    * The "64 tracked each" figure from standing memory is NOT verified in
    * the engine source and is NOT asserted anywhere here.
    * Deliberately scoped: no comm-event simulation, no receipts, no hover —
@@ -6068,6 +6167,12 @@ function render(){
     const R = currentViewRadius();
     const cx=W*0.5, cy=H*0.5;
 
+    // The player reticle's outside screen position (the user's pointer
+    // sentinel). The eye / neural synth / eye field own the center (cx, cy);
+    // only the reticle is outside. Computed once per frame and reused at
+    // both draw sites below.
+    const rp = reticleScreenPos(cx, cy, R);
+
     drawLensShell(cx, cy, R);
 
     // sphere base glow
@@ -6082,10 +6187,12 @@ function render(){
     ctx.beginPath(); ctx.arc(cx,cy,R*0.96,0,Math.PI*2); ctx.fill();
     ctx.restore();
 
-    // Spectrum animation + Neural Synth thinker. CORRECTED MODEL (Gary,
-    // 2026-11-08 ~00:53 PST): these are NOT the core — they live OUTSIDE the
-    // blueprint and move with the reticle. Drawn at center for now;
-    // repositioning to the reticle on the outside is a flagged follow-up.
+    // Spectrum animation + Neural Synth thinker. FINAL MODEL (Gary,
+    // 2026-11-08 ~01:52–01:58 PST): the neural synth IS the center of the
+    // blueprint (the core, locked to the center of the loaded blueprint);
+    // the spectrum animation (the eye field) is at the center around the
+    // eye / neural synth. Neither is outside and neither follows the
+    // reticle — ONLY the player reticle is outside (see reticleScreenPos).
     drawSynthEyeField(cx, cy, R);
     ntDrawThinker(cx, cy, R);
     drawWorldCompassRing(cx, cy, R);
@@ -6116,7 +6223,7 @@ function render(){
     if(!sh){
       syncReticlePacket();
       setText(hudState, `boot=${effectiveBootState()}  build=${buildState}  waiting=UPLOAD_BLUEPRINT  zoom=${viewZoom.toFixed(2)}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  eye=${EyeCtl.mode}`);
-      drawCenterReticle(cx, cy);
+      drawReticle(rp.x, rp.y);
       drawEyeShip(cx, cy, R);
       drawSurfaceRider(cx, cy, R);
       drawPoleCompass();
@@ -6183,9 +6290,13 @@ function render(){
     clearProbeOverlayCanvas();
     drawScannerContacts(cx, cy, R);
 
-    // eye marker (Master Control) is intentionally locked to the reticle center
-    // so the ship reads as the synth pupil/eye. World motion happens around it.
-    drawCenterReticle(cx, cy);
+    // Eye marker (Master Control) is LOCKED to the center of the loaded
+    // blueprint (the blueprint's pivot-centroid anchor) — it is the eye at
+    // the center, NOT locked to the reticle. The player reticle (the user's
+    // pointer sentinel) is drawn at its own outside position (rp); it is the
+    // ONLY thing on the outside. The globe rotates beneath the fixed center
+    // as the reticle moves. (Gary, 2026-11-08 ~01:52–01:58 PST.)
+    drawReticle(rp.x, rp.y);
     drawEyeShip(cx, cy, R);
     // v64: remove duplicate banner-style home marker; the tripod dock and world rig are the only canonical probe-home visuals
     drawSurfaceRider(cx, cy, R);
@@ -6252,7 +6363,7 @@ function render(){
       <div class="row"><span class="pill">microAgg</span><code>${(sh&&sh.microAggregate)?('pop='+sh.microAggregate.population+' struct='+sh.microAggregate.structures+' roads='+sh.microAggregate.roads+' hubs='+sh.microAggregate.hubs+' relays='+sh.microAggregate.relays+' held='+(sh.microAggregate.held||0)+' penalty='+(sh.microAggregate.penalty||0)):'(none)'}</code></div>
       <div class="row"><span class="pill">contacts</span><code>${SCANFX.contacts.length}</code> highlighted=<code>${SCANFX.highlighted}</code></div>
       <div class="row"><span class="pill">classes</span><code>${Object.entries((sh&&sh.contactSummary)||{}).map(([k,v])=>`${k}:${v}`).join(' ') || '(none)'}</code></div>
-      <div class="row"><span class="pill">reticleLock</span><code>${showReticle ? 'enabled' : 'outside'}</code> drift=<code>${Math.hypot(lookVX,lookVY).toFixed(3)}</code></div>
+      <div class="row"><span class="pill">reticle</span><code>${showReticle ? 'outside · pointer sentinel' : 'hidden'}</code> drift=<code>${Math.hypot(lookVX,lookVY).toFixed(3)}</code></div>
       <div class="row"><span class="pill">pole</span><code>${POLE.label}</code> theta=<code>${POLE.angleDeg.toFixed(2)}°</code> align=<code>${POLE.alignment}</code> hdg=<code>${POLE.headingDeg.toFixed(1)}° ${POLE.dominantCardinal}</code> lat=<code>${POLE.latitudeDeg.toFixed(1)}°</code></div>
       <div class="row"><span class="pill">address</span><code>${STATE.addressStr||'ARC://pending'}</code></div>
       <div class="row"><span class="pill">reticleHit</span><code>${RETICLE_PACKET?RETICLE_PACKET.summary:'pending'}</code> route=<code>${RETICLE_PACKET&&RETICLE_PACKET.routeIndex>=0?RETICLE_PACKET.routeIndex:'-'}</code></div>
@@ -6281,7 +6392,7 @@ function render(){
   // ---------- main update loop (fail closed) ----------
   function step(){
     try{
-      eyeStep();
+      reticleStep();
       cameraStep();
       updatePoleState();
       syncReticlePacket();

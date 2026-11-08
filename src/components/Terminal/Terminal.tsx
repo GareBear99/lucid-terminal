@@ -11,7 +11,7 @@ import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { TerminalBlock } from '../../types';
 import { Block } from './Block';
 import { InputArea } from './InputArea';
-import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
+import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM, PLAIN_TERMINAL_KEEPERS } from '../../utils/commandRouter';
 import { HelpPanel } from '../Help/HelpPanel';
 import { PlanningPanel } from '../Planning/PlanningPanel';
 import { ValidationStepFactory } from './ValidationIndicator';
@@ -21,7 +21,7 @@ import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
-import { isLuciferAiEnabled, LUCIFER_AI_DISABLED_MESSAGE, refusalForDisabledCommand } from '../../lib/luciferAi';
+import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
 
@@ -352,26 +352,40 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     setHistoryIndex(-1);
 
     // 2. Parse command with deterministic router
-    const parsed = parseCommand(command);
+    const rawParsed = parseCommand(command);
+    // Plain terminal (Gary, 2026-11-07 ~20:17 PST): when LuciferAI
+    // is off, its command words are NOT intercepted at all — the
+    // prompt is a plain shell, so they go to the shell PTY like any
+    // other text. Only the shell itself and the Lucid-local paths
+    // keep their handling (PLAIN_TERMINAL_KEEPERS: shell, the local
+    // FixNet workflow, the browser diagnostic, the conversation
+    // history, the workflow status). Everything else (help, plan,
+    // llm, tokens, agent, ...) is rewritten to 'shell' here, so
+    // the help/plan handling and the switch below never see a
+    // LuciferAI type while off — the terminal never prints a
+    // LuciferAI refusal and never calls the plugin. The shell runs
+    // the command (bash builtins help/history/env work; anything
+    // else is "command not found"). That is what "no different
+    // than a terminal" means: the router stops being LuciferAI-
+    // first and the shell decides.
+    const parsed = !luciferAiEnabled && !PLAIN_TERMINAL_KEEPERS.has(rawParsed.type)
+      ? { ...rawParsed, type: 'shell' as const }
+      : rawParsed;
     console.log('[Command Router] Parsed:', parsed);
 
-    // 3. Handle HELP command - open help modal instead of creating block
+    // 3. Handle HELP command - open help modal instead of creating block.
+    // (Only reachable while LuciferAI is on: when off, 'help' is
+    // rewritten to 'shell' above, so it goes to the shell PTY and
+    // bash prints its own help — a plain terminal's help.)
     if (parsed.type === 'help') {
-      if (!luciferAiEnabled) {
-        // Help is bound to LuciferAI: when the plugin is off, Help
-        // stays closed. No return here — the command falls through
-        // to the switch below, whose disabled refusal answers it
-        // in a block instead of opening anything.
+      console.log('[Help] Opening help modal');
+      if (onOpenHelp) {
+        onOpenHelp();
       } else {
-        console.log('[Help] Opening help modal');
-        if (onOpenHelp) {
-          onOpenHelp();
-        } else {
-          // Fallback to old panel if callback not provided
-          setShowHelpPanel(true);
-        }
-        return;
+        // Fallback to old panel if callback not provided
+        setShowHelpPanel(true);
       }
+      return;
     }
 
     // 4. Handle PLAN command - open planning panel instead of creating block
@@ -495,23 +509,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
 
         case 'llm':
           // LLM management commands
+          // (When LuciferAI is off, 'llm' never reaches this case:
+          // it is rewritten to 'shell' before the switch, so it goes
+          // to the shell PTY. There is no refusal branch here any
+          // more — the terminal does not speak LuciferAI while off.)
           console.log('[LLM] Processing:', parsed.command);
-          if (!luciferAiEnabled) {
-            // DISABLED (Part 2B fix): llm list / enable / disable
-            // used to call the backend IPC directly with no disable
-            // check, unlike every other `llm ...` command - refuse
-            // like them instead of surfacing a backend error.
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = refusalForDisabledCommand('llm');
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
-            break;
-          }
           if (parsed.command === 'llm list') {
             const result = await window.lucidAPI.lucid.llmList();
             setBlocks(prev => {
@@ -592,9 +594,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 const updated = [...prev];
                 const lastBlock = updated[updated.length - 1];
                 if (lastBlock?.id === newBlock.id) {
-                  lastBlock.output = luciferAiEnabled
-                    ? '⚠️  LuciferAI plugin required for LLM commands.\nSee "help" for available commands.'
-                    : LUCIFER_AI_DISABLED_MESSAGE;
+                  lastBlock.output = '⚠️  LuciferAI plugin required for LLM commands.\nSee "help" for available commands.';
                   lastBlock.isComplete = true;
                 }
                 return updated;
@@ -686,21 +686,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           // used to have no case at all: the only branch that
           // mentioned it lived inside case 'workflow', where it
           // could never run, so the command fell to the default
-          // branch (plugin / shell fallback). Refuse while the
-          // plugin is disabled, like every other plugin command.
+          // branch (plugin / shell fallback). When LuciferAI is
+          // off, 'tokens' never reaches this case: it is rewritten
+          // to 'shell' before the switch, so it goes to the shell
+          // PTY. No refusal branch — the terminal does not speak
+          // LuciferAI while off.
           console.log('[Tokens] Processing:', parsed.command);
-          if (!luciferAiEnabled) {
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = refusalForDisabledCommand('tokens');
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
-            break;
-          }
           {
             const stats = await window.lucidAPI.lucid.getTokenStats();
             setBlocks(prev => {
@@ -759,26 +750,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           // All other commands - route to LuciferAI plugin if available
           console.log('[Backend] Command type:', parsed.type);
 
-          // DISABLED, not just down: refuse outright, BEFORE the
-          // checking/available branches - the probe starts in
-          // `checking` state, so a fast typist would otherwise get
-          // 'Connecting...' instead of the refusal. The fallback
-          // below would write the command to the shell PTY - a back
-          // door that must not run plugin commands (`install ...`
-          // is a real Unix command). No activation while off.
-          if (!luciferAiEnabled) {
-            setBlocks(prev => {
-              const updated = [...prev];
-              const lastBlock = updated[updated.length - 1];
-              if (lastBlock?.id === newBlock.id) {
-                lastBlock.output = refusalForDisabledCommand(parsed.type);
-                lastBlock.isComplete = true;
-              }
-              return updated;
-            });
-            break;
-          }
-
+          // (When LuciferAI is off this case is unreachable: agent /
+          // unknown / install / ... are rewritten to 'shell' before
+          // the switch, so they go to the shell PTY. No refusal
+          // branch — the terminal does not speak LuciferAI while
+          // off. What follows is the ON-state routing only.)
           if (luciferAIAvailable) {
             // LuciferAI plugin is available - use it
             console.log('[Plugin] Routing to LuciferAI:', parsed.type);
@@ -1047,25 +1023,28 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             </div>
             <div className="flex items-center gap-3 px-5 py-4">
               {/* LuciferAI Plugin Status Indicator (the blood drop).
-                  Honest states: the wrapper being up is NOT "connected" -
-                  only a loaded model is. A wrapper with no model says so.
-                  When the plugin is DISABLED the indicator renders
-                  nothing at all - the flex row reflows and the input
-                  stretches to fill the gap. It is also LuciferAI's
-                  quick disable (Gary, 2026-11-07 ~18:57 PST):
-                  clicking it flips the plugin on/off; it defaults
-                  darkened/off, is lit when on, and never prints or
-                  repeats the "awaiting commands" line. The blood
-                  drop PANEL opens from the tab-strip drop, not here. */}
-              <LuciferStatusIndicator
-                enabled={luciferAiEnabled}
-                checking={luciferAIChecking}
-                modelAvailable={modelAvailable}
-                modelNames={modelNames}
-                available={luciferAIAvailable}
-                toggleActive={luciferToggleActive}
-                onToggleBloodDrop={onToggleLuciferAi}
-              />
+                  It renders ONLY while LuciferAI is on (Gary,
+                  2026-11-07 ~20:17 PST): a plain terminal has no
+                  blood drop, so when the plugin is off there is no
+                  drop here at all — not darkened, not clickable —
+                  and the flex row reflows with the input stretching
+                  to fill the gap. It is LuciferAI's quick disable:
+                  lit while on, clicking it flips the plugin off and
+                  the drop disappears with it; it never prints or
+                  repeats the "awaiting commands" line. Re-enable
+                  from Settings → Plugins. The blood drop PANEL
+                  opens from the tab-strip drop, not here. */}
+              {luciferAiEnabled && (
+                <LuciferStatusIndicator
+                  enabled={luciferAiEnabled}
+                  checking={luciferAIChecking}
+                  modelAvailable={modelAvailable}
+                  modelNames={modelNames}
+                  available={luciferAIAvailable}
+                  toggleActive={luciferToggleActive}
+                  onToggleBloodDrop={onToggleLuciferAi}
+                />
+              )}
               
               {/* Send arrow — this used to be a decorative span, so clicking it
                   did nothing and the prompt could only be sent with Enter.

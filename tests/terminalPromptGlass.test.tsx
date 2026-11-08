@@ -263,7 +263,7 @@ describe('terminal prompt — whole glass section', () => {
         .filter((t) => t.startsWith('bg-') && !t.startsWith('hover:') && !t.includes('/'));
       expect(opaque).toEqual([]);
     };
-    // The blood drop toggle: darkened/off, transparent, no fill.
+    // The blood drop toggle (LuciferAI on): lit, transparent, no fill.
     expectGlassMatched(screen.getByRole('button', { name: 'Toggle LuciferAI' }));
     // The send arrow: transparent at rest, white sheen on hover only.
     expectGlassMatched(screen.getByRole('button', { name: 'Send command' }));

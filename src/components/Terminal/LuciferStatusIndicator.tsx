@@ -28,23 +28,27 @@ interface LuciferStatusIndicatorProps {
  *
  * Honest states: the wrapper being up is NOT "connected" — only a
  * loaded model is. A wrapper with no model says so. When the plugin
- * is DISABLED the status display renders NOTHING at all — not even
- * the grey offline dot, which is itself a LuciferAI trace — so the
+ * is DISABLED the indicator renders NOTHING at all — not even the
+ * grey offline dot, which is itself a LuciferAI trace — so the
  * flex row reflows and the prompt input stretches to fill the gap
  * the drop left (the send arrow stays attached to the input).
  *
- * The toggle (Gary, 2026-11-07 ~09:20 PST, clarified ~18:57 PST):
- * the drop next to the send arrow IS LuciferAI's quick disable.
- * It ALWAYS defaults darkened/off, and clicking it flips
- * LuciferAI on/off — it never opens a panel and never prints or
- * repeats the "awaiting commands" line (toggling only flips the
- * setting; the heartbeat is the plugin's own idle status line and
- * shows only while the plugin is on and idle). When ON the drop
- * is full brightness — never greyed. The ONE exception to the
- * renders-nothing rule: with a toggle handler the drop stays
- * rendered while disabled (darkened 🩸, clickable), because a
- * quick disable with no way back on is a trap — the drop is the
- * re-enable control.
+ * The toggle (Gary, 2026-11-07 ~09:20 PST, clarified ~18:57 PST,
+ * CORRECTED 2026-11-07 ~20:17 PST): the drop next to the send
+ * arrow IS LuciferAI's quick disable — but it exists ONLY while
+ * the plugin is ON. Clicking it flips LuciferAI off, and the drop
+ * goes away with everything else LuciferAI, leaving a plain
+ * terminal: no drop, no heartbeat, no LuciferAI anything. A plain
+ * terminal has no blood drop, so there is NO darkened/off drop
+ * left behind as a re-enable control — that was the old design
+ * (bd0ea6c), and Gary corrected it: when LuciferAI is off the
+ * terminal must be no different than a terminal. Re-enable
+ * LuciferAI from Settings → Plugins, not from a leftover drop.
+ * While ON the drop is full brightness — never greyed, never
+ * darkened — and clicking it never prints or repeats the
+ * "awaiting commands" line (toggling only flips the setting; the
+ * heartbeat is the plugin's own idle status line and shows only
+ * while the plugin is on and idle).
  */
 export function LuciferStatusIndicator({
   enabled,
@@ -57,26 +61,33 @@ export function LuciferStatusIndicator({
 }: LuciferStatusIndicatorProps) {
   const status = luciferStatusIndicator(enabled, checking, modelAvailable, available);
 
+  // A plain terminal has no blood drop (Gary, 2026-11-07 ~20:17
+  // PST): when LuciferAI is off the drop renders NOTHING — not
+  // darkened, not clickable, not there — even with a toggle
+  // handler. The old design kept a darkened drop behind as the
+  // re-enable control; that left a LuciferAI trace in a terminal
+  // that was supposed to be plain, so it is gone. The quick
+  // disable exists only while the plugin is ON: the drop is lit,
+  // clicking it turns the plugin off, and the drop disappears with
+  // it. Re-enable from Settings → Plugins.
+  if (!enabled) return null;
+
   // The toggle (Gary, 2026-11-07): the drop next to the send arrow
-  // is LuciferAI's quick disable. It stays rendered even while
-  // disabled — darkened/off, clickable — so Gary can always turn
-  // the plugin back on from the prompt. Lit (opacity-100) when
-  // on, darkened (opacity-40) when off, never `disabled`, never
-  // greyed-out unclickable.
+  // is LuciferAI's quick disable. It only renders while the plugin
+  // is ON, so it is always lit (opacity-100) — never darkened,
+  // never greyed-out unclickable. Clicking it flips the plugin off.
   if (onToggleBloodDrop) {
-    const glyph = !enabled ? '🩸' : status === 'checking' ? '⏳' : status === 'offline' ? '⚪' : '🩸';
-    const color = !enabled
-      ? 'text-gray-500'
-      : status === 'checking'
+    const glyph = status === 'checking' ? '⏳' : status === 'offline' ? '⚪' : '🩸';
+    const color =
+      status === 'checking'
         ? 'text-yellow-500 animate-pulse'
         : status === 'ready'
           ? 'text-green-500'
           : status === 'loaded-no-model'
             ? 'text-amber-500'
             : 'text-gray-500';
-    const statusText = !enabled
-      ? 'LuciferAI disabled — click to turn it on'
-      : status === 'checking'
+    const statusText =
+      status === 'checking'
         ? 'Connecting to LuciferAI plugin...'
         : status === 'ready'
           ? `LuciferAI connected — model(s) ready: ${modelNames.join(', ')}`
@@ -84,21 +95,19 @@ export function LuciferStatusIndicator({
             ? 'LuciferAI plugin loaded — no model loaded'
             : 'LuciferAI plugin offline - terminal works in standalone mode';
     return (
-      <Tooltip content={`${statusText} — click to toggle LuciferAI`}>
+      <Tooltip content={`${statusText} — click to turn LuciferAI off`}>
         <button
           type="button"
           onClick={onToggleBloodDrop}
           aria-label="Toggle LuciferAI"
           aria-pressed={toggleActive}
-          className={`text-xs ${color} ${toggleActive ? 'opacity-100' : 'opacity-40'} hover:opacity-100 transition-opacity select-none`}
+          className={`text-xs ${color} opacity-100 hover:opacity-100 transition-opacity select-none`}
         >
           {glyph}
         </button>
       </Tooltip>
     );
   }
-
-  if (status === 'hidden') return null;
 
   const glyph =
     status === 'checking'

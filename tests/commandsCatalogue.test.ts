@@ -21,6 +21,7 @@ import {
   SHELL_COMMANDS,
   LUCIFERAI_COMMANDS,
   MULTI_WORD_COMMANDS,
+  PLAIN_TERMINAL_KEEPERS,
   parseCommand,
 } from '../src/utils/commandRouter';
 import { helpCategories } from '../src/data/helpData';
@@ -148,5 +149,29 @@ describe('parseCommand round-trips the catalogue commands', () => {
   it("routes 'lucifer what is the time' to the agent (the plugin path)", () => {
     const parsed = parseCommand('lucifer what is the time');
     expect(parsed.type).toBe('agent');
+  });
+});
+
+describe('PLAIN_TERMINAL_KEEPERS — what keeps its handling when LuciferAI is off', () => {
+  // Gary, 2026-11-07 ~20:17 PST: when LuciferAI is off the terminal
+  // is a plain terminal. Only the shell itself and the Lucid-local
+  // paths keep their handling; every other type is rewritten to
+  // 'shell' in Terminal.handleSubmit, so the command goes to the
+  // shell PTY instead of the terminal printing a LuciferAI refusal.
+  it('keeps shell, fix, fixnet, browser, history and workflow', () => {
+    expect([...PLAIN_TERMINAL_KEEPERS].sort()).toEqual([
+      'browser',
+      'fix',
+      'fixnet',
+      'history',
+      'shell',
+      'workflow',
+    ]);
+  });
+
+  it('does NOT keep any LuciferAI command word', () => {
+    for (const type of ['help', 'plan', 'llm', 'build', 'create', 'tokens', 'agent', 'unknown']) {
+      expect(PLAIN_TERMINAL_KEEPERS.has(type as never)).toBe(false);
+    }
   });
 });

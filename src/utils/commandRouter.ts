@@ -44,6 +44,29 @@ export const SHELL_COMMANDS = new Set([
   'zip', 'unzip', 'chmod', 'chown', 'ps', 'kill', 'top', 'df', 'du'
 ]);
 
+// Command types that keep their handling when LuciferAI is off —
+// the plain terminal (Gary, 2026-11-07 ~20:17 PST). These are the
+// main-process-local paths, none of them the LuciferAI plugin:
+// the shell PTY itself; the local FixNet workflow (fix/fixnet run
+// the main-process orchestrator's FixNetRouter, not the plugin);
+// the browser diagnostic (the Lucid browser service); the
+// conversation history and the workflow status (LucidCore's own
+// workflow state, pinned by tests/terminalClearHistory.test.tsx
+// for history). Every OTHER type is a LuciferAI command word: when
+// the plugin is off the Terminal rewrites it to 'shell', so the
+// command goes to the shell PTY (bash builtins like help/history/
+// env work; anything else is "command not found") instead of the
+// terminal printing a LuciferAI refusal — the terminal speaking
+// LuciferAI while off. A plain terminal has no LuciferAI words.
+export const PLAIN_TERMINAL_KEEPERS: ReadonlySet<CommandType> = new Set([
+  'shell',
+  'fix',
+  'fixnet',
+  'browser',
+  'history',
+  'workflow',
+]);
+
 // LuciferAI /commands (slash commands)
 export const LUCIFERAI_COMMANDS = new Set([
   'help', 'plan', 'fix', 'fixnet', 'llm', 'build', 'create', 

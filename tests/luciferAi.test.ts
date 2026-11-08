@@ -3,19 +3,24 @@
  * truth (Gary, 2026-11-05): when the plugin is off it is completely
  * gone. These tests pin the default (OFF, Gary 2026-11-07: the
  * prompt blood drop is the quick disable and defaults disabled;
- * the drop itself stays visible to turn it back on), the
- * missing-key rule (older persisted settings count as OFF), the
- * persistence through the settings store, and the five prompt-row
- * indicator states.
+ * corrected 2026-11-07 ~20:17 PST — the drop is gone entirely
+ * when off, no leftover drop as a re-enable control; re-enable
+ * from Settings → Plugins), the missing-key rule (older persisted
+ * settings count as OFF), the persistence through the settings
+ * store, and the five prompt-row indicator states.
+ *
+ * (The old refusal design — LUCIFER_AI_DISABLED_MESSAGE /
+ * refusalForDisabledCommand, the terminal refusing LuciferAI
+ * commands while off — is gone: when off, LuciferAI command
+ * words go to the shell PTY instead. See
+ * tests/terminalPlainTerminal.test.tsx.)
  *
  * Run with: npm test
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   isLuciferAiEnabled,
-  LUCIFER_AI_DISABLED_MESSAGE,
   luciferStatusIndicator,
-  refusalForDisabledCommand,
 } from '../src/lib/luciferAi';
 import { useSettingsStore } from '../src/stores/settingsStore';
 
@@ -54,29 +59,6 @@ describe('luciferStatusIndicator', () => {
 
   it('a down plugin reads offline', () => {
     expect(luciferStatusIndicator(true, false, false, false)).toBe('offline');
-  });
-});
-
-describe('LUCIFER_AI_DISABLED_MESSAGE', () => {
-  it('names the plugin and where to turn it back on', () => {
-    expect(LUCIFER_AI_DISABLED_MESSAGE).toContain('LuciferAI');
-    expect(LUCIFER_AI_DISABLED_MESSAGE).toContain('Settings');
-  });
-});
-
-describe('refusalForDisabledCommand', () => {
-  it('is exactly the disabled message for ordinary plugin commands', () => {
-    expect(refusalForDisabledCommand('agent')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
-    expect(refusalForDisabledCommand('llm')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
-    expect(refusalForDisabledCommand('tokens')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
-    expect(refusalForDisabledCommand('install')).toBe(LUCIFER_AI_DISABLED_MESSAGE);
-  });
-
-  it('appends the Help line for the help command', () => {
-    expect(refusalForDisabledCommand('help')).toBe(
-      LUCIFER_AI_DISABLED_MESSAGE +
-        '\n\nHelp is part of LuciferAI and is unavailable while the plugin is disabled.',
-    );
   });
 });
 

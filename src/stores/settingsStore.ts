@@ -63,6 +63,7 @@ const defaultSettings: Settings = {
   pingServerEnabled: false,
   pingServerEndpoint: 'http://127.0.0.1:8787',
   pingServerUserId: '',
+  googleDriveClientId: '',
   terminalPolicy: 'ask',
   showValidationSteps: true,
   autoCollapseValidation: true,
@@ -116,6 +117,10 @@ const defaultSettings: Settings = {
   speakActorVoice: null,
   customPlugins: {},
   luciferAiEnabled: false,
+  // LuciferAI silenced (Gary, 2026-11-08 ~02:28 PST): the blood
+  // drop toggle is JUST a silencer — it greys the drop, it never
+  // turns the plugin off. Default false (speaking).
+  luciferAiSilenced: false,
   // Dev mode — OFF by default: the prompt bar and the terminal
   // stay topology-synced on a fresh startup (Gary, 2026-11-07).
   devMode: false,

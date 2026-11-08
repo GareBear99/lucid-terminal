@@ -16,7 +16,7 @@ import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
-import { isLuciferAiEnabled } from '../../lib/luciferAi';
+import { isLuciferAiEnabled, isLuciferAiSilenced } from '../../lib/luciferAi';
 import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
 
@@ -31,9 +31,12 @@ interface TerminalProps {
   onOpenSynth?: () => void;
   /** Open the Forge (the Homunculi roster). */
   onOpenForge?: () => void;
-  /** Whether the prompt blood drop (LuciferAI quick disable) is ON. */
+  /** Whether the prompt blood drop (LuciferAI silencer) reads as ON
+   * — LuciferAI speaking, not silenced. */
   luciferToggleActive?: boolean;
-  /** Toggle LuciferAI on/off (the prompt blood drop next to the send arrow). */
+  /** Silence / un-silence LuciferAI (the prompt blood drop next to
+   * the send arrow). It greys the drop; it never turns the plugin
+   * off. */
   onToggleLuciferAi?: () => void;
 }
 
@@ -65,6 +68,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // false the plugin is completely gone. Every gate below reads
   // this value, never the raw setting (missing key = ON).
   const luciferAiEnabled = isLuciferAiEnabled(settings);
+  // The LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST):
+  // the blood drop toggle is JUST a silencer — it greys the drop,
+  // it never turns the plugin off and never stops the runtime.
+  // Silenced only changes how the drop renders; every gate below
+  // still reads luciferAiEnabled, never this value.
+  const luciferAiSilenced = isLuciferAiSilenced(settings);
   const { createTab, closeTab, createErrors, clearCreateError, updateTabCwd } = useTerminalStore();
   // This tab's working directory — the prompt section's
   // context line (Warp's attached path, Gary 2026-11-07). It
@@ -944,15 +953,21 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               {/* LuciferAI Plugin Status Indicator (the blood drop).
                   It renders ONLY while LuciferAI is on (Gary,
                   2026-11-07 ~20:17 PST): a plain terminal has no
-                  blood drop, so when the plugin is off there is no
-                  drop here at all — not darkened, not clickable —
-                  and the flex row reflows with the hint stretching
-                  to fill the gap. It is LuciferAI's quick disable:
-                  lit while on, clicking it flips the plugin off and
-                  the drop disappears with it; it never prints or
-                  repeats the "awaiting commands" line. Re-enable
-                  from Settings → Plugins. The blood drop PANEL
-                  opens from the tab-strip drop, not here. */}
+                  blood drop, so when the plugin is off (the
+                  Settings toggle, Settings → Plugins — Gary,
+                  2026-11-08 ~02:29 PST: "off like in settings
+                  toggle") there is no drop here at all — not
+                  darkened, not clickable — and the flex row
+                  reflows with the hint stretching to fill the gap.
+                  It is LuciferAI's silencer (Gary, 2026-11-08
+                  ~02:28 PST): lit while on and speaking, GREYED
+                  OUT while silenced — clicking it silences /
+                  un-silences, it never turns the plugin off and
+                  never makes the drop disappear; it never prints
+                  or repeats the "awaiting commands" line.
+                  Re-enable from Settings → Plugins. The blood
+                  drop PANEL opens from the tab-strip drop, not
+                  here. */}
               {luciferAiEnabled && (
                 <LuciferStatusIndicator
                   enabled={luciferAiEnabled}
@@ -960,6 +975,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   modelAvailable={modelAvailable}
                   modelNames={modelNames}
                   available={luciferAIAvailable}
+                  silenced={luciferAiSilenced}
                   toggleActive={luciferToggleActive}
                   onToggleBloodDrop={onToggleLuciferAi}
                 />

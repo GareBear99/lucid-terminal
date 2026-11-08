@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
-import { isLuciferAiEnabled } from './lib/luciferAi';
+import { isLuciferAiEnabled, isLuciferAiSilenced } from './lib/luciferAi';
 import { useToastStore, visibleToastNotifications } from './stores/toastStore';
 import { ErrorNotification } from './components/Terminal/ErrorNotification';
 import { useTerminalStore } from './stores/terminalStore';
@@ -39,8 +39,18 @@ function App() {
   const { loadSettings, isLoading, storageDegraded, settings, updateSetting, currentTheme } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone - its surfaces, its Help,
-  // its commands. Every gate in this file reads this value.
+  // its commands. Every gate in this file reads this value. This
+  // is the Settings toggle (Settings → Plugins) — the ONLY thing
+  // that makes the blood drop disappear (Gary, 2026-11-08
+  // ~02:29 PST: "off like in settings toggle").
   const luciferAiEnabled = isLuciferAiEnabled(settings);
+  // The LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST):
+  // the blood drop toggle is JUST a silencer — it greys the drop,
+  // it never turns the plugin off and never stops the runtime
+  // (causal ticks keep running, causal order is held). Silenced
+  // only changes how the drop renders; no gate in this file reads
+  // it as a disable.
+  const luciferAiSilenced = isLuciferAiSilenced(settings);
   const { notifications, dismissToast } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
   const { currentDir, setCurrentDir } = useFileStore();
@@ -407,7 +417,7 @@ function App() {
                           key={tab.id}
                           className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                         >
-                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} luciferToggleActive={luciferAiEnabled} onToggleLuciferAi={() => void updateSetting('luciferAiEnabled', !isLuciferAiEnabled(useSettingsStore.getState().settings))} />
+                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
                         </div>
                       ))}
                       {tabs.length === 0 && (

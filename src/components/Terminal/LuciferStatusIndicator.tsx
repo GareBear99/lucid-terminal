@@ -2,7 +2,9 @@ import { Tooltip } from '../Tooltip/Tooltip';
 import { luciferStatusIndicator } from '../../lib/luciferAi';
 
 interface LuciferStatusIndicatorProps {
-  /** The LuciferAI plugin enabled state (settings key). */
+  /** The LuciferAI plugin enabled state (the Settings toggle,
+   * Settings → Plugins — the ONLY thing that makes the drop
+   * disappear, Gary 2026-11-08 ~02:29 PST). */
   enabled: boolean;
   /** A plugin probe is in flight. */
   checking: boolean;
@@ -12,11 +14,17 @@ interface LuciferStatusIndicatorProps {
   modelNames: string[];
   /** The plugin wrapper is up (loaded, with or without a model). */
   available: boolean;
-  /** Whether the quick-disable toggle is ON (LuciferAI enabled).
-   * Defaults off. */
+  /** Whether LuciferAI is silenced (the blood drop toggle, Gary
+   * 2026-11-08 ~02:28 PST). Silenced = the drop greys out but
+   * stays visible and clickable (clicking un-silences). Defaults
+   * to false (speaking). */
+  silenced?: boolean;
+  /** Whether the toggle reads as ON (LuciferAI speaking, not
+   * silenced). Defaults to !silenced. */
   toggleActive?: boolean;
-  /** Clicking the drop toggles LuciferAI itself (the quick disable,
-   * Gary 2026-11-07). Omitted → the drop is a status display only. */
+  /** Clicking the drop silences / un-silences LuciferAI (the
+   * silencer, Gary 2026-11-08 ~02:28 PST) — it does NOT turn the
+   * plugin off. Omitted → the drop is a status display only. */
   onToggleBloodDrop?: () => void;
 }
 
@@ -28,27 +36,31 @@ interface LuciferStatusIndicatorProps {
  *
  * Honest states: the wrapper being up is NOT "connected" — only a
  * loaded model is. A wrapper with no model says so. When the plugin
- * is DISABLED the indicator renders NOTHING at all — not even the
- * grey offline dot, which is itself a LuciferAI trace — so the
- * flex row reflows and the prompt input stretches to fill the gap
- * the drop left (the send arrow stays attached to the input).
+ * is DISABLED (the Settings toggle, Settings → Plugins) the
+ * indicator renders NOTHING at all — not even the grey offline dot,
+ * which is itself a LuciferAI trace — so the flex row reflows and
+ * the prompt input stretches to fill the gap the drop left (the
+ * send arrow stays attached to the input).
  *
- * The toggle (Gary, 2026-11-07 ~09:20 PST, clarified ~18:57 PST,
- * CORRECTED 2026-11-07 ~20:17 PST): the drop next to the send
- * arrow IS LuciferAI's quick disable — but it exists ONLY while
- * the plugin is ON. Clicking it flips LuciferAI off, and the drop
- * goes away with everything else LuciferAI, leaving a plain
- * terminal: no drop, no heartbeat, no LuciferAI anything. A plain
- * terminal has no blood drop, so there is NO darkened/off drop
- * left behind as a re-enable control — that was the old design
- * (bd0ea6c), and Gary corrected it: when LuciferAI is off the
- * terminal must be no different than a terminal. Re-enable
+ * The toggle (Gary, 2026-11-08 ~02:28 PST — CORRECTS the old
+ * "quick disable" reading, 2026-11-07 ~20:17 PST): the drop next
+ * to the send arrow is JUST A SILENCER. Clicking it silences
+ * LuciferAI's voices — the drop GREYS OUT (opacity-40 +
+ * grayscale) but stays visible and clickable, so clicking it
+ * again un-silences. It does NOT turn the plugin off and does
+ * NOT stop the runtime: the causal ticks keep running and the
+ * causal order is held, never reset or re-numbered. The drop
+ * disappears ONLY when LuciferAI is turned off via the Settings
+ * toggle (Gary, 2026-11-08 ~02:29 PST: "off like in settings
+ * toggle") — that is the plain-terminal rule: when LuciferAI is
+ * off the terminal must be no different than a terminal, so
+ * there is no drop left behind as a re-enable control. Re-enable
  * LuciferAI from Settings → Plugins, not from a leftover drop.
- * While ON the drop is full brightness — never greyed, never
- * darkened — and clicking it never prints or repeats the
- * "awaiting commands" line (toggling only flips the setting; the
- * heartbeat is the plugin's own idle status line and shows only
- * while the plugin is on and idle).
+ * While ON and not silenced the drop is full brightness; while
+ * silenced it is greyed. Clicking it never prints or repeats the
+ * "awaiting commands" line (toggling only flips the silenced
+ * setting; the heartbeat is the plugin's own idle status line
+ * and shows only while the plugin is on and idle).
  */
 export function LuciferStatusIndicator({
   enabled,
@@ -56,26 +68,31 @@ export function LuciferStatusIndicator({
   modelAvailable,
   modelNames,
   available,
-  toggleActive = false,
+  silenced = false,
+  toggleActive,
   onToggleBloodDrop,
 }: LuciferStatusIndicatorProps) {
   const status = luciferStatusIndicator(enabled, checking, modelAvailable, available);
+  // The toggle reads as ON when LuciferAI is speaking (not
+  // silenced). Callers may pass toggleActive explicitly; when
+  // omitted it is !silenced.
+  const active = toggleActive ?? !silenced;
 
   // A plain terminal has no blood drop (Gary, 2026-11-07 ~20:17
-  // PST): when LuciferAI is off the drop renders NOTHING — not
+  // PST, confirmed 2026-11-08 ~02:29 PST): when LuciferAI is off
+  // via the Settings toggle the drop renders NOTHING — not
   // darkened, not clickable, not there — even with a toggle
-  // handler. The old design kept a darkened drop behind as the
-  // re-enable control; that left a LuciferAI trace in a terminal
-  // that was supposed to be plain, so it is gone. The quick
-  // disable exists only while the plugin is ON: the drop is lit,
-  // clicking it turns the plugin off, and the drop disappears with
-  // it. Re-enable from Settings → Plugins.
+  // handler, even when silenced. The silencer never hides the
+  // drop; only the Settings toggle does. Re-enable from
+  // Settings → Plugins.
   if (!enabled) return null;
 
-  // The toggle (Gary, 2026-11-07): the drop next to the send arrow
-  // is LuciferAI's quick disable. It only renders while the plugin
-  // is ON, so it is always lit (opacity-100) — never darkened,
-  // never greyed-out unclickable. Clicking it flips the plugin off.
+  // The toggle (Gary, 2026-11-08 ~02:28 PST): the drop next to
+  // the send arrow is LuciferAI's silencer. While ON and speaking
+  // it is lit (opacity-100); while silenced it is GREYED OUT
+  // (opacity-40 + grayscale) but stays visible and clickable, so
+  // clicking it un-silences. It never turns the plugin off and
+  // never hides the drop — only the Settings toggle does that.
   if (onToggleBloodDrop) {
     const glyph = status === 'checking' ? '⏳' : status === 'offline' ? '⚪' : '🩸';
     const color =
@@ -94,14 +111,17 @@ export function LuciferStatusIndicator({
           : status === 'loaded-no-model'
             ? 'LuciferAI plugin loaded — no model loaded'
             : 'LuciferAI plugin offline - terminal works in standalone mode';
+    const silenceText = silenced
+      ? 'LuciferAI silenced — click to un-silence'
+      : 'Click to silence LuciferAI';
     return (
-      <Tooltip content={`${statusText} — click to turn LuciferAI off`}>
+      <Tooltip content={`${statusText} — ${silenceText}`}>
         <button
           type="button"
           onClick={onToggleBloodDrop}
           aria-label="Toggle LuciferAI"
-          aria-pressed={toggleActive}
-          className={`text-xs ${color} opacity-100 hover:opacity-100 transition-opacity select-none`}
+          aria-pressed={active}
+          className={`text-xs ${color} ${silenced ? 'opacity-40 grayscale' : 'opacity-100'} hover:opacity-100 transition-opacity select-none`}
         >
           {glyph}
         </button>
@@ -134,7 +154,7 @@ export function LuciferStatusIndicator({
 
   return (
     <Tooltip content={statusText}>
-      <span className={`text-xs ${color}`}>{glyph}</span>
+      <span className={`text-xs ${color} ${silenced ? 'opacity-40 grayscale' : ''}`}>{glyph}</span>
     </Tooltip>
   );
 }

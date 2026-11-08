@@ -58,16 +58,20 @@ describe('LuciferStatusIndicator', () => {
   });
 });
 
-describe('LuciferStatusIndicator — blood drop quick disable (Gary, 2026-11-07 ~18:57 PST, corrected ~20:17 PST)', () => {
-  // The drop next to the send arrow IS LuciferAI's quick disable:
-  // clicking it flips the plugin off. It exists ONLY while the
-  // plugin is ON — lit, never greyed — and clicking it never
-  // prints or repeats the "awaiting commands" line (toggling only
-  // flips the setting). When the plugin is off the drop is GONE
-  // entirely (no darkened leftover as a re-enable control — that
-  // was the old design, and Gary corrected it: when LuciferAI is
-  // off the terminal must be no different than a terminal).
-  // Re-enable from Settings → Plugins.
+describe('LuciferStatusIndicator — blood drop silencer (Gary, 2026-11-08 ~02:28 PST — CORRECTS the old "quick disable" reading, 2026-11-07 ~20:17 PST)', () => {
+  // The drop next to the send arrow is JUST A SILENCER: clicking
+  // it silences LuciferAI's voices — the drop GREYS OUT but stays
+  // visible and clickable, so clicking it again un-silences. It
+  // does NOT turn the plugin off and does NOT stop the runtime
+  // (causal ticks keep running, causal order is held). The drop
+  // disappears ONLY when LuciferAI is off via the Settings toggle
+  // (Settings → Plugins, Gary 2026-11-08 ~02:29 PST: "off like in
+  // settings toggle"). When the plugin is off the drop is GONE
+  // entirely (no darkened leftover as a re-enable control — when
+  // LuciferAI is off the terminal must be no different than a
+  // terminal). Re-enable from Settings → Plugins. Clicking it
+  // never prints or repeats the "awaiting commands" line
+  // (toggling only flips the silenced setting).
   const base = {
     enabled: true,
     checking: false,
@@ -76,26 +80,70 @@ describe('LuciferStatusIndicator — blood drop quick disable (Gary, 2026-11-07 
     available: true,
   };
 
-  it('when on, the drop is lit — full brightness, never darkened or greyed', () => {
+  it('when on and not silenced, the drop is lit — full brightness', () => {
     render(
-      <LuciferStatusIndicator {...base} toggleActive={true} onToggleBloodDrop={() => {}} />,
+      <LuciferStatusIndicator {...base} silenced={false} toggleActive={true} onToggleBloodDrop={() => {}} />,
     );
     const button = screen.getByRole('button', { name: 'Toggle LuciferAI' });
     expect(button).toBeTruthy();
     const classes = button.className.split(' ');
     expect(classes).toContain('opacity-100');
     expect(classes).not.toContain('opacity-40');
+    expect(classes).not.toContain('grayscale');
     expect(button.getAttribute('aria-pressed')).toBe('true');
     expect(button.hasAttribute('disabled')).toBe(false);
   });
 
-  it('clicking the drop toggles LuciferAI', () => {
+  it('when silenced, the drop greys out but stays visible and clickable', () => {
+    render(
+      <LuciferStatusIndicator {...base} silenced={true} toggleActive={false} onToggleBloodDrop={() => {}} />,
+    );
+    const button = screen.getByRole('button', { name: 'Toggle LuciferAI' });
+    expect(button).toBeTruthy();
+    // Still the blood drop glyph — it greys, it does not disappear.
+    expect(screen.getByText('🩸')).toBeTruthy();
+    const classes = button.className.split(' ');
+    expect(classes).toContain('opacity-40');
+    expect(classes).toContain('grayscale');
+    expect(classes).not.toContain('opacity-100');
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('clicking the greyed drop still calls the toggle (un-silence)', () => {
     const onToggleBloodDrop = vi.fn();
     render(
-      <LuciferStatusIndicator {...base} toggleActive={false} onToggleBloodDrop={onToggleBloodDrop} />,
+      <LuciferStatusIndicator {...base} silenced={true} toggleActive={false} onToggleBloodDrop={onToggleBloodDrop} />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Toggle LuciferAI' }));
     expect(onToggleBloodDrop).toHaveBeenCalledTimes(1);
+  });
+
+  it('clicking the drop toggles the silencer, not the plugin', () => {
+    const onToggleBloodDrop = vi.fn();
+    render(
+      <LuciferStatusIndicator {...base} silenced={false} toggleActive={true} onToggleBloodDrop={onToggleBloodDrop} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle LuciferAI' }));
+    expect(onToggleBloodDrop).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders nothing when disabled even when silenced — the drop disappears ONLY when off (Settings toggle)', () => {
+    const { container } = render(
+      <LuciferStatusIndicator enabled={false} checking={false} modelAvailable={false} modelNames={[]} available={false} silenced={true} toggleActive={false} onToggleBloodDrop={() => {}} />,
+    );
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Toggle LuciferAI' })).toBeNull();
+    expect(screen.queryByText('🩸')).toBeNull();
+  });
+
+  it('a silenced status display (no toggle handler) greys out but stays rendered', () => {
+    render(<LuciferStatusIndicator {...base} silenced={true} />);
+    expect(screen.queryByRole('button', { name: 'Toggle LuciferAI' })).toBeNull();
+    const glyph = screen.getByText('🩸');
+    expect(glyph).toBeTruthy();
+    expect(glyph.className.split(' ')).toContain('opacity-40');
+    expect(glyph.className.split(' ')).toContain('grayscale');
   });
 
   it('renders nothing when disabled even WITH a toggle handler — no leftover drop', () => {

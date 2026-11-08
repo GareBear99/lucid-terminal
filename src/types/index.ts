@@ -301,6 +301,16 @@ export interface Settings {
   // Synth surfaces, plugin commands — see src/lib/luciferAi.ts.
   // Missing keys in older persisted settings count as ON.
   luciferAiEnabled: boolean;
+  // LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST): the
+  // blood drop toggle is JUST a silencer — it silences LuciferAI's
+  // own voices but does NOT stop the runtime (causal ticks keep
+  // running, causal order is held). Silenced = the drop greys out
+  // but stays visible and clickable (clicking un-silences). This is
+  // SEPARATE from luciferAiEnabled: the drop disappears ONLY when
+  // LuciferAI is off via the Settings toggle (Settings → Plugins).
+  // Default false (speaking). Missing keys in older persisted
+  // settings count as NOT silenced.
+  luciferAiSilenced: boolean;
   // Dev mode (Gary, 2026-11-07): delinks the terminal prompt bar
   // from the terminal screen. OFF (default) is topology-synced —
   // the prompt section and the xterm surface share one input
@@ -418,6 +428,13 @@ export interface Settings {
   pingServerEnabled: boolean;
   pingServerEndpoint: string;
   pingServerUserId: string;
+  // Google Drive segment (Gary, 2026-11-08): the Google OAuth
+  // client ID for the Drive sign-in. A public identifier, not a
+  // secret — no client secret is stored (the desktop sign-in uses
+  // PKCE, so there is no secret to keep). Empty until Gary supplies
+  // one: create a Google Cloud project, create an OAuth client ID
+  // of type Desktop app, and store the client ID here.
+  googleDriveClientId: string;
 }
 
 /** SP balance for the Lucid ping server (Cloudflare Worker).

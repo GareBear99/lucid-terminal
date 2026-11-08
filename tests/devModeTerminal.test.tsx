@@ -261,21 +261,32 @@ describe('dev mode ON (delinked)', () => {
     });
   });
 
-  test('the dev bar prompt shape follows LuciferAI (Gary, 2026-11-08) — off = rounded prompter, on = squared bottom-drop section', async () => {
-    // LuciferAI OFF (the default here): the rounded prompter.
+  test('the dev bar prompt is the ORIGINAL flat prompt when LuciferAI is off (Gary, 2026-11-08) — no box, ~ tilde + bare input', async () => {
+    // LuciferAI OFF (the default here): the ORIGINAL Lucid terminal
+    // prompt (pre-ec33aa9, 4d8ef4e) — flat, no box.
     setDevMode(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
-    let bar = screen.getByTestId('dev-command-bar');
-    // The wrapper around the input is rounded, not square.
-    let wrapper = bar.firstElementChild as HTMLElement;
-    expect(wrapper.className).toContain('rounded-lg');
-    expect(wrapper.className).not.toContain('rounded-none');
-    // The input itself is rounded too, so the rainbow glow (which
-    // inherits its radius) follows the same curve.
-    let input = within(bar).getByPlaceholderText(/Monaco unavailable/);
-    expect(input.parentElement?.className).toContain('rounded-lg');
+    const bar = screen.getByTestId('dev-command-bar');
+    // The original prompt has the ~ tilde before the input.
+    // (getByText throws if it is missing, so reaching here proves
+    // it is rendered.)
+    const tilde = within(bar).getByText('~');
+    expect(tilde.textContent).toBe('~');
+    // The input itself is bare — no rounding, no padding.
+    const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
+    const inputOuter = input.parentElement as HTMLElement;
+    expect(inputOuter.className).not.toContain('rounded');
+    expect(inputOuter.className).not.toContain('px-3');
+    // The wrapper around the input is flat too — no box: no
+    // rounding, no border, no background.
+    const wrapper = inputOuter.parentElement as HTMLElement;
+    expect(wrapper.className).toContain('flex-1');
+    expect(wrapper.className).toContain('overflow-hidden');
+    expect(wrapper.className).not.toContain('rounded');
+    expect(wrapper.className).not.toContain('border');
+    expect(wrapper.className).not.toContain('bg-');
   });
 
   test('the dev bar prompt is squared when LuciferAI is on (Gary, 2026-11-08)', async () => {

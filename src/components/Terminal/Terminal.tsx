@@ -1208,20 +1208,41 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 plain-terminal rule still holds with LuciferAI off. */}
             {devMode && (
               <div data-testid="dev-command-bar" className="px-5 pb-4">
-                {/* Prompt shape follows LuciferAI (Gary, 2026-11-08):
-                    ON = squared edge, indicating the bottom drop
-                    section; OFF = the rounded prompter. */}
-                <div className={luciferAiEnabled ? 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50' : 'rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
-                  <InputArea
-                    input={devInput}
-                    setInput={setDevInput}
-                    onSubmit={(value) => void handleDevSubmit(value)}
-                    onHistoryUp={devHistoryUp}
-                    onHistoryDown={devHistoryDown}
-                    isProcessing={devRunning}
-                    flat={!luciferAiEnabled}
-                  />
-                </div>
+                {/* Original prompt when LuciferAI is disabled (Gary,
+                    2026-11-08): the ORIGINAL Lucid terminal prompt
+                    (pre-ec33aa9, 4d8ef4e) — flat, no box: the ~
+                    tilde + a bare input, no background, no border,
+                    no glass. When LuciferAI is on, the squared
+                    bottom-drop section. The rainbow glow still shows
+                    either way (platform trait). */}
+                {luciferAiEnabled ? (
+                  <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
+                    <InputArea
+                      input={devInput}
+                      setInput={setDevInput}
+                      onSubmit={(value) => void handleDevSubmit(value)}
+                      onHistoryUp={devHistoryUp}
+                      onHistoryDown={devHistoryDown}
+                      isProcessing={devRunning}
+                      flat={false}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
+                    <div className="flex-1 overflow-hidden">
+                      <InputArea
+                        input={devInput}
+                        setInput={setDevInput}
+                        onSubmit={(value) => void handleDevSubmit(value)}
+                        onHistoryUp={devHistoryUp}
+                        onHistoryDown={devHistoryDown}
+                        isProcessing={devRunning}
+                        flat={true}
+                      />
+                    </div>
+                  </div>
+                )}
                 <div data-testid="dev-console" className="mt-2 rounded-none border border-[var(--border)] bg-black/30">
                   <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Dev console — detached output</span>

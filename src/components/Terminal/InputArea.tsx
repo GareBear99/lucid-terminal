@@ -228,11 +228,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
     };
 
     return (
-        // Prompt shape follows LuciferAI (Gary, 2026-11-08): flat
-        // (LuciferAI off) = the rounded prompter; LuciferAI on =
-        // squared edge, indicating the bottom drop section. The
-        // rainbow glow inherits this radius.
-        <div className={`w-full h-auto min-h-[40px] flex items-center relative ${flat ? 'rounded-lg' : 'rounded-none'} px-3`}>
+        // Prompt shape (Gary, 2026-11-08): when LuciferAI is ON,
+        // the squared bottom-drop section (rounded-none). When it
+        // is OFF, the ORIGINAL Lucid terminal prompt (pre-ec33aa9,
+        // 4d8ef4e) — flat, bare: no rounding, no padding, no box.
+        // The rainbow glow inherits this (it is a platform trait
+        // and still shows, flat or not).
+        <div className={flat ? 'w-full h-auto min-h-[40px] flex items-center relative' : 'w-full h-auto min-h-[40px] flex items-center relative rounded-none px-3'}>
             {/* Rainbow swirl processing glow — a platform appearance
                 trait, not a LuciferAI trait (Gary, 2026-11-08): it
                 shows while a command is processing in ALL modes,

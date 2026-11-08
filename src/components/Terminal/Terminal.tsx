@@ -94,6 +94,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // A slash command is running (the 'command' loading key). The
   // shell itself never sets this — only Lucid work does.
   const [slashRunning, setSlashRunning] = useState(false);
+  // A dev-bar command is running (devmode only). The dev bar never sets
+  // slashRunning, so without this the rainbow swirl never shows in
+  // devmode — ProcessingGlow only renders while isProcessing is true.
+  // (Gary, 2026-11-08: rainbow back in devmode.)
+  const [devRunning, setDevRunning] = useState(false);
   // Dev mode (Gary, 2026-11-07): OFF = the prompt section and the
   // xterm surface share one input topology (clicking the section
   // focuses the terminal, typing always lands in the shell);
@@ -787,23 +792,28 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     setDevHistory((prev) => [...prev, trimmed].slice(-100));
     devHistoryIdx.current = null;
     setDevInput('');
-    await devWrite(`$ ${trimmed}`);
-    if (trimmed.startsWith('/')) {
-      await runSlashCommand(trimmed, { write: devWrite, clearScreen: devClear });
-      return;
-    }
+    setDevRunning(true);
     try {
-      const executeCommand = window.lucidAPI.terminal.executeCommand;
-      if (typeof executeCommand !== 'function') {
-        await devWrite('❌ Detached execution is unavailable (terminal:executeCommand is not exposed).');
+      await devWrite(`$ ${trimmed}`);
+      if (trimmed.startsWith('/')) {
+        await runSlashCommand(trimmed, { write: devWrite, clearScreen: devClear });
         return;
       }
-      const result = await executeCommand(trimmed);
-      if (result?.output) await devWrite(result.output);
-      if (!result?.success && result?.error) await devWrite(`❌ ${result.error}`);
-      if (result?.success && !result?.output) await devWrite('(no output)');
-    } catch (error) {
-      await devWrite(`❌ ${String(error)}`);
+      try {
+        const executeCommand = window.lucidAPI.terminal.executeCommand;
+        if (typeof executeCommand !== 'function') {
+          await devWrite('❌ Detached execution is unavailable (terminal:executeCommand is not exposed).');
+          return;
+        }
+        const result = await executeCommand(trimmed);
+        if (result?.output) await devWrite(result.output);
+        if (!result?.success && result?.error) await devWrite(`❌ ${result.error}`);
+        if (result?.success && !result?.output) await devWrite('(no output)');
+      } catch (error) {
+        await devWrite(`❌ ${String(error)}`);
+      }
+    } finally {
+      setDevRunning(false);
     }
   };
 
@@ -1198,14 +1208,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 plain-terminal rule still holds with LuciferAI off. */}
             {devMode && (
               <div data-testid="dev-command-bar" className="px-5 pb-4">
-                <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
+                {/* Prompt shape follows LuciferAI (Gary, 2026-11-08):
+                    ON = squared edge, indicating the bottom drop
+                    section; OFF = the rounded prompter. */}
+                <div className={luciferAiEnabled ? 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50' : 'rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
                   <InputArea
                     input={devInput}
                     setInput={setDevInput}
                     onSubmit={(value) => void handleDevSubmit(value)}
                     onHistoryUp={devHistoryUp}
                     onHistoryDown={devHistoryDown}
-                    isProcessing={slashRunning}
+                    isProcessing={devRunning}
                     flat={!luciferAiEnabled}
                   />
                 </div>

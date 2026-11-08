@@ -260,6 +260,68 @@ describe('dev mode ON (delinked)', () => {
       expect(executeCommandMock).toHaveBeenCalledWith('echo hello-dev');
     });
   });
+
+  test('the dev bar prompt shape follows LuciferAI (Gary, 2026-11-08) — off = rounded prompter, on = squared bottom-drop section', async () => {
+    // LuciferAI OFF (the default here): the rounded prompter.
+    setDevMode(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    let bar = screen.getByTestId('dev-command-bar');
+    // The wrapper around the input is rounded, not square.
+    let wrapper = bar.firstElementChild as HTMLElement;
+    expect(wrapper.className).toContain('rounded-lg');
+    expect(wrapper.className).not.toContain('rounded-none');
+    // The input itself is rounded too, so the rainbow glow (which
+    // inherits its radius) follows the same curve.
+    let input = within(bar).getByPlaceholderText(/Monaco unavailable/);
+    expect(input.parentElement?.className).toContain('rounded-lg');
+  });
+
+  test('the dev bar prompt is squared when LuciferAI is on (Gary, 2026-11-08)', async () => {
+    setDevMode(true);
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" luciferToggleActive={true} onToggleLuciferAi={() => {}} />);
+    await screen.findByTestId('dev-command-bar');
+
+    const bar = screen.getByTestId('dev-command-bar');
+    // Squared edge, indicating the bottom drop section.
+    const wrapper = bar.firstElementChild as HTMLElement;
+    expect(wrapper.className).toContain('rounded-none');
+    expect(wrapper.className).not.toContain('rounded-lg');
+    const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
+    expect(input.parentElement?.className).toContain('rounded-none');
+  });
+
+  test('the rainbow swirl shows while a dev-bar command runs, then clears (Gary, 2026-11-08)', async () => {
+    // Hold the detached execution open so the bar stays processing.
+    let resolveExec: (v: unknown) => void = () => {};
+    executeCommandMock.mockImplementation(
+      () => new Promise((res) => { resolveExec = res; }),
+    );
+    setDevMode(true);
+    const { container } = render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    // No rainbow while idle.
+    expect(container.querySelector('.processing-glow-border')).toBeNull();
+
+    submitToDevBar('echo hello-dev');
+    // While the command is still running, the rainbow swirls.
+    await waitFor(() => {
+      expect(container.querySelector('.processing-glow-border')).not.toBeNull();
+    });
+    expect(container.querySelector('.processing-glow-pulse')).not.toBeNull();
+
+    // Let the command finish — the rainbow clears.
+    resolveExec({ success: true, output: 'hello-dev' });
+    await waitFor(() => {
+      expect(container.querySelector('.processing-glow-border')).toBeNull();
+    });
+    await waitFor(() => {
+      expect(devConsoleText()).toContain('hello-dev');
+    });
+  });
 });
 
 describe('/devmode slash command', () => {

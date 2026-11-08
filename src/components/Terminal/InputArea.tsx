@@ -48,7 +48,7 @@ interface InputAreaProps {
     flat?: boolean;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // Content height from the editor (Monaco) or the fallback textarea;
   // the input height derives from it plus the dragged cap (below).
@@ -228,7 +228,11 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
     };
 
     return (
-        <div className="w-full h-auto min-h-[40px] flex items-center relative px-3">
+        // Prompt shape follows LuciferAI (Gary, 2026-11-08): flat
+        // (LuciferAI off) = the rounded prompter; LuciferAI on =
+        // squared edge, indicating the bottom drop section. The
+        // rainbow glow inherits this radius.
+        <div className={`w-full h-auto min-h-[40px] flex items-center relative ${flat ? 'rounded-lg' : 'rounded-none'} px-3`}>
             {/* Rainbow swirl processing glow — a platform appearance
                 trait, not a LuciferAI trait (Gary, 2026-11-08): it
                 shows while a command is processing in ALL modes,

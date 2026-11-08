@@ -261,16 +261,24 @@ describe('dev mode ON (delinked)', () => {
     });
   });
 
-  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — ~ tilde + extending input, half-way rounded edges, flat otherwise', async () => {
+  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — blood drop + ~ tilde + extending input, half-way rounded edges, flat otherwise', async () => {
     // LuciferAI OFF (the default here): the ORIGINAL Lucid terminal
-    // prompt (pre-ec33aa9, 4d8ef4e) — the ~ tilde + an input that
+    // prompt (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's photo:
+    // the BLOOD DROP (as set up) + the ~ tilde + an input that
     // EXTENDS (flex-1) with HALF-WAY ROUNDED edges (rounded-lg),
     // but flat otherwise: no border, no background, no glass.
+    // No gold arrow, no Sentinel face, no "Idle • Awaiting
+    // Commands..." line.
     setDevMode(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
     const bar = screen.getByTestId('dev-command-bar');
+    // The blood drop is there, as set up (the silencer) — the SVG
+    // droplet, red while speaking.
+    const drop = within(bar).getByTestId('blood-drop-svg');
+    expect(drop).not.toBeNull();
+    expect(drop.getAttribute('fill')).toBe('#ef4444');
     // The original prompt has the ~ tilde before the input.
     // (getByText throws if it is missing, so reaching here proves
     // it is rendered.)

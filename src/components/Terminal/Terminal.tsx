@@ -15,7 +15,7 @@ import { PlanningPanel } from '../Planning/PlanningPanel';
 import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
-import { LuciferStatusIndicator } from './LuciferStatusIndicator';
+import { LuciferStatusIndicator, BloodDropIcon, BLOOD_DROP_RED, BLOOD_DROP_GREY } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled, isLuciferAiSilenced, LUCIFER_AI_SILENCED_NOTE } from '../../lib/luciferAi';
 import { checkPromptFocus, ptyWriteFailureReason, TOPOLOGY_FALLBACK_NOTICE, TOPOLOGY_FALLBACK_TITLE } from '../../lib/topologySync';
 import { processTerminalBell } from '../../lib/terminalBell';
@@ -1210,11 +1210,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               <div data-testid="dev-command-bar" className="px-5 pb-4">
                 {/* Prompt when LuciferAI is disabled (Gary,
                     2026-11-08): the ORIGINAL Lucid terminal prompt
-                    (pre-ec33aa9, 4d8ef4e) — the ~ tilde + an input
-                    that EXTENDS (flex-1) with HALF-WAY ROUNDED edges
-                    (rounded-lg), but flat otherwise: no background,
-                    no border, no glass. When LuciferAI is on, the
-                    squared bottom-drop section. The rainbow glow
+                    (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's
+                    photo: the BLOOD DROP (as set up — the silencer,
+                    red while speaking, grey while silenced) + the ~
+                    tilde + an input that EXTENDS (flex-1) with
+                    HALF-WAY ROUNDED edges (rounded-lg), but flat
+                    otherwise: no background, no border, no glass.
+                    No gold arrow, no Sentinel face, no "Idle •
+                    Awaiting Commands..." line. When LuciferAI is on,
+                    the squared bottom-drop section. The rainbow glow
                     still shows either way (platform trait). */}
                 {luciferAiEnabled ? (
                   <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
@@ -1230,6 +1234,24 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
+                    {/* Blood drop — as in Gary's photo (Gary,
+                        2026-11-08): the drop stays in the devmode
+                        LuciferAI-disabled prompt, exactly as set up
+                        (the silencer). Red while speaking, grey
+                        while silenced. Clicking it toggles
+                        LuciferAI (the silencer). */}
+                    {onToggleLuciferAi ? (
+                      <button
+                        type="button"
+                        onClick={onToggleLuciferAi}
+                        aria-label="Toggle LuciferAI"
+                        className="select-none opacity-100 hover:opacity-100 transition-opacity"
+                      >
+                        <BloodDropIcon fill={luciferAiSilenced ? BLOOD_DROP_GREY : BLOOD_DROP_RED} />
+                      </button>
+                    ) : (
+                      <BloodDropIcon fill={luciferAiSilenced ? BLOOD_DROP_GREY : BLOOD_DROP_RED} />
+                    )}
                     <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
                     <div className="flex-1 rounded-lg overflow-hidden">
                       <InputArea

@@ -2213,11 +2213,19 @@
     return `tile f${info.face} i${info.i} j${info.j}`;
   }
 
+  // Runtime fix #4: probe panels rebuilt innerHTML every tick with no
+  // dirty-check (missed by the zero-latency pass). Build the string,
+  // assign only when it changed — the string build is ~3 us, the DOM
+  // parse/layout on every set is the real cost.
+  let __probeInspectorHtml = '';
+  function setProbeInspectorHtml(html){ if(!probeInspector) return; if(html !== __probeInspectorHtml){ __probeInspectorHtml = html; probeInspector.innerHTML = html; } }
+  let __probeQueueHtml = '';
+  function setProbeQueueHtml(html){ if(!probeQueueList) return; if(html !== __probeQueueHtml){ __probeQueueHtml = html; probeQueueList.innerHTML = html; } }
   function renderProbeInspectorPanel(){
     if(!probeInspector) return;
     const sh = shells.get(activeShellId);
     if(!sh || !sh.routeTiles || !sh.routeTiles.length){
-      probeInspector.innerHTML = `<div class="inspectEmpty">Load a blueprint to inspect probe target tiles.</div>`;
+      setProbeInspectorHtml(`<div class="inspectEmpty">Load a blueprint to inspect probe target tiles.</div>`);
       return;
     }
     const selectedQueue = (PRB && PRB.queue && PRB.queue.length) ? PRB.queue[Math.max(0, Math.min(EyeCtl.selected|0, PRB.queue.length-1))] : null;
@@ -2229,7 +2237,7 @@
     const inspectInfo = routeTileInfo(sh, inspectAction && inspectAction.index >= 0 ? inspectAction.index : -1);
     const showInfo = inspectInfo || settledInfo || activeInfo || desiredInfo || routeTileInfo(sh, sh.spawnTileIndex|0);
     if(!showInfo){
-      probeInspector.innerHTML = `<div class="inspectEmpty">No active probe tile available.</div>`;
+      setProbeInspectorHtml(`<div class="inspectEmpty">No active probe tile available.</div>`);
       return;
     }
     const state = PRB && PRB.activeState ? PRB.activeState : 'IDLE';
@@ -2241,7 +2249,7 @@
     const conf = showInfo.conf == null ? '—' : Number(showInfo.conf).toFixed(2);
     const scans = showInfo.scans == null ? 0 : showInfo.scans;
     const denyReason = inspectAction ? probeActionDenyReason(sh, inspectAction) : 'CLEAR';
-    probeInspector.innerHTML = `
+    setProbeInspectorHtml(`
       <div class="inspectCard">
         <div class="inspectLine"><strong>${routeTileLabel(showInfo)}</strong></div>
         <div class="inspectLine">state=${state} • mode=${mode} • action=${kind}</div>
@@ -2250,7 +2258,7 @@
         <div class="inspectLine">class=${cls} • confidence=${conf} • scans=${scans}</div>
         <div class="inspectLine">route#${showInfo.index} • deny=${denyReason}</div>
         <div class="inspectLine">dom=${ProbeDbg.domDisplay}/${ProbeDbg.domOpacity} • z=${ProbeDbg.domZ} • rect=${ProbeDbg.domRect} • ui=${ProbeDbg.uiOverlayDrawn?'Y':'N'} @ ${ProbeDbg.uiOverlayRect}</div>
-      </div>`;
+      </div>`);
   }
 
   function queueStateLabelForEntry(entry, idx){
@@ -2266,10 +2274,10 @@
     if(!probeQueueList) return;
     const q = (PRB && PRB.queue) ? PRB.queue.slice(0, PRB.queueLimit||10) : [];
     if(!q.length){
-      probeQueueList.innerHTML = `<div class="queueEmpty">No queued actions. When Free Roam is off, idle authority resolves to RETURN_HOME and SETTLED_HOME.</div>`;
+      setProbeQueueHtml(`<div class="queueEmpty">No queued actions. When Free Roam is off, idle authority resolves to RETURN_HOME and SETTLED_HOME.</div>`);
       return;
     }
-    probeQueueList.innerHTML = q.map((entry, idx)=>{
+    setProbeQueueHtml(q.map((entry, idx)=>{
       const st = queueStateLabelForEntry(entry, idx);
       const active = (PRB && PRB.activeAction && entry.kind === PRB.activeAction.kind && entry.index === PRB.activeAction.index && (entry.reason||'') === (PRB.activeAction.reason||'') );
       const blocked = st === 'BLOCKED';
@@ -2277,15 +2285,20 @@
       const tileMeta = info ? `f${info.face} i${info.i} j${info.j}` : `tile#${entry.index>=0?entry.index:'-'}`;
       const meta = `${tileMeta}${entry.priority!==undefined?` • p=${Number(entry.priority).toFixed(2)}`:''}${entry.reason?` • ${entry.reason}`:''}`;
       return `<div class="queueItem${active?' active':''}${blocked?' blocked':''}"><div class="queueNum">${idx+1}</div><div class="queueMain"><div class="queueKind">${entry.kind}</div><div class="queueMeta">${meta}</div></div><div class="queueState">${st}</div></div>`;
-    }).join('');
+    }).join(''));
   }
 
   function setIosSwitch(btn, on){
     if(!btn) return;
-    btn.classList.toggle('on', !!on);
+    on = !!on;
+    // Runtime fix #4: skip the DOM writes when the switch already shows
+    // this state (syncProbePanelUI runs every tick).
+    if(btn.classList.contains('on') === on && btn.getAttribute('aria-checked') === (on ? 'true' : 'false')) return;
+    btn.classList.toggle('on', on);
     btn.setAttribute('aria-checked', on ? 'true' : 'false');
   }
 
+  let __probeSubText = null;
   function syncProbePanelUI(){
     const sh = shells.get(activeShellId);
     setIosSwitch(btnProbeShow, ProbeUI.showProbe);
@@ -2301,7 +2314,8 @@
       const qCount = PRB && PRB.queue ? PRB.queue.length : 0;
       const aState = PRB && PRB.activeState ? PRB.activeState : 'IDLE';
       const centerTag = (mode==='SPAWN' || aState==='SETTLED_HOME' || (!ProbeUI.freeRoam && aState==='RETURNING')) ? '@CENTER' : '';
-      probePanelSub.textContent = `mode=${mode} • roam=${free} • spawn=route#${spawnIdx}${centerTag} • path=${pathState}${blocked} • auth=${PRB.pathAuthority} • action=${aState} • q=${qCount}/${PRB.queueLimit||10} • owner=${ProbeDbg.lastOwner} • homeDraw=${ProbeDbg.homeOverlayDrawn?'Y':'N'} • ui=${ProbeDbg.uiOverlayDrawn?'Y':'N'} • homeDOM=${ProbeDbg.domHomeVisible?'Y':'N'} • testDOM=${ProbeDbg.domTestVisible?'Y':'N'} • node=${ProbeDbg.domNodePresent?'Y':'N'} • attached=${ProbeDbg.domAttached?'Y':'N'} • rect=${ProbeDbg.domRect} • uiRect=${ProbeDbg.uiOverlayRect}`;
+      const __sub = `mode=${mode} • roam=${free} • spawn=route#${spawnIdx}${centerTag} • path=${pathState}${blocked} • auth=${PRB.pathAuthority} • action=${aState} • q=${qCount}/${PRB.queueLimit||10} • owner=${ProbeDbg.lastOwner} • homeDraw=${ProbeDbg.homeOverlayDrawn?'Y':'N'} • ui=${ProbeDbg.uiOverlayDrawn?'Y':'N'} • homeDOM=${ProbeDbg.domHomeVisible?'Y':'N'} • testDOM=${ProbeDbg.domTestVisible?'Y':'N'} • node=${ProbeDbg.domNodePresent?'Y':'N'} • attached=${ProbeDbg.domAttached?'Y':'N'} • rect=${ProbeDbg.domRect} • uiRect=${ProbeDbg.uiOverlayRect}`;
+      if(__sub !== __probeSubText){ __probeSubText = __sub; probePanelSub.textContent = __sub; }
     }
     renderProbeQueuePanel();
     renderProbeInspectorPanel();
@@ -6135,11 +6149,14 @@ function render(){
       (sh.emptyRepoReady ? `  EMPTY_REPO_READY` : ``);
   }
 
+  // Runtime fix #12: renderOverlay rebuilt innerHTML every frame when on.
+  // Compare the built string and only touch the DOM when it changed.
+  let __overlayHtml = '';
   function renderOverlay(){
     if(!overlayOn) return;
     const sh = shells.get(activeShellId);
     const infl = inflight ? `${inflight.req.action} idx=${inflight.req.target} age=${tick-inflight.t0}` : 'none';
-    ov.innerHTML = `
+    const __ovHtml = `
       <div class="row"><span class="pill">boot</span><code>${bootState}</code></div>
       <div class="row"><span class="pill">build</span><code>${buildState}</code></div>
       <div class="row"><span class="pill">blueprint</span><code>${blueprintLoaded ? 'loaded' : 'none'}</code></div>
@@ -6167,6 +6184,7 @@ function render(){
       <div class="row"><span class="pill">tick</span><code>${tick}</code> dt=<code>${DT.toFixed(6)}</code> hz=<code>${HZ}</code></div>
       <div class="row"><span class="pill">lastError</span><code>${lastError ? lastError.split('\\n')[0] : '(none)'}</code></div>
     `;
+    if(__ovHtml !== __overlayHtml){ __overlayHtml = __ovHtml; ov.innerHTML = __ovHtml; }
     let out = '';
     let lines = 0;
     for(let i=0;i<LOG_N;i++){

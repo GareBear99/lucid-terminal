@@ -2745,48 +2745,6 @@ const quatFromTo=(a,b)=>{
   function applyPresentationMode(){
     const topbar = document.getElementById('topbar');
     const topbarWrap = document.getElementById('topbarWrap');
-  function ensureMicroReceiptPanel(){
-    let panel = document.getElementById('microReceiptPanel');
-    if(panel) return panel;
-    const dock = document.getElementById('rightDock') || document.body;
-    panel = document.createElement('div');
-    panel.id = 'microReceiptPanel';
-    panel.innerHTML = '<div class="title">MICRO RECEIPTS</div><div class="sub" id="microReceiptSummary">No focused tile.</div><div class="receiptList" id="microReceiptList"></div>';
-    dock.appendChild(panel);
-    try{ bindLocalScrollable(panel); }catch(_e){}
-    const list = panel.querySelector('#microReceiptList');
-    if(list) try{ bindLocalScrollable(list); }catch(_e){}
-    return panel;
-  }
-  // zero-latency F4: last-seen signatures for the four panel
-  // refreshers below — a refresh whose inputs are unchanged returns
-  // before touching innerHTML (the old code rebuilt all four panels
-  // on every animation frame, no dirty-check).
-  let __microSig = '';
-  let __writebackSig = '';
-  let __historySig = '';
-  let __swarmSig = '';
-  function refreshMicroReceiptPanel(){
-    try{
-      const panel = ensureMicroReceiptPanel();
-      const __rec = currentMicroRecord ? currentMicroRecord() : null;
-      const __layer = __rec && activeMicroLayer ? activeMicroLayer(__rec) : null;
-      const __sig = [__rec ? __rec.key : '', TILEVIEW.activeKey||'', (__rec&&__rec.localView&&__rec.localView.depth)||0, ((__layer&&__layer.builders)||(__rec&&__rec.builders)||[]).length, (Math.floor((__rec?(__rec.macroPenalty||0):0)*10)/10).toFixed(1), (__rec&&Array.isArray(__rec.microReceipts)) ? __rec.microReceipts.length : 0, (__rec&&Array.isArray(__rec.microReceipts)&&__rec.microReceipts.length) ? __rec.microReceipts[__rec.microReceipts.length-1].tick : ''].join('|');
-      if(__sig === __microSig) return panel;
-      __microSig = __sig;
-      const summary = document.getElementById('microReceiptSummary');
-      const list = document.getElementById('microReceiptList');
-      const rec = currentMicroRecord ? currentMicroRecord() : null;
-      const layer = rec && activeMicroLayer ? activeMicroLayer(rec) : null;
-      if(summary) summary.textContent = rec ? `${TILEVIEW.activeKey||rec.key} • depth ${(rec.localView&&rec.localView.depth)||0} • builders ${((layer&&layer.builders)||rec.builders||[]).length} • penalty ${((rec.macroPenalty)||0).toFixed(2)}` : 'No focused tile.';
-      if(list){
-        const items = rec && Array.isArray(rec.microReceipts) ? rec.microReceipts.slice(-18).reverse() : [];
-        list.innerHTML = items.length ? items.map(r=>`<div class="receiptItem"><strong>${r.kind}</strong><div class="receiptMeta">d${r.depth||0} • t${r.tick} • ${r.at||''}</div><div class="receiptMeta">${(r.payload&&typeof r.payload==='object') ? Object.entries(r.payload).slice(0,3).map(([k,v])=>`${k}=${typeof v==='object'?JSON.stringify(v):v}`).join('  ') : ''}</div></div>`).join('') : '<div class="receiptEmpty">No local receipts yet.</div>';
-        refreshScrollableEdges(list); refreshScrollableEdges(panel);
-      }
-      return panel;
-    }catch(_e){ return null; }
-  }
     const hud = document.getElementById('hud');
     topbar.style.display = presentationMode ? 'none' : 'inline-flex';
     topbarWrap.style.display = presentationMode ? 'none' : 'block';
@@ -2880,6 +2838,9 @@ const quatFromTo=(a,b)=>{
   const MICRO_TOOLS = ['road','block','hub','relay','erase'];
   const TILEVIEW = { mode:TILE_VIEW.GLOBE, activeKey:'', activeTile:null, transition:0, microDepth:0, hint:'idle', enteredAt:0, tool:'road', hoveredCell:null };
   const TILE_RESIDENCY = new Map();
+  // Runtime fix #9: residency cap — one 256-cell micro bundle per tile
+  // visited, never evicted. See ensureTileMicro for the LRU eviction.
+  const TILE_RESIDENCY_MAX = 12;
   function currentViewRadius(){ return Math.min(W,H) * R_FRAC * viewZoom; }
   let qCam = quat();               // rotates world so "eye" stays locked
   let eye = norm({x:0,y:0,z:1}); // canonical apex direction
@@ -6398,6 +6359,22 @@ function render(){
     const key = tileKey(tile);
     let rec = TILE_RESIDENCY.get(key);
     if(!rec){ rec = buildMicroBundle(tile); TILE_RESIDENCY.set(key, rec); }
+    // Runtime fix #9: evict the oldest non-active tile while over the
+    // cap (Map preserves insertion order). The active tile is never
+    // evicted; a revisit rebuilds cheaply. Also drop its
+    // tileMicroSummary entry so the summary doesn't go stale.
+    while(TILE_RESIDENCY.size > TILE_RESIDENCY_MAX){
+      let evicted = false;
+      for(const k of TILE_RESIDENCY.keys()){
+        if(k === TILEVIEW.activeKey) continue;
+        TILE_RESIDENCY.delete(k);
+        const sh = shells.get(activeShellId);
+        if(sh && sh.tileMicroSummary) delete sh.tileMicroSummary[k];
+        evicted = true;
+        break;
+      }
+      if(!evicted) break; // only the active tile is resident
+    }
     return rec;
   }
   function currentMicroRecord(){
@@ -6638,9 +6615,16 @@ function render(){
       rec.controller.authority = stats.anomalies > 0 ? 'scanner-hold' : 'scanner-clear';
       if(stats.anomalies > 0){
         rec.graph.corruption = clamp((rec.graph.corruption||0) + 0.01, 0, 1);
-        if(((tick + rec.key.length) % 30) === 0) appendMicroReceipt(rec, 'micro_hold', {anomalies:stats.anomalies, depth:rec.localView.depth|0});
+        // Runtime fix #10: micro_hold fired every 30 ticks while
+        // anomalies > 0 with no change-gate. Fire only when the
+        // signature (anomalies|depth) changes.
+        if(((tick + rec.key.length) % 30) === 0){
+          const __holdSig = `${stats.anomalies}|${rec.localView.depth|0}`;
+          if(__holdSig !== rec.lastHoldSig){ rec.lastHoldSig = __holdSig; appendMicroReceipt(rec, 'micro_hold', {anomalies:stats.anomalies, depth:rec.localView.depth|0}); }
+        }
       } else {
         rec.graph.corruption = clamp((rec.graph.corruption||0) * 0.985, 0, 1);
+        rec.lastHoldSig = '';
       }
       rec.macroPenalty = rec.controller.authority === 'scanner-hold' ? clamp((rec.macroPenalty||0) + 0.02, 0, 1) : clamp((rec.macroPenalty||0) * 0.92, 0, 1);
       const shActive = shells.get(activeShellId);
@@ -7061,6 +7045,10 @@ function render(){
     nodeCount: 0,
     domainCycle: ['route','globe'],
     buildQueue: [],
+    // Runtime fix #13: O(1) membership for the queue (was includes()).
+    // Rebuilt after every reassignment of buildQueue (see
+    // synthDequeueInvalid, the restore path, and the executor splice).
+    buildQueueSet: new Set(),
     receiptHash: '',
     persistHash: '',
     persistValid: true,
@@ -7174,7 +7162,7 @@ function render(){
 
   function synthQueueTarget(idx, reason='compile'){
     if(!Number.isInteger(idx) || idx < 0) return false;
-    if(!SYNTH.buildQueue.includes(idx)) SYNTH.buildQueue.push(idx);
+    if(!SYNTH.buildQueueSet.has(idx)){ SYNTH.buildQueueSet.add(idx); SYNTH.buildQueue.push(idx); }
     SYNTH.lastSummary = `queued ${reason} idx=${idx} q=${SYNTH.buildQueue.length}`;
     return true;
   }
@@ -7182,6 +7170,7 @@ function render(){
   function synthDequeueInvalid(synth){
     if(!synth || !Array.isArray(SYNTH.buildQueue)) return;
     SYNTH.buildQueue = SYNTH.buildQueue.filter((idx)=> idx >= 0 && idx < synth.nodes.length && synth.nodes[idx] && (synth.nodes[idx].compiled > 0 || synth.nodes[idx].corrupt > 0.02 || synth.nodes[idx].overload > 0.02));
+    SYNTH.buildQueueSet = new Set(SYNTH.buildQueue);
   }
 
   function synthBuildPath(synth, fromIdx, toIdx){
@@ -7471,6 +7460,7 @@ function render(){
       syncPrimaryExec();
     }
     SYNTH.buildQueue = Array.isArray(payload.queue) ? payload.queue.slice(0,512).filter((x)=>Number.isInteger(x)) : [];
+    SYNTH.buildQueueSet = new Set(SYNTH.buildQueue);
     SYNTH.blueprintMode = payload.blueprintMode || SYNTH.blueprintMode;
     microApplyAll(payload.microResidency);
     if(payload.tileView && typeof payload.tileView === 'object'){
@@ -7902,6 +7892,7 @@ function render(){
     if(n.built >= 0.999 && n.corrupt <= 0.02 && n.overload <= 0.02){
       const qi = SYNTH.buildQueue.indexOf(exec.currentIdx);
       if(qi >= 0) SYNTH.buildQueue.splice(qi,1);
+      SYNTH.buildQueueSet.delete(exec.currentIdx);
       exec.targetIdx = -1;
       exec.path = [];
       exec.pathCursor = 0;

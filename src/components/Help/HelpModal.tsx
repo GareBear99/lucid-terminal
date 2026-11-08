@@ -31,11 +31,19 @@ export function HelpContent({
   titleIcon,
   onClose,
   initialCategoryId,
+  showSovereignPoints,
 }: {
   title: string;
   titleIcon?: ReactNode;
   onClose?: () => void;
   initialCategoryId?: string | null;
+  /**
+   * Show the Sovereign Points info section at the top of the grid
+   * view (Gary, 2026-11-08 ~07:40 PST): SP info lives ONLY in the
+   * Help/Info page (the Help modal) — NOT in the blood-drop tab,
+   * which renders this same HelpContent without the prop.
+   */
+  showSovereignPoints?: boolean;
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory | null>(null);
@@ -119,8 +127,12 @@ export function HelpContent({
                 (Gary, 2026-11-08 ~07:20 PST). Shown at the top of the
                 info page when the user is browsing, not searching —
                 search filters the command grid, and the SP section
-                would only get in its way there. */}
-            {!searchQuery.trim() && <SovereignPointsInfo />}
+                would only get in its way there. Help modal ONLY
+                (Gary, 2026-11-08 ~07:40 PST): the blood-drop tab
+                renders this same HelpContent without
+                showSovereignPoints, so the SP section never appears
+                there. */}
+            {showSovereignPoints && !searchQuery.trim() && <SovereignPointsInfo />}
             <div className="grid grid-cols-2 gap-4">
             {filteredCategories.map((category) => (
               <button
@@ -200,6 +212,7 @@ export function HelpModal({ isOpen, onClose, initialCategoryId }: HelpModalProps
           title="LuciferAI Command Reference"
           onClose={onClose}
           initialCategoryId={initialCategoryId}
+          showSovereignPoints
         />
 
         {/* Footer */}

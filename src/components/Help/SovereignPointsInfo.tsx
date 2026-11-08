@@ -18,9 +18,10 @@ import {
  * is created lazily on the first click, so this renders safely
  * under SSR (no Audio at render).
  *
- * Shown at the top of the Help page (HelpContent grid view) in both
- * the Help modal and the blood-drop tab — the two surfaces share
- * the same content.
+ * Shown at the top of the Help page (HelpContent grid view) in the
+ * Help modal ONLY (Gary, 2026-11-08 ~07:40 PST) — the blood-drop tab
+ * renders the same HelpContent without showSovereignPoints, so the
+ * SP section never appears there.
  */
 export function SovereignPointsInfo() {
   const audioRef = useRef<HTMLAudioElement | null>(null);

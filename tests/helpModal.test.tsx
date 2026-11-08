@@ -14,6 +14,7 @@
 import { describe, test, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { HelpModal } from '../src/components/Help/HelpModal';
+import { LuciferAITabPanel } from '../src/components/Help/LuciferAITabPanel';
 import { helpCategories } from '../src/data/helpData';
 
 describe('HelpModal', () => {
@@ -43,5 +44,18 @@ describe('HelpModal', () => {
     expect(closeButton).not.toBeUndefined();
     fireEvent.click(closeButton as HTMLElement);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('the Help modal shows the Sovereign Points section (Gary, 2026-11-08)', () => {
+    render(<HelpModal isOpen={true} onClose={() => undefined} />);
+    expect(screen.getByText('Sovereign Points (SP)')).not.toBeNull();
+  });
+
+  test('the blood-drop tab does NOT show the Sovereign Points section (Gary, 2026-11-08)', () => {
+    render(<LuciferAITabPanel />);
+    // Same command reference, same categories — just no SP section.
+    expect(screen.getByText('LuciferAI')).not.toBeNull();
+    expect(screen.getByText(helpCategories[0].title)).not.toBeNull();
+    expect(screen.queryByText('Sovereign Points (SP)')).toBeNull();
   });
 });

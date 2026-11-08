@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, Minus, MessageSquare, Trash2, Menu, Folder, FolderOpen, Loader, Volume2, VolumeX } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
+import { useEventLogStore } from '../../stores/eventLogStore';
 import { useFileStore } from '../../stores/fileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useToastStore } from '../../stores/toastStore';
@@ -445,10 +446,22 @@ function AIChat({ onClose }: AIChatProps) {
   const handleSelectContext = async () => {
     try {
       const dir = await window.lucidAPI.fs.selectDirectory();
+      // Track + diagnose the folder picker: WHEN it opened
+      // and WHY (the user picked a context folder for the
+      // AI chat here). (Gary, 2026-11-08 — track when + why.)
+      useEventLogStore.getState().logDirectoryDialog(
+        'AI Chat — pick a context folder',
+        dir ? 'completed' : 'cancelled',
+      );
       if (dir) {
         setContextDirectory(dir);
       }
     } catch (error) {
+      useEventLogStore.getState().logDirectoryDialog(
+        'AI Chat — pick a context folder',
+        'failed',
+        error instanceof Error ? error.message : String(error),
+      );
       console.error('Failed to select directory:', error);
     }
   };

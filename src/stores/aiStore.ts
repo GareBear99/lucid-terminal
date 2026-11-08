@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { ChatMessage, ChatSession, PingQuota } from '../types';
 import { basePingQuota, nextLastRestockAt } from '../lib/pingQuota';
 import { normalizeMessageList, insertMessageInOrder, nextTickFor } from '../components/AI/chatBubbles';
+import { issueAiChatTick, publishNewTicks } from '../lib/aiChatTicks';
 import { useHornWiggleStore } from './hornWiggleStore';
 
 /**
@@ -233,6 +234,16 @@ export const useAIStore = create<AIState>((set, get) => {
         // kept; only unticked messages take a new tick, in retrieval
         // order from the session's counter.
         const nextBuffer = normalizeMessageList(get().stagingMessages ?? [], startTick);
+        // The swap assigned ticks to the unticked bubbles — feed
+        // those ticks into the AI chat's OWN tick channel (channel
+        // 2, src/lib/aiChatTicks.ts), NOT the event log channel:
+        // the tick ordering is the AI chat's, the event log never
+        // carries ticks.
+        publishNewTicks(
+            extra.currentSessionId ?? get().currentSessionId,
+            get().stagingMessages ?? [],
+            nextBuffer,
+        );
         set({ nextMessages: nextBuffer });
         // CONSUMER swap: one atomic update flips the displayed list to
         // the next buffer and discards staging/next. This is the only
@@ -309,6 +320,10 @@ export const useAIStore = create<AIState>((set, get) => {
             const normalized = assignLegacyCausalOrder(
                 sessions.map((s) => {
                     const messages = normalizeMessageList(s.messages ?? [], s.nextTick);
+                    // Unticked legacy bubbles just took their ticks on
+                    // load — feed them into the AI chat's OWN tick
+                    // channel (channel 2), never the event log.
+                    publishNewTicks(s.id, s.messages ?? [], messages);
                     return {
                         ...s,
                         messages,
@@ -480,6 +495,13 @@ export const useAIStore = create<AIState>((set, get) => {
             nextTickFor(targetSession.messages),
         );
         const tickedMessage: ChatMessage = { ...message, ritualTick: assignedTick };
+        // The bubble just took its causal tick — issue it into
+        // the AI chat's OWN tick channel (channel 2,
+        // src/lib/aiChatTicks.ts). NOT the event log: the tick
+        // ordering belongs to the AI chat, the event log never
+        // carries ticks. A backpressure refusal here does not
+        // lose the tick — it is already stamped on the message.
+        issueAiChatTick(targetSession.id, message.id, assignedTick);
         // Insert at its ritual-tick position — in between the bubbles
         // in causal order — not appended blindly at the end.
         const newMessages = insertMessageInOrder(targetSession.messages, tickedMessage);

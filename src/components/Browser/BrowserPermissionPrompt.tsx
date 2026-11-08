@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Shield, ShieldCheck, X } from 'lucide-react';
 import type { BrowserPermissionRequest } from '../../types';
+import { useEventLogStore } from '../../stores/eventLogStore';
 
 /**
  * Per-site permission memory UI (Area 9).
@@ -27,6 +28,16 @@ export function BrowserPermissionPrompt({
     await window.lucidAPI.browser
       .answerPermission(request.origin, request.permission, decision)
       .catch(() => undefined);
+    // Track + diagnose the answer: WHEN Gary answered the
+    // page's ask and what the answer was. The arrival was
+    // logged by BrowserPanel as pending; this closes it.
+    // (Gary, 2026-11-08 — track when + why.)
+    useEventLogStore.getState().logBrowserPermissionPrompt(
+      request.origin,
+      request.permission,
+      decision === 'deny' ? 'denied' : 'granted',
+      decision,
+    );
     onDone();
   };
 

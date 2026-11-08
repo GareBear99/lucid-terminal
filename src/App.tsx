@@ -219,10 +219,13 @@ function App() {
         console.log('[INIT] Terminal created — waiting for shell...');
       }
       
-      // Load file explorer in background (non-blocking)
+      // Load file explorer in background (non-blocking).
+      // Origin 'startup': the walk is logged as an initial
+      // event — it is the cause of the 3 macOS TCC prompts
+      // (Gary, 2026-11-08 — track when + why).
       try {
         const homeDir = await window.lucidAPI.fs.getHomeDir();
-        await setCurrentDir(homeDir);
+        await setCurrentDir(homeDir, 'startup');
         console.log('[INIT] ✅ File explorer ready');
       } catch (error) {
         console.log('[INIT] File explorer unavailable');

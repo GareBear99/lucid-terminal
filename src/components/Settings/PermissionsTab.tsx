@@ -33,6 +33,13 @@ import {
   type PermissionId,
   type PermissionStatus,
 } from '../../lib/permissions';
+import {
+  eventOutcomeLabel,
+  eventPhaseLabel,
+  eventTypeLabel,
+  type EventOutcome,
+} from '../../lib/eventLog';
+import { useEventLogStore } from '../../stores/eventLogStore';
 import { usePermissionsStore } from '../../stores/permissionsStore';
 
 const STATUS_BADGE: Record<PermissionStatus, string> = {
@@ -42,6 +49,21 @@ const STATUS_BADGE: Record<PermissionStatus, string> = {
   restricted: 'bg-red-500/10 text-red-500',
   unknown: 'bg-yellow-500/10 text-yellow-500',
   'not-applicable': 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]',
+};
+
+/** Outcome badge colours for the event log — same palette as
+ *  the permission badges above, so the log reads the same way:
+ *  green = it worked / was granted, red = refused / failed,
+ *  yellow = waiting / dismissed / unknown. */
+const OUTCOME_BADGE: Record<EventOutcome, string> = {
+  granted: 'bg-green-500/10 text-green-500',
+  completed: 'bg-green-500/10 text-green-500',
+  denied: 'bg-red-500/10 text-red-500',
+  failed: 'bg-red-500/10 text-red-500',
+  pending: 'bg-yellow-500/10 text-yellow-500',
+  dismissed: 'bg-yellow-500/10 text-yellow-500',
+  cancelled: 'bg-yellow-500/10 text-yellow-500',
+  unknown: 'bg-yellow-500/10 text-yellow-500',
 };
 
 /** Play button for the info page's voice message — same pattern
@@ -106,13 +128,17 @@ export function PermissionsTab() {
   const error = usePermissionsStore((s) => s.error);
   const refresh = usePermissionsStore((s) => s.refresh);
   const displayState = usePermissionsStore((s) => s.displayState);
+  const events = useEventLogStore((s) => s.events);
+  const refusedCount = useEventLogStore((s) => s.refusedCount);
+  const clearEvents = useEventLogStore((s) => s.clear);
   const [requesting, setRequesting] = useState<PermissionId | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
 
   // Probe on open — the tab always shows a fresh live state, not
-  // a stale memory of one.
+  // a stale memory of one. Origin 'startup': the probe is an
+  // initial event in the log (Gary, 2026-11-08 — track when + why).
   useEffect(() => {
-    void refresh(false);
+    void refresh(false, 'startup');
     // Refresh once on open only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -128,9 +154,12 @@ export function PermissionsTab() {
     setRequesting(id);
     setRequestError(null);
     try {
-      await api.request(id);
+      const granted = await api.request(id);
+      // Track + diagnose the prompt: WHEN it was asked and WHY
+      // (the user clicked Request) and what the answer was.
+      useEventLogStore.getState().logPermissionRequest(id, granted ? 'granted' : 'denied');
       // Re-probe after the prompt — the answer changed something.
-      await refresh(true);
+      await refresh(true, 'after-request');
     } catch (e) {
       setRequestError(e instanceof Error ? e.message : 'Could not request the permission.');
     } finally {
@@ -182,7 +211,7 @@ export function PermissionsTab() {
         </span>
         <button
           type="button"
-          onClick={() => void refresh(true)}
+          onClick={() => void refresh(true, 'user-refresh')}
           disabled={checking}
           aria-label="Refresh permissions"
           className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
@@ -260,6 +289,86 @@ export function PermissionsTab() {
             </div>
           );
         })}
+      </div>
+
+      {/* Event log — WHEN every event happened and WHY
+          (Gary, 2026-11-08 ~09:50 PST, scope ~10:27 PST: "Now
+          all the initial and throughout allow tracking and
+          why"). Startup events (the file-explorer walk behind
+          the 3 macOS prompts, the startup permission probe)
+          and everything after (prompts, probes, state changes,
+          folder pickers, pages asking). A cause that could not
+          be determined reads 'unknown' — never invented. The
+          log survives a restart, so the startup events are
+          still here to read after Lucid asks again. Uses only
+          the existing theme vars — no theme change. */}
+      <div className="space-y-3" data-event-log>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold flex-1">
+            Event log — when Lucid asked, and why
+          </h3>
+          {events.length > 0 && (
+            <button
+              type="button"
+              onClick={clearEvents}
+              className="btn btn-secondary text-xs"
+            >
+              Clear log
+            </button>
+          )}
+        </div>
+        {/* Backpressure, made visible: the SPSC ring refuses
+            events past its capacity instead of piling them up.
+            A refusal is counted, never dropped silently — if
+            this number is ever above zero, the log was full. */}
+        {refusedCount > 0 && (
+          <p className="text-xs text-yellow-500">
+            {refusedCount} event{refusedCount === 1 ? '' : 's'} refused — the
+            event channel was full. Nothing was dropped silently;
+            the producer was told to back off.
+          </p>
+        )}
+        {events.length === 0 ? (
+          <p className="text-xs text-[var(--text-muted)]">
+            No events yet. Startup walks, permission probes and
+            prompts, folder pickers, and pages asking for things
+            are recorded here with when they happened and why.
+          </p>
+        ) : (
+          events.map((event) => (
+            <div
+              key={event.id}
+              data-event={event.type}
+              data-event-phase={event.phase}
+              className="rounded-md border border-[var(--border)] p-3 space-y-1"
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-semibold">
+                  {eventTypeLabel(event.type)}
+                </span>
+                <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                  {eventPhaseLabel(event.phase)}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${OUTCOME_BADGE[event.outcome]}`}
+                >
+                  {eventOutcomeLabel(event.outcome)}
+                </span>
+                <span className="text-xs text-[var(--text-muted)] flex-1 text-right">
+                  {new Date(event.at).toLocaleString()}
+                </span>
+              </div>
+              <p className="text-xs">{event.what}</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                <span className="font-semibold text-[var(--text-secondary)]">Why: </span>
+                {event.why}
+              </p>
+              {event.detail && (
+                <p className="text-xs text-[var(--text-muted)]">{event.detail}</p>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

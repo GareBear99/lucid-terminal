@@ -23,6 +23,7 @@ import {
   FileDown,
 } from 'lucide-react';
 import { useBrowserStore, PHONE_CONTROL_URL } from '../../stores/browserStore';
+import { useEventLogStore } from '../../stores/eventLogStore';
 import { useBrowserAgentStore } from '../../stores/browserAgentStore';
 import { AgentMouseCursor } from './AgentMouseCursor';
 import { BrowserGlassSplash } from './BrowserGlassSplash';
@@ -383,6 +384,10 @@ function BrowserPanel() {
     });
     const cleanupAuth = window.lucidAPI.browser.onAuthRequired((request) => {
       // Ignore a duplicate challenge for a request already queued.
+      // Track + diagnose the ask: WHEN the page asked for
+      // sign-in and WHY (the page did — the user did not
+      // initiate this). (Gary, 2026-11-08 — track when + why.)
+      useEventLogStore.getState().logBrowserAuthPrompt(request.host, 'pending');
       setAuthQueue((prev) =>
         prev.some((r) => r.id === request.id) ? prev : [...prev, request],
       );
@@ -417,6 +422,17 @@ function BrowserPanel() {
     // Gary answers in the prompt.
     const cleanupPermission =
       window.lucidAPI.browser.onPermissionRequested((request) => {
+        // Track + diagnose the ask: WHEN the page asked for a
+        // capability and WHY (the page did — the user did not
+        // initiate this). (Gary, 2026-11-08 — track when + why.)
+        // Main asks once per origin+permission per session, so
+        // one arrival is one event; the answer is logged by
+        // BrowserPermissionPrompt when Gary answers it.
+        useEventLogStore.getState().logBrowserPermissionPrompt(
+          request.origin,
+          request.permission,
+          'pending',
+        );
         setPermissionQueue((prev) =>
           prev.some(
             (r) =>

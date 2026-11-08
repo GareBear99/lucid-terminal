@@ -15,6 +15,7 @@ import {
   X,
   Users,
 } from 'lucide-react';
+import { useEventLogStore } from '../../stores/eventLogStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useHistoryStore, EMPTY_BLOCKS, jumpToBlock } from '../../stores/historyStore';
@@ -402,6 +403,14 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
 
   const handleOpenDirectory = async () => {
     const dir = await window.lucidAPI.fs.selectDirectory();
+    // Track + diagnose the folder picker: WHEN it opened
+    // and WHY (the user picked a workspace folder here).
+    // (Gary, 2026-11-08 — track when + why.) The read
+    // itself is logged separately by setCurrentDir.
+    useEventLogStore.getState().logDirectoryDialog(
+      'Files screen — pick a workspace folder',
+      dir ? 'completed' : 'cancelled',
+    );
     if (dir) {
       await setCurrentDir(dir);
     }

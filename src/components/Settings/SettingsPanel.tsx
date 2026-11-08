@@ -41,6 +41,7 @@ import { MODULES_PLUGIN } from '../../data/modules';
 import { CUSTOM_PLUGINS, CUSTOM_PLUGIN_FALLBACK_ICON, resolvePluginIcon, isCustomPluginEnabled } from '../../data/customPlugins';
 import { COMMAND_CATEGORIES, searchCommandCatalogue } from '../../data/commands';
 import { useDevicesStore } from '../../stores/devicesStore';
+import { useEventLogStore } from '../../stores/eventLogStore';
 import { useToastStore } from '../../stores/toastStore';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import {
@@ -321,6 +322,13 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
   const handleAddWatchDirectory = async () => {
     const dir = await window.lucidAPI.fs.selectDirectory();
+    // Track + diagnose the folder picker: WHEN it opened and
+    // WHY (the user added a daemon watch folder here).
+    // (Gary, 2026-11-08 — track when + why.)
+    useEventLogStore.getState().logDirectoryDialog(
+      'Settings — add a daemon watch folder',
+      dir ? 'completed' : 'cancelled',
+    );
     if (!dir || !window.lucidAPI.daemon) return;
     setDaemonBusy(true);
     try {
@@ -1681,6 +1689,14 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <button
                       onClick={async () => {
                         const dir = await window.lucidAPI.fs.selectDirectory();
+                        // Track + diagnose the folder picker:
+                        // WHEN it opened and WHY (the user chose
+                        // the startup directory here).
+                        // (Gary, 2026-11-08 — track when + why.)
+                        useEventLogStore.getState().logDirectoryDialog(
+                          'Settings — choose the startup directory',
+                          dir ? 'completed' : 'cancelled',
+                        );
                         if (dir) updateSetting('startupDirectory', dir);
                       }}
                       className="btn btn-secondary"

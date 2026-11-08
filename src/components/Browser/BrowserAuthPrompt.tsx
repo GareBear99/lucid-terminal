@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { BrowserAuthRequest } from '../../types';
+import { useEventLogStore } from '../../stores/eventLogStore';
 
 /**
  * HTTP-auth prompt for the in-panel browser.
@@ -27,11 +28,20 @@ export function BrowserAuthPrompt({
       username,
       password,
     });
+    // Track + diagnose the answer: WHEN Gary answered the
+    // page's sign-in ask. Credentials are never logged — only
+    // that the prompt was answered. The arrival was logged by
+    // BrowserPanel as pending; this closes it.
+    // (Gary, 2026-11-08 — track when + why.)
+    useEventLogStore.getState().logBrowserAuthPrompt(request.host, 'completed', 'submitted');
     onDone();
   };
 
   const cancel = () => {
     void window.lucidAPI.browser.authResponse(request.id, null);
+    // Track + diagnose the answer: WHEN Gary cancelled the
+    // page's sign-in ask. (Gary, 2026-11-08 — track when + why.)
+    useEventLogStore.getState().logBrowserAuthPrompt(request.host, 'dismissed', 'cancelled');
     onDone();
   };
 

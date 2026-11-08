@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { FileEntry } from '../types';
+import { useEventLogStore } from './eventLogStore';
 import { useToastStore } from './toastStore';
 
 /**
@@ -38,7 +39,7 @@ interface FileState {
 
   // Actions
   clearError: () => void;
-  setCurrentDir: (dir: string) => Promise<void>;
+  setCurrentDir: (dir: string, origin?: 'startup' | 'user') => Promise<void>;
   refreshDir: () => Promise<void>;
   toggleDir: (path: string) => void;
   selectPath: (path: string) => void;
@@ -69,7 +70,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ error: null });
   },
 
-  setCurrentDir: async (dir) => {
+  setCurrentDir: async (dir, origin: 'startup' | 'user' = 'user') => {
     console.log('💾 FileStore: setCurrentDir called with:', dir);
     set({ isLoading: true, error: null });
     try {
@@ -89,12 +90,26 @@ export const useFileStore = create<FileState>((set, get) => ({
           recentWorkspaces: newRecent
         };
       });
+      // Track + diagnose the walk: the startup walk is the
+      // cause of the 3 macOS TCC prompts (App init reads home
+      // recursively); a user folder-open is a session read.
+      // (Gary, 2026-11-08 — track when + why.)
+      if (origin === 'startup') {
+        useEventLogStore.getState().logStartupFileExplorerWalk(dir, 'completed');
+      } else {
+        useEventLogStore.getState().logDirectoryRead(dir, 'completed');
+      }
       console.log('✅ FileStore: setCurrentDir completed successfully');
     } catch (error) {
       console.error('❌ FileStore: setCurrentDir failed:', error);
       const message = errorMessage(error);
       set({ error: message, isLoading: false });
       useToastStore.getState().error(`Could not open folder: ${message}`);
+      if (origin === 'startup') {
+        useEventLogStore.getState().logStartupFileExplorerWalk(dir, 'failed', message);
+      } else {
+        useEventLogStore.getState().logDirectoryRead(dir, 'failed', message);
+      }
     }
   },
 

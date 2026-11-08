@@ -55,6 +55,50 @@ describe('bubbleLayoutForRole', () => {
     expect(layout.rowClass).toContain('gap-3');
     expect(layout.rowClass).not.toContain('justify-end');
   });
+
+  it('SILENCED (Gary, 2026-11-08 ~06:41 PST): a user message renders flat — the visual causal bubble is removed from the LuciferAI input', () => {
+    const layout = bubbleLayoutForRole('user', { flatBubbles: true });
+    expect(layout.isBubble).toBe(false);
+    expect(layout.bubbleClass).toBe('');
+    expect(layout.rowClass).not.toContain('justify-end');
+    expect(layout.rowClass).not.toContain('rounded-2xl');
+  });
+
+  it('SILENCED: assistant and system messages are already flat — the option changes nothing for them', () => {
+    expect(bubbleLayoutForRole('assistant', { flatBubbles: true }).isBubble).toBe(false);
+    expect(bubbleLayoutForRole('system', { flatBubbles: true }).isBubble).toBe(false);
+  });
+
+  it('SPEAKING: flatBubbles false (or omitted) keeps the user bubble', () => {
+    expect(bubbleLayoutForRole('user', { flatBubbles: false }).isBubble).toBe(true);
+    expect(bubbleLayoutForRole('user').isBubble).toBe(true);
+  });
+});
+
+describe('tick freeze while silenced — the frozen count resumes, never resets or re-numbers (Gary, 2026-11-08 ~06:41 PST)', () => {
+  it('silencing does not touch any tick: normalize keeps every existing tick and the counter where it was', () => {
+    const ticked = [
+      msg('a', 1000),
+      msg('b', 2000),
+      msg('c', 3000),
+    ];
+    const stamped = assignRitualTicks(ticked);
+    expect(stamped.map((m) => m.ritualTick)).toEqual([0, 1, 2]);
+    // A re-normalize (what a re-render / re-retrieval does) never
+    // re-assigns: the ticks stay exactly where they were, and the
+    // next tick is still the frozen count (3), not 0.
+    const again = normalizeMessageList(stamped, 3);
+    expect(again.map((m) => m.ritualTick)).toEqual([0, 1, 2]);
+    expect(nextTickFor(again)).toBe(3);
+  });
+
+  it('after un-silence the next message takes the frozen count — not 0, not a re-numbering of the old ones', () => {
+    const stamped = assignRitualTicks([msg('a', 1000), msg('b', 2000)]);
+    expect(nextTickFor(stamped)).toBe(2);
+    const withNew = insertMessageInOrder(stamped, msg('c', 3000));
+    expect(withNew.map((m) => m.ritualTick)).toEqual([0, 1, 2]);
+    expect(nextTickFor(withNew)).toBe(3);
+  });
 });
 
 describe('formatMessageTime', () => {

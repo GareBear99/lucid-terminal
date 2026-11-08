@@ -34,7 +34,28 @@ export interface BubbleLayout {
   timeAlignClass: string;
 }
 
-export function bubbleLayoutForRole(role: BubbleRole): BubbleLayout {
+export function bubbleLayoutForRole(
+  role: BubbleRole,
+  opts?: { flatBubbles?: boolean },
+): BubbleLayout {
+  // SILENCED (Gary, 2026-11-08 ~06:41 PST): when the blood drop
+  // is grey, the visual causal bubbles are removed from LuciferAI
+  // inputs — a user message renders FLAT (no filled bubble, no
+  // backwall), like the assistant's flat row, and the bubble
+  // returns on un-silence. This is VISUAL only: the message
+  // content, its timestamp and its ritual tick are unchanged, and
+  // the tick counter is never reset or re-numbered — the bubble
+  // chrome hides, the causal order does not move. Assistant and
+  // system messages are already flat, so the option changes
+  // nothing for them.
+  if (opts?.flatBubbles && role === 'user') {
+    return {
+      rowClass: 'flex px-4 py-3',
+      isBubble: false,
+      bubbleClass: '',
+      timeAlignClass: 'text-left',
+    };
+  }
   if (role === 'user') {
     return {
       rowClass: 'flex justify-end px-4 py-2',

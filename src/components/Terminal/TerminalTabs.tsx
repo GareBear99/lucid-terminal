@@ -46,6 +46,15 @@ export interface TerminalTabsViewProps {
   showBloodDrop?: boolean;
   bloodDropActive?: boolean;
   onBloodDropActiveChange?: (active: boolean) => void;
+  /**
+   * SILENCED (Gary, 2026-11-08 ~06:41 PST — potential daemon
+   * only): the terminal link is disabled while silenced, so the
+   * blood drop tab is INERT — clicking it does nothing, it does
+   * not open the LuciferAI panel. The tab itself stays visible
+   * (silenced is not off — the drop tab shows while LuciferAI is
+   * enabled); only the click is dead. Defaults to false (live).
+   */
+  bloodDropDisabled?: boolean;
   onToggleNotifications: () => void;
   onDismissNotification: (id: string) => void;
   onClearAllNotifications: () => void;
@@ -63,6 +72,7 @@ export function TerminalTabsView({
   showBloodDrop = false,
   bloodDropActive = false,
   onBloodDropActiveChange,
+  bloodDropDisabled = false,
   onToggleNotifications,
   onDismissNotification,
   onClearAllNotifications,
@@ -111,14 +121,17 @@ export function TerminalTabsView({
         {showBloodDrop && (
           <div
             data-testid="blood-drop-tab"
-            title="LuciferAI prompt commands"
+            title={bloodDropDisabled ? "LuciferAI silenced \u2014 the terminal link is disabled" : "LuciferAI prompt commands"}
             aria-label="LuciferAI prompt commands"
-            className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] cursor-pointer transition-colors ${
-              bloodDropActive
-                ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
+            aria-disabled={bloodDropDisabled || undefined}
+            className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] transition-colors ${
+              bloodDropDisabled
+                ? 'text-[var(--text-muted)] opacity-50 cursor-default'
+                : bloodDropActive
+                  ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)] cursor-pointer'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 cursor-pointer'
             }`}
-            onClick={() => onBloodDropActiveChange?.(true)}
+            onClick={() => { if (!bloodDropDisabled) onBloodDropActiveChange?.(true); }}
           >
             <BloodDropIcon size={14} />
           </div>
@@ -276,9 +289,11 @@ interface TerminalTabsProps {
   bloodDropActive?: boolean;
   /** Selecting the drop (true), or a terminal tab / creating one (false). */
   onBloodDropActiveChange?: (active: boolean) => void;
+  /** SILENCED (Gary, 2026-11-08 ~06:41 PST): the blood drop tab is inert while silenced. */
+  bloodDropDisabled?: boolean;
 }
 
-function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange }: TerminalTabsProps) {
+function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange, bloodDropDisabled = false }: TerminalTabsProps) {
   const { tabs, activeTabId, createTab, closeTab, setActiveTab, updateTabTitle } =
     useTerminalStore();
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
@@ -298,6 +313,7 @@ function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodD
       showBloodDrop={showBloodDrop}
       bloodDropActive={bloodDropActive}
       onBloodDropActiveChange={onBloodDropActiveChange}
+      bloodDropDisabled={bloodDropDisabled}
       onCreateTab={() => {
         void createTab();
         onBloodDropActiveChange?.(false);

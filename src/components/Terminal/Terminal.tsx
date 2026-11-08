@@ -16,7 +16,7 @@ import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
-import { isLuciferAiEnabled, isLuciferAiSilenced } from '../../lib/luciferAi';
+import { isLuciferAiEnabled, isLuciferAiSilenced, LUCIFER_AI_SILENCED_NOTE } from '../../lib/luciferAi';
 import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
 
@@ -70,9 +70,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   const luciferAiEnabled = isLuciferAiEnabled(settings);
   // The LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST):
   // the blood drop toggle is JUST a silencer — it greys the drop,
-  // it never turns the plugin off and never stops the runtime.
-  // Silenced only changes how the drop renders; every gate below
-  // still reads luciferAiEnabled, never this value.
+  // it never turns the plugin off. SILENCED = POTENTIAL DAEMON
+  // ONLY (Gary, 2026-11-08 ~06:41 PST): while silenced LuciferAI
+  // does nothing active — no bubbles on its inputs, no terminal
+  // link, no awaiting commands — and its ticks freeze (never
+  // reset, never re-numbered) until un-silence resumes them.
+  // The gates below read this value wherever LuciferAI would
+  // ACT: the heartbeat, the plugin probe, and the plugin slash
+  // commands. The plain terminal and the Lucid-local commands
+  // (fix / fixnet / browser / workflow / history / devmode) never
+  // read it — they work with LuciferAI on, off, or silenced.
   const luciferAiSilenced = isLuciferAiSilenced(settings);
   const { createTab, closeTab, createErrors, clearCreateError, updateTabCwd } = useTerminalStore();
   // This tab's working directory — the prompt section's
@@ -182,6 +189,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       setLuciferAIChecking(false);
       return;
     }
+    // SILENCED (Gary, 2026-11-08 ~06:41 PST — potential daemon
+    // only): do NOT probe the plugin and do NOT start the retry
+    // interval — a dormant daemon does nothing active. The
+    // availability state is PRESERVED (not cleared): the daemon
+    // still exists in potential, and on un-silence this effect
+    // re-runs and probes fresh. This is what freezes LuciferAI
+    // while silenced without losing where it was.
+    if (luciferAiSilenced) {
+      setLuciferAIChecking(false);
+      return;
+    }
     const initLuciferAI = async () => {
       // Probing the plugin/model status is real background loading — the
       // top-left dot swirls while it runs.
@@ -253,7 +271,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     }, 30000);
 
     return () => clearInterval(retryInterval);
-  }, [luciferAIAvailable, modelAvailable, luciferAiEnabled]);
+  }, [luciferAIAvailable, modelAvailable, luciferAiEnabled, luciferAiSilenced]);
 
   // PTY stream in, PTY exit, live cwd — straight into the surface.
   useEffect(() => {
@@ -441,6 +459,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         await write('/help needs LuciferAI — enable it in Settings → Plugins.');
         return;
       }
+      // SILENCED (Gary, 2026-11-08 ~06:41 PST — potential daemon
+      // only): LuciferAI commands are not accepted while silenced
+      // — not queued, not awaited, not run. The note tells the
+      // user the one action that restores them (click the grey
+      // blood drop). Local commands below are NOT gated this way.
+      if (luciferAiSilenced) {
+        await write(LUCIFER_AI_SILENCED_NOTE);
+        return;
+      }
       console.log('[Help] Opening help modal');
       if (onOpenHelp) {
         onOpenHelp();
@@ -452,6 +479,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     if (parsed.type === 'plan') {
       if (!luciferAiEnabled) {
         await write('/plan needs LuciferAI — enable it in Settings → Plugins.');
+        return;
+      }
+      if (luciferAiSilenced) {
+        await write(LUCIFER_AI_SILENCED_NOTE);
         return;
       }
       console.log('[Planning] Opening planning panel');
@@ -501,6 +532,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           console.log('[LLM] Processing:', parsed.command);
           if (!luciferAiEnabled) {
             await write('/llm needs LuciferAI — enable it in Settings → Plugins.');
+            break;
+          }
+          if (luciferAiSilenced) {
+            await write(LUCIFER_AI_SILENCED_NOTE);
             break;
           }
           const bare = line.slice(1);
@@ -593,6 +628,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             await write('/tokens needs LuciferAI — enable it in Settings → Plugins.');
             break;
           }
+          if (luciferAiSilenced) {
+            await write(LUCIFER_AI_SILENCED_NOTE);
+            break;
+          }
           const stats = await window.lucidAPI.lucid.getTokenStats();
           await write(JSON.stringify(stats, null, 2));
           break;
@@ -628,6 +667,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           console.log('[Backend] Command type:', parsed.type);
           if (!luciferAiEnabled) {
             await write(`${line} needs LuciferAI — enable it in Settings → Plugins.`);
+            break;
+          }
+          if (luciferAiSilenced) {
+            await write(LUCIFER_AI_SILENCED_NOTE);
             break;
           }
           if (luciferAIAvailable) {
@@ -894,8 +937,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               LuciferAI plugin is active and idle; while the fangs
               drip it holds on the blood-drop frame instead of
               hiding (same shouldDrip signal as the fang pixels);
-              busy WITHOUT dripping (plain shell) still hides it. */}
-          <Heartbeat active={luciferAIAvailable && isActiveTab} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
+              busy WITHOUT dripping (plain shell) still hides it.
+              SILENCED (Gary, 2026-11-08 ~06:41 PST — potential
+              daemon only): awaiting commands is DISABLED while
+              silenced, so the heartbeat is gone — the daemon is
+              not awaiting anything. It returns on un-silence. */}
+          <Heartbeat active={luciferAIAvailable && isActiveTab && !luciferAiSilenced} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
 
           {/* Prompt SECTION — a whole glass section, not a thin input
               bar (Gary, 2026-11-07 ~08:34 PST): "see how their prompt

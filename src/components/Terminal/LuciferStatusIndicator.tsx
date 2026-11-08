@@ -93,9 +93,12 @@ export function BloodDropIcon({ fill }: { fill: string }) {
  * LuciferAI's voices — the drop GREYS OUT (grey SVG fill, always
  * visible) but stays visible and clickable, so clicking it
  * again un-silences. It does NOT turn the plugin off and does
- * NOT stop the runtime: the causal ticks keep running and the
- * causal order is held, never reset or re-numbered. The drop
- * disappears ONLY when LuciferAI is turned off via the Settings
+ * NOT stop the runtime: SILENCED = POTENTIAL DAEMON ONLY (Gary,
+ * 2026-11-08 ~06:41 PST) — while silenced LuciferAI does nothing
+ * active (no bubbles on its inputs, no terminal link, no awaiting
+ * commands) and its causal ticks FREEZE, never reset or
+ * re-numbered, resuming from the frozen count on un-silence. The
+ * drop disappears ONLY when LuciferAI is turned off via the Settings
  * toggle (Gary, 2026-11-08 ~02:29 PST: "off like in settings
  * toggle") — that is the plain-terminal rule: when LuciferAI is
  * off the terminal must be no different than a terminal, so
@@ -105,7 +108,7 @@ export function BloodDropIcon({ fill }: { fill: string }) {
  * while silenced it is grey. Clicking it never prints or repeats
  * the "awaiting commands" line (toggling only flips the silenced
  * setting; the heartbeat is the plugin's own idle status line
- * and shows only while the plugin is on and idle).
+ * and shows only while the plugin is on, idle, and speaking).
  */
 export function LuciferStatusIndicator({
   enabled,

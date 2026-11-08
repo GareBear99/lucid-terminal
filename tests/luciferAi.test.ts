@@ -21,6 +21,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   isLuciferAiEnabled,
   isLuciferAiSilenced,
+  isLuciferAiActive,
+  LUCIFER_AI_SILENCED_NOTE,
   luciferStatusIndicator,
 } from '../src/lib/luciferAi';
 import { useSettingsStore } from '../src/stores/settingsStore';
@@ -41,10 +43,15 @@ describe('isLuciferAiEnabled', () => {
 });
 
 describe('isLuciferAiSilenced — the blood drop toggle is JUST a silencer (Gary, 2026-11-08 ~02:28 PST)', () => {
-  // Silenced is NOT off: the runtime keeps running, the drop only
-  // greys out. The drop disappears ONLY when LuciferAI is off via
-  // the Settings toggle (Gary, 2026-11-08 ~02:29 PST: "off like in
-  // settings toggle"). Silenced is a SEPARATE key from enabled.
+  // Silenced is NOT off: the plugin still exists (in potential),
+  // the drop only greys out. The drop disappears ONLY when
+  // LuciferAI is off via the Settings toggle (Gary, 2026-11-08
+  // ~02:29 PST: "off like in settings toggle"). Silenced is a
+  // SEPARATE key from enabled. SILENCED = POTENTIAL DAEMON ONLY
+  // (Gary, 2026-11-08 ~06:41 PST): while silenced LuciferAI does
+  // nothing active — no bubbles on its inputs, no terminal link,
+  // no awaiting commands — and its ticks freeze, never reset or
+  // re-numbered, resuming from the frozen count on un-silence.
   it('is silenced when the key is true', () => {
     expect(isLuciferAiSilenced({ luciferAiSilenced: true })).toBe(true);
   });
@@ -65,6 +72,38 @@ describe('isLuciferAiSilenced — the blood drop toggle is JUST a silencer (Gary
     // Not silenced + disabled: the plugin is OFF, the drop is gone.
     expect(isLuciferAiEnabled({ luciferAiEnabled: false })).toBe(false);
     expect(isLuciferAiSilenced({ luciferAiSilenced: false })).toBe(false);
+  });
+});
+
+describe('isLuciferAiActive — live and speaking: ON and not silenced (Gary, 2026-11-08 ~06:41 PST)', () => {
+  it('is active when enabled and speaking', () => {
+    expect(isLuciferAiActive({ luciferAiEnabled: true, luciferAiSilenced: false })).toBe(true);
+  });
+
+  it('is NOT active when silenced — the daemon is dormant, a potential daemon only', () => {
+    expect(isLuciferAiActive({ luciferAiEnabled: true, luciferAiSilenced: true })).toBe(false);
+  });
+
+  it('is NOT active when disabled, silenced or not', () => {
+    expect(isLuciferAiActive({ luciferAiEnabled: false, luciferAiSilenced: false })).toBe(false);
+    expect(isLuciferAiActive({ luciferAiEnabled: false, luciferAiSilenced: true })).toBe(false);
+  });
+
+  it('a missing silenced key counts as speaking (a fresh / old install speaks)', () => {
+    expect(
+      isLuciferAiActive({ luciferAiEnabled: true } as { luciferAiEnabled: boolean; luciferAiSilenced: boolean }),
+    ).toBe(true);
+  });
+});
+
+describe('LUCIFER_AI_SILENCED_NOTE — the refusal for a LuciferAI command while silenced', () => {
+  it('names the silenced state and the one action that restores it (click the grey drop)', () => {
+    expect(LUCIFER_AI_SILENCED_NOTE).toContain('silenced');
+    expect(LUCIFER_AI_SILENCED_NOTE).toContain('grey blood drop');
+    expect(LUCIFER_AI_SILENCED_NOTE).toContain('un-silence');
+    // It never tells the user to re-enable in Settings — silenced
+    // is not off, and the drop itself is the un-silence control.
+    expect(LUCIFER_AI_SILENCED_NOTE).not.toContain('Settings');
   });
 });
 

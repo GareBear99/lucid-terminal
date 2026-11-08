@@ -141,6 +141,19 @@ function App() {
     if (showHelp) setShowHelp(false);
     if (bloodDropActive) setBloodDropActive(false);
   }, [luciferAiEnabled, currentView, showHelp, bloodDropActive]);
+  // SILENCED (Gary, 2026-11-08 ~06:41 PST — potential daemon
+  // only): the terminal link is disabled while silenced, so the
+  // blood drop panel closes if it was open when silenced — the
+  // panel is the LuciferAI terminal path, and it is inert while
+  // the daemon is dormant. It is NOT unmounted like the disabled
+  // case (the Synth view stays where it was); only the blood
+  // drop panel closes, and it reopens on un-silence by clicking
+  // the tab. The drop itself stays visible and clickable to
+  // un-silence.
+  useEffect(() => {
+    if (!luciferAiSilenced) return;
+    if (bloodDropActive) setBloodDropActive(false);
+  }, [luciferAiSilenced, bloodDropActive]);
   // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).
   // Shows on every launch for now; a "don't show again" setting is a
   // one-line follow-up. The dashboard mounts underneath, so the splash
@@ -318,6 +331,14 @@ function App() {
               showAI={showAI}
               onToggleAI={handleToggleAI}
               onOpenBloodDrop={() => {
+                // SILENCED (Gary, 2026-11-08 ~06:41 PST — potential
+                // daemon only): the terminal link is disabled while
+                // silenced, so the toolbar drop does nothing — it
+                // does not open the blood drop terminal. The drop
+                // itself (in the terminal prompt row) stays clickable
+                // to un-silence; this toolbar drop is the panel
+                // opener, and it is inert while dormant.
+                if (isLuciferAiSilenced(useSettingsStore.getState().settings)) return;
                 // Both blood drops go to the same creation place
                 // (Gary, 2026-11-07 ~09:18 PST): the toolbar drop
                 // opens the blood drop terminal, like the create
@@ -390,6 +411,7 @@ function App() {
                   <TerminalTabs
                     showBloodDrop={luciferAiEnabled}
                     bloodDropActive={bloodDropActive}
+                    bloodDropDisabled={luciferAiSilenced}
                     onBloodDropActiveChange={setBloodDropActive}
                   />
 
@@ -431,8 +453,12 @@ function App() {
                           // the Help modal — that is the toolbar drop's
                           // surface. Only when LuciferAI is enabled;
                           // when off, no handler and no drop anywhere
-                          // (not in the strip, not here).
-                          onOpenBloodDrop={luciferAiEnabled ? () => setBloodDropActive(true) : undefined}
+                          // (not in the strip, not here). SILENCED
+                          // (Gary, 2026-11-08 ~06:41 PST): also no
+                          // handler while silenced — the terminal link
+                          // is disabled, so the empty-state drop is
+                          // inert too.
+                          onOpenBloodDrop={luciferAiEnabled && !luciferAiSilenced ? () => setBloodDropActive(true) : undefined}
                         />
                       )}
                         </>

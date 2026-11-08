@@ -10,6 +10,7 @@ import { ChatMessage, PingQuota } from '../../types';
 import { getChatModelOptions, AUTO_CHAT_MODEL_VALUE } from '../../lib/chatModels';
 import { formatTimeSinceRestock, isPingUnreachableError } from '../../lib/pingQuota';
 import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
+import { isLuciferAiSilenced } from '../../lib/luciferAi';
 import { MessageContextMenu } from './MessageContextMenu';
 import { shouldShowSpeakOption, getActivePersonaVoiceSettings, resolveDefaultSpeakVoice, speakActorOptions } from '../../lib/personaPlex';
 import { useForgeStore } from '../../stores/forgeStore';
@@ -29,6 +30,16 @@ interface AIChatProps {
 function AIChat({ onClose }: AIChatProps) {
 
   const { hasApiKey, setApiKey, isLocalBackendAvailable, isLocalModelAvailable, checkBackendStatus, settings, updateSetting } = useSettingsStore();
+  // SILENCED (Gary, 2026-11-08 ~06:41 PST): when the blood drop
+  // is grey, the visual causal bubbles are removed from LuciferAI
+  // inputs — user messages render flat, no bubble chrome — and
+  // return on un-silence. This is VISUAL only and reads the
+  // silenced key, never the enabled key: AI Chat is Lucid AI, its
+  // own plugin, and it keeps working with LuciferAI on, off, or
+  // silenced (Gary, 2026-11-07) — only the bubble chrome hides.
+  // The messages, their timestamps and their ritual ticks are
+  // untouched; the tick counter is never reset or re-numbered.
+  const luciferAiSilenced = isLuciferAiSilenced(settings);
   const {
     sessions,
     currentSessionId,
@@ -467,9 +478,12 @@ function AIChat({ onClose }: AIChatProps) {
   // edge (the "backwall"); assistant / system messages are a flat
   // full-width row on the left with the Lucid avatar. Content, code blocks,
   // copy buttons and timestamps are unchanged — this is layout only.
+  // SILENCED (Gary, 2026-11-08 ~06:41 PST): while the blood drop is
+  // grey the user bubble is gone — the input renders flat, no bubble
+  // chrome — and returns on un-silence.
   const renderMessage = (message: ChatMessage, isStreaming = false) => {
     const content = isStreaming ? streamingMessage : message.content;
-    const layout = bubbleLayoutForRole(message.role);
+    const layout = bubbleLayoutForRole(message.role, { flatBubbles: luciferAiSilenced });
     const time = formatMessageTime(message.timestamp);
 
     const parts = content.split(/(```[\s\S]*?```)/g);
@@ -523,6 +537,27 @@ function AIChat({ onClose }: AIChatProps) {
               <span className={`text-[10px] text-[var(--text-muted)] mt-1 pr-1 ${layout.timeAlignClass}`}>
                 {time}
               </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Silenced user message (Gary, 2026-11-08 ~06:41 PST): the
+    // visual causal bubble is removed — the input renders as a
+    // flat full-width row with NO bubble chrome and NO avatar
+    // (the avatar marks the assistant, not the user). Content,
+    // timestamp and ritual tick are unchanged; the bubble returns
+    // on un-silence.
+    if (message.role === 'user') {
+      return (
+        <div className={layout.rowClass}>
+          <div className="flex-1 overflow-hidden">
+            {body}
+            {time && (
+              <div className={`text-[10px] text-[var(--text-muted)] mt-1 ${layout.timeAlignClass}`}>
+                {time}
+              </div>
             )}
           </div>
         </div>

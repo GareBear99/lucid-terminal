@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "build:win": "tsc && vite build && electron-builder --win",
+    "postinstall": "node scripts/fix-node-pty-helper.mjs",
     "preview": "vite preview",
     "electron:dev": "vite",
     "typecheck": "tsc --noEmit",

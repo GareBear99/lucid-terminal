@@ -272,6 +272,17 @@ const fullGlassColors: ThemeColors = {
  * the five freely selectable dark themes, and Full Glass gets its own
  * separate section under the theme selection. Resolve it with
  * getTheme('full-glass') and check isThemeUnlocked before selecting.
+ *
+ * Unlock rule (Gary, 2026-11-08 ~01:34 PST): '2 activated and
+ * recognized temps linked to your refferals a year plus purchase
+ * tier active seems fair for glass'. The referralsRequired count
+ * is 2, and a referral only counts when it is an ACTIVATED and
+ * RECOGNIZED temp linked to your referrals within a year - not just
+ * any signup. There is no referral / purchase server in Lucid yet,
+ * so the referralCount fed to isThemeUnlocked is the count of those
+ * qualifying temps; when the referral system is built it must
+ * enforce the activated + recognized + within-a-year definition,
+ * not count raw signups.
  */
 export const fullGlassTheme: Theme = {
   id: 'full-glass',
@@ -280,7 +291,7 @@ export const fullGlassTheme: Theme = {
   isGlass: true,
   unlock: {
     kind: 'referral-purchase-tier',
-    referralsRequired: 1,
+    referralsRequired: 2,
     requiresPurchaseTier: true,
   },
 };
@@ -361,7 +372,9 @@ export function getTheme(id: string): Theme {
  * 2026-11-07). A theme with no `unlock` is freely selectable. Full
  * Glass needs `referralsRequired` referrals AND an active purchase
  * tier (when `requiresPurchaseTier`); either one missing keeps it
- * locked. The referral count and purchase tier live on Settings
+ * locked. The referrals are activated and recognized temps linked
+ * to your referrals within a year (Gary, 2026-11-08), and the count
+ * is 2 - not just any signup. The referral count and purchase tier live on Settings
  * (referralCount, purchaseTierActive) — there is no referral /
  * purchase server in Lucid yet, so the referral and purchase flows
  * set them when they exist; until then they default to 0 / false

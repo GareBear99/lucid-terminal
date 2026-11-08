@@ -151,7 +151,7 @@ describe('Full Glass — gated reward theme (Gary, 2026-11-07)', () => {
   it('carries the referral + purchase tier unlock', () => {
     expect(fullGlassTheme.unlock).toEqual({
       kind: 'referral-purchase-tier',
-      referralsRequired: 1,
+      referralsRequired: 2,
       requiresPurchaseTier: true,
     });
   });
@@ -169,7 +169,8 @@ describe('Full Glass — gated reward theme (Gary, 2026-11-07)', () => {
   });
 
   it('unlocks with referrals AND an active purchase tier', () => {
-    expect(isThemeUnlocked(fullGlassTheme, { referralCount: 1, purchaseTierActive: true })).toBe(true);
+    expect(isThemeUnlocked(fullGlassTheme, { referralCount: 1, purchaseTierActive: true })).toBe(false);
+    expect(isThemeUnlocked(fullGlassTheme, { referralCount: 2, purchaseTierActive: true })).toBe(true);
     expect(isThemeUnlocked(fullGlassTheme, { referralCount: 5, purchaseTierActive: true })).toBe(true);
   });
 

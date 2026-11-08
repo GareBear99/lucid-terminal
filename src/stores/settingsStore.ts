@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Theme, Settings } from '../types';
-import { getTheme, applyTheme, themes } from '../themes/themes';
+import { getTheme, applyTheme, themes, isThemeUnlocked } from '../themes/themes';
 
 interface SettingsState {
   settings: Settings;
@@ -45,7 +45,10 @@ interface SettingsState {
 }
 
 const defaultSettings: Settings = {
-  theme: 'dark',
+  // LuciferAI is the default theme (Gary, 2026-11-07) — his color
+  // scheme is the one Lucid loads up in. A fresh install (no
+  // persisted theme) starts in LuciferAI's colors.
+  theme: 'lucifer',
   customTheme: null,
   fontSize: 14,
   fontFamily: 'Consolas',
@@ -110,6 +113,10 @@ const defaultSettings: Settings = {
   personaPlexSpeakEnabled: false,
   customPlugins: {},
   luciferAiEnabled: false,
+  // Full Glass unlock state (Gary, 2026-11-07) — the referral +
+  // active purchase tier reward theme. 0 / false = locked.
+  referralCount: 0,
+  purchaseTierActive: false,
   // Permission grants — empty = nothing recorded yet (see
   // src/types/index.ts). The live probe is the truth; this is
   // only a memory of what the user once allowed.
@@ -162,9 +169,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         }
       }
 
-      const theme = settings.customTheme && settings.theme === 'custom'
+      let theme = settings.customTheme && settings.theme === 'custom'
         ? settings.customTheme
         : getTheme(settings.theme);
+
+      // A gated theme that is no longer unlocked (e.g. Full Glass after
+      // a purchase tier lapses) never applies on load — fall back to
+      // Dark and persist the fallback so it does not linger.
+      if (!isThemeUnlocked(theme, settings)) {
+        theme = themes[0];
+        settings.theme = themes[0].id;
+        try {
+          await window.lucidAPI.settings.set('theme', themes[0].id);
+        } catch {
+          // Persist is best-effort; the in-memory state is already Dark.
+        }
+      }
 
       applyTheme(theme);
 
@@ -218,6 +238,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // no code path can select it; a 'light' request becomes Sunset.
     const effectiveId = themeId === 'light' ? 'sunset' : themeId;
     const theme = getTheme(effectiveId);
+    // Full Glass is gated (Gary, 2026-11-07): the referral + active
+    // purchase tier reward. A locked theme is never applied or
+    // persisted — the request is refused and the current theme stays.
+    if (!isThemeUnlocked(theme, get().settings)) {
+      console.warn(`Theme '${effectiveId}' is locked (referral + active purchase tier required).`);
+      return;
+    }
     applyTheme(theme);
     await window.lucidAPI.settings.set('theme', effectiveId);
     set((state) => ({

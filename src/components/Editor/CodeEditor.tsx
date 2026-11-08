@@ -94,12 +94,21 @@ function CodeEditor() {
     return languageMap[ext || ''] || 'plaintext';
   };
 
-  // Monaco editor theme based on current theme
+  // Monaco editor theme based on current theme. The bg can be hex (the
+  // dark themes, LuciferAI) or translucent rgba (Full Glass), so judge
+  // by relative luminance, not by a hex prefix — the old
+  // startsWith('#0'|'#1'|'#2') read Full Glass's rgba bg as light and
+  // picked the light Monaco theme over the dark mist.
   const getEditorTheme = () => {
-    const isDark = currentTheme.colors.bgPrimary.startsWith('#0') ||
-      currentTheme.colors.bgPrimary.startsWith('#1') ||
-      currentTheme.colors.bgPrimary.startsWith('#2');
-    return isDark ? 'vs-dark' : 'light';
+    const bg = currentTheme.colors.bgPrimary;
+    const rgba = bg.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+    const hex = bg.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    // Capture groups only (slice off the full match, index 0).
+    const parts = rgba?.slice(1) ?? hex?.slice(1).map((h) => parseInt(h, 16));
+    if (!parts) return 'vs-dark';
+    const [r, g, b] = parts.map(Number);
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return lum < 128 ? 'vs-dark' : 'light';
   };
 
   const handleSave = async () => {

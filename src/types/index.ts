@@ -166,11 +166,35 @@ export interface TerminalBlock {
   isProcessing?: boolean;
 }
 
+/**
+ * What unlocks a gated theme. Full Glass (Gary, 2026-11-07) is the
+ * referral + active purchase tier reward — it is NOT freely selectable.
+ * `referralsRequired` is the referral count needed and
+ * `requiresPurchaseTier` is whether an active purchase tier is needed.
+ * The unlock state lives on Settings (referralCount, purchaseTierActive)
+ * and is checked by isThemeUnlocked (src/themes/themes.ts); the theme
+ * picker and setTheme both refuse a locked theme.
+ */
+export interface ThemeUnlock {
+  kind: 'referral-purchase-tier';
+  referralsRequired: number;
+  requiresPurchaseTier: boolean;
+}
+
 export interface Theme {
   id: string;
   name: string;
   colors: ThemeColors;
   isCustom?: boolean;
+  /**
+   * Frosted glass throughout (Full Glass). When set, applyTheme marks
+   * <html> with data-glass and index.css frosts every theme surface
+   * (backdrop blur over the misty black). The theme's own bg colors
+   * are translucent rgba so the mist shows through.
+   */
+  isGlass?: boolean;
+  /** Present only on gated themes (Full Glass). Absent = freely selectable. */
+  unlock?: ThemeUnlock;
 }
 
 export interface ThemeColors {
@@ -277,6 +301,17 @@ export interface Settings {
   // Synth surfaces, plugin commands — see src/lib/luciferAi.ts.
   // Missing keys in older persisted settings count as ON.
   luciferAiEnabled: boolean;
+  // Full Glass unlock state (Gary, 2026-11-07) — the referral +
+  // active purchase tier reward theme. `referralCount` is how many
+  // successful referrals this user has; `purchaseTierActive` is
+  // whether they currently hold an active purchase tier. Both feed
+  // isThemeUnlocked (src/themes/themes.ts). There is no referral /
+  // purchase server in Lucid yet, so these are set by the referral
+  // and purchase flows when they exist; until then they default to
+  // 0 / false and Full Glass stays locked. They are persisted like
+  // any other setting.
+  referralCount: number;
+  purchaseTierActive: boolean;
   // Permission grants (Gary, 2026-11-07 ~02:47 PST) — the record
   // of what the user once allowed (see src/lib/permissions.ts).
   // MEMORY, NOT TRUTH: the live probe is what counts; a recorded

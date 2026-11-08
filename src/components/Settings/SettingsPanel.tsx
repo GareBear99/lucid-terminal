@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
-import { themes, createDefaultCustomTheme } from '../../themes/themes';
+import { themes, fullGlassTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
 import { Theme } from '../../types';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
@@ -646,6 +646,69 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       <span className="text-sm">Custom</span>
                     </button>
 </Tooltip>
+                </div>
+              </section>
+
+
+              {/* Full Glass — its own separate section UNDER the theme
+                  selection (Gary, 2026-11-07). NOT another entry in the
+                  theme list: it is the referral + active purchase tier
+                  reward theme, gated (see isThemeUnlocked). Locked until
+                  the user has referrals AND an active purchase tier;
+                  the section shows the unlock progress so the path is
+                  visible, and the theme becomes selectable once unlocked.
+                  The picker and setTheme both refuse a locked theme. */}
+              <section data-testid="full-glass-section">
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Full Glass</h3>
+                  {isThemeUnlocked(fullGlassTheme, settings) ? (
+                    <Unlock size={14} className="text-[var(--success)]" aria-label="Full Glass unlocked" />
+                  ) : (
+                    <Lock size={14} className="text-[var(--text-muted)]" aria-label="Full Glass locked" />
+                  )}
+                  <span className="text-xs text-[var(--text-muted)]">Referral + purchase tier reward</span>
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Frosted glass throughout. Unlocks with referrals and an active purchase tier.
+                </p>
+                <div className={`p-3 rounded-lg border transition-all ${currentTheme.id === fullGlassTheme.id
+                  ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] ring-opacity-50'
+                  : 'border-[var(--border)]'
+                  }`}>
+                  <div
+                    className="h-16 rounded-md mb-2"
+                    style={{
+                      background: `linear-gradient(135deg, ${fullGlassTheme.colors.bgPrimary} 50%, ${fullGlassTheme.colors.bgSecondary} 50%)`,
+                      border: `1px solid ${fullGlassTheme.colors.border}`,
+                    }}
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full m-2"
+                      style={{ backgroundColor: fullGlassTheme.colors.accent }}
+                    />
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] space-y-1 mb-3">
+                    <div>Referrals: {settings.referralCount} / {fullGlassTheme.unlock?.referralsRequired ?? 1} {settings.referralCount >= (fullGlassTheme.unlock?.referralsRequired ?? 1) ? '✓' : ''}</div>
+                    <div>Purchase tier: {settings.purchaseTierActive ? 'Active ✓' : 'Not active'}</div>
+                  </div>
+                  {isThemeUnlocked(fullGlassTheme, settings) ? (
+                    <button
+                      onClick={() => setTheme(fullGlassTheme.id)}
+                      className="btn btn-primary px-3 py-1.5 text-sm"
+                    >
+                      Use Full Glass
+                    </button>
+                  ) : (
+                    <Tooltip content="Unlocks with referrals and an active purchase tier">
+                      <button
+                        disabled
+                        aria-label="Full Glass locked — unlocks with referrals and an active purchase tier"
+                        className="btn btn-secondary px-3 py-1.5 text-sm opacity-50 cursor-not-allowed"
+                      >
+                        <Lock size={14} className="inline mr-1" /> Locked — refer + purchase tier
+                      </button>
+                    </Tooltip>
+                  )}
                 </div>
               </section>
 

@@ -34,6 +34,23 @@
   /* Color-shift accent cycle time (see .lucid-color-shift below). */
   --color-shift-duration: 8s;
 }
+
+/* Full Glass theme — frosted surfaces (Gary, 2026-11-07).
+   applyTheme marks <html> with data-glass when the Full Glass theme
+   is active, and clears it for every other theme. The theme's own bg
+   colors are translucent rgba, so the misty black shows through; these
+   rules add the frost (backdrop blur) to every surface painted with a
+   theme background, so the whole app reads as frosted glass instead
+   of flat translucency. Surfaces that already carry their own
+   backdrop-blur (modals, glass cards, the prompt glass section) keep
+   theirs — this only frosts the plain layout surfaces (sidebar, title
+   bar, terminal blocks) that have no blur of their own. */
+html[data-glass] .bg-\[var\(--bg-primary\)\],
+html[data-glass] .bg-\[var\(--bg-secondary\)\],
+html[data-glass] .bg-\[var\(--bg-tertiary\)\] {
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+}
 
 * {
   margin: 0;

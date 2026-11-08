@@ -137,6 +137,8 @@ export function waitForSpeakVoices(timeoutMs = 2000): Promise<string[]> {
     setTimeout(finish, Math.max(0, timeoutMs));
   });
 }
+
+/** Stop any speech in progress. Safe to call when nothing is speaking. */
 export function stopSpeaking(): void {
   if (!isSpeechSupported()) return;
   try {

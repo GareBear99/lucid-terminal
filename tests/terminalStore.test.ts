@@ -43,6 +43,10 @@ beforeEach(() => {
   const { tabs, closeTab } = useTerminalStore.getState();
   tabs.forEach((t) => closeTab(t.id));
   useTerminalStore.setState({ tabs: [], activeTabId: null, createErrors: {} });
+  // The home-dir cache is module-level (zero-latency F5): without this,
+  // a test that stubs getHomeDir to reject would still read the dir
+  // cached from an earlier test's stub and never see the rejection.
+  useTerminalStore.getState().resetForTests();
 });
 
 const titles = () => useTerminalStore.getState().tabs.map((t) => t.title);

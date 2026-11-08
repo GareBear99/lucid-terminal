@@ -407,18 +407,81 @@ export class ModelBackend {
   }
   
   /**
-   * Test connection to model
+   * Cheap health probe: is the server answering? A plain GET against
+   * the provider's model-list / tags endpoint — no prompt, no tokens,
+   * no inference. This is what the status dots actually display
+   * ("server answering"), and it is what the 30 s pollers call.
+   *
+   * Zero-latency standard (FreeEQ8 paper, variable cadence): never
+   * do model work on a timer. The old implementation ran a real
+   * `generate({ prompt: 'Hello', maxTokens: 5 })` per backend per
+   * tick — a full inference request every 30 s from up to three
+   * simultaneous pollers. A dead endpoint used to hang until the OS
+   * TCP timeout; the probe aborts after HEALTH_PROBE_TIMEOUT_MS.
    */
-  async testConnection(): Promise<boolean> {
+  static readonly HEALTH_PROBE_TIMEOUT_MS = 3000;
+
+  async healthCheck(): Promise<boolean> {
+    const timeout = AbortSignal.timeout(ModelBackend.HEALTH_PROBE_TIMEOUT_MS);
     try {
-      const response = await this.generate({
-        prompt: 'Hello',
-        maxTokens: 5
-      });
-      return response.text.length > 0;
+      switch (this.config.provider) {
+        case 'llamafile': {
+          const endpoint = this.config.endpoint || 'http://localhost:8080';
+          const res = await fetch(`${endpoint}/v1/models`, { signal: timeout });
+          return res.ok;
+        }
+        case 'ollama': {
+          const endpoint = this.config.endpoint || 'http://localhost:11434';
+          const res = await fetch(`${endpoint}/api/tags`, { signal: timeout });
+          return res.ok;
+        }
+        case 'lmstudio': {
+          const endpoint = this.config.endpoint || 'http://localhost:1234';
+          const res = await fetch(`${endpoint}/v1/models`, { signal: timeout });
+          return res.ok;
+        }
+        case 'local': {
+          // No fixed local protocol: probe the OpenAI-compatible list
+          // endpoint when one is configured, else nothing to probe.
+          if (!this.config.endpoint) return false;
+          const res = await fetch(`${this.config.endpoint}/v1/models`, { signal: timeout });
+          return res.ok;
+        }
+        case 'openai': {
+          if (!this.config.apiKey) return false;
+          const res = await fetch('https://api.openai.com/v1/models', {
+            signal: timeout,
+            headers: { 'Authorization': `Bearer ${this.config.apiKey}` },
+          });
+          return res.ok;
+        }
+        case 'anthropic': {
+          if (!this.config.apiKey) return false;
+          const res = await fetch('https://api.anthropic.com/v1/models', {
+            signal: timeout,
+            headers: {
+              'x-api-key': this.config.apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+          });
+          return res.ok;
+        }
+        default:
+          return false;
+      }
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Test connection to model — now the cheap health probe (see
+   * healthCheck). Kept as the public name because every caller
+   * (testAll, the status pipeline) means "is this backend up", not
+   * "can it generate". Never runs inference on a timer.
+   */
+  async testConnection(): Promise<boolean> {
+    return this.healthCheck();
   }
 }
 
@@ -464,15 +527,23 @@ export class ModelBackendManager {
   }
   
   /**
-   * Test all connections
+   * Test all connections — in PARALLEL (Promise.all), not one backend
+   * at a time. A dead backend used to stall every backend behind it
+   * (sequential await, no timeout); each probe now aborts after
+   * HEALTH_PROBE_TIMEOUT_MS, so the whole sweep costs at most one
+   * probe timeout, not the sum of them.
    */
   async testAll(): Promise<Map<string, boolean>> {
-    const results = new Map<string, boolean>();
-    
-    for (const [name, backend] of this.backends) {
-      const isRunning = await backend.testConnection();
-      results.set(name, isRunning);
-      
+    const entries = Array.from(this.backends.entries());
+    const results = await Promise.all(
+      entries.map(async ([name, backend]) => {
+        const isRunning = await backend.testConnection();
+        return [name, isRunning] as const;
+      }),
+    );
+    const out = new Map<string, boolean>();
+    for (const [name, isRunning] of results) {
+      out.set(name, isRunning);
       // Update model info
       const info = this.modelInfo.get(name);
       if (info) {
@@ -480,8 +551,7 @@ export class ModelBackendManager {
         info.validated = isRunning; // If running, assume validated
       }
     }
-    
-    return results;
+    return out;
   }
   
   /**
@@ -511,7 +581,7 @@ export class ModelBackendManager {
   /**
    * Update a model's validated state. Validated means "a real model file
    * for this model was found on disk" (set by the bypass router's file
-   * scan) or "the endpoint answered a test generation" (set by testAll).
+   * scan) or "the endpoint answered a health probe" (set by testAll).
    * Mirrors setModelEnabled; the router owns the file-derived value.
    */
   setModelValidated(name: string, validated: boolean): void {
@@ -524,7 +594,7 @@ export class ModelBackendManager {
   /**
    * Update a model's running state (a llamafile server is answering on
    * its endpoint). Set by testAll(); exposed so tests — and a future
-   * server manager — can mark a model running without a live generation.
+   * server manager — can mark a model running without a live probe.
    */
   setModelRunning(name: string, running: boolean): void {
     const info = this.modelInfo.get(name);

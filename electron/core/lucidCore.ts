@@ -47,6 +47,20 @@ export class LucidCore {
    * UI can say so instead of silently showing an empty dictionary.
    */
   private fixnetDegraded: string | null;
+  /**
+   * Shared model-status cache (zero-latency F1). The renderer has up
+   * to three 30 s pollers (SynthView, Settings/Plugins, Terminal
+   * retry) plus `/workflow status` — before this cache every one of
+   * them ran a full probe sweep. Now the first caller in a window
+   * probes and the rest read the cached Map; concurrent callers share
+   * one in-flight sweep instead of starting their own. TTL is 30 s
+   * while any backend is up, 60 s when all are down (variable
+   * cadence: back off when nothing answers). `force=true` bypasses
+   * the cache for an explicit refresh.
+   */
+  private modelStatusCache: Map<string, boolean> | null = null;
+  private modelStatusFetchedAt = 0;
+  private modelStatusInFlight: Promise<Map<string, boolean>> | null = null;
 
   private constructor(
     intentParser: IntentParser,
@@ -349,10 +363,30 @@ export class LucidCore {
   }
   
   /**
-   * Get model statuses
+   * Get model statuses — cached (see modelStatusCache). One shared
+   * 30 s poller in effect: every renderer poller and `/workflow
+   * status` read the same cached sweep instead of probing the
+   * backends themselves. The sweep itself is the cheap health probe
+   * (ModelBackend.healthCheck), never a generation.
    */
-  async getModelStatuses(): Promise<Map<string, boolean>> {
-    return await this.backendManager.testAll();
+  async getModelStatuses(force = false): Promise<Map<string, boolean>> {
+    const now = Date.now();
+    if (!force && this.modelStatusCache) {
+      const anyUp = Array.from(this.modelStatusCache.values()).some(Boolean);
+      const ttlMs = anyUp ? 30_000 : 60_000;
+      if (now - this.modelStatusFetchedAt < ttlMs) return this.modelStatusCache;
+    }
+    if (this.modelStatusInFlight) return this.modelStatusInFlight;
+    this.modelStatusInFlight = this.backendManager.testAll().then((statuses) => {
+      this.modelStatusCache = statuses;
+      this.modelStatusFetchedAt = Date.now();
+      this.modelStatusInFlight = null;
+      return statuses;
+    }).catch((error) => {
+      this.modelStatusInFlight = null;
+      throw error;
+    });
+    return this.modelStatusInFlight;
   }
   
   /**

@@ -147,9 +147,13 @@ export function SentinelFace({
   const level = usePromptPaceStore((s) => s.level);
 
   // Slow tick so the horns regress while the user is idle — the store's
-  // tick only re-renders when the level visibly moved.
+  // tick only re-renders when the level visibly moved. Skipped while
+  // the window is hidden (zero-latency F4): no face is visible then,
+  // and the store's decay resumes from the same level on return.
   useEffect(() => {
-    const id = setInterval(() => usePromptPaceStore.getState().tick(), 5000);
+    const id = setInterval(() => {
+      if (!document.hidden) usePromptPaceStore.getState().tick();
+    }, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -461,8 +465,13 @@ export function SentinelFace({
   // Re-evaluate regularly: attention expires, the pointer goes idle,
   // and a glow's anchor can move — the eyes release back to wandering
   // on their own instead of waiting for the next pointer move.
+  // Skipped while the window is hidden (zero-latency F4): pointer
+  // moves already drive gaze when visible, and a hidden face needs
+  // no 500 ms re-eval.
   useEffect(() => {
-    const id = window.setInterval(updateGaze, 500);
+    const id = window.setInterval(() => {
+      if (!document.hidden) updateGaze();
+    }, 500);
     return () => window.clearInterval(id);
   }, [updateGaze]);
 

@@ -983,9 +983,22 @@
     if(list) try{ bindLocalScrollable(list); }catch(_e){}
     return panel;
   }
+  // zero-latency F4: last-seen signatures for the four panel
+  // refreshers below — a refresh whose inputs are unchanged returns
+  // before touching innerHTML (the old code rebuilt all four panels
+  // on every animation frame, no dirty-check).
+  let __microSig = '';
+  let __writebackSig = '';
+  let __historySig = '';
+  let __swarmSig = '';
   function refreshMicroReceiptPanel(){
     try{
       const panel = ensureMicroReceiptPanel();
+      const __rec = currentMicroRecord ? currentMicroRecord() : null;
+      const __layer = __rec && activeMicroLayer ? activeMicroLayer(__rec) : null;
+      const __sig = [__rec ? __rec.key : '', TILEVIEW.activeKey||'', (__rec&&__rec.localView&&__rec.localView.depth)||0, ((__layer&&__layer.builders)||(__rec&&__rec.builders)||[]).length, (__rec?(__rec.macroPenalty||0):0).toFixed(2), (__rec&&Array.isArray(__rec.microReceipts)) ? __rec.microReceipts.length : 0, (__rec&&Array.isArray(__rec.microReceipts)&&__rec.microReceipts.length) ? __rec.microReceipts[__rec.microReceipts.length-1].tick : ''].join('|');
+      if(__sig === __microSig) return panel;
+      __microSig = __sig;
       const summary = document.getElementById('microReceiptSummary');
       const list = document.getElementById('microReceiptList');
       const rec = currentMicroRecord ? currentMicroRecord() : null;
@@ -1014,6 +1027,12 @@
   function refreshWritebackPanel(){
     try{
       const panel = ensureWritebackPanel();
+      const __sh0 = shells.get(activeShellId);
+      const __rec0 = currentMicroRecord ? currentMicroRecord() : null;
+      const __agg0 = __sh0 && __sh0.microAggregate ? __sh0.microAggregate : null;
+      const __sig0 = [activeShellId, __rec0 ? __rec0.key : '', __rec0 && __rec0.controller ? (__rec0.controller.mode||'') : '', __rec0 && __rec0.controller ? (__rec0.controller.writeback||'') : '', __rec0 && __rec0.controller ? (__rec0.controller.authority||'') : '', __agg0 ? (__agg0.writebackReady||0) : '', __agg0 ? (__agg0.held||0) : '', __agg0 ? (__agg0.population||0) : '', __rec0 ? ((__rec0.macroPenalty||0).toFixed(2)) : '', (__rec0&&__rec0.summary) ? ((__rec0.summary.population||0)+'/'+(__rec0.summary.structures||0)+'/'+(__rec0.summary.roads||0)) : ''].join('|');
+      if(__sig0 === __writebackSig) return panel;
+      __writebackSig = __sig0;
       const summary = document.getElementById('writebackSummary');
       const rows = document.getElementById('writebackRows');
       const sh = shells.get(activeShellId);
@@ -1066,6 +1085,9 @@
       const summary = document.getElementById('commandHistorySummary');
       const list = document.getElementById('commandHistoryList');
       const items = receipts.slice(-18).reverse();
+      const __sigH = [receipts.length, items.length ? items[items.length-1].tick : '', items.length ? items[0].tick : ''].join('|'); // NB: no `tick` here — it increments every step, which would defeat the check
+      if(__sigH === __historySig) return panel;
+      __historySig = __sigH;
       const sh = shells.get(activeShellId);
       const audit = (window.ARC_VALIDATOR_TOOLS && typeof window.ARC_VALIDATOR_TOOLS.auditRuntime === 'function') ? window.ARC_VALIDATOR_TOOLS.auditRuntime({receipts, shell:sh, tick}) : {issues:[], warnings:[]};
       if(summary) summary.textContent = items.length ? `${items.length} recent receipts • ${receipts.length} total • warn ${audit.warnings.length} • issue ${audit.issues.length}` : 'No commands yet.';
@@ -1099,6 +1121,9 @@
       const summary = document.getElementById('builderSwarmSummary');
       const list = document.getElementById('builderSwarmList');
       const sh = shells.get(activeShellId);
+      const __sigS = [receipts.length, sh ? commitPlanSummary(sh) : 'commit=0/0'].join('|');
+      if(__sigS === __swarmSig) return panel;
+      __swarmSig = __sigS;
       const items = (window.ARC_VALIDATOR_TOOLS && typeof window.ARC_VALIDATOR_TOOLS.summarizeRecentBuilder === 'function') ? window.ARC_VALIDATOR_TOOLS.summarizeRecentBuilder(receipts) : [];
       if(summary){
         const progress = sh ? commitPlanSummary(sh) : 'commit=0/0';
@@ -2477,7 +2502,7 @@
 
 
   // ---------- deterministic core ----------
-  const HZ = 120;
+  const HZ = 60; // zero-latency F4: was 120 — same sim time (DT=1/HZ), half the steps/frame
   const DT = 1 / HZ;
   let acc = 0;
   let last = performance.now();
@@ -2692,9 +2717,22 @@ const quatFromTo=(a,b)=>{
     if(list) try{ bindLocalScrollable(list); }catch(_e){}
     return panel;
   }
+  // zero-latency F4: last-seen signatures for the four panel
+  // refreshers below — a refresh whose inputs are unchanged returns
+  // before touching innerHTML (the old code rebuilt all four panels
+  // on every animation frame, no dirty-check).
+  let __microSig = '';
+  let __writebackSig = '';
+  let __historySig = '';
+  let __swarmSig = '';
   function refreshMicroReceiptPanel(){
     try{
       const panel = ensureMicroReceiptPanel();
+      const __rec = currentMicroRecord ? currentMicroRecord() : null;
+      const __layer = __rec && activeMicroLayer ? activeMicroLayer(__rec) : null;
+      const __sig = [__rec ? __rec.key : '', TILEVIEW.activeKey||'', (__rec&&__rec.localView&&__rec.localView.depth)||0, ((__layer&&__layer.builders)||(__rec&&__rec.builders)||[]).length, (__rec?(__rec.macroPenalty||0):0).toFixed(2), (__rec&&Array.isArray(__rec.microReceipts)) ? __rec.microReceipts.length : 0, (__rec&&Array.isArray(__rec.microReceipts)&&__rec.microReceipts.length) ? __rec.microReceipts[__rec.microReceipts.length-1].tick : ''].join('|');
+      if(__sig === __microSig) return panel;
+      __microSig = __sig;
       const summary = document.getElementById('microReceiptSummary');
       const list = document.getElementById('microReceiptList');
       const rec = currentMicroRecord ? currentMicroRecord() : null;
@@ -6146,9 +6184,13 @@ function render(){
   }
 
   function frame(now){
+    // zero-latency F4: hidden tab/window — do no work at all. The
+    // rAF chain stays alive (a stopped loop never restarts itself)
+    // and `last` resets so no catch-up debt accrues while hidden.
+    if(document.hidden){ last = now; acc = 0; requestAnimationFrame(frame); return; }
     const dt = (now - last) / 1000;
     last = now;
-    acc = Math.min(0.25, acc + dt);
+    acc = Math.min(0.1, acc + dt); // zero-latency F4: was 0.25 (up to 30 catch-up steps/frame)
 
     while(acc >= DT){
       step();

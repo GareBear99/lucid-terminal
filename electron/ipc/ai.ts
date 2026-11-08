@@ -1,4 +1,5 @@
 import { IpcMain, BrowserWindow } from 'electron';
+import type { WebContents } from 'electron';
 
 // ... imports
 import { chat, cancelStream, hasApiKey, ChatMessage } from '../services/openai';
@@ -50,10 +51,67 @@ export function resolveChatRoute(input: ChatRouteInput): ChatRouteResult {
   return { route: 'none' };
 }
 
+/**
+ * Coalesce per-token stream chunks into fewer IPC messages
+ * (zero-latency F5/F6). Before this, every token was one
+ * `ai:stream` IPC message + one full-string concat + one zustand
+ * `set` + one AIChat re-render in the renderer (O(n²) allocation
+ * over a long reply, 20–50 re-renders/s). Now chunks accumulate
+ * here and flush at most every AI_STREAM_FLUSH_MS, or as soon as
+ * AI_STREAM_FLUSH_CHARS have buffered — whichever comes first —
+ * so the renderer sees ≤20 messages/s of ≤512 chars instead of
+ * one per token.
+ *
+ * Callers MUST flush() before sending `ai:streamEnd`, or the tail
+ * of the reply is lost. A non-streaming caller never pushes, so
+ * the coalescer stays inert there.
+ */
+export const AI_STREAM_FLUSH_MS = 50;
+export const AI_STREAM_FLUSH_CHARS = 512;
+
+export interface StreamCoalescer {
+  /** Buffer one chunk; flushes automatically at the size cap. */
+  push(chunk: string): void;
+  /** Send whatever is buffered now (no-op when empty). */
+  flush(): void;
+}
+
+export function createStreamCoalescer(sender: WebContents): StreamCoalescer {
+  let buffer = '';
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (!buffer) return;
+    const out = buffer;
+    buffer = '';
+    if (!sender.isDestroyed()) sender.send('ai:stream', out);
+  };
+  return {
+    push(chunk: string) {
+      if (!chunk) return;
+      buffer += chunk;
+      if (buffer.length >= AI_STREAM_FLUSH_CHARS) {
+        flush();
+        return;
+      }
+      if (!timer) timer = setTimeout(flush, AI_STREAM_FLUSH_MS);
+    },
+    flush,
+  };
+}
+
 export function setupAIHandlers(ipcMain: IpcMain): void {
   // Get main window reference for sending stream events
   ipcMain.handle('ai:chat', async (event, messages: ChatMessage[], contextDirectory?: string, stream = true, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }): Promise<string> => {
     const sender = event.sender;
+    // One coalescer per reply (see createStreamCoalescer): every
+    // stream callback below pushes into it instead of sending one
+    // IPC message per token, and every stream-end path flushes it
+    // first so no tail is lost.
+    const streamCoalescer = createStreamCoalescer(sender);
     // The current chat's model, from the header dropdown (AIChat.tsx),
     // read at send time: this choice is for the NEXT prompted reply.
     // An explicit model is authoritative when its route can answer;
@@ -104,11 +162,10 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
             const response = await chatPing(
               messages,
               (chunk: string) => {
-                if (!sender.isDestroyed()) {
-                  sender.send('ai:stream', chunk);
-                }
+                streamCoalescer.push(chunk);
               },
               (quota) => {
+                streamCoalescer.flush();
                 if (!sender.isDestroyed()) {
                   sender.send('ai:streamEnd', quota ?? undefined);
                 }
@@ -128,6 +185,9 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
           return await chatPing(messages, undefined, undefined, undefined, route.model);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+          // Flush any buffered chunks first, in order, so the
+          // partial reply is not lost behind the error.
+          streamCoalescer.flush();
           if (!errorSent && !sender.isDestroyed()) {
             sender.send('ai:streamError', errorMessage);
           }
@@ -153,9 +213,7 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
           localOptions: { model: route.model, chatId: options?.chatId },
           onToolCall: stream
             ? (name, summary) => {
-                if (!sender.isDestroyed()) {
-                  sender.send('ai:stream', `\n > \u26a1 ** ${name}**... \`${summary}...\`\n`);
-                }
+                streamCoalescer.push(`\n > \u26a1 ** ${name}**... \`${summary}...\`\n`);
               }
             : undefined,
         });
@@ -170,6 +228,9 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
         // `stream` like the OpenAI branch, so a non-streaming caller
         // still just gets the return value.
         if (stream && !sender.isDestroyed()) {
+          // Tool-call notices buffered in the coalescer go first,
+          // in order, then the whole reply, then stream-end.
+          streamCoalescer.flush();
           sender.send('ai:stream', response);
           sender.send('ai:streamEnd');
         }
@@ -194,11 +255,10 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
           messages,
           contextDirectory,
           (chunk: string) => {
-            if (!sender.isDestroyed()) {
-              sender.send('ai:stream', chunk);
-            }
+            streamCoalescer.push(chunk);
           },
           () => {
+            streamCoalescer.flush();
             if (!sender.isDestroyed()) {
               sender.send('ai:streamEnd');
             }
@@ -216,6 +276,7 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      streamCoalescer.flush();
       if (!sender.isDestroyed()) {
         sender.send('ai:streamError', errorMessage);
       }

@@ -192,6 +192,12 @@ function updateCwd(
 
   // OSC 7: ESC ] 7 ; file://host/path BEL (or ESC \). The path is
   // percent-encoded; decode it, and ignore the host part.
+  //
+  // Cheap pre-filter (zero-latency F5): the two regexes below used
+  // to scan EVERY chunk, including 100 KB ones (51.2 us per 100 KB
+  // chunk in the audit). Most chunks contain neither an OSC 7
+  // sequence nor the letters 'cd', so skip both scans for them.
+  if (data.indexOf('\x1b]7;') === -1 && data.indexOf('cd') === -1) return;
   const osc7 = data.match(/\x1b\]7;file:\/\/[^\x07\x1b]*?(\/[^\x07\x1b]*)(?:\x07|\x1b\\)/);
   if (osc7) {
     try {

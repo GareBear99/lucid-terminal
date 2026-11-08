@@ -27,6 +27,7 @@ import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
+import { FixNetStatus } from './components/FixNet/FixNetStatus';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
@@ -305,11 +306,26 @@ function App() {
               onToggleSettings={toggleSettings}
             />
 
-            {/* Main Panel */}
+            {/* Main Panel — the terminal branch is ALWAYS mounted
+                (zero-latency F2): view switches used to unmount the
+                terminal entirely, disposing xterm (5,000-line
+                scrollback gone) while the PTY kept emitting into a
+                detached listener, so output emitted while away was
+                silently dropped. Now the terminal lives in a hidden
+                div when another view is showing — same pattern as
+                the tab strip, which already keeps hidden tabs
+                mounted — so switching to Synth/Forge/Settings and
+                back loses nothing. The other views stay exclusive
+                (mounted only when shown): only the terminal pays the
+                always-mounted cost, and it is the one whose state
+                must survive. Its per-tab timers are gated on the
+                active tab + visible window (F4), so a hidden
+                terminal does not poll. */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              {currentView === 'synth' ? (
+              {currentView === 'synth' && (
                 <SynthView />
-              ) : currentView === 'forge' ? (
+              )}
+              {currentView === 'forge' && (
                 // Full-page scroll (Gary, 2026-11-07): the Forge is
                 // one flowing page, not a fixed-height column. The
                 // main panel is overflow-hidden, so the Forge view
@@ -321,11 +337,14 @@ function App() {
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <ForgeView />
                 </div>
-              ) : currentView === 'persona-plex' ? (
+              )}
+              {currentView === 'persona-plex' && (
                 <PersonaPlexView />
-              ) : currentView === 'settings' ? (
+              )}
+              {currentView === 'settings' && (
                 <SettingsPanel onClose={() => setCurrentView('terminal')} onOpenPersonaPlex={() => setCurrentView('persona-plex')} />
-              ) : currentView === 'editor' ? (
+              )}
+              {currentView === 'editor' && (
                 // The editor renders even with no files open yet — its
                 // own empty state points at the Explorer to pick a
                 // file. (The old openFiles.length > 0 gate sent the
@@ -333,7 +352,10 @@ function App() {
                 // file was open, so the editor was unreachable from
                 // a fresh start.)
                 <CodeEditor />
-              ) : (
+              )}
+              {/* Terminal — always mounted, hidden unless it is the
+                  current view (see the Main Panel comment above). */}
+              <div className={currentView === 'terminal' ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
                 <>
                   {/* Terminal Tabs — the blood drop tab (Gary,
                       2026-11-07): it renders in this strip while
@@ -344,6 +366,13 @@ function App() {
                     bloodDropActive={bloodDropActive}
                     onBloodDropActiveChange={setBloodDropActive}
                   />
+
+                  {/* FixNet Status Bar — hoisted out of Terminal
+                      (zero-latency F4): it used to render inside
+                      EVERY tab, so N tabs ran N identical 30 s
+                      pollers. One instance here serves all tabs.
+                      It sits below the tab strip, where it was. */}
+                  <FixNetStatus />
 
                   {/* Terminal Container */}
                   <div className="flex-1 flex overflow-hidden">
@@ -385,7 +414,7 @@ function App() {
                     </div>
                   </div>
                 </>
-              )}
+              </div>
             </div>
 
             {/* AI Panel — Lucid AI, its own plugin (Gary, 2026-11-07):

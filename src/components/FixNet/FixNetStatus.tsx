@@ -33,6 +33,9 @@ export function FixNetStatus() {
     let cancelled = false;
 
     const fetchStats = async () => {
+      // Variable cadence: a hidden window has no visible bar to
+      // update, so skip the IPC round-trip entirely.
+      if (document.hidden) return;
       try {
         const api = (window as any).lucidAPI?.lucid;
         if (!api || typeof api.getFixNetStats !== 'function') return;

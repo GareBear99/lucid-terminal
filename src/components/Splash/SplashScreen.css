@@ -58,6 +58,15 @@
   animation-play-state: paused;
 }
 
+/* The permanent mist sleeps the same way (zero-latency F3): when
+   SplashMist adds .splash-mist-paused — window hidden/blurred, or
+   60 s idle — the puffs freeze mid-drift as a static backdrop
+   instead of compositing on every frame. Same mechanism as the
+   splash fade above; the mist itself stays at opacity 1. */
+.splash-mist-paused .splash-puff {
+  animation-play-state: paused;
+}
+
 .splash-skipping .splash-smoke {
   transition-duration: 250ms; /* SPLASH_SKIP_FADE_MS */
 }

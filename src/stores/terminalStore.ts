@@ -31,6 +31,15 @@ interface TerminalState {
   setActiveTab: (id: string) => void;
   updateTabTitle: (id: string, title: string) => void;
   updateTabCwd: (id: string, cwd: string) => void;
+  /**
+   * Test-only reset (same precedent as forgeStore.resetForTests):
+   * clears the cached home dir (see cachedHomeDir). The cache is
+   * module-level, so without this a test file that stubs a fresh
+   * `window.lucidAPI` per test would still read the home dir cached
+   * from an earlier test's stub — e.g. a test that makes getHomeDir
+   * reject would never see the rejection. Never called in production.
+   */
+  resetForTests: () => void;
 }
 
 /**
@@ -53,6 +62,15 @@ function lowestFreeTabNumber(): number {
   return n;
 }
 
+/**
+ * Home directory, cached after the first read (zero-latency F5):
+ * it never changes within a session, so tab creation used to pay
+ * two sequential IPC round-trips (getHomeDir, then terminal.create)
+ * per tab. Now the first tab pays both and every later tab pays
+ * one — the cached value is reused. A failed read is never cached.
+ */
+let cachedHomeDir: string | null = null;
+
 export const useTerminalStore = create<TerminalState>((set) => ({
   tabs: [],
   activeTabId: null,
@@ -66,7 +84,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     const id = `terminal-${tabNumber}`;
     let workingDir: string;
     try {
-      workingDir = cwd || await window.lucidAPI.fs.getHomeDir();
+      workingDir = cwd || cachedHomeDir || await window.lucidAPI.fs.getHomeDir();
+      if (!cwd) cachedHomeDir = workingDir;
     } catch (error) {
       // No tab was created, so the number is free again.
       usedTabNumbers.delete(tabNumber);
@@ -157,5 +176,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)),
     }));
+  },
+
+  resetForTests: () => {
+    cachedHomeDir = null;
   },
 }));

@@ -11,7 +11,6 @@ import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
 import { HelpPanel } from '../Help/HelpPanel';
 import { PlanningPanel } from '../Planning/PlanningPanel';
-import { FixNetStatus } from '../FixNet/FixNetStatus';
 import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
@@ -118,6 +117,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   const terminalCreatedAt = useRef(Date.now());
   const terminalReadyLogged = useRef(false);
   const lastTerminalData = useRef('');
+  // PTY echo sequencing for termWriteLines (see waitForPromptEcho):
+  // bumped per incoming PTY chunk, captured at slash-Enter, waiters
+  // resolved by the next chunk.
+  const ptyDataSeqRef = useRef(0);
+  const slashPromptSeqRef = useRef(0);
+  const promptWaitersRef = useRef<Array<() => void>>([]);
+  // Whether this tab is the visible one. Hidden tabs keep their
+  // xterm mounted (F2) but must not run timers (F4): the Lucifer
+  // retry and the heartbeat below are gated on this.
+  const isActiveTab = useTerminalStore((s) => s.activeTabId === tabId);
 
   // Help panel state
   const [showHelpPanel, setShowHelpPanel] = useState(false);
@@ -199,8 +208,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     initLuciferAI();
 
     // Retry every 30s while the plugin is down or no model is loaded, so a
-    // model installed later is picked up without a restart.
+    // model installed later is picked up without a restart. Gated on
+    // this tab being the visible one and the window being visible
+    // (zero-latency F4): N mounted tabs used to retry in parallel,
+    // and a hidden window retried forever for a dot nobody sees.
+    // The probe itself is now the cheap cached health check (F1),
+    // so a retry that does fire costs one cached IPC read.
     const retryInterval = setInterval(() => {
+      if (document.hidden) return;
+      if (useTerminalStore.getState().activeTabId !== tabId) return;
       if (!luciferAIAvailable || !modelAvailable) {
         console.log('[Plugin] Retrying LuciferAI connection...');
         initLuciferAI();
@@ -215,6 +231,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // Handler for incoming data from PTY
     const handleData = (id: string, data: string) => {
       if (id !== tabId) return;
+      // PTY echo sequencing (see waitForPromptEcho): every chunk
+      // bumps the sequence and releases any slash output waiting
+      // for the prompt echo.
+      ptyDataSeqRef.current += 1;
+      const waiters = promptWaitersRef.current;
+      promptWaitersRef.current = [];
+      waiters.forEach((resolve) => resolve());
       // The bell: a BEL (\x07) in PTY data rings when the toggle is
       // on, and never prints — processTerminalBell returns the chunk
       // with BEL stripped. The toggle is read fresh per chunk, so
@@ -276,14 +299,35 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   }, [tabId, updateTabCwd]);
 
   // Write Lucid output into the terminal stream, as its own lines.
-  // The shell already printed a fresh prompt for the wiped slash
-  // line; a short delay lets that prompt land first so the output
-  // does not interleave with it.
+  // Ordering guarantee (zero-latency F5): the shell already printed
+  // a fresh prompt for the wiped slash line, and the output must land
+  // after it. The old code waited a fixed 80 ms wall-clock sleep
+  // before EVERY slash output — ~5 frames of pure latency on every
+  // /fix, /llm, /help. Now it waits for the prompt's actual PTY echo
+  // instead: handleData bumps ptyDataSeqRef per chunk, and the Enter
+  // handler records the sequence at the moment the slash line was
+  // wiped. If the echo already arrived (slow command), this returns
+  // immediately — 0 ms. Otherwise it resolves on the next PTY chunk
+  // (sub-ms in the measured echo path) with the old 80 ms as a
+  // fallback cap, so a shell that never echoes can never hang output.
+  // The 80 ms was NOT intentional pacing — it was an ordering hack —
+  // so replacing it with the real ordering signal removes latency
+  // without changing what the user sees.
+  const waitForPromptEcho = useCallback(async () => {
+    if (ptyDataSeqRef.current > slashPromptSeqRef.current) return;
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        promptWaitersRef.current.push(resolve);
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, 80)),
+    ]);
+  }, []);
+
   const termWriteLines = useCallback(async (text: string) => {
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await waitForPromptEcho();
     const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
     termRef.current?.write(`\r\n${normalized}\r\n`);
-  }, []);
+  }, [waitForPromptEcho]);
 
   // Run a command through the LuciferAI plugin (LucidCore.processCommand
   // → workflow orchestrator → plugin backend). While it runs, the
@@ -581,6 +625,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         const line = lineBuffer.current;
         lineBuffer.current = '';
         if (line !== null && line.trim().startsWith('/')) {
+          // Record the PTY sequence BEFORE the wipe: termWriteLines
+          // waits for echo data newer than this (see waitForPromptEcho).
+          slashPromptSeqRef.current = ptyDataSeqRef.current;
           window.lucidAPI.terminal.write(tabId, '\x15\r');
           void runSlashCommand(line.trim());
         } else {
@@ -638,9 +685,6 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           className="flex-1 flex flex-col overflow-hidden"
           data-testid="terminal-content"
         >
-          {/* FixNet Status Bar */}
-          <FixNetStatus />
-
           {/* Terminal failed to start (shell would not spawn). Covers both
               the async spawn error (onExit) and a synchronous spawn throw
               (bad cwd), which the store records as a create error. */}
@@ -712,7 +756,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               drip it holds on the blood-drop frame instead of
               hiding (same shouldDrip signal as the fang pixels);
               busy WITHOUT dripping (plain shell) still hides it. */}
-          <Heartbeat active={luciferAIAvailable} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
+          <Heartbeat active={luciferAIAvailable && isActiveTab} busy={heartbeatBusy} dripping={heartbeatDripping} lastKeystrokeAt={lastKeystrokeAt} />
 
           {/* Prompt SECTION — a whole glass section, not a thin input
               bar (Gary, 2026-11-07 ~08:34 PST): "see how their prompt

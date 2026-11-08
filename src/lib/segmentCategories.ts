@@ -22,7 +22,11 @@
  * the way AI Chat is. Telegram: the pre-installed, connectable
  * segment — a place to connect your Telegram to Lucid through a
  * bot you create in BotFather, and a place other things can
- * connect to the way AI Chat is. Starship: whatever a detected starship
+ * connect to the way AI Chat is. Stripe: the pre-installed,
+ * connectable segment — a place to connect your Stripe to Lucid
+ * through a key you create in the Stripe Dashboard, the wallet
+ * for receiving money, and a place other things can connect to
+ * the way AI Chat is. Starship: whatever a detected starship
  * carries (nothing detected today). Forge: the Forge ↔ Persona
  * Plex bridge (only when Persona Plex is installed).
  */
@@ -63,6 +67,11 @@ export const SEGMENT_CATEGORIES: readonly SegmentCategoryInfo[] = [
     id: 'telegram',
     title: 'Telegram segment',
     info: 'Telegram is a pre-installed segment. It needs no starship and no install step. It is a place to connect your Telegram to Lucid, through a bot you create in BotFather. It lets Lucid send and read Telegram messages through your bot. It stays when LuciferAI is off. It is a place other things can connect to, the way AI Chat is. To connect, create a bot in BotFather, paste the bot token here, and tap Connect. Once a temp is verified, Telegram is the way that temp becomes a full user, with no Lucid retrieval step needed, and the new user stays linked to the temp.',
+  },
+  {
+    id: 'stripe',
+    title: 'Stripe segment',
+    info: 'Stripe is a pre-installed segment. It needs no starship and no install step. It is a place to connect your Stripe to Lucid, through a key you create in the Stripe Dashboard. It lets Lucid show your Stripe account and whether it can take payments. It stays when LuciferAI is off. It is a place other things can connect to, the way AI Chat is. To connect, create a restricted key in the Stripe Dashboard, paste the key here, and tap Connect. A restricted key is best, because it can only do what you allow it to do.',
   },
   {
     id: 'starship',

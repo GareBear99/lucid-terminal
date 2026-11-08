@@ -34,13 +34,14 @@ const renderModules = () =>
   );
 
 describe('Segments categories', () => {
-  it('has seven categories, in panel order, each with a title and info text', () => {
+  it('has eight categories, in panel order, each with a title and info text', () => {
     expect(SEGMENT_CATEGORIES.map((c) => c.id)).toEqual([
       'about',
       'computer-control',
       'ai-chat',
       'google-drive',
       'telegram',
+      'stripe',
       'starship',
       'forge-persona-plex',
     ]);
@@ -63,19 +64,20 @@ describe('Segments categories', () => {
     expect(segmentCategory('no-such-category')).toBeUndefined();
   });
 
-  it('renders the About, Computer control, AI Chat, Google Drive, Telegram and Starship category headings in the Modules tab', () => {
+  it('renders the About, Computer control, AI Chat, Google Drive, Telegram, Stripe and Starship category headings in the Modules tab', () => {
     const html = renderModules();
     expect(html).toContain('About segments');
     expect(html).toContain('Computer control');
     expect(html).toContain('AI Chat segment');
     expect(html).toContain('Google Drive segment');
     expect(html).toContain('Telegram segment');
+    expect(html).toContain('Stripe segment');
     expect(html).toContain('Starship segments');
   });
 
   it('renders each visible category info page verbatim, with a voice button', () => {
     const html = renderModules();
-    for (const id of ['about', 'computer-control', 'ai-chat', 'google-drive', 'telegram', 'starship'] as const) {
+    for (const id of ['about', 'computer-control', 'ai-chat', 'google-drive', 'telegram', 'stripe', 'starship'] as const) {
       const category = segmentCategory(id)!;
       expect(html).toContain(category.info);
       expect(html).toContain(`data-segment-voice="${id}"`);
@@ -151,6 +153,45 @@ describe('Segments categories', () => {
     // The Connect button itself is enabled (not disabled) — it is
     // the segment's action, for now.
     const connectButton = html.match(/<button[^>]*aria-label="Connect Telegram"[^>]*>/);
+    expect(connectButton).not.toBeNull();
+    expect(connectButton![0]).not.toContain('disabled');
+  });
+
+  it('places Stripe between Telegram and Starship, as a pre-installed connectable segment', () => {
+    const category = segmentCategory('stripe')!;
+    expect(category.title).toBe('Stripe segment');
+    // The info page is the voice script: it names what the segment
+    // does, that it stays when LuciferAI is off, and that connecting
+    // is a restricted key from the Stripe Dashboard + tap Connect
+    // (Gary ordered the segment, 2026-11-08 ~04:05 PST). No digits,
+    // no abbreviations, no URLs — the speakable rule holds for
+    // this text too.
+    expect(category.info).toContain('pre-installed segment');
+    expect(category.info).toContain('connect your Stripe to Lucid');
+    expect(category.info).toContain('show your Stripe account and whether it can take payments');
+    expect(category.info).toContain('stays when LuciferAI is off');
+    expect(category.info).toContain(
+      'To connect, create a restricted key in the Stripe Dashboard, paste the key here, and tap Connect',
+    );
+    expect(category.info).toContain('A restricted key is best');
+    // The segment itself renders in the panel, honestly not
+    // connected, with a key input + an enabled Connect button —
+    // the segment's action, for now. Payment links and taking
+    // payments are the next step, not this one — the panel says
+    // so, and nothing here fakes them.
+    const html = renderModules();
+    expect(html).toContain('Stripe');
+    expect(html).toContain('Connect Stripe');
+    expect(html).toContain('Not connected');
+    expect(html).toContain('No connections yet');
+    expect(html).toContain('Receiving money');
+    expect(html).toContain('Creating payment links and taking payments is the next step');
+    // The key input is a password field — the key is a secret,
+    // stored encrypted, never shown in plain text.
+    expect(html).toContain('type="password"');
+    // The Connect button itself is enabled (not disabled) — it is
+    // the segment's action, for now.
+    const connectButton = html.match(/<button[^>]*aria-label="Connect Stripe"[^>]*>/);
     expect(connectButton).not.toBeNull();
     expect(connectButton![0]).not.toContain('disabled');
   });

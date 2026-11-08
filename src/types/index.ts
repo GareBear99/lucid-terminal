@@ -442,6 +442,15 @@ export interface Settings {
   // encrypted in secureStorage (telegram-bot-token) and never
   // lives in Settings.
   telegramBotUsername: string;
+  // Stripe segment (Gary, 2026-11-08): the id and display name
+  // of the user's Stripe account, captured when the API key is
+  // verified with a real GET /v1/account call. Public
+  // identifiers, not secrets — the key itself is stored
+  // encrypted in secureStorage (stripe-api-key) and never lives
+  // in Settings. A restricted key is best (least privilege); a
+  // full secret key also works.
+  stripeAccountId: string;
+  stripeAccountName: string;
 }
 
 /** SP balance for the Lucid ping server (Cloudflare Worker).
@@ -922,6 +931,9 @@ declare global {
         setTelegramBotToken: (token: string) => Promise<void>;
         hasTelegramBotToken: () => Promise<boolean>;
         deleteTelegramBotToken: () => Promise<void>;
+        setStripeApiKey: (key: string) => Promise<void>;
+        hasStripeApiKey: () => Promise<boolean>;
+        deleteStripeApiKey: () => Promise<void>;
         getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;

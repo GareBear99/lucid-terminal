@@ -42,6 +42,7 @@ import { ComputerControlSegment } from './ComputerControlSegment';
 import { ForgePersonaPlexSegment } from './ForgePersonaPlexSegment';
 import { GoogleDriveSegment } from './GoogleDriveSegment';
 import { SegmentCategorySection } from './SegmentCategorySection';
+import { StripeSegment } from './StripeSegment';
 import { TelegramSegment } from './TelegramSegment';
 
 export function SegmentsPanel() {
@@ -60,6 +61,7 @@ export function SegmentsPanel() {
   const aiChat = segmentCategory('ai-chat');
   const googleDrive = segmentCategory('google-drive');
   const telegram = segmentCategory('telegram');
+  const stripe = segmentCategory('stripe');
   const starship = segmentCategory('starship');
   const forge = segmentCategory('forge-persona-plex');
 
@@ -136,6 +138,21 @@ export function SegmentsPanel() {
       {telegram && (
         <SegmentCategorySection category={telegram}>
           <TelegramSegment />
+        </SegmentCategorySection>
+      )}
+
+      {/* Stripe — the pre-installed, connectable segment
+          (Gary, 2026-11-08). A place to connect your Stripe to
+          Lucid through your own key: a restricted key is best, a
+          full secret key also works, verified with a real
+          GET /v1/account call, stored encrypted. It stays when
+          LuciferAI is off, and it is a place other things can
+          connect to. It is the wallet for receiving money —
+          payment links and taking payments are the next step, and
+          the segment says so. */}
+      {stripe && (
+        <SegmentCategorySection category={stripe}>
+          <StripeSegment />
         </SegmentCategorySection>
       )}
 

@@ -17,7 +17,7 @@ import {
 } from './services/browserMiniWindow';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
-import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, settings } from './services/secureStorage';
+import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, stripeApiKeyStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
@@ -190,6 +190,20 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:deleteTelegramBotToken', () => {
     telegramBotTokenStorage.deleteTelegramBotToken();
+  });
+
+  // Stripe API key handlers - the key for the user's own Stripe
+  // account (created in the Stripe Dashboard; a restricted key is
+  // best, a full secret key also works), stored encrypted like the
+  // API key, the ping key and the Telegram bot token.
+  ipcMain.handle('settings:setStripeApiKey', (_, key) => {
+    stripeApiKeyStorage.setStripeApiKey(key);
+  });
+  ipcMain.handle('settings:hasStripeApiKey', () => {
+    return stripeApiKeyStorage.hasStripeApiKey();
+  });
+  ipcMain.handle('settings:deleteStripeApiKey', () => {
+    stripeApiKeyStorage.deleteStripeApiKey();
   });
 
 

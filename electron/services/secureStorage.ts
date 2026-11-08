@@ -337,3 +337,28 @@ export const telegramBotTokenStorage = {
   },
 
 };
+
+// Stripe API key - the key for the user's own Stripe account
+// (created in the Stripe Dashboard; a restricted key is best,
+// a full secret key also works), stored encrypted like the API
+// key, the ping key and the Telegram bot token. The renderer
+// only ever sees whether one is stored (hasStripeApiKey); the
+// key itself never crosses into plain Settings.
+export const stripeApiKeyStorage = {
+  setStripeApiKey(key: string): void {
+    secureStorage.setSecret('stripe-api-key', key);
+  },
+
+  getStripeApiKey(): string | null {
+    return secureStorage.getSecret('stripe-api-key');
+  },
+
+  hasStripeApiKey(): boolean {
+    return secureStorage.hasSecret('stripe-api-key');
+  },
+
+  deleteStripeApiKey(): void {
+    secureStorage.deleteSecret('stripe-api-key');
+  },
+
+};

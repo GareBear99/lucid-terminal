@@ -45,6 +45,13 @@ interface SettingsState {
   deleteTelegramBotToken: () => Promise<void>;
   checkTelegramBotToken: () => Promise<void>;
   hasTelegramBotToken: boolean;
+
+  // Stripe API key actions — the key for the user's own Stripe
+  // account, stored encrypted in secureStorage.
+  setStripeApiKey: (key: string) => Promise<void>;
+  deleteStripeApiKey: () => Promise<void>;
+  checkStripeApiKey: () => Promise<void>;
+  hasStripeApiKey: boolean;
   checkBackendStatus: () => Promise<void>;
 
   exportSettings: () => Promise<string>;
@@ -72,6 +79,8 @@ const defaultSettings: Settings = {
   pingServerUserId: '',
   googleDriveClientId: '',
   telegramBotUsername: '',
+  stripeAccountId: '',
+  stripeAccountName: '',
   terminalPolicy: 'ask',
   showValidationSteps: true,
   autoCollapseValidation: true,
@@ -148,6 +157,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hasApiKey: false,
   hasPingKey: false,
   hasTelegramBotToken: false,
+  hasStripeApiKey: false,
   isLocalBackendAvailable: false,
   isLocalModelAvailable: false,
   storageDegraded: false,
@@ -160,6 +170,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const hasKey = await window.lucidAPI.settings.hasApiKey();
       const hasPingKey = await window.lucidAPI.settings.hasPingKey();
       const hasTelegramBotToken = await window.lucidAPI.settings.hasTelegramBotToken();
+      const hasStripeApiKey = await window.lucidAPI.settings.hasStripeApiKey();
 
       // Check local backend status
       await get().checkBackendStatus();
@@ -213,7 +224,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       document.documentElement.style.setProperty('--font-mono', settings.fontFamily);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
 
-      set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, hasTelegramBotToken, isLoading: false });
+      set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, hasTelegramBotToken, hasStripeApiKey, isLoading: false });
 
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -327,6 +338,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   checkTelegramBotToken: async () => {
     const hasToken = await window.lucidAPI.settings.hasTelegramBotToken();
     set({ hasTelegramBotToken: hasToken });
+  },
+
+  setStripeApiKey: async (key) => {
+    await window.lucidAPI.settings.setStripeApiKey(key);
+    set({ hasStripeApiKey: true });
+  },
+
+  deleteStripeApiKey: async () => {
+    await window.lucidAPI.settings.deleteStripeApiKey();
+    set({ hasStripeApiKey: false });
+  },
+
+  checkStripeApiKey: async () => {
+    const hasKey = await window.lucidAPI.settings.hasStripeApiKey();
+    set({ hasStripeApiKey: hasKey });
   },
 
   checkBackendStatus: async () => {

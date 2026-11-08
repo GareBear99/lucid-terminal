@@ -996,7 +996,7 @@
       const panel = ensureMicroReceiptPanel();
       const __rec = currentMicroRecord ? currentMicroRecord() : null;
       const __layer = __rec && activeMicroLayer ? activeMicroLayer(__rec) : null;
-      const __sig = [__rec ? __rec.key : '', TILEVIEW.activeKey||'', (__rec&&__rec.localView&&__rec.localView.depth)||0, ((__layer&&__layer.builders)||(__rec&&__rec.builders)||[]).length, (__rec?(__rec.macroPenalty||0):0).toFixed(2), (__rec&&Array.isArray(__rec.microReceipts)) ? __rec.microReceipts.length : 0, (__rec&&Array.isArray(__rec.microReceipts)&&__rec.microReceipts.length) ? __rec.microReceipts[__rec.microReceipts.length-1].tick : ''].join('|');
+      const __sig = [__rec ? __rec.key : '', TILEVIEW.activeKey||'', (__rec&&__rec.localView&&__rec.localView.depth)||0, ((__layer&&__layer.builders)||(__rec&&__rec.builders)||[]).length, (Math.floor((__rec?(__rec.macroPenalty||0):0)*10)/10).toFixed(1), (__rec&&Array.isArray(__rec.microReceipts)) ? __rec.microReceipts.length : 0, (__rec&&Array.isArray(__rec.microReceipts)&&__rec.microReceipts.length) ? __rec.microReceipts[__rec.microReceipts.length-1].tick : ''].join('|');
       if(__sig === __microSig) return panel;
       __microSig = __sig;
       const summary = document.getElementById('microReceiptSummary');
@@ -1030,7 +1030,7 @@
       const __sh0 = shells.get(activeShellId);
       const __rec0 = currentMicroRecord ? currentMicroRecord() : null;
       const __agg0 = __sh0 && __sh0.microAggregate ? __sh0.microAggregate : null;
-      const __sig0 = [activeShellId, __rec0 ? __rec0.key : '', __rec0 && __rec0.controller ? (__rec0.controller.mode||'') : '', __rec0 && __rec0.controller ? (__rec0.controller.writeback||'') : '', __rec0 && __rec0.controller ? (__rec0.controller.authority||'') : '', __agg0 ? (__agg0.writebackReady||0) : '', __agg0 ? (__agg0.held||0) : '', __agg0 ? (__agg0.population||0) : '', __rec0 ? ((__rec0.macroPenalty||0).toFixed(2)) : '', (__rec0&&__rec0.summary) ? ((__rec0.summary.population||0)+'/'+(__rec0.summary.structures||0)+'/'+(__rec0.summary.roads||0)) : ''].join('|');
+      const __sig0 = [activeShellId, __rec0 ? __rec0.key : '', __rec0 && __rec0.controller ? (__rec0.controller.mode||'') : '', __rec0 && __rec0.controller ? (__rec0.controller.writeback||'') : '', __rec0 && __rec0.controller ? (__rec0.controller.authority||'') : '', __agg0 ? (__agg0.writebackReady||0) : '', __agg0 ? (__agg0.held||0) : '', __agg0 ? (__agg0.population||0) : '', __rec0 ? ((Math.floor((__rec0.macroPenalty||0)*10)/10).toFixed(1)) : '', (__rec0&&__rec0.summary) ? ((__rec0.summary.population||0)+'/'+(__rec0.summary.structures||0)+'/'+(__rec0.summary.roads||0)) : ''].join('|');
       if(__sig0 === __writebackSig) return panel;
       __writebackSig = __sig0;
       const summary = document.getElementById('writebackSummary');
@@ -1603,14 +1603,20 @@
     occ.writebackReason = decision.reason || '-';
     rec.controller.writeback = decision.mode || rec.controller.writeback || 'idle';
     if(!decision.allowed){
-      if(((tick + key.length) % 24) === 0){
+      // Receipts only when the blocked state actually CHANGES. The old
+      // code fired one every 24 ticks forever while blocked, which kept
+      // receipts.length / last-tick changing and defeated every panel
+      // dirty-check — the synth firing all those receipts.
+      const __blockedSig = `${decision.mode||'blocked'}|${decision.reason||'blocked'}`;
+      if(occ.lastBlockedSig !== __blockedSig){
+        occ.lastBlockedSig = __blockedSig;
         appendReceipt('micro_writeback_blocked', {key, buildClass, authority, reason:decision.reason||'blocked', mode:decision.mode||'blocked'});
         appendMicroReceipt(rec, 'micro_writeback_blocked', {reason:decision.reason||'blocked', mode:decision.mode||'blocked'});
       }
       return false;
     }
     const prevSignature = occ.microSignature || '';
-    const nextSignature = `${decision.buildClass||buildClass}|${authority}|${(summary&&summary.population)||0}|${(summary&&summary.hubs)||0}|${(summary&&summary.relays)||0}|${(rec.macroPenalty||0).toFixed(2)}`;
+    const nextSignature = `${decision.buildClass||buildClass}|${authority}|${(summary&&summary.population)||0}|${(summary&&summary.hubs)||0}|${(summary&&summary.relays)||0}`; // NB: macroPenalty EXCLUDED on purpose — it decays x0.92/tick, so including it made this signature change every check and fired a receipt every 20 ticks forever (the synth firing all those receipts). Receipts fire on discrete changes only.
     occ.microAuthority = authority;
     occ.microBuildClass = decision.buildClass || buildClass;
     occ.microSummary = summary ? {
@@ -1625,6 +1631,7 @@
     } : null;
     occ.microPenalty = +(rec.macroPenalty||0).toFixed(2);
     occ.microSignature = nextSignature;
+    occ.lastBlockedSig = '';
     occ.material = decision.targetMaterial || occ.material || 'void';
     occ.type = decision.targetType || occ.type || 'room';
     occ.lastWritebackTick = tick|0;
@@ -2730,7 +2737,7 @@ const quatFromTo=(a,b)=>{
       const panel = ensureMicroReceiptPanel();
       const __rec = currentMicroRecord ? currentMicroRecord() : null;
       const __layer = __rec && activeMicroLayer ? activeMicroLayer(__rec) : null;
-      const __sig = [__rec ? __rec.key : '', TILEVIEW.activeKey||'', (__rec&&__rec.localView&&__rec.localView.depth)||0, ((__layer&&__layer.builders)||(__rec&&__rec.builders)||[]).length, (__rec?(__rec.macroPenalty||0):0).toFixed(2), (__rec&&Array.isArray(__rec.microReceipts)) ? __rec.microReceipts.length : 0, (__rec&&Array.isArray(__rec.microReceipts)&&__rec.microReceipts.length) ? __rec.microReceipts[__rec.microReceipts.length-1].tick : ''].join('|');
+      const __sig = [__rec ? __rec.key : '', TILEVIEW.activeKey||'', (__rec&&__rec.localView&&__rec.localView.depth)||0, ((__layer&&__layer.builders)||(__rec&&__rec.builders)||[]).length, (Math.floor((__rec?(__rec.macroPenalty||0):0)*10)/10).toFixed(1), (__rec&&Array.isArray(__rec.microReceipts)) ? __rec.microReceipts.length : 0, (__rec&&Array.isArray(__rec.microReceipts)&&__rec.microReceipts.length) ? __rec.microReceipts[__rec.microReceipts.length-1].tick : ''].join('|');
       if(__sig === __microSig) return panel;
       __microSig = __sig;
       const summary = document.getElementById('microReceiptSummary');

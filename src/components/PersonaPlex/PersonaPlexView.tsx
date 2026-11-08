@@ -13,6 +13,18 @@
  * tools that persona may use, enforced locally). Click a persona
  * to make it active — Speak reads in the active persona's voice.
  *
+ * Voices (redo, Gary 2026-11-07 — the old take was bad): every
+ * persona used to store the same 'Lily', which is not a system
+ * voice, so every persona silently spoke in the one system
+ * default voice and there was no way to hear a persona at all.
+ * Each persona now has its own effective voice from the macOS
+ * cast (its stored voice when that matches a voice on this
+ * machine, otherwise its assigned distinct voice), and the
+ * speaker button next to each persona's voice plays a sample line
+ * in that persona's voice, so the voice can be judged before it
+ * is picked. The page-explanation recording at the top (Lily's
+ * voice, one voice for the whole page) is unchanged — it explains
+ * the page, it is not a persona's voice.
  * The voice + options also live in the Forge-to-Persona Plex
  * segment in Modules > Segments — the bridge where Forge's
  * Homunculus voices and Persona Plex's personas meet. The setup
@@ -25,7 +37,7 @@
  * Speak toggle below turns right-click Speak on/off in AI chat.
  */
 import { useState } from 'react';
-import { Users, Volume2, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Users, Volume2, Pause, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useForgeStore } from '../../stores/forgeStore';
 import type { Persona } from '../../types';
 import {
@@ -47,6 +59,9 @@ export function PersonaPlexView() {
     activeId,
     speakEnabled,
     voiceOptionsFor,
+    effectiveVoiceFor,
+    speakingPersonaId,
+    previewPersonaVoice,
     updatePersona,
     updateSetting,
   } = usePersonaRoster();
@@ -111,7 +126,9 @@ export function PersonaPlexView() {
             Voices + options also live in the Forge-to-Persona Plex
             segment (Modules &gt; Segments) — the bridge where a
             persona&rsquo;s voice meets its Homunculus. A voice picked
-            there is the same voice here.
+            there is the same voice here. Each persona has its own
+            voice — press the speaker next to a persona&rsquo;s voice
+            to hear that persona speak.
           </p>
           {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST):
               plugins have voice recordings all throughout. */}
@@ -201,12 +218,18 @@ export function PersonaPlexView() {
                     )}
                   </div>
 
-                  {/* Voice picker */}
-                  <label className="flex items-center gap-2 text-sm">
+                  {/* Voice picker — the value shown is the voice
+                      this persona ACTUALLY speaks in (its stored
+                      voice when that matches a voice on this
+                      machine, otherwise its assigned voice from
+                      the cast). The speaker next to it plays a
+                      sample line in that voice, so the voice can
+                      be judged before it is picked. */}
+                  <div className="flex items-center gap-2 text-sm">
                     <span className="text-[var(--text-muted)] text-xs w-12 shrink-0">Voice</span>
                     <select
                       data-persona-voice={persona.id}
-                      value={persona.voice}
+                      value={effectiveVoiceFor(persona)}
                       onChange={(e) => void updatePersona({ ...persona, voice: e.target.value })}
                       className="input text-sm flex-1"
                     >
@@ -216,7 +239,21 @@ export function PersonaPlexView() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                    <button
+                      type="button"
+                      data-persona-hear={persona.id}
+                      onClick={() => void previewPersonaVoice(persona)}
+                      className="btn btn-secondary text-xs shrink-0"
+                      title={`Hear ${persona.name} in ${effectiveVoiceFor(persona)}`}
+                      aria-label={
+                        speakingPersonaId === persona.id
+                          ? `Stop ${persona.name}'s voice`
+                          : `Hear ${persona.name}'s voice`
+                      }
+                    >
+                      {speakingPersonaId === persona.id ? <Pause size={14} /> : <Volume2 size={14} />}
+                    </button>
+                  </div>
 
                   {/* Homunculus pairing — the persona's voice is the
                       voice Forge uses for this Homunculus. */}

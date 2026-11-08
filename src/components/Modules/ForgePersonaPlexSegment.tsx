@@ -28,7 +28,7 @@
  * settings are the same persisted Persona Plex settings (updated
  * AND stored).
  */
-import { Users } from 'lucide-react';
+import { Users, Volume2, Pause } from 'lucide-react';
 import { useForgeStore } from '../../stores/forgeStore';
 import { Toggle } from '../Settings/Toggle';
 import { usePersonaRoster } from '../PersonaPlex/usePersonaRoster';
@@ -36,7 +36,14 @@ import { personaForHomunculus } from '../../lib/personaPlex';
 import type { Persona } from '../../types';
 
 export function ForgePersonaPlexSegment() {
-  const { roster, updatePersona, voiceOptionsFor } = usePersonaRoster();
+  const {
+    roster,
+    updatePersona,
+    voiceOptionsFor,
+    effectiveVoiceFor,
+    speakingPersonaId,
+    previewPersonaVoice,
+  } = usePersonaRoster();
   const homunculi = useForgeStore((s) => s.roster);
 
   // Pair a persona to a Homunculus. One persona per Homunculus:
@@ -60,11 +67,11 @@ export function ForgePersonaPlexSegment() {
   // own.
   const pairingOptions = (persona: Persona) => (
     <div className="space-y-2">
-      <label className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm">
         <span className="text-[var(--text-muted)] text-xs w-12 shrink-0">Voice</span>
         <select
           data-segment-voice={persona.homunculusId ?? ''}
-          value={persona.voice}
+          value={effectiveVoiceFor(persona)}
           onChange={(e) => void updatePersona({ ...persona, voice: e.target.value })}
           className="input text-sm flex-1"
         >
@@ -74,7 +81,21 @@ export function ForgePersonaPlexSegment() {
             </option>
           ))}
         </select>
-      </label>
+        <button
+          type="button"
+          data-segment-hear={persona.homunculusId ?? ''}
+          onClick={() => void previewPersonaVoice(persona)}
+          className="btn btn-secondary text-xs shrink-0"
+          title={`Hear ${persona.name} in ${effectiveVoiceFor(persona)}`}
+          aria-label={
+            speakingPersonaId === persona.id
+              ? `Stop ${persona.name}'s voice`
+              : `Hear ${persona.name}'s voice`
+          }
+        >
+          {speakingPersonaId === persona.id ? <Pause size={14} /> : <Volume2 size={14} />}
+        </button>
+      </div>
       <label className="flex items-center gap-2 text-sm cursor-pointer">
         <Toggle
           checked={persona.speakEnabled}

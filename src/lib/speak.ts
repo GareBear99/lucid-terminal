@@ -11,7 +11,11 @@
  *
  * Guards everywhere — speechSynthesis is absent under SSR and in
  * tests, and getVoices() can be empty until voices load, so every
- * function degrades to "no speech" instead of throwing.
+ * function degrades to "no speech" instead of throwing. Call
+ * waitForSpeakVoices() before speaking a persona's voice, so the
+ * match is made against the real voice list instead of the
+ * still-empty one (speaking too early silently fell back to the
+ * system default for every persona — the old bad take).
  */
 
 import { resolveSpeakVoice } from './personaPlex';
@@ -51,7 +55,7 @@ export function getAvailableSpeakVoices(): string[] {
 export function speakText(
   text: string,
   voiceName: string,
-  options?: { volume?: number; rate?: number },
+  options?: { volume?: number; rate?: number; onEnd?: () => void },
 ): boolean {
   const clean = text.trim();
   if (!clean || !isSpeechSupported()) return false;
@@ -73,6 +77,12 @@ export function speakText(
     if (typeof options?.rate === 'number' && Number.isFinite(options.rate)) {
       utterance.rate = Math.min(2, Math.max(0.5, options.rate));
     }
+    // onEnd fires when the utterance finishes (or errors) — the
+    // Hear-voice preview uses it to clear its playing state.
+    if (typeof options?.onEnd === 'function') {
+      utterance.onend = () => options.onEnd?.();
+      utterance.onerror = () => options.onEnd?.();
+    }
     window.speechSynthesis.speak(utterance);
     return true;
   } catch {
@@ -80,7 +90,53 @@ export function speakText(
   }
 }
 
-/** Stop any speech in progress. Safe to call when nothing is speaking. */
+/** Whether speech is in progress right now. */
+export function isSpeaking(): boolean {
+  if (!isSpeechSupported()) return false;
+  try {
+    return window.speechSynthesis.speaking;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait until the system voices have loaded (or the timeout
+ * passes). getVoices() is empty until the voices arrive — speaking
+ * before that silently falls back to the system default even when
+ * the persona's voice exists. Call this before speaking a
+ * persona's voice (the Hear-voice preview does), so the voice
+ * match is made against the real list. Resolves immediately when
+ * voices are already there, and with whatever is there (possibly
+ * empty) on timeout — never hangs, never throws.
+ */
+export function waitForSpeakVoices(timeoutMs = 2000): Promise<string[]> {
+  const current = getAvailableSpeakVoices();
+  if (current.length > 0) return Promise.resolve(current);
+  if (!isSpeechSupported()) return Promise.resolve([]);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try {
+        window.speechSynthesis.removeEventListener(
+          'voiceschanged',
+          finish,
+        );
+      } catch {
+        // Listener already gone — nothing to do.
+      }
+      resolve(getAvailableSpeakVoices());
+    };
+    try {
+      window.speechSynthesis.addEventListener('voiceschanged', finish);
+    } catch {
+      // No listener support — fall through to the timeout.
+    }
+    setTimeout(finish, Math.max(0, timeoutMs));
+  });
+}
 export function stopSpeaking(): void {
   if (!isSpeechSupported()) return;
   try {

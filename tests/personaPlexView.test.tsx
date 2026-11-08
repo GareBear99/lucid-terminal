@@ -186,6 +186,93 @@ describe('PersonaPlexView', () => {
     });
   });
 
+  test('each persona has a Hear button that speaks its sample line in its effective voice', async () => {
+    render(<PersonaPlexView />);
+    await settleRoster();
+    const win = window as unknown as Record<string, unknown>;
+    const synth = win.speechSynthesis as { speak: ReturnType<typeof vi.fn> };
+    const hear = document.querySelector('[data-persona-hear="soul-lucifer"]') as HTMLButtonElement;
+    expect(hear).not.toBeNull();
+    expect(hear.getAttribute('aria-label')).toBe("Hear Lucifer's voice");
+    fireEvent.click(hear);
+    await waitFor(() => {
+      expect(synth.speak).toHaveBeenCalledTimes(1);
+    });
+    const utterance = synth.speak.mock.calls[0][0] as SpeechSynthesisUtterance;
+    expect(utterance.text).toBe("Hi, I'm Lucifer. This is my voice.");
+    // Stored 'Lily' IS an available voice in this test's mocks, so
+    // the effective voice is Lily — the button speaks the voice the
+    // picker shows.
+    const voice = document.querySelector('[data-persona-voice="soul-lucifer"]') as HTMLSelectElement;
+    expect(utterance.voice?.name).toBe(voice.value);
+    // While speaking, the button shows Stop (playing state).
+    await waitFor(() => {
+      expect(hear.getAttribute('aria-label')).toBe("Stop Lucifer's voice");
+    });
+  });
+
+  test('a stored voice that matches no available voice never shows as the spoken voice', async () => {
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: {
+        ...base,
+        personaPlexConfig: {
+          'soul-eve': {
+            voice: 'Zara', allowedTools: [], homunculusId: null,
+            speakEnabled: true, autoSpeak: false, volume: 1, rate: 1,
+          },
+        },
+      },
+    });
+    render(<PersonaPlexView />);
+    await settleRoster();
+    const voice = document.querySelector('[data-persona-voice="soul-eve"]') as HTMLSelectElement;
+    expect(['Lily', 'Aria']).toContain(voice.value);
+    expect(voice.value).not.toBe('Zara');
+  });
+
+  test("a stored 'Lily' is migrated once to a real assigned voice when Lily is not an available voice", async () => {
+    const win = window as unknown as Record<string, unknown>;
+    // This machine has Samantha + Alex — no Lily (the real Mac case).
+    (win.speechSynthesis as Record<string, unknown>).getVoices = () => [
+      { name: 'Samantha' },
+      { name: 'Alex' },
+    ];
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: {
+        ...base,
+        personaPlexConfig: {
+          'soul-lucifer': {
+            voice: 'Lily', allowedTools: [], homunculusId: 'lucifer',
+            speakEnabled: true, autoSpeak: false, volume: 1, rate: 1,
+          },
+        },
+      },
+    });
+    render(<PersonaPlexView />);
+    await settleRoster();
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith(
+        'personaPlexConfig',
+        expect.objectContaining({
+          'soul-lucifer': expect.objectContaining({
+            voice: expect.stringMatching(/^(Samantha|Alex)$/),
+            homunculusId: 'lucifer',
+          }),
+        }),
+      );
+    });
+    // A soul with no stored config is left alone — it resolves to
+    // its assigned voice at speak time without a write.
+    const migrated = mockSet.mock.calls
+      .filter((c) => c[0] === 'personaPlexConfig')
+      .map((c) => c[1] as Record<string, unknown>);
+    for (const cfg of migrated) {
+      expect(cfg['soul-eve']).toBeUndefined();
+    }
+  });
+
   test('the tool allowlist expands and shows the tool checkboxes', async () => {
     render(<PersonaPlexView />);
     await settleRoster();

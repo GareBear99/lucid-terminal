@@ -12,7 +12,7 @@
  * Run with: npm test
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { speakText, stopSpeaking, isSpeechSupported, getAvailableSpeakVoices } from '../src/lib/speak';
+import { speakText, stopSpeaking, isSpeechSupported, isSpeaking, waitForSpeakVoices, getAvailableSpeakVoices } from '../src/lib/speak';
 
 describe('speakText', () => {
   let speakMock: ReturnType<typeof vi.fn>;
@@ -89,5 +89,87 @@ describe('speakText', () => {
     expect(speakText('Hello', 'Zara')).toBe(true);
     const utterance = speakMock.mock.calls[0][0] as SpeechSynthesisUtterance;
     expect(utterance.voice).toBeNull();
+  });
+
+  it('calls onEnd when the utterance ends, so the preview button clears its playing state', () => {
+    const onEnd = vi.fn();
+    speakText('Hello', 'Lily', { onEnd });
+    const utterance = speakMock.mock.calls[0][0] as unknown as {
+      onend: (() => void) | null;
+      onerror: (() => void) | null;
+    };
+    expect(typeof utterance.onend).toBe('function');
+    utterance.onend();
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    utterance.onerror();
+    expect(onEnd).toHaveBeenCalledTimes(2);
+  });
+
+  it('isSpeaking reports the synthesiser state', () => {
+    const win = window as unknown as Record<string, unknown>;
+    (win.speechSynthesis as Record<string, unknown>).speaking = true;
+    expect(isSpeaking()).toBe(true);
+    (win.speechSynthesis as Record<string, unknown>).speaking = false;
+    expect(isSpeaking()).toBe(false);
+  });
+});
+
+describe('waitForSpeakVoices', () => {
+  afterEach(() => {
+    const win = window as unknown as Record<string, unknown>;
+    delete win.speechSynthesis;
+    delete win.SpeechSynthesisUtterance;
+  });
+
+  it('resolves immediately with the voices when they are already loaded', async () => {
+    const win = window as unknown as Record<string, unknown>;
+    win.speechSynthesis = {
+      getVoices: () => [{ name: 'Samantha' }, { name: 'Alex' }],
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      cancel: vi.fn(),
+      speak: vi.fn(),
+    };
+    win.SpeechSynthesisUtterance = class {
+      constructor(public text: string) {}
+    } as unknown as typeof SpeechSynthesisUtterance;
+    await expect(waitForSpeakVoices()).resolves.toEqual(['Samantha', 'Alex']);
+  });
+
+  it('waits for voiceschanged when the list starts empty, so a persona is not spoken in the default voice by mistake', async () => {
+    const win = window as unknown as Record<string, unknown>;
+    let voices: { name: string }[] = [];
+    let listener: (() => void) | null = null;
+    win.speechSynthesis = {
+      getVoices: () => voices,
+      addEventListener: (_ev: string, fn: () => void) => {
+        listener = fn;
+      },
+      removeEventListener: vi.fn(),
+      cancel: vi.fn(),
+      speak: vi.fn(),
+    };
+    win.SpeechSynthesisUtterance = class {
+      constructor(public text: string) {}
+    } as unknown as typeof SpeechSynthesisUtterance;
+    const pending = waitForSpeakVoices(5000);
+    voices = [{ name: 'Samantha' }];
+    listener?.();
+    await expect(pending).resolves.toEqual(['Samantha']);
+  });
+
+  it('resolves with whatever is there on timeout — never hangs', async () => {
+    const win = window as unknown as Record<string, unknown>;
+    win.speechSynthesis = {
+      getVoices: () => [],
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      cancel: vi.fn(),
+      speak: vi.fn(),
+    };
+    win.SpeechSynthesisUtterance = class {
+      constructor(public text: string) {}
+    } as unknown as typeof SpeechSynthesisUtterance;
+    await expect(waitForSpeakVoices(10)).resolves.toEqual([]);
   });
 });

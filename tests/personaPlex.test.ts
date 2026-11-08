@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_PERSONA_VOICE,
+  PERSONA_VOICE_CAST,
   ALL_PERSONA_TOOL_IDS,
   parseSoulsConfig,
   soulToPersona,
@@ -27,6 +28,9 @@ import {
   getActivePersonaVoice,
   getActivePersonaVoiceSettings,
   resolveSpeakVoice,
+  assignPersonaVoices,
+  resolvePersonaVoice,
+  personaVoiceSample,
   newCustomPersona,
   soulsConfigPath,
   type ParsedSoul,
@@ -245,5 +249,144 @@ describe('soulsConfigPath', () => {
   it('points at ~/.luciferai/data/souls.json', () => {
     expect(soulsConfigPath('/Users/gary')).toBe('/Users/gary/.luciferai/data/souls.json');
     expect(DEFAULT_PERSONA_VOICE).toBe('Lily');
+  });
+});
+
+describe('assignPersonaVoices (redo, 2026-11-07 — the old take gave every persona the same default voice)', () => {
+  const macVoices = ['Samantha', 'Alex', 'Daniel', 'Karen', 'Moira', 'Tessa'];
+
+  it('gives each persona a different voice from the cast, drawn from the voices actually available', () => {
+    const assigned = assignPersonaVoices(['soul-lucifer', 'soul-eve', 'soul-nova'], macVoices);
+    const voices = [...assigned.values()];
+    expect(new Set(voices).size).toBe(3);
+    for (const v of voices) expect(macVoices).toContain(v);
+  });
+
+  it('is deterministic — the same roster gets the same voices', () => {
+    const ids = ['soul-lucifer', 'soul-eve'];
+    const a = assignPersonaVoices(ids, macVoices);
+    const b = assignPersonaVoices(ids, macVoices);
+    expect([...a.entries()]).toEqual([...b.entries()]);
+  });
+
+  it('only uses cast voices that are actually installed', () => {
+    // 'Aria' is not in the cast: with only one cast voice present
+    // it falls back to the full available list, so personas can
+    // still sound different from each other.
+    const assigned = assignPersonaVoices(['a', 'b'], ['Samantha', 'Aria']);
+    expect(new Set(assigned.values()).size).toBe(2);
+    for (const v of assigned.values()) expect(['Samantha', 'Aria']).toContain(v);
+  });
+
+  it('returns null for everyone when no voices are available', () => {
+    const assigned = assignPersonaVoices(['a', 'b'], []);
+    expect([...assigned.values()]).toEqual([null, null]);
+  });
+
+  it('shares voices only when there are more personas than voices', () => {
+    const assigned = assignPersonaVoices(['a', 'b', 'c'], ['Samantha']);
+    expect([...assigned.values()]).toEqual(['Samantha', 'Samantha', 'Samantha']);
+  });
+});
+
+describe('resolvePersonaVoice', () => {
+  const macVoices = ['Samantha', 'Alex', 'Daniel', 'Karen'];
+
+  it('an explicit pick of a real voice always wins', () => {
+    expect(
+      resolvePersonaVoice(persona({ id: 'p-1', voice: 'Alex' }), {
+        availableVoices: macVoices,
+        personaIds: ['p-1', 'p-2'],
+      }),
+    ).toBe('Alex');
+  });
+
+  it("a stored 'Lily' resolves to that persona's own assigned voice — never the shared default", () => {
+    const lucifer = resolvePersonaVoice(persona({ id: 'soul-lucifer', voice: 'Lily' }), {
+      availableVoices: macVoices,
+      personaIds: ['soul-lucifer', 'soul-eve'],
+    });
+    const eve = resolvePersonaVoice(persona({ id: 'soul-eve', voice: 'Lily' }), {
+      availableVoices: macVoices,
+      personaIds: ['soul-lucifer', 'soul-eve'],
+    });
+    expect(lucifer).not.toBeNull();
+    expect(eve).not.toBeNull();
+    expect(lucifer).not.toBe('Lily');
+    expect(eve).not.toBe('Lily');
+    // The old bad take: both resolved to the same default voice.
+    expect(lucifer).not.toBe(eve);
+    expect(macVoices).toContain(lucifer);
+    expect(macVoices).toContain(eve);
+  });
+
+  it('an unmatched stored voice also resolves to the assigned voice, not the default', () => {
+    const voice = resolvePersonaVoice(persona({ id: 'p-9', voice: 'Zara' }), {
+      availableVoices: macVoices,
+      personaIds: ['p-9'],
+    });
+    expect(voice).not.toBeNull();
+    expect(macVoices).toContain(voice);
+  });
+
+  it('returns null when no voices are available at all', () => {
+    expect(
+      resolvePersonaVoice(persona({ voice: 'Lily' }), { availableVoices: [] }),
+    ).toBeNull();
+  });
+});
+
+describe('personaVoiceSample', () => {
+  it('names the persona, so the preview judges the voice against that persona', () => {
+    expect(personaVoiceSample(persona({ name: 'Lucifer' }))).toBe(
+      "Hi, I'm Lucifer. This is my voice.",
+    );
+    expect(personaVoiceSample(persona({ name: '  ' }))).toBe(
+      "Hi, I'm Persona. This is my voice.",
+    );
+  });
+});
+
+describe('getActivePersonaVoiceSettings with availableVoices', () => {
+  const macVoices = ['Samantha', 'Alex', 'Daniel', 'Karen'];
+  const cfg = (voice: string) => ({
+    voice,
+    allowedTools: [],
+    homunculusId: null,
+    speakEnabled: true,
+    autoSpeak: false,
+    volume: 1,
+    rate: 1,
+  });
+
+  it("resolves a stored 'Lily' to the active persona's assigned voice in chat Speak", () => {
+    const settings = getActivePersonaVoiceSettings({
+      activeId: 'soul-lucifer',
+      config: { 'soul-lucifer': cfg('Lily') },
+      customPersonas: [],
+      availableVoices: macVoices,
+      personaIds: ['soul-lucifer', 'soul-eve'],
+    });
+    expect(settings.voice).not.toBe('Lily');
+    expect(macVoices).toContain(settings.voice);
+  });
+
+  it('keeps the stored voice when no available voices are passed (old behaviour)', () => {
+    const settings = getActivePersonaVoiceSettings({
+      activeId: 'soul-lucifer',
+      config: { 'soul-lucifer': cfg('Lily') },
+      customPersonas: [],
+    });
+    expect(settings.voice).toBe('Lily');
+  });
+
+  it('the cast is real macOS voices installed on Gary\'s Mac, in preference order', () => {
+    expect(PERSONA_VOICE_CAST[0]).toBe('Samantha');
+    expect(PERSONA_VOICE_CAST).toContain('Daniel');
+    expect(PERSONA_VOICE_CAST).toContain('Fred');
+    // Verified absent from `say -v '?'` on the Mac — never listed.
+    expect(PERSONA_VOICE_CAST).not.toContain('Alex');
+    expect(PERSONA_VOICE_CAST).not.toContain('Lily');
+    expect(new Set(PERSONA_VOICE_CAST).size).toBe(PERSONA_VOICE_CAST.length);
   });
 });

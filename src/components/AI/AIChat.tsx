@@ -12,7 +12,7 @@ import { formatTimeSinceRestock, isPingUnreachableError } from '../../lib/pingQu
 import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
 import { MessageContextMenu } from './MessageContextMenu';
 import { shouldShowSpeakOption, getActivePersonaVoiceSettings } from '../../lib/personaPlex';
-import { speakText } from '../../lib/speak';
+import { speakText, getAvailableSpeakVoices } from '../../lib/speak';
 import { InputDragHandle } from '../InputDragHandle';
 import {
   INPUT_DRAG_MAX_HEIGHT_VH,
@@ -72,15 +72,32 @@ function AIChat({ onClose }: AIChatProps) {
   // Persona Plex Speak gate (Gary, 2026-11-06): Speak shows only
   // when Persona Plex is installed AND the Speak toggle is on AND
   // the active persona's own Speak is on. The voice is the active
-  // persona's voice (Lily when none is active), at that persona's
+  // persona's EFFECTIVE voice (its stored voice when that matches
+  // a voice on this machine, otherwise its assigned distinct voice
+  // — a stored 'Lily' never spoke as Lily), at that persona's
   // volume and rate — the voice follows the chat bubble message.
+  // Resolved fresh at speak time (see speakSettingsNow below),
+  // so a right-click Speak always uses the voices loaded now.
   const personaPlexInstalled = (settings.installedAddons ?? []).includes('persona-plex');
   const speakEnabled = settings.personaPlexSpeakEnabled ?? false;
   const activePersonaVoiceSettings = getActivePersonaVoiceSettings({
     activeId: settings.personaPlexActiveId ?? null,
     config: settings.personaPlexConfig ?? {},
     customPersonas: settings.personaPlexCustomPersonas ?? [],
+    availableVoices: getAvailableSpeakVoices(),
   });
+
+  // The active persona's voice settings, resolved fresh at speak
+  // time against the voices loaded NOW (not the render-time list,
+  // which can predate the voices loading). Used by right-click
+  // Speak and auto-speak.
+  const speakSettingsNow = () =>
+    getActivePersonaVoiceSettings({
+      activeId: useSettingsStore.getState().settings.personaPlexActiveId ?? null,
+      config: useSettingsStore.getState().settings.personaPlexConfig ?? {},
+      customPersonas: useSettingsStore.getState().settings.personaPlexCustomPersonas ?? [],
+      availableVoices: getAvailableSpeakVoices(),
+    });
 
   // The per-chat model dropdown options (chatModels.ts is the
   // single list source): Auto first, then the ping server models
@@ -177,6 +194,7 @@ function AIChat({ onClose }: AIChatProps) {
         activeId: live.personaPlexActiveId ?? null,
         config: live.personaPlexConfig ?? {},
         customPersonas: live.personaPlexCustomPersonas ?? [],
+        availableVoices: getAvailableSpeakVoices(),
       });
       if (
         (live.installedAddons ?? []).includes('persona-plex') &&
@@ -790,7 +808,10 @@ function AIChat({ onClose }: AIChatProps) {
             x={contextMenu.x}
             y={contextMenu.y}
             showSpeak={contextMenu.showSpeak}
-            onSpeak={() => speakText(contextMenu.text, activePersonaVoiceSettings.voice, { volume: activePersonaVoiceSettings.volume, rate: activePersonaVoiceSettings.rate })}
+            onSpeak={() => {
+              const fresh = speakSettingsNow();
+              speakText(contextMenu.text, fresh.voice, { volume: fresh.volume, rate: fresh.rate });
+            }}
             onCopy={() => copyToClipboard(contextMenu.text)}
             onClose={() => setContextMenu(null)}
           />

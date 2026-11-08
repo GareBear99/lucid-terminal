@@ -25,8 +25,152 @@
 import type { Persona, PersonaConfig } from '../types';
 
 /** The default voice for a persona — Lily, the voice of the Forge
- *  voice messages (avocado_v2:Lily). */
+ *  voice messages (avocado_v2:Lily). NOTE: Lily is the voice of the
+ *  PRE-RECORDED mp3s (Forge, add-ons, plugin pages). It is NOT a
+ *  macOS system voice, so it can never be spoken live through the
+ *  Web Speech API — see PERSONA_VOICE_CAST and resolvePersonaVoice
+ *  below. A stored voice of 'Lily' means "no live voice picked
+ *  yet", and live speech resolves it to that persona's assigned
+ *  voice instead of silently falling back to the system default
+ *  for every persona (the old bad take: every persona sounded
+ *  identical). */
 export const DEFAULT_PERSONA_VOICE = 'Lily';
+
+/**
+ * The Persona Plex voice cast (Gary, 2026-11-07 redo): the real
+ * macOS system voices live speech can use, in preference order.
+ * These are the human-feeling Apple voices INSTALLED on Gary's
+ * Mac (verified with `say -v '?'` on the Mac mini, 2026-11-07:
+ * Samantha, Daniel, Karen, Moira, Tessa, Fred, Kathy, Ralph,
+ * Albert, Flo, Reed, Shelley) — the same pool the Web Speech API
+ * exposes via speechSynthesis.getVoices() and the `say` command
+ * lists. Each persona is assigned its OWN voice from this cast
+ * (see assignPersonaVoices), so personas sound like themselves
+ * instead of all sharing one default voice.
+ *
+ * NOT in the cast, deliberately: Alex, Victoria, Susan, Tom,
+ * Veena, Fiona and Amelie are NOT installed on this Mac (no
+ * `say -v '?'` entry — Amelie exists only as accented 'Amélie'),
+ * so listing them would assign voices that match nothing. Lily
+ * is not installed either — it is the pre-recorded-mp3 voice,
+ * never a system voice.
+ *
+ * Only voices actually installed on the machine are ever used:
+ * the cast is intersected with the available voices, and when
+ * fewer than two cast voices are available the full available
+ * list is used instead — so this still works on a machine with a
+ * different voice set. A voice name here that is not installed
+ * is simply skipped, never spoken as something else.
+ */
+export const PERSONA_VOICE_CAST: readonly string[] = [
+  'Samantha',
+  'Daniel',
+  'Karen',
+  'Moira',
+  'Tessa',
+  'Fred',
+  'Kathy',
+  'Ralph',
+  'Albert',
+  'Flo',
+  'Reed',
+  'Shelley',
+];
+
+/** Deterministic hash of a persona id (FNV-1a) — the stable base
+ *  for a persona's assigned voice, so a persona keeps its voice
+ *  across restarts and roster changes. */
+function hashPersonaId(id: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    hash ^= id.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Assign each persona its own live voice: a stable, distinct
+ * voice per persona id, drawn from the voices actually available
+ * on this machine (cast voices first). Two personas get the same
+ * voice only when there are more personas than available voices.
+ * The assignment is deterministic — same roster, same voices —
+ * and a persona's slot is its hash, probed forward past slots
+ * already taken, so adding a persona rarely moves another's.
+ * Returns null for a persona when no voices are available at all
+ * (the caller then falls back to the stored voice / system
+ * default, as before).
+ */
+export function assignPersonaVoices(
+  personaIds: readonly string[],
+  availableVoices: readonly string[],
+): Map<string, string | null> {
+  const result = new Map<string, string | null>();
+  if (availableVoices.length === 0) {
+    for (const id of personaIds) result.set(id, null);
+    return result;
+  }
+  const byLower = new Map(
+    availableVoices.map((v) => [v.toLowerCase(), v] as const),
+  );
+  let candidates = PERSONA_VOICE_CAST.filter((name) =>
+    byLower.has(name.toLowerCase()),
+  ).map((name) => byLower.get(name.toLowerCase()) as string);
+  // Fewer than two cast voices on this machine: use everything
+  // available, so personas can still sound different from each
+  // other instead of all sharing the default.
+  if (candidates.length < 2) candidates = [...availableVoices];
+  const claimed = new Set<number>();
+  for (const id of [...new Set(personaIds)].sort()) {
+    const base = hashPersonaId(id) % candidates.length;
+    let assigned = candidates[base];
+    for (let step = 0; step < candidates.length; step++) {
+      const slot = (base + step) % candidates.length;
+      if (!claimed.has(slot)) {
+        claimed.add(slot);
+        assigned = candidates[slot];
+        break;
+      }
+    }
+    result.set(id, assigned);
+  }
+  return result;
+}
+
+/**
+ * The voice live speech actually uses for a persona: the stored
+ * voice when it matches a voice available on this machine (an
+ * explicit pick always wins), otherwise the persona's assigned
+ * voice from the cast (see assignPersonaVoices), otherwise null
+ * when no voices are available at all. This is what fixes the
+ * old bad take — a stored 'Lily' (the pre-recorded-mp3 voice,
+ * never a system voice) used to match nothing and silently fall
+ * back to the system default for EVERY persona, so all personas
+ * sounded identical. Now it resolves to that persona's own
+ * distinct voice.
+ */
+export function resolvePersonaVoice(
+  persona: Pick<Persona, 'id' | 'voice'>,
+  args: {
+    availableVoices: readonly string[];
+    personaIds?: readonly string[];
+  },
+): string | null {
+  const matched = resolveSpeakVoice(persona.voice, args.availableVoices);
+  if (matched) return matched;
+  const ids = args.personaIds ?? [persona.id];
+  return assignPersonaVoices(ids, args.availableVoices).get(persona.id) ?? null;
+}
+
+/**
+ * The sample line a persona speaks for its Hear-voice preview:
+ * short, in the persona's own name, so Gary can judge whether
+ * the voice fits that persona.
+ */
+export function personaVoiceSample(persona: Pick<Persona, 'name'>): string {
+  const name = persona.name.trim() || 'Persona';
+  return `Hi, I'm ${name}. This is my voice.`;
+}
 
 /** The default per-persona voice options: Speak on for the persona,
  *  no auto-speak (only on right-click Speak), full volume, normal
@@ -399,6 +543,19 @@ export function getActivePersonaVoiceSettings(args: {
   activeId: string | null | undefined;
   config: Readonly<Record<string, PersonaConfig>> | null | undefined;
   customPersonas: readonly Persona[] | null | undefined;
+  /**
+   * The voices available on this machine, when the caller knows
+   * them (AI chat passes getAvailableSpeakVoices()). With them,
+   * the voice is the persona's EFFECTIVE voice — a stored 'Lily'
+   * or any other unmatched name resolves to that persona's
+   * assigned distinct voice instead of the system default for
+   * everyone. Without them the stored voice is returned as-is
+   * (the old behaviour — speakText still falls back to default).
+   */
+  availableVoices?: readonly string[];
+  /** All persona ids, for the distinct assignment — defaults to
+   *  just the active id. */
+  personaIds?: readonly string[];
 }): {
   voice: string;
   volume: number;
@@ -412,7 +569,12 @@ export function getActivePersonaVoiceSettings(args: {
     : undefined;
   if (custom) {
     return {
-      voice: custom.voice,
+      voice: args.availableVoices
+        ? resolvePersonaVoice(custom, {
+            availableVoices: args.availableVoices,
+            personaIds: args.personaIds ?? [custom.id],
+          }) ?? custom.voice
+        : custom.voice,
       volume: custom.volume,
       rate: custom.rate,
       speakEnabled: custom.speakEnabled,
@@ -420,8 +582,17 @@ export function getActivePersonaVoiceSettings(args: {
     };
   }
   const cfg = activeId ? args.config?.[activeId] : undefined;
+  const storedVoice = cfg?.voice ?? DEFAULT_PERSONA_VOICE;
   return {
-    voice: cfg?.voice ?? DEFAULT_PERSONA_VOICE,
+    voice: args.availableVoices
+      ? resolvePersonaVoice(
+          { id: activeId ?? '', voice: storedVoice },
+          {
+            availableVoices: args.availableVoices,
+            personaIds: args.personaIds ?? (activeId ? [activeId] : []),
+          },
+        ) ?? storedVoice
+      : storedVoice,
     volume: cfg?.volume ?? DEFAULT_PERSONA_VOICE_OPTIONS.volume,
     rate: cfg?.rate ?? DEFAULT_PERSONA_VOICE_OPTIONS.rate,
     speakEnabled:

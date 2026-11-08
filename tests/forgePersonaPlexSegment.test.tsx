@@ -185,6 +185,36 @@ describe('Forge-to-Persona Plex segment in Segments', () => {
     });
   });
 
+  test('the segment has a Hear button that speaks the paired persona in its effective voice', async () => {
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: {
+        ...base,
+        personaPlexConfig: {
+          'soul-lucifer': {
+            voice: 'Lily', allowedTools: [], homunculusId: 'lucifer',
+            speakEnabled: true, autoSpeak: false, volume: 1, rate: 1,
+          },
+        },
+      },
+    });
+    render(<SegmentsPanel />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-segment-voice="lucifer"]')).not.toBeNull(),
+    );
+    const win = window as unknown as Record<string, unknown>;
+    const synth = win.speechSynthesis as { speak: ReturnType<typeof vi.fn> };
+    const hear = document.querySelector('[data-segment-hear="lucifer"]') as HTMLButtonElement;
+    expect(hear).not.toBeNull();
+    fireEvent.click(hear);
+    await waitFor(() => {
+      expect(synth.speak).toHaveBeenCalledTimes(1);
+    });
+    const utterance = synth.speak.mock.calls[0][0] as SpeechSynthesisUtterance;
+    expect(utterance.text).toBe("Hi, I'm Lucifer. This is my voice.");
+    expect(utterance.voice?.name).toBe('Lily');
+  });
+
   test('the segment has Speak, auto-speak, volume and speed options per pairing', async () => {
     const base = useSettingsStore.getState().settings;
     useSettingsStore.setState({

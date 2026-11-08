@@ -28,6 +28,51 @@ interface LuciferStatusIndicatorProps {
   onToggleBloodDrop?: () => void;
 }
 
+/** The blood drop's fills. Red while speaking (the 🩸 emoji's
+ * red); grey while silenced. The fill — not a CSS filter — is
+ * what makes it grey, see BloodDropIcon. */
+export const BLOOD_DROP_RED = '#ef4444';
+export const BLOOD_DROP_GREY = '#6b7280';
+
+/**
+ * The blood drop as an inline SVG droplet (12px, the text-xs
+ * size), NOT the 🩸 emoji.
+ *
+ * WHY NOT THE EMOJI (Gary, 2026-11-08 ~06:15 PST — the silencer
+ * was still broken: the drop DISAPPEARED on click instead of
+ * greying): the silenced state used Tailwind `opacity-40
+ * grayscale` on the 🩸 emoji. The state was correct
+ * (luciferAiEnabled stayed true, luciferAiSilenced became true —
+ * verified live in lucid-settings.json), but the drop rendered
+ * NOTHING. The `grayscale` CSS filter blanks a color-emoji glyph
+ * in this app's Electron 28 / Chromium — the emoji is drawn via a
+ * color-font bitmap path the filter pipeline drops, so the drop
+ * vanished instead of greying, and with no visible drop there was
+ * nothing to click to un-silence it (Gary: "its gone now you cant
+ * reproduce it thats your tell"). An SVG with an explicit fill has
+ * no filter anywhere on it, so it cannot blank: red while
+ * speaking, grey while silenced, always visible, always clickable.
+ * Never put a CSS filter (grayscale / saturate / blur) on the
+ * drop again — that is the bug. The jsdom unit tests could not
+ * catch it: they assert class names, and a class name renders
+ * fine in jsdom; only real pixels showed the drop was gone.
+ */
+export function BloodDropIcon({ fill }: { fill: string }) {
+  return (
+    <svg
+      data-testid="blood-drop-svg"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill={fill}
+      aria-hidden="true"
+      className="inline-block align-[-1px]"
+    >
+      <path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0C19 10 12 2 12 2Z" />
+    </svg>
+  );
+}
+
 /**
  * The LuciferAI status indicator in the terminal prompt row — the
  * blood drop 🩸. Extracted from Terminal so the disabled state is
@@ -45,8 +90,8 @@ interface LuciferStatusIndicatorProps {
  * The toggle (Gary, 2026-11-08 ~02:28 PST — CORRECTS the old
  * "quick disable" reading, 2026-11-07 ~20:17 PST): the drop next
  * to the send arrow is JUST A SILENCER. Clicking it silences
- * LuciferAI's voices — the drop GREYS OUT (opacity-40 +
- * grayscale) but stays visible and clickable, so clicking it
+ * LuciferAI's voices — the drop GREYS OUT (grey SVG fill, always
+ * visible) but stays visible and clickable, so clicking it
  * again un-silences. It does NOT turn the plugin off and does
  * NOT stop the runtime: the causal ticks keep running and the
  * causal order is held, never reset or re-numbered. The drop
@@ -56,9 +101,9 @@ interface LuciferStatusIndicatorProps {
  * off the terminal must be no different than a terminal, so
  * there is no drop left behind as a re-enable control. Re-enable
  * LuciferAI from Settings → Plugins, not from a leftover drop.
- * While ON and not silenced the drop is full brightness; while
- * silenced it is greyed. Clicking it never prints or repeats the
- * "awaiting commands" line (toggling only flips the silenced
+ * While ON and not silenced the drop is full brightness red;
+ * while silenced it is grey. Clicking it never prints or repeats
+ * the "awaiting commands" line (toggling only flips the silenced
  * setting; the heartbeat is the plugin's own idle status line
  * and shows only while the plugin is on and idle).
  */
@@ -87,14 +132,29 @@ export function LuciferStatusIndicator({
   // Settings → Plugins.
   if (!enabled) return null;
 
+  // The drop glyph. Silenced dominates: whenever silenced the
+  // drop is the grey SVG droplet (always visible, always
+  // clickable) — the status glyphs (⏳ / ⚪) only show while
+  // speaking. The grey is a fill, never a CSS filter (see
+  // BloodDropIcon — a filter on the emoji blanked the drop
+  // entirely in Electron 28, Gary 2026-11-08 ~06:15 PST).
+  const dropGlyph = silenced ? (
+    <BloodDropIcon fill={BLOOD_DROP_GREY} />
+  ) : status === 'ready' || status === 'loaded-no-model' ? (
+    <BloodDropIcon fill={BLOOD_DROP_RED} />
+  ) : status === 'checking' ? (
+    '⏳'
+  ) : (
+    '⚪'
+  );
+
   // The toggle (Gary, 2026-11-08 ~02:28 PST): the drop next to
   // the send arrow is LuciferAI's silencer. While ON and speaking
-  // it is lit (opacity-100); while silenced it is GREYED OUT
-  // (opacity-40 + grayscale) but stays visible and clickable, so
-  // clicking it un-silences. It never turns the plugin off and
-  // never hides the drop — only the Settings toggle does that.
+  // it is lit red; while silenced it is GREY (grey SVG fill) but
+  // stays visible and clickable, so clicking it un-silences. It
+  // never turns the plugin off and never hides the drop — only
+  // the Settings toggle does that.
   if (onToggleBloodDrop) {
-    const glyph = status === 'checking' ? '⏳' : status === 'offline' ? '⚪' : '🩸';
     const color =
       status === 'checking'
         ? 'text-yellow-500 animate-pulse'
@@ -121,20 +181,14 @@ export function LuciferStatusIndicator({
           onClick={onToggleBloodDrop}
           aria-label="Toggle LuciferAI"
           aria-pressed={active}
-          className={`text-xs ${color} ${silenced ? 'opacity-40 grayscale' : 'opacity-100'} hover:opacity-100 transition-opacity select-none`}
+          className={`text-xs ${color} opacity-100 hover:opacity-100 transition-opacity select-none`}
         >
-          {glyph}
+          {dropGlyph}
         </button>
       </Tooltip>
     );
   }
 
-  const glyph =
-    status === 'checking'
-      ? '⏳'
-      : status === 'ready' || status === 'loaded-no-model'
-        ? '🩸'
-        : '⚪';
   const color =
     status === 'checking'
       ? 'text-yellow-500 animate-pulse'
@@ -154,7 +208,7 @@ export function LuciferStatusIndicator({
 
   return (
     <Tooltip content={statusText}>
-      <span className={`text-xs ${color} ${silenced ? 'opacity-40 grayscale' : ''}`}>{glyph}</span>
+      <span className={`text-xs ${color}`}>{dropGlyph}</span>
     </Tooltip>
   );
 }

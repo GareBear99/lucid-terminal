@@ -26,7 +26,8 @@
  * NOT a regular theme entry and is NOT freely selectable. It lives in
  * its own section under the theme selection, gated by `unlock`.
  */
-import { themes, fullGlassTheme, getTheme, isThemeUnlocked } from '../src/themes/themes';
+import { themes, fullGlassTheme, allBlackTheme, getTheme, isThemeUnlocked } from '../src/themes/themes';
+import { useSettingsStore } from '../src/stores/settingsStore';
 
 /** Relative luminance of a hex color (WCAG 2.x). */
 function luminance(hex: string): number {
@@ -185,5 +186,77 @@ describe('Full Glass — gated reward theme (Gary, 2026-11-07)', () => {
     expect(contrast(colors.textSecondary, colors.bgPrimary)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(colors.textMuted, colors.bgPrimary)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(colors.terminal.foreground, colors.terminal.background)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('All Black — first-referral reward theme (Gary, 2026-11-08)', () => {
+  it('is NOT in the regular theme list, and LuciferAI stays the default', () => {
+    expect(themes.some((t) => t.id === 'all-black')).toBe(false);
+    expect(themes[0].id).toBe('lucifer');
+    expect(themes.map((t) => t.id)).toEqual([
+      'lucifer',
+      'dark',
+      'midnight',
+      'ocean',
+      'forest',
+      'sunset',
+    ]);
+  });
+
+  it('resolves through getTheme and is NOT a glass theme', () => {
+    expect(getTheme('all-black')).toBe(allBlackTheme);
+    expect(allBlackTheme.name).toBe('All Black');
+    expect(allBlackTheme.isGlass).toBeFalsy();
+  });
+
+  it('carries the first-referral-only unlock (no purchase tier)', () => {
+    expect(allBlackTheme.unlock).toEqual({
+      kind: 'referral-purchase-tier',
+      referralsRequired: 1,
+      requiresPurchaseTier: false,
+    });
+  });
+
+  it('is locked with no referrals, unlocked at 1 referral with or without a tier', () => {
+    expect(isThemeUnlocked(allBlackTheme, { referralCount: 0, purchaseTierActive: false })).toBe(false);
+    expect(isThemeUnlocked(allBlackTheme, { referralCount: 0, purchaseTierActive: true })).toBe(false);
+    expect(isThemeUnlocked(allBlackTheme, { referralCount: 1, purchaseTierActive: false })).toBe(true);
+    expect(isThemeUnlocked(allBlackTheme, { referralCount: 1, purchaseTierActive: true })).toBe(true);
+    expect(isThemeUnlocked(allBlackTheme, { referralCount: 5, purchaseTierActive: false })).toBe(true);
+  });
+
+  it('is pure black with a neutral accent — no LuciferAI purple', () => {
+    const { colors } = allBlackTheme;
+    expect(colors.bgPrimary).toBe('#000000');
+    expect(colors.bgSecondary).toBe('#000000');
+    expect(colors.bgTertiary).toBe('#000000');
+    expect(colors.terminal.background).toBe('#000000');
+    expect(colors.accent).not.toBe('#d7a0ff');
+  });
+
+  it('its text clears AA on black', () => {
+    const { colors } = allBlackTheme;
+    expect(contrast(colors.textPrimary, colors.bgPrimary)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(colors.textSecondary, colors.bgPrimary)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(colors.textMuted, colors.bgPrimary)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(colors.accent, colors.bgPrimary)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(colors.terminal.foreground, colors.terminal.background)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(colors.terminal.brightBlack, colors.terminal.background)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('setTheme refuses it while locked (0 referrals)', async () => {
+    const store = useSettingsStore.getState();
+    const before = store.settings;
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, referralCount: 0, purchaseTierActive: false, theme: 'lucifer' },
+      currentTheme: getTheme('lucifer'),
+    }));
+    try {
+      await useSettingsStore.getState().setTheme('all-black');
+      expect(useSettingsStore.getState().settings.theme).toBe('lucifer');
+      expect(useSettingsStore.getState().currentTheme.id).toBe('lucifer');
+    } finally {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, theme: before.theme, referralCount: before.referralCount, purchaseTierActive: before.purchaseTierActive } }));
+    }
   });
 });

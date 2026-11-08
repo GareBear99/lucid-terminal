@@ -297,6 +297,82 @@ export const fullGlassTheme: Theme = {
 };
 
 
+// All Black theme — the black backboard design as a proper theme
+// (Gary, 2026-11-08 ~07:49 PST): "Keep that as the all black theme
+// for first refferal". The full-black look from the reverted
+// non-devmode backboard work (619bf49 / 9399206) is KEPT, but as a
+// theme in the theme system — NOT as the default non-devmode look
+// and NOT by forcing black over the theme system. Like Full Glass
+// it is NOT in the regular `themes` list and is NOT freely
+// selectable: it lives in its own section under the theme
+// selection, gated by `unlock` (see isThemeUnlocked). It is NOT
+// glass (opaque black throughout), so applyTheme clears
+// data-glass for it like any other non-glass theme. Text is
+// near-white / light grey and clears WCAG AA against black
+// (primary ~19.6:1, secondary ~12.6:1, muted ~8.9:1, accent
+// ~16.6:1); the accent is neutral light grey, NOT the LuciferAI
+// purple, so the theme stays all-black.
+const allBlackColors: ThemeColors = {
+  bgPrimary: '#000000',
+  bgSecondary: '#000000',
+  bgTertiary: '#000000',
+  textPrimary: '#f5f5f5',
+  textSecondary: '#c9c9c9',
+  textMuted: '#a8a8a8',
+  accent: '#e5e5e5',
+  accentHover: '#ffffff',
+  border: '#2e2e2e',
+  success: '#4ade80',
+  warning: '#fbbf24',
+  error: '#f87171',
+  terminal: {
+    background: '#000000',
+    foreground: '#f5f5f5',
+    cursor: '#e5e5e5',
+    cursorAccent: '#000000',
+    selection: 'rgba(229, 229, 229, 0.3)',
+    black: '#000000',
+    red: '#ff7b72',
+    green: '#4ade80',
+    yellow: '#fde047',
+    blue: '#7dd3fc',
+    magenta: '#d8b4fe',
+    cyan: '#67e8f9',
+    white: '#f5f5f5',
+    brightBlack: '#a8a8a8',
+    brightRed: '#fca5a5',
+    brightGreen: '#86efac',
+    brightYellow: '#fde68a',
+    brightBlue: '#bae6fd',
+    brightMagenta: '#e9d5ff',
+    brightCyan: '#a5f3fc',
+    brightWhite: '#ffffff',
+  },
+};
+
+/**
+ * All Black, the first-referral reward theme (Gary, 2026-11-08
+ * ~07:49 PST). Kept OUT of `themes` on purpose, mirroring Full
+ * Glass: the regular list is the six freely selectable dark
+ * themes, and All Black gets its own separate section under the
+ * theme selection. Resolve it with getTheme('all-black') and check
+ * isThemeUnlocked before selecting.
+ *
+ * Unlock rule: 1st referral ONLY, NO purchase tier — that is what
+ * distinguishes it from Full Glass (2 referrals + purchase tier).
+ */
+export const allBlackTheme: Theme = {
+  id: 'all-black',
+  name: 'All Black',
+  colors: allBlackColors,
+  unlock: {
+    kind: 'referral-purchase-tier',
+    referralsRequired: 1,
+    requiresPurchaseTier: false,
+  },
+};
+
+
 // LuciferAI theme (Gary, 2026-11-07) — THE default theme. Gary really
 // likes LuciferAI's color scheme and wants it when Lucid loads up, so
 // this is first in `themes` (themes[0] = the default everywhere:
@@ -364,6 +440,7 @@ export const themes: Theme[] = [
 
 export function getTheme(id: string): Theme {
   if (id === fullGlassTheme.id) return fullGlassTheme;
+  if (id === allBlackTheme.id) return allBlackTheme;
   return themes.find((t) => t.id === id) || themes[0];
 }
 

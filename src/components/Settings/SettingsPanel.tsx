@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
-import { themes, fullGlassTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
+import { themes, fullGlassTheme, allBlackTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
 import { Theme } from '../../types';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
@@ -706,6 +706,72 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                         className="btn btn-secondary px-3 py-1.5 text-sm opacity-50 cursor-not-allowed"
                       >
                         <Lock size={14} className="inline mr-1" /> Locked — refer + purchase tier
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
+              </section>
+
+              {/* All Black — its own separate section UNDER the theme
+                  selection (Gary, 2026-11-08 ~07:49 PST): "Keep that
+                  as the all black theme for first refferal". The
+                  black backboard design as a proper theme, NOT the
+                  default and NOT another entry in the theme list:
+                  it is the first-referral reward, gated (see
+                  isThemeUnlocked). Locked until the user has 1
+                  referral — NO purchase tier, which is what
+                  distinguishes it from Full Glass (2 referrals +
+                  purchase tier). The section shows the unlock
+                  progress so the path is visible, and the theme
+                  becomes selectable once unlocked. The picker and
+                  setTheme both refuse a locked theme. */}
+              <section data-testid="all-black-section">
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">All Black</h3>
+                  {isThemeUnlocked(allBlackTheme, settings) ? (
+                    <Unlock size={14} className="text-[var(--success)]" aria-label="All Black unlocked" />
+                  ) : (
+                    <Lock size={14} className="text-[var(--text-muted)]" aria-label="All Black locked" />
+                  )}
+                  <span className="text-xs text-[var(--text-muted)]">First referral reward</span>
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Pure black throughout. Unlocks with your first referral.
+                </p>
+                <div className={`p-3 rounded-lg border transition-all ${currentTheme.id === allBlackTheme.id
+                  ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] ring-opacity-50'
+                  : 'border-[var(--border)]'
+                  }`}>
+                  <div
+                    className="h-16 rounded-md mb-2"
+                    style={{
+                      background: `linear-gradient(135deg, ${allBlackTheme.colors.bgPrimary} 50%, ${allBlackTheme.colors.bgSecondary} 50%)`,
+                      border: `1px solid ${allBlackTheme.colors.border}`,
+                    }}
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full m-2"
+                      style={{ backgroundColor: allBlackTheme.colors.accent }}
+                    />
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] space-y-1 mb-3">
+                    <div>Referrals: {settings.referralCount} / {allBlackTheme.unlock?.referralsRequired ?? 1} {settings.referralCount >= (allBlackTheme.unlock?.referralsRequired ?? 1) ? '✓' : ''}</div>
+                  </div>
+                  {isThemeUnlocked(allBlackTheme, settings) ? (
+                    <button
+                      onClick={() => setTheme(allBlackTheme.id)}
+                      className="btn btn-primary px-3 py-1.5 text-sm"
+                    >
+                      Use All Black
+                    </button>
+                  ) : (
+                    <Tooltip content="Unlocks with your first referral">
+                      <button
+                        disabled
+                        aria-label="All Black locked — unlocks with your first referral"
+                        className="btn btn-secondary px-3 py-1.5 text-sm opacity-50 cursor-not-allowed"
+                      >
+                        <Lock size={14} className="inline mr-1" /> Locked — first referral
                       </button>
                     </Tooltip>
                   )}

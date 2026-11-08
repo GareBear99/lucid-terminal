@@ -1627,6 +1627,24 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
+                  Dev mode
+                </h3>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Toggle
+                    checked={settings.devMode === true}
+                    onChange={(checked) => updateSetting('devMode', checked)}
+                    ariaLabel="Dev mode"
+                  />
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {settings.devMode === true
+                      ? 'On — the prompt bar is delinked from the terminal screen: a detached command bar in the prompt section runs slash commands and one-shot shell commands into its own dev console, and the terminal screen runs independently. Clicking the prompt section does not focus the terminal. Works with LuciferAI on or off.'
+                      : 'Off — the prompt bar and the terminal are topology-synced: clicking anywhere in the prompt section focuses the terminal, so typing always lands in the shell (Warp-style, one input, one screen). Turn it on to delink the bar for troubleshooting, or run /devmode on in the terminal.'}
+                  </span>
+                </label>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
                   Import / Export
                 </h3>
                 <div className="flex gap-2">

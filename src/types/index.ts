@@ -301,6 +301,17 @@ export interface Settings {
   // Synth surfaces, plugin commands — see src/lib/luciferAi.ts.
   // Missing keys in older persisted settings count as ON.
   luciferAiEnabled: boolean;
+  // Dev mode (Gary, 2026-11-07): delinks the terminal prompt bar
+  // from the terminal screen. OFF (default) is topology-synced —
+  // the prompt section and the xterm surface share one input
+  // topology (clicking the prompt section focuses the terminal,
+  // typing always lands in the shell, Warp-style). ON renders a
+  // detached command bar in the prompt section with its own input
+  // and dev console; it never writes to the terminal screen and
+  // never reads the terminal's cwd. Orthogonal to LuciferAI: the
+  // dev bar works with the plugin on or off. Missing keys in older
+  // persisted settings count as OFF.
+  devMode: boolean;
   // Full Glass unlock state (Gary, 2026-11-07) — the referral +
   // active purchase tier reward theme. `referralCount` is how many
   // successful referrals this user has; `purchaseTierActive` is

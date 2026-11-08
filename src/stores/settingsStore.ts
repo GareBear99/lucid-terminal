@@ -116,6 +116,9 @@ const defaultSettings: Settings = {
   speakActorVoice: null,
   customPlugins: {},
   luciferAiEnabled: false,
+  // Dev mode — OFF by default: the prompt bar and the terminal
+  // stay topology-synced on a fresh startup (Gary, 2026-11-07).
+  devMode: false,
   // Full Glass unlock state (Gary, 2026-11-07) — the referral +
   // active purchase tier reward theme. 0 / false = locked.
   referralCount: 0,

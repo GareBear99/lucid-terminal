@@ -33,6 +33,7 @@ export type CommandType =
   | 'env'
   | 'daemon'
   | 'agent'
+  | 'devmode'
   | 'shell'
   | 'unknown';
 
@@ -374,6 +375,22 @@ function parseSlashCommand(input: string): ParsedCommand {
     };
   }
 
+  // Dev mode (Gary, 2026-11-07) — `/devmode on|off`. Lucid-local,
+  // like fix/fixnet/workflow/history: it flips the `devMode`
+  // setting, so it runs with LuciferAI on OR off. ON delinks the
+  // prompt bar from the terminal screen (detached command bar +
+  // dev console); OFF re-syncs them into one input topology.
+  if (command === 'devmode') {
+    return {
+      type: 'devmode',
+      command: 'devmode',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
   // Agent command (explicit)
   if (command === 'agent' || command === 'ai' || command === 'ask') {
     return {
@@ -434,6 +451,8 @@ export function getCommandDescription(type: CommandType): string {
       return 'Loading conversation history...';
     case 'agent':
       return 'Routing to LuciferAI agent...';
+    case 'devmode':
+      return 'Toggling dev mode...';
     case 'shell':
       return 'Executing shell command...';
     default:
@@ -463,6 +482,7 @@ export function getCommandExamples(prefix: string): string[] {
     '/workflow status',
     '/tokens',
     '/history',
+    '/devmode on',
     '/agent explain Docker containers'
   ];
 

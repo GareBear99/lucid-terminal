@@ -8,6 +8,7 @@ import { useHistoryStore } from '../../stores/historyStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
+import { InputArea } from './InputArea';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
 import { HelpPanel } from '../Help/HelpPanel';
 import { PlanningPanel } from '../Planning/PlanningPanel';
@@ -18,6 +19,10 @@ import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
+
+// Dev console cap — the detached bar's own output keeps only the
+// last 200 lines (Gary, 2026-11-07: dev-mode topology).
+const DEV_CONSOLE_CAP = 200;
 
 interface TerminalProps {
   tabId: string;
@@ -69,6 +74,21 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // A slash command is running (the 'command' loading key). The
   // shell itself never sets this — only Lucid work does.
   const [slashRunning, setSlashRunning] = useState(false);
+  // Dev mode (Gary, 2026-11-07): OFF = the prompt section and the
+  // xterm surface share one input topology (clicking the section
+  // focuses the terminal, typing always lands in the shell);
+  // ON = the prompt bar is delinked and a detached command bar +
+  // dev console render in the prompt section instead. A missing
+  // key in older persisted settings counts as OFF.
+  const devMode = settings.devMode === true;
+  // Detached dev-bar input + its own submitted-line history
+  // (Up/Down), separate from the shell's history.
+  const [devInput, setDevInput] = useState('');
+  const [devHistory, setDevHistory] = useState<string[]>([]);
+  const devHistoryIdx = useRef<number | null>(null);
+  // Dev console lines — the detached bar's own output. Never the
+  // terminal screen.
+  const [devLines, setDevLines] = useState<string[]>([]);
   const termRef = useRef<XtermSurfaceHandle>(null);
   // The current shell line, as typed — tracked so a slash command
   // can be recognised on Enter. `null` means "unknown": Tab,
@@ -329,6 +349,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     termRef.current?.write(`\r\n${normalized}\r\n`);
   }, [waitForPromptEcho]);
 
+  // Write into the dev console (dev mode ON only): appends lines,
+  // capped at the last DEV_CONSOLE_CAP. The terminal screen is
+  // never touched — this is the detached bar's own output.
+  const devWrite = useCallback(async (text: string) => {
+    const lines = text.replace(/\r\n/g, '\n').split('\n');
+    setDevLines((prev) => [...prev, ...lines].slice(-DEV_CONSOLE_CAP));
+  }, []);
+  const devClear = useCallback(() => setDevLines([]), []);
+
   // Run a command through the LuciferAI plugin (LucidCore.processCommand
   // → workflow orchestrator → plugin backend). While it runs, the
   // 'lucifer-task' loading key is active — the Sentinel face's fangs
@@ -378,7 +407,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // daemon) need it on, and say so in one line when it is off.
   // (That note answers an EXPLICIT slash invocation — bare LuciferAI
   // words still go to the shell with no LuciferAI message at all.)
-  const runSlashCommand = async (line: string) => {
+  // `opts` is the dev-mode sink: when the line came from the
+  // detached dev bar, output goes to the dev console (`write`)
+  // and `/history clear` clears the dev console (`clearScreen`)
+  // instead of the terminal screen. Panels (/help, /plan) still
+  // open — panels are not the terminal screen — only their notes
+  // go through the sink. Default (no opts) is the stream.
+  const runSlashCommand = async (
+    line: string,
+    opts?: { write?: (text: string) => Promise<void>; clearScreen?: () => void },
+  ) => {
+    const write = opts?.write ?? termWriteLines;
+    const clearScreen = opts?.clearScreen ?? (() => termRef.current?.clear());
     // A submitted prompt feeds the Sentinel face's horns — the prompting
     // pace grows them, and the pace decays when prompting slows.
     usePromptPaceStore.getState().recordPrompt();
@@ -389,7 +429,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // Help / plan open panels, not the stream.
     if (parsed.type === 'help') {
       if (!luciferAiEnabled) {
-        await termWriteLines('/help needs LuciferAI — enable it in Settings → Plugins.');
+        await write('/help needs LuciferAI — enable it in Settings → Plugins.');
         return;
       }
       console.log('[Help] Opening help modal');
@@ -402,11 +442,37 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     }
     if (parsed.type === 'plan') {
       if (!luciferAiEnabled) {
-        await termWriteLines('/plan needs LuciferAI — enable it in Settings → Plugins.');
+        await write('/plan needs LuciferAI — enable it in Settings → Plugins.');
         return;
       }
       console.log('[Planning] Opening planning panel');
       setShowPlanningPanel(true);
+      return;
+    }
+
+    // Dev mode — Lucid-local, works with LuciferAI on or off.
+    // `/devmode on|off` flips the setting (persisted via
+    // updateSetting, like the Settings toggle). The confirmation
+    // goes through the caller's sink — except when turning OFF
+    // from the dev bar: the bar unmounts with the flip, so the
+    // confirmation goes to the terminal stream instead, which is
+    // the prompt again once the topology re-syncs.
+    if (parsed.type === 'devmode') {
+      const arg = (parsed.args[0] ?? '').toLowerCase();
+      if (arg !== 'on' && arg !== 'off') {
+        await write('Usage: /devmode on|off\n\nOn delinks the prompt bar from the terminal screen (detached command bar + dev console, for troubleshooting). Off re-syncs them into one input topology (clicking the prompt section focuses the terminal).');
+        return;
+      }
+      const next = arg === 'on';
+      await useSettingsStore.getState().updateSetting('devMode', next);
+      const msg = next
+        ? 'Dev mode ON — prompt bar delinked from the terminal screen. The detached command bar runs slash commands and one-shot shell commands into its own dev console; the terminal screen runs independently.'
+        : 'Dev mode OFF — prompt bar and terminal topology-synced. Clicking anywhere in the prompt section focuses the terminal; typing always lands in the shell.';
+      if (next) {
+        await write(msg);
+      } else {
+        await termWriteLines(msg);
+      }
       return;
     }
 
@@ -418,20 +484,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         case 'fixnet': {
           console.log('[FixNet] Processing:', parsed.command);
           const result = await runLocalCommand(line.slice(1));
-          await termWriteLines(renderLocalResult(result));
+          await write(renderLocalResult(result));
           break;
         }
 
         case 'llm': {
           console.log('[LLM] Processing:', parsed.command);
           if (!luciferAiEnabled) {
-            await termWriteLines('/llm needs LuciferAI — enable it in Settings → Plugins.');
+            await write('/llm needs LuciferAI — enable it in Settings → Plugins.');
             break;
           }
           const bare = line.slice(1);
           if (parsed.command === 'llm list') {
             const result = await window.lucidAPI.lucid.llmList();
-            await termWriteLines(JSON.stringify(result, null, 2));
+            await write(JSON.stringify(result, null, 2));
           } else if (parsed.command.startsWith('llm enable')) {
             const model = parsed.args[0];
             let output: string;
@@ -447,7 +513,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 output = `❌ Failed to enable model: ${model}: ${error?.message ?? String(error)}`;
               }
             }
-            await termWriteLines(output);
+            await write(output);
           } else if (parsed.command.startsWith('llm disable')) {
             const model = parsed.args[0];
             let output: string;
@@ -463,12 +529,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 output = `❌ Failed to disable model: ${model}: ${error?.message ?? String(error)}`;
               }
             }
-            await termWriteLines(output);
+            await write(output);
           } else if (luciferAIAvailable) {
             const result = await runPluginCommand(bare);
-            await termWriteLines(result.terminalOutput || result.output || '');
+            await write(result.terminalOutput || result.output || '');
           } else {
-            await termWriteLines('⚠️  LuciferAI plugin required for LLM commands.\nSee /help for available commands.');
+            await write('⚠️  LuciferAI plugin required for LLM commands.\nSee /help for available commands.');
           }
           break;
         }
@@ -494,9 +560,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             } catch (error: any) {
               output = `❌ Browser diagnose failed: ${error?.message ?? String(error)}`;
             }
-            await termWriteLines(output);
+            await write(output);
           } else {
-            await termWriteLines('Usage: /browser diagnose');
+            await write('Usage: /browser diagnose');
           }
           break;
         }
@@ -505,9 +571,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           console.log('[Workflow] Processing:', parsed.command);
           if (parsed.command === 'workflow' && parsed.args[0] === 'status') {
             const status = await window.lucidAPI.lucid.workflowStatus();
-            await termWriteLines(JSON.stringify(status, null, 2));
+            await write(JSON.stringify(status, null, 2));
           } else {
-            await termWriteLines('Usage: /workflow status');
+            await write('Usage: /workflow status');
           }
           break;
         }
@@ -515,11 +581,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         case 'tokens': {
           console.log('[Tokens] Processing:', parsed.command);
           if (!luciferAiEnabled) {
-            await termWriteLines('/tokens needs LuciferAI — enable it in Settings → Plugins.');
+            await write('/tokens needs LuciferAI — enable it in Settings → Plugins.');
             break;
           }
           const stats = await window.lucidAPI.lucid.getTokenStats();
-          await termWriteLines(JSON.stringify(stats, null, 2));
+          await write(JSON.stringify(stats, null, 2));
           break;
         }
 
@@ -528,14 +594,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           if (parsed.args[0] === 'clear') {
             await window.lucidAPI.lucid.clearHistory();
             // Clear the VISIBLE history too — the terminal surface
-            // and the History panel (which reads this tab's blocks
-            // from the history store). The screen going empty IS the
-            // confirmation, like Unix `clear`.
+            // (or the dev console, when the line came from the
+            // detached dev bar) and the History panel (which reads
+            // this tab's blocks from the history store). The screen
+            // going empty IS the confirmation, like Unix `clear`.
             useHistoryStore.getState().clearBlocks(tabId);
-            termRef.current?.clear();
+            clearScreen();
           } else if (parsed.command === 'history') {
             const hist = await window.lucidAPI.lucid.getHistory();
-            await termWriteLines(JSON.stringify(hist, null, 2));
+            await write(JSON.stringify(hist, null, 2));
           }
           break;
         }
@@ -551,7 +618,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         default: {
           console.log('[Backend] Command type:', parsed.type);
           if (!luciferAiEnabled) {
-            await termWriteLines(`${line} needs LuciferAI — enable it in Settings → Plugins.`);
+            await write(`${line} needs LuciferAI — enable it in Settings → Plugins.`);
             break;
           }
           if (luciferAIAvailable) {
@@ -559,28 +626,28 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             try {
               const result = await runPluginCommand(line.slice(1));
               if (result.success) {
-                await termWriteLines(result.terminalOutput || result.output || '');
+                await write(result.terminalOutput || result.output || '');
               } else {
-                await termWriteLines(`❌ Command failed: ${result.error || 'Unknown error'}\n\nTry: /help for available commands`);
+                await write(`❌ Command failed: ${result.error || 'Unknown error'}\n\nTry: /help for available commands`);
               }
             } catch (error) {
               console.error('[Plugin] LuciferAI error:', error);
-              await termWriteLines(`❌ LuciferAI plugin error: ${String(error)}\n\nThe plugin may have disconnected. Retrying in 30s...`);
+              await write(`❌ LuciferAI plugin error: ${String(error)}\n\nThe plugin may have disconnected. Retrying in 30s...`);
               setLuciferAIAvailable(false);
             }
           } else if (luciferAIChecking) {
-            await termWriteLines('⏳ Connecting to LuciferAI plugin...\n\nPlease wait while we establish connection.');
+            await write('⏳ Connecting to LuciferAI plugin...\n\nPlease wait while we establish connection.');
           } else {
             console.log('[Fallback] Plugin unavailable, checking alternatives');
             const commandRequiresLLM = requiresLLM(parsed.type);
             if (commandRequiresLLM) {
-              await termWriteLines(getFallbackMessage(parsed));
+              await write(getFallbackMessage(parsed));
             } else {
               const suggestion = findClosestCommand(line.slice(1));
               if (suggestion && suggestion !== line.slice(1).split(/\s+/)[0]) {
-                await termWriteLines(`❓ Unknown command: "${line}"\n\n💡 Did you mean: /${suggestion}\n\nTry: /help for available commands`);
+                await write(`❓ Unknown command: "${line}"\n\n💡 Did you mean: /${suggestion}\n\nTry: /help for available commands`);
               } else {
-                await termWriteLines(getFallbackMessage(parsed));
+                await write(getFallbackMessage(parsed));
               }
             }
           }
@@ -589,13 +656,67 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       }
     } catch (error) {
       console.error('[Slash] Error:', error);
-      await termWriteLines(`❌ Error: ${String(error)}\n\nTry: /help for available commands`);
+      await write(`❌ Error: ${String(error)}\n\nTry: /help for available commands`);
     } finally {
       setSlashRunning(false);
       useLoadingStore.getState().finish('command');
       // A command completing wiggles the Sentinel face's horns inward
       // once — a little celebration that the task is done.
       useHornWiggleStore.getState().wiggle();
+    }
+  };
+
+  // Submit from the detached dev bar (dev mode ON only). Slash
+  // lines run through runSlashCommand with the dev console as
+  // their output sink (panels still open; /history clear clears
+  // the dev console, not the screen). Bare lines run detached
+  // via terminal:executeCommand — a one-shot shell call that
+  // never touches any PTY screen. Either way the visible terminal
+  // screen is untouched; it keeps running on its own.
+  const handleDevSubmit = async (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    setDevHistory((prev) => [...prev, trimmed].slice(-100));
+    devHistoryIdx.current = null;
+    setDevInput('');
+    await devWrite(`$ ${trimmed}`);
+    if (trimmed.startsWith('/')) {
+      await runSlashCommand(trimmed, { write: devWrite, clearScreen: devClear });
+      return;
+    }
+    try {
+      const executeCommand = window.lucidAPI.terminal.executeCommand;
+      if (typeof executeCommand !== 'function') {
+        await devWrite('❌ Detached execution is unavailable (terminal:executeCommand is not exposed).');
+        return;
+      }
+      const result = await executeCommand(trimmed);
+      if (result?.output) await devWrite(result.output);
+      if (!result?.success && result?.error) await devWrite(`❌ ${result.error}`);
+      if (result?.success && !result?.output) await devWrite('(no output)');
+    } catch (error) {
+      await devWrite(`❌ ${String(error)}`);
+    }
+  };
+
+  // Dev-bar history: Up/Down walk submitted lines, like the shell.
+  const devHistoryUp = () => {
+    if (devHistory.length === 0) return;
+    const idx = devHistoryIdx.current === null
+      ? devHistory.length - 1
+      : Math.max(0, devHistoryIdx.current - 1);
+    devHistoryIdx.current = idx;
+    setDevInput(devHistory[idx]);
+  };
+  const devHistoryDown = () => {
+    if (devHistoryIdx.current === null) return;
+    const idx = devHistoryIdx.current + 1;
+    if (idx >= devHistory.length) {
+      devHistoryIdx.current = null;
+      setDevInput('');
+    } else {
+      devHistoryIdx.current = idx;
+      setDevInput(devHistory[idx]);
     }
   };
 
@@ -670,6 +791,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     clearCreateError(tabId);
     closeTab(tabId);
     createTab();
+  };
+
+  // Prompt-section click (topology sync, dev mode OFF): the section
+  // IS the terminal's input, so a click anywhere in it focuses the
+  // xterm surface and typing lands in the shell. Dev mode ON
+  // (delinked): a click must NOT focus the terminal, or the
+  // detached bar could never be typed in.
+  const handlePromptSectionClick = () => {
+    if (!devMode) termRef.current?.focus();
   };
 
   return (
@@ -779,19 +909,35 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               prompt-section controls: the blood drop (LuciferAI's
               quick disable, on-state only) and the Sentinel face. */}
           <div data-testid="prompt-section"
+               onClick={handlePromptSectionClick}
                className="input-container border-t-2 border-t-[var(--text-muted)] pb-safe"
                style={{
                  background: 'linear-gradient(180deg, rgba(38, 45, 56, 0.55), rgba(22, 27, 34, 0.65))',
                  boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.35)',
                }}>
-            {/* Section header — identity + context, Warp-style. */}
+            {/* Section header — identity + context, Warp-style.
+                Dev mode ON: the header shows the delinked badge and
+                a static note instead of the live cwd — the detached
+                bar never reads the terminal's cwd. */}
             <div className="flex items-center gap-2 px-5 pt-3" data-testid="prompt-section-header">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Terminal</span>
-              <span className="text-[11px] text-[var(--text-muted)] opacity-70">plain shell</span>
-              {tabCwd && (
-                <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title={tabCwd}>
-                  {tabCwd}
-                </span>
+              {devMode ? (
+                <>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Terminal</span>
+                  <span className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-amber-300">DEV — prompt bar delinked</span>
+                  <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title="The detached prompt bar has no live working directory — it never reads the terminal's cwd.">
+                    delinked — no live cwd
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Terminal</span>
+                  <span className="text-[11px] text-[var(--text-muted)] opacity-70">plain shell</span>
+                  {tabCwd && (
+                    <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title={tabCwd}>
+                      {tabCwd}
+                    </span>
+                  )}
+                </>
               )}
             </div>
             <div className="flex items-center gap-3 px-5 py-4">
@@ -868,6 +1014,45 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 </Tooltip>
               )}
             </div>
+            {/* Detached command bar (dev mode ON only) — the prompt
+                bar delinked from the terminal screen. Its own
+                Monaco input (plain-textarea fallback) and its own
+                dev console below it; nothing here writes to the
+                terminal screen or reads its cwd, and the terminal
+                keeps running independently. No blood drop, no
+                heartbeat, no Sentinel face is added here — the
+                plain-terminal rule still holds with LuciferAI off. */}
+            {devMode && (
+              <div data-testid="dev-command-bar" className="px-5 pb-4">
+                <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
+                  <InputArea
+                    input={devInput}
+                    setInput={setDevInput}
+                    onSubmit={(value) => void handleDevSubmit(value)}
+                    onHistoryUp={devHistoryUp}
+                    onHistoryDown={devHistoryDown}
+                    isProcessing={slashRunning}
+                    flat={!luciferAiEnabled}
+                  />
+                </div>
+                <div data-testid="dev-console" className="mt-2 rounded-none border border-[var(--border)] bg-black/30">
+                  <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Dev console — detached output</span>
+                    <button
+                      type="button"
+                      onClick={devClear}
+                      aria-label="Clear dev console"
+                      className="ml-auto text-[11px] text-[var(--text-muted)] underline hover:text-[var(--text-primary)]"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <pre data-testid="dev-console-output" className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-primary)]">
+                    {devLines.length > 0 ? devLines.join('\n') : 'Detached output appears here. Slash commands run Lucid; bare lines run one-shot in the shell. The terminal screen is untouched.'}
+                  </pre>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

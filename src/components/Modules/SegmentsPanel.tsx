@@ -37,6 +37,7 @@ import {
 import { detectStarship } from '../../lib/starshipDetection';
 import { segmentCategory } from '../../lib/segmentCategories';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { AIChatSegment } from './AIChatSegment';
 import { ComputerControlSegment } from './ComputerControlSegment';
 import { ForgePersonaPlexSegment } from './ForgePersonaPlexSegment';
 import { SegmentCategorySection } from './SegmentCategorySection';
@@ -54,6 +55,7 @@ export function SegmentsPanel() {
 
   const about = segmentCategory('about');
   const control = segmentCategory('computer-control');
+  const aiChat = segmentCategory('ai-chat');
   const starship = segmentCategory('starship');
   const forge = segmentCategory('forge-persona-plex');
 
@@ -93,6 +95,16 @@ export function SegmentsPanel() {
       {control && (
         <SegmentCategorySection category={control}>
           <ComputerControlSegment />
+        </SegmentCategorySection>
+      )}
+
+      {/* AI Chat — the pre-installed, connectable segment (Gary,
+          2026-11-08). Its own plugin, independent of LuciferAI,
+          and a place other things can connect to: things like a
+          starship can use segments to connect to it. */}
+      {aiChat && (
+        <SegmentCategorySection category={aiChat}>
+          <AIChatSegment />
         </SegmentCategorySection>
       )}
 

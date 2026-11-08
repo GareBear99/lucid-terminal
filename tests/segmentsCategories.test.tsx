@@ -34,10 +34,11 @@ const renderModules = () =>
   );
 
 describe('Segments categories', () => {
-  it('has four categories, in panel order, each with a title and info text', () => {
+  it('has five categories, in panel order, each with a title and info text', () => {
     expect(SEGMENT_CATEGORIES.map((c) => c.id)).toEqual([
       'about',
       'computer-control',
+      'ai-chat',
       'starship',
       'forge-persona-plex',
     ]);
@@ -60,16 +61,17 @@ describe('Segments categories', () => {
     expect(segmentCategory('no-such-category')).toBeUndefined();
   });
 
-  it('renders the About, Computer control and Starship category headings in the Modules tab', () => {
+  it('renders the About, Computer control, AI Chat and Starship category headings in the Modules tab', () => {
     const html = renderModules();
     expect(html).toContain('About segments');
     expect(html).toContain('Computer control');
+    expect(html).toContain('AI Chat segment');
     expect(html).toContain('Starship segments');
   });
 
   it('renders each visible category info page verbatim, with a voice button', () => {
     const html = renderModules();
-    for (const id of ['about', 'computer-control', 'starship'] as const) {
+    for (const id of ['about', 'computer-control', 'ai-chat', 'starship'] as const) {
       const category = segmentCategory(id)!;
       expect(html).toContain(category.info);
       expect(html).toContain(`data-segment-voice="${id}"`);

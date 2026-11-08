@@ -14,7 +14,9 @@
  *
  * Categories reflect what the segments ARE — nothing is invented
  * here. About: the Segments add-on itself. Computer control: the
- * pre-installed, agent-only segment. Starship: whatever a
+ * pre-installed, agent-only segment. AI Chat: the pre-installed,
+ * connectable segment — its own plugin, independent of LuciferAI,
+ * a place other things can connect to. Starship: whatever a
  * detected starship carries (nothing detected today). Forge: the
  * Forge ↔ Persona Plex bridge (only when Persona Plex is
  * installed).
@@ -41,6 +43,11 @@ export const SEGMENT_CATEGORIES: readonly SegmentCategoryInfo[] = [
     id: 'computer-control',
     title: 'Computer control',
     info: 'Computer control is a pre-installed segment. It needs no starship, no install step, and no server. It is fully local. A trained, user-directed agent drives the Mac one verified action at a time. It is agent-only. Only a fairly advanced, heavily trained, directed agent can use it. The lock is the kill switch. When locked, every action is refused before anything runs. Every action is verified by reading the screen back afterwards. If the screen did not change, the action did not land. A timeout always frees the slot, and a watchdog force-releases a stuck action. It needs macOS Accessibility and Screen Recording to work. How the agent-only gate is enforced in code is Gary\u2019s call, and it is not decided yet.',
+  },
+  {
+    id: 'ai-chat',
+    title: 'AI Chat segment',
+    info: 'AI Chat is a pre-installed segment. It needs no starship and no install step. It is its own plugin, split from the LuciferAI plugin, and it stays when LuciferAI is off. It lives on the status bar and starts off, and turning it on is your choice. It talks through the ping server, your own key, or a local model. It is a place other things can connect to. Things like a starship can use segments to connect to it, so they can talk to Lucid AI through it. How a connection is made is not decided yet, and nothing here invents a connection mechanism.',
   },
   {
     id: 'starship',

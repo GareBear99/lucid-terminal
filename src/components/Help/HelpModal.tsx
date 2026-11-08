@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react';
 import { X, Search, ChevronRight } from 'lucide-react';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { helpCategories, HelpCategory, HelpCommand, getCategoryById } from '../../data/helpData';
+import { SovereignPointsInfo } from './SovereignPointsInfo';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -113,7 +114,14 @@ export function HelpContent({
       <div className="flex-1 overflow-y-auto p-6">
         {!selectedCategory ? (
           // Category Grid View
-          <div className="grid grid-cols-2 gap-4">
+          <>
+            {/* Sovereign Points, heavily explained, with voice audio
+                (Gary, 2026-11-08 ~07:20 PST). Shown at the top of the
+                info page when the user is browsing, not searching —
+                search filters the command grid, and the SP section
+                would only get in its way there. */}
+            {!searchQuery.trim() && <SovereignPointsInfo />}
+            <div className="grid grid-cols-2 gap-4">
             {filteredCategories.map((category) => (
               <button
                 key={category.id}
@@ -146,7 +154,8 @@ export function HelpContent({
                 </div>
               </button>
             ))}
-          </div>
+            </div>
+          </>
         ) : (
           // Command Detail View
           <div className="space-y-4">

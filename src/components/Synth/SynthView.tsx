@@ -274,11 +274,13 @@ export function SynthView() {
     },
     [wipeDemoProgress],
   );
-  // "Continue building" / "Continue in the demo" is a resume, not a mode
-  // choice (Gary, 2026-11-08 ~00:46 PST: continue building is obviously
-  // not iteration 8). It dismisses the prompt and resumes where you left
-  // off — it does not re-assert the choice, does not touch the version,
-  // and does not wipe anything.
+  // "Create Iteration 8 and load it as your own build" / "Continue in
+  // the demo" is a resume, not a mode choice (Gary, 2026-11-08 ~00:46
+  // PST: continue building is obviously not iteration 8; ~02:01 PST:
+  // continue building is the wrong thing to say — say create Iteration
+  // 8 and load it as your own build). It dismisses the prompt and
+  // resumes where you left off — it does not re-assert the choice, does
+  // not touch the version, and does not wipe anything.
   const continueSynthDisclaimer = useCallback(() => {
     setSynthDisclaimerDone(true);
   }, []);

@@ -18,13 +18,18 @@
  * block the Synth view.
  *
  * Gary (2026-11-08 ~00:46 PST): "continue building was obviously not
- * iteration 8" — Continue building is its own action (resume where you
+ * iteration 8" — the build confirm is its own action (resume where you
  * left off), NOT the Iteration 8 choice; it dismisses the prompt without
- * re-asserting the choice or touching the version. And "leave demo and
- * wipe progress from demo to build your own" — switching from the demo
- * to build-your-own wipes the demo progress (a postMessage to the shell
- * iframe, which clears its persisted demo state and reloads fresh), so
- * the build starts fresh and demo progress does not carry over.
+ * re-asserting the choice or touching the version. Gary (~02:01 PST):
+ * "continue building is the wrong thing to say, i told you to say to
+ * create iteration 8 and load it as your own build" — the build confirm
+ * now says "Create Iteration 8 and load it as your own build". And
+ * "leave demo and wipe progress from demo to build your own" —
+ * switching from the demo to build-your-own wipes the demo progress (a
+ * postMessage to the shell iframe, which clears its persisted demo
+ * state and reloads fresh), so the build starts fresh and demo progress
+ * does not carry over. The version step carries a disclaimer (Gary,
+ * ~02:01 PST): "Iteration 8 wipes the demo explore state clean."
  *
  * Iteration 8 itself does not exist yet: "build my own" only records
  * the choice and names Iteration 8 as the creator builder in the
@@ -192,6 +197,17 @@ describe('SynthDemoDisclaimer', () => {
     expect(onChoose).toHaveBeenCalledWith('build', 'iteration-8');
   });
 
+  test('the version step disclaims that Iteration 8 wipes the demo explore state clean', () => {
+    // Gary (2026-11-08 ~02:01 PST): a disclaimer that Iteration 8 wipes
+    // the demo explore state clean — shown where the user commits to
+    // Iteration 8, before they start.
+    render(<SynthDemoDisclaimer onChoose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Build my own' }));
+    expect(
+      screen.getByText('Iteration 8 wipes the demo explore state clean.'),
+    ).toBeTruthy();
+  });
+
   test('back from the version step returns to the choice, recording nothing', () => {
     const onChoose = vi.fn();
     render(<SynthDemoDisclaimer onChoose={onChoose} />);
@@ -277,17 +293,17 @@ describe('SynthDemoDisclaimer', () => {
       "You're building your own with Iteration 8",
     );
     expect(
-      screen.getByRole('button', { name: 'Continue building' }),
+      screen.getByRole('button', { name: 'Create Iteration 8 and load it as your own build' }),
     ).toBeTruthy();
     expect(
       screen.getByRole('button', { name: 'Explore the demo instead' }),
     ).toBeTruthy();
     expect(screen.getAllByRole('button')).toHaveLength(2);
-    // Continue building is its own action — NOT the Iteration 8 choice
+    // The build confirm is its own action — NOT the Iteration 8 choice
     // (Gary, 2026-11-08 ~00:46 PST) — so it resumes without calling
     // onChoose and without a version step.
     fireEvent.click(
-      screen.getByRole('button', { name: 'Continue building' }),
+      screen.getByRole('button', { name: 'Create Iteration 8 and load it as your own build' }),
     );
     expect(onContinue).toHaveBeenCalledTimes(1);
     expect(onChoose).not.toHaveBeenCalled();
@@ -298,7 +314,7 @@ describe('SynthDemoDisclaimer', () => {
     render(
       <SynthDemoDisclaimer onChoose={onChoose} knownChoice="build" />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Continue building' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Iteration 8 and load it as your own build' }));
     expect(onChoose).toHaveBeenCalledTimes(1);
     expect(onChoose).toHaveBeenCalledWith('build');
   });
@@ -325,7 +341,7 @@ describe('SynthDemoDisclaimer', () => {
       screen.queryByRole('button', { name: 'Continue in the demo' }),
     ).toBeNull();
     expect(
-      screen.queryByRole('button', { name: 'Continue building' }),
+      screen.queryByRole('button', { name: 'Create Iteration 8 and load it as your own build' }),
     ).toBeNull();
   });
 });
@@ -410,7 +426,7 @@ describe('SynthView disclaimer flow', () => {
       "You're building your own with Iteration 8",
     );
     expect(
-      screen.getByRole('button', { name: 'Continue building' }),
+      screen.getByRole('button', { name: 'Create Iteration 8 and load it as your own build' }),
     ).toBeTruthy();
     expect(screen.getByText(/build: your own/)).toBeTruthy();
   });
@@ -549,7 +565,7 @@ describe('SynthView disclaimer flow', () => {
     const iframe = shellIframe(container);
     const postMessage = vi.spyOn(iframe.contentWindow, 'postMessage');
     fireEvent.load(iframe);
-    fireEvent.click(screen.getByRole('button', { name: 'Continue building' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Iteration 8 and load it as your own build' }));
     expect(disclaimerDialog()).toBeNull();
     expect(wipeCalls(postMessage)).toHaveLength(0);
     // Resume does not re-assert the choice — it stays build.

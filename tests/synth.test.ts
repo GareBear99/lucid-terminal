@@ -228,7 +228,9 @@ describe('vendored v67 shell', () => {
   test('carries the Lucid Neural Synth patch, mounted in the eye', () => {
     expect(shellSrc).toContain('LUCID SYNTH PATCH');
     expect(shellSrc).toContain('ntDrawThinker');
-    expect(shellSrc).toContain('drawSynthEyeField(cx, cy, R);');
+    // World-projected (Gary, 2026-11-08 ~03:55): the eye field is drawn
+    // at the eye's projected position (ex, ey), not canvas center.
+    expect(shellSrc).toContain('if(eyeVisible) drawSynthEyeField(ex, ey, R);');
   });
 
   test('thinker is gated on the mount (empty shell shows no thinker)', () => {
@@ -290,7 +292,12 @@ describe('synth eye / reticle anchor model', () => {
   const shellSrc = fs.readFileSync(shellPath, 'utf-8');
 
   test('neural synth is the center of the blueprint (the core)', () => {
-    expect(shellSrc).toContain('ntDrawThinker(cx, cy, R);');
+    // World-projected (Gary, 2026-11-08 ~03:55 — af90dd2 was broken):
+    // the thinker is drawn at the eye's projected position (ex, ey), NOT
+    // canvas center (cx, cy). Canvas center is the camera's look-at point
+    // and the camera follows the reticle, so (cx, cy) IS the reticle.
+    expect(shellSrc).toContain('if(eyeVisible) ntDrawThinker(ex, ey, R);');
+    expect(shellSrc).not.toContain('ntDrawThinker(cx, cy, R);');
     expect(shellSrc).toContain(
       'The NEURAL SYNTH (ntDrawThinker) IS the center of the blueprint',
     );
@@ -300,11 +307,19 @@ describe('synth eye / reticle anchor model', () => {
     expect(shellSrc).toContain(
       'eye = (sh && sh.origin) ? norm(sh.origin) : norm({x:0,y:0,z:1});',
     );
-    expect(shellSrc).toContain('drawEyeShip(cx, cy, R);');
+    // World-projected (Gary, 2026-11-08 ~03:55): the eye ship is drawn at
+    // the eye's projected position (ex, ey) at both draw sites, hidden
+    // when the eye is on the far side — never at canvas center (the reticle).
+    expect(shellSrc).toContain('if(eyeVisible) drawEyeShip(ex, ey, R);');
+    expect(shellSrc).not.toContain('drawEyeShip(cx, cy, R);');
+    expect(shellSrc).toContain('const eyeP = projectDir(eye);');
   });
 
   test('spectrum animation (eye field) is at the center, not outside', () => {
-    expect(shellSrc).toContain('drawSynthEyeField(cx, cy, R);');
+    // World-projected (Gary, 2026-11-08 ~03:55): the eye field is drawn
+    // at the eye's projected position (ex, ey), not canvas center.
+    expect(shellSrc).toContain('if(eyeVisible) drawSynthEyeField(ex, ey, R);');
+    expect(shellSrc).not.toContain('drawSynthEyeField(cx, cy, R);');
     expect(shellSrc).toContain(
       'the spectrum animation (the eye field) is at the center around the',
     );
@@ -314,6 +329,12 @@ describe('synth eye / reticle anchor model', () => {
     expect(shellSrc).toContain('function reticleScreenPos(cx, cy, R)');
     expect(shellSrc).toContain('drawReticle(rp.x, rp.y);');
     expect(shellSrc).toContain('POINTER SENTINEL FOR THE');
+    // World-projected (Gary, 2026-11-08 ~03:55): the reticle orbits the
+    // EYE (the blueprint center, ex/ey), not canvas center (the reticle's
+    // own look-at point). Canvas center as the orbit center would put the
+    // reticle on the eye's position.
+    expect(shellSrc).toContain('reticleScreenPos(ex, ey, R)');
+    expect(shellSrc).not.toContain('const rp = reticleScreenPos(cx, cy, R);');
   });
 
   test('W moves the reticle, not the eye', () => {

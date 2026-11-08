@@ -6167,11 +6167,36 @@ function render(){
     const R = currentViewRadius();
     const cx=W*0.5, cy=H*0.5;
 
+    // WORLD-PROJECTED EYE (Gary, 2026-11-08 ~03:55 — af90dd2 was broken):
+    // the eye / neural synth / eye field are LOCKED to the center of the
+    // loaded blueprint (the blueprint's pivot-centroid anchor, `eye`). They
+    // are drawn at the eye's TRUE world-projected screen position
+    // (projectDir(eye)), NOT at canvas center (cx, cy). Canvas center is
+    // the camera's look-at point and the camera follows the reticle, so
+    // drawing the eye at (cx, cy) glued it to the reticle (the af90dd2
+    // label said lock=CENTER but the draw never used the `eye` vector).
+    // On scroll/zoom the eye's true position moves radially (R scales)
+    // while the overlay stayed pinned at (cx, cy) — Gary proved it with
+    // a simple scroll. When the eye is behind the camera (reticle walked
+    // >90 deg from the blueprint center), projectDir returns null and the
+    // eye/field/thinker are hidden (far side of the globe); the reticle
+    // still draws.
+    const eyeP = projectDir(eye);
+    const eyeVisible = !!eyeP;
+    const ex = eyeVisible ? eyeP.x : cx;
+    const ey = eyeVisible ? eyeP.y : cy;
+
     // The player reticle's outside screen position (the user's pointer
-    // sentinel). The eye / neural synth / eye field own the center (cx, cy);
-    // only the reticle is outside. Computed once per frame and reused at
-    // both draw sites below.
-    const rp = reticleScreenPos(cx, cy, R);
+    // sentinel). It orbits the EYE (the blueprint center) — it points
+    // from the eye toward the reticle's world position. When the eye is
+    // hidden (far side), fall back to screen center so the pointer stays
+    // visible. Clamped to the viewport so the pointer never leaves the
+    // screen. Computed once per frame and reused at both draw sites below.
+    const rpRaw = reticleScreenPos(ex, ey, R);
+    const rp = {
+      x: clamp(rpRaw.x, 16, Math.max(16, W - 16)),
+      y: clamp(rpRaw.y, 16, Math.max(16, H - 16))
+    };
 
     drawLensShell(cx, cy, R);
 
@@ -6193,8 +6218,11 @@ function render(){
     // the spectrum animation (the eye field) is at the center around the
     // eye / neural synth. Neither is outside and neither follows the
     // reticle — ONLY the player reticle is outside (see reticleScreenPos).
-    drawSynthEyeField(cx, cy, R);
-    ntDrawThinker(cx, cy, R);
+    // Both are drawn at the eye's WORLD-PROJECTED position (ex, ey), not
+    // canvas center (Gary, 2026-11-08 ~03:55); hidden when the eye is on
+    // the far side of the globe (eyeVisible false).
+    if(eyeVisible) drawSynthEyeField(ex, ey, R);
+    if(eyeVisible) ntDrawThinker(ex, ey, R);
     drawWorldCompassRing(cx, cy, R);
 
     drawScannerSweep(cx, cy, R);
@@ -6224,7 +6252,7 @@ function render(){
       syncReticlePacket();
       setText(hudState, `boot=${effectiveBootState()}  build=${buildState}  waiting=UPLOAD_BLUEPRINT  zoom=${viewZoom.toFixed(2)}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  eye=${EyeCtl.mode}`);
       drawReticle(rp.x, rp.y);
-      drawEyeShip(cx, cy, R);
+      if(eyeVisible) drawEyeShip(ex, ey, R);
       drawSurfaceRider(cx, cy, R);
       drawPoleCompass();
       updateEyeCommandPanel();
@@ -6292,12 +6320,15 @@ function render(){
 
     // Eye marker (Master Control) is LOCKED to the center of the loaded
     // blueprint (the blueprint's pivot-centroid anchor) — it is the eye at
-    // the center, NOT locked to the reticle. The player reticle (the user's
-    // pointer sentinel) is drawn at its own outside position (rp); it is the
-    // ONLY thing on the outside. The globe rotates beneath the fixed center
-    // as the reticle moves. (Gary, 2026-11-08 ~01:52–01:58 PST.)
+    // the center, NOT locked to the reticle. It is drawn at the eye's
+    // WORLD-PROJECTED position (ex, ey) — Gary, 2026-11-08 ~03:55: drawing
+    // it at canvas center glued it to the reticle, because the camera
+    // follows the reticle and canvas center IS the reticle. The player
+    // reticle (the user's pointer sentinel) is drawn at its own outside
+    // position (rp, orbiting the eye); it is the ONLY thing on the
+    // outside. (Gary, 2026-11-08 ~01:52–01:58 PST.)
     drawReticle(rp.x, rp.y);
-    drawEyeShip(cx, cy, R);
+    if(eyeVisible) drawEyeShip(ex, ey, R);
     // v64: remove duplicate banner-style home marker; the tripod dock and world rig are the only canonical probe-home visuals
     drawSurfaceRider(cx, cy, R);
 

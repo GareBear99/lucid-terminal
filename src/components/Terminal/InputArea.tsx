@@ -2,10 +2,12 @@ import { useRef, useEffect, useState } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import '../../lib/monacoLoader'; // Bundle Monaco locally instead of the CDN
 import { ProcessingGlow } from './ProcessingGlow';
+import { InputDragHandle } from '../InputDragHandle';
 import {
-  INPUT_DEFAULT_HEIGHT_VH,
+  INPUT_DRAG_MAX_HEIGHT_VH,
   INPUT_MIN_HEIGHT_PX,
   resolveInputHeightPx,
+  useDraggableInputHeight,
 } from '../../lib/inputHeight';
 import { useToastStore } from '../../stores/toastStore';
 
@@ -16,12 +18,18 @@ import { useToastStore } from '../../stores/toastStore';
 const MONACO_LOAD_TIMEOUT_MS = 8000;
 
 // The default cap lives in src/lib/inputHeight.ts (INPUT_DEFAULT_HEIGHT_VH,
-// one-third of the page). The input grows upward with the content up to
-// the default cap, then scrolls. There is NO drag handle on the prompt
-// (Gary, 2026-11-07): the prompt area must not be drag-extendable.
-// The squared glass backwall behind the prompt lives on the prompt
-// panel in Terminal.tsx (prompt-input-wrap) — Warp-AI-terminal style,
-// squared corners, in both the LuciferAI-on and flat states.
+// one-third of the page) and the drag max there (INPUT_DRAG_MAX_HEIGHT_VH,
+// half the page). The input grows upward with the content up to the
+// default cap, then scrolls — and a drag handle on its top edge lets the
+// user drag it taller or shorter, up to the drag max (Gary, 2026-11-05,
+// c236ab3; the dragged height is a CAP, not a floor, so the input
+// regresses to fit the content when it shrinks and is never stuck tall,
+// 988a9a1). The drag was removed by ec33aa9 (Gary, 2026-11-07: "dont
+// allow drag to extend") and is RESTORED here by Gary's 2026-11-08
+// "recover it all" — that order overrides the no-drag order for this
+// recovery. The squared glass backwall behind the prompt lives on the
+// prompt panel in Terminal.tsx (prompt-input-wrap) — Warp-AI-terminal
+// style, squared corners, in both the LuciferAI-on and flat states.
 
 // Monaco types
 declare global {
@@ -38,13 +46,17 @@ interface InputAreaProps {
     input: string;
     setInput: (value: string) => void;
     isProcessing?: boolean;
-    /** Flat prompt (LuciferAI disabled): no bubble. The rainbow
+    /** Flat prompt (LuciferAI disabled): no bubble chrome — but the
+     *  cursor/text padding stays (Gary, 2026-11-05): the input sits
+     *  12px in from the edge in BOTH states, flat or not, so the
+     *  cursor never hugs the edge. The drag handle keeps working
+     *  too: resizing the input is not bubbling. The rainbow
      *  processing glow is NOT bubble chrome — it is a platform
      *  appearance trait (Gary, 2026-11-08), governed only by its
      *  own settings (processingGlowColor / Intensity / Speed), so
      *  flat does not suppress it. The squared glass backwall is
-     *  the prompt panel itself (Terminal.tsx), not bubble chrome,
-     *  so it shows in both states. */
+     *  the prompt panel itself (Terminal.tsx), not bubble
+     *  chrome, so it shows in both states. */
     flat?: boolean;
 }
 
@@ -56,14 +68,16 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
   const [viewportHeightPx, setViewportHeightPx] = useState(
     () => window.innerHeight,
   );
-  // The input height: grow with the content up to the 33.33vh default
-  // cap, then scroll. No dragged height — the prompt is not
-  // drag-extendable (Gary, 2026-11-07), so the height is always the
-  // never-dragged resolution.
+  const { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight } =
+    useDraggableInputHeight();
+  // The input height: default cap 33.33vh; the dragged height is a
+  // cap — the input regresses to fit the content and is never stuck
+  // tall — direct pointer follow while dragging.
   const editorHeight = resolveInputHeightPx(
     contentHeightPx,
-    null,
+    draggedHeightPx,
     viewportHeightPx,
+    isDragging,
   );
   const fallbackRef = useRef<HTMLTextAreaElement>(null);
   const editorDisposers = useRef<Array<() => void>>([]);
@@ -103,6 +117,12 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         };
     }, []);
 
+    // Keep the drag's start height current, and track viewport resizes
+    // so the vh caps stay right when the window changes size.
+    useEffect(() => {
+        noteHeight(editorHeight);
+    }, [editorHeight, noteHeight]);
+
     // Track viewport resizes so the vh cap stays right when the window
     // changes size.
     useEffect(() => {
@@ -128,18 +148,21 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
 
     // Plain-textarea fallback: grow with the content up to the cap,
     // then scroll - long input stays readable instead of clipping.
-    // The input regresses to fit the content when it shrinks.
+    // The dragged height caps how tall the input may grow; the
+    // input regresses to fit the content when it shrinks.
     useEffect(() => {
         const el = fallbackRef.current;
         if (!el) return;
         el.style.height = 'auto';
         const heightPx = resolveInputHeightPx(
             el.scrollHeight,
-            null,
+            draggedHeightPx,
             window.innerHeight,
+            isDragging,
         );
         el.style.height = `${heightPx}px`;
-    }, [input, monacoFailed]);
+        noteHeight(heightPx);
+    }, [input, monacoFailed, draggedHeightPx, isDragging, noteHeight]);
 
     // Handle Monaco Editor mount
     const handleEditorDidMount = (editor: any, monaco: any) => {
@@ -198,9 +221,9 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         // Focus editor
         editor.focus();
         
-        // Record the content height; the input height derives from it
-        // (default cap only — no drag). Window resizes are tracked by
-        // the viewport effect above.
+        // Record the content height; the bubble height derives from it
+        // (default cap, dragged cap, drag follow). Window
+        // resizes are tracked by the viewport effect above.
         const syncHeight = () => {
             setContentHeightPx(editor.getContentHeight());
         };
@@ -231,10 +254,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         // Prompt shape (Gary, 2026-11-08): when LuciferAI is ON,
         // the squared bottom-drop section (rounded-none). When it
         // is OFF, the ORIGINAL Lucid terminal prompt (pre-ec33aa9,
-        // 4d8ef4e) — flat, bare: no rounding, no padding, no box.
+        // 4d8ef4e) — flat, bare: no rounding, no box — BUT with the
+        // 12px side padding back (Gary, 2026-11-05 + 2026-11-08
+        // "recover it all"): the cursor/text sits 12px in from the
+        // edge in BOTH states, so it never hugs the bubble edge.
         // The rainbow glow inherits this (it is a platform trait
         // and still shows, flat or not).
-        <div className={flat ? 'w-full h-auto min-h-[40px] flex items-center relative' : 'w-full h-auto min-h-[40px] flex items-center relative rounded-none px-3'}>
+        <div className={flat ? 'w-full h-auto min-h-[40px] flex items-center relative px-3' : 'w-full h-auto min-h-[40px] flex items-center relative rounded-none px-3'}>
             {/* Rainbow swirl processing glow — a platform appearance
                 trait, not a LuciferAI trait (Gary, 2026-11-08): it
                 shows while a command is processing in ALL modes,
@@ -242,6 +268,14 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                 own appearance settings. Processing-only, not
                 always-on. */}
             <ProcessingGlow isProcessing={isProcessing} />
+            {/* Drag handle on the input's top edge: drag up to grow,
+                down to shrink, up to half the page (Gary, 2026-11-08:
+                "recover it all" — restored from c236ab3). */}
+            <InputDragHandle
+                isDragging={isDragging}
+                onDragHandlePointerDown={onDragHandlePointerDown}
+            />
+            
             {monacoFailed ? (
                 <textarea
                     ref={fallbackRef}
@@ -253,7 +287,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     placeholder="Type a command… (plain input — Monaco unavailable)"
                     title="Monaco editor unavailable — using plain input"
                     className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-y-auto"
-                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace", maxHeight: `${INPUT_DEFAULT_HEIGHT_VH}vh` }}
+                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace", maxHeight: `${INPUT_DRAG_MAX_HEIGHT_VH}vh` }}
                 />
             ) : (
             <Editor

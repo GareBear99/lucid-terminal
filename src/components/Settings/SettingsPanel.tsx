@@ -1238,7 +1238,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                           <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
                           <span className="min-w-0">
                             <span className="block text-sm">{plugin.name}</span>
-                            <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
+                            <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">{plugin.description}</span>
                           </span>
                         </label>
 </Tooltip>
@@ -1248,10 +1248,10 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <Bot size={18} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm">LuciferAI</span>
-                      <span className="block text-xs text-[var(--text-muted)]">
+                      <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                         The plugin itself — local AI backend, command passes, FixNet. The Synth shell and blood drop above are its surfaces.
                       </span>
-                      <label className="flex items-center gap-2 cursor-pointer mt-2">
+                      <label className="flex items-center gap-2 cursor-pointer mt-3">
                         <Toggle
                           checked={luciferAiEnabled}
                           onChange={(checked) => updateSetting('luciferAiEnabled', checked)}
@@ -1280,7 +1280,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <Usb size={18} className="text-[var(--text-muted)] shrink-0" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm">{DEVICES_PLUGIN.name}</span>
-                      <span className="block text-xs text-[var(--text-muted)]">
+                      <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                         {DEVICES_PLUGIN.description}
                       </span>
                     </span>
@@ -1292,7 +1292,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <Boxes size={18} className="text-[var(--text-muted)] shrink-0" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm">{MODULES_PLUGIN.name}</span>
-                      <span className="block text-xs text-[var(--text-muted)]">
+                      <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                         {MODULES_PLUGIN.description}
                       </span>
                     </span>
@@ -1342,7 +1342,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                           )}
                           <span className="min-w-0">
                             <span className="block text-sm">{plugin.name}</span>
-                            <span className="block text-xs text-[var(--text-muted)]">{plugin.description}</span>
+                            <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">{plugin.description}</span>
                           </span>
                         </label>
                       );
@@ -1366,7 +1366,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                         <Puzzle size={18} className="text-[var(--text-muted)] shrink-0" />
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm">{addon.name}</span>
-                          <span className="block text-xs text-[var(--text-muted)]">
+                          <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                             {addon.description}
                             {addon.removable ? ' Removable once installed.' : ''}
                           </span>
@@ -1459,7 +1459,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       <Monitor size={18} className="text-[var(--text-muted)] shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm">{devicesState.host.name}</span>
-                        <span className="block text-xs text-[var(--text-muted)]">
+                        <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                           This Mac · host{devicesState.host.detail ? ` · ${devicesState.host.detail}` : ''}
                         </span>
                       </span>
@@ -1475,7 +1475,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       )}
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm">{device.name}</span>
-                        <span className="block text-xs text-[var(--text-muted)]">
+                        <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                           {device.kind === 'android'
                             ? `Android · ${device.id}`
                             : `USB${device.vendorName ? ` · ${device.vendorName}` : ''}${device.vendorId ? ` · ${device.vendorId}` : ''}${device.productId ? ` / ${device.productId}` : ''}`}
@@ -1503,7 +1503,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       <Puzzle size={18} className="text-[var(--text-muted)] shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm">{addon.name}</span>
-                        <span className="block text-xs text-[var(--text-muted)]">{addon.description}</span>
+                        <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">{addon.description}</span>
                       </span>
                       <span className="text-xs text-[var(--text-muted)] shrink-0">Installed · Anchored with Devices</span>
                     </div>

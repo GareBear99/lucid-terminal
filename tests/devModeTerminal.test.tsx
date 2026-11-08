@@ -335,11 +335,16 @@ describe('dev mode ON (delinked)', () => {
     expect(
       Boolean(sendArrow.compareDocumentPosition(tilde) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true);
-    // The input itself is bare — no rounding, no padding.
+    // The input itself is bare — no rounding — BUT with the 12px side
+    // padding back (Gary, 2026-11-08 "recover it all"): flat is no
+    // bubble chrome, not no padding; the cursor must not hug the edge.
     const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
     const inputOuter = input.parentElement as HTMLElement;
     expect(inputOuter.className).not.toContain('rounded');
-    expect(inputOuter.className).not.toContain('px-3');
+    expect(inputOuter.className).toContain('px-3');
+    // And the drag handle is back on the dev-bar input too (recovered
+    // 2026-11-08): drag up to grow, down to shrink, max halfway.
+    expect(within(bar).queryByTestId('input-drag-handle')).not.toBeNull();
     // The wrapper around the input EXTENDS and is HALF-WAY ROUNDED
     // (rounded-lg) AND carries the ORIGINAL prompt BUBBLE — a dark
     // background + subtle border, as in Gary's photo. (Gary,

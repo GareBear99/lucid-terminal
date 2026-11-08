@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 /**
- * Terminal prompt panel tests — squared glass backwall, no drag.
+ * Terminal prompt panel tests — squared glass backwall, drag on the dev bar.
  *
- * Gary (2026-11-07): the terminal prompt area must NOT be
- * drag-extendable, and it gets a squared glass backwall like the
- * Warp AI terminal. The backwall is the prompt's own panel
+ * Gary (2026-11-07): the terminal prompt gets a squared glass backwall
+ * like the Warp AI terminal. The drag handle was removed from the
+ * prompt then (ec33aa9) and is RESTORED by Gary's 2026-11-08
+ * "recover it all": it lives on the detached dev-bar input (drag up
+ * to grow, down to shrink, max halfway at 50vh) — NOT on the prompt
+ * panel (xterm surface) itself, which keeps the squared glass
+ * backwall + segregation divider intact. The backwall is the prompt's own panel
  * (prompt-input-wrap in Terminal.tsx): frosted translucent glass,
  * subtle border, SQUARE corners (no rounding) — in BOTH LuciferAI
  * states, on and flat (plugin off). The backwall is the prompt's
@@ -130,15 +134,17 @@ function expectSquaredGlassBackwall(wrap: HTMLElement) {
   expect(wrap.className).toContain('border-t-[var(--text-muted)]');
 }
 
-describe('terminal prompt panel — squared glass backwall, segregation divider, no drag', () => {
+describe('terminal prompt panel — squared glass backwall, segregation divider, drag on the dev bar', () => {
   test('LuciferAI on: the prompt panel is a squared glass backwall', async () => {
     setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('xterm-surface');
     const wrap = screen.getByTestId('prompt-input-wrap');
     expectSquaredGlassBackwall(wrap);
-    // No drag handle anywhere in the terminal prompt.
-    expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+    // No drag handle on the prompt PANEL itself (the xterm surface).
+    expect(within(wrap).queryByTestId('input-drag-handle')).toBeNull();
+    // The handle lives on the detached dev-bar input (recovered).
+    expect(screen.queryByTestId('input-drag-handle')).not.toBeNull();
   });
 
   test('LuciferAI off (flat): the prompt panel is STILL a squared glass backwall', async () => {
@@ -147,8 +153,10 @@ describe('terminal prompt panel — squared glass backwall, segregation divider,
     await screen.findByTestId('xterm-surface');
     const wrap = screen.getByTestId('prompt-input-wrap');
     expectSquaredGlassBackwall(wrap);
-    // No drag handle while flat either.
-    expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+    // No drag handle on the prompt PANEL itself while flat either —
+    // the handle is on the dev-bar input, which keeps it while flat.
+    expect(within(wrap).queryByTestId('input-drag-handle')).toBeNull();
+    expect(screen.queryByTestId('input-drag-handle')).not.toBeNull();
   });
 });
 

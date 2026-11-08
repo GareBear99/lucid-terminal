@@ -7,12 +7,15 @@
  * up to one-third of the page (33.33vh), and past that cap the input
  * must scroll so long input stays readable.
  *
- * Gary's fix (2026-11-07): the terminal prompt is NOT drag-extendable
- * — there is no drag handle on the prompt area. The input still grows
- * with the content up to the 33.33vh default cap, then scrolls. The
- * fallback textarea's maxHeight is the default cap too, not a drag max.
- * (The AI-chat input keeps its own drag handle; this file only covers
- * the terminal prompt.)
+ * Gary's fix (2026-11-07, ec33aa9): the terminal prompt was NOT
+ * drag-extendable — the drag handle was removed from the prompt area.
+ * Gary's "recover it all" (2026-11-08) RESTORES it: the drag handle is
+ * back on the prompt's top edge, drag up to grow / down to shrink, up
+ * to the halfway max (50vh), default cap one-third (33.33vh), dragged
+ * height a CAP not a floor (the input regresses when content shrinks,
+ * never stuck tall). The fallback textarea's maxHeight is the drag max
+ * again. (The AI-chat input keeps its own drag handle; this file only
+ * covers the terminal prompt.)
  *
  * The Monaco editor is stubbed out here (same pattern as
  * tests/codeEditorFallback.test.tsx): what matters is the height the
@@ -120,7 +123,8 @@ function setContentHeight(px: number) {
   });
 }
 
-/** No drag helper anymore: there is no handle to drag (Gary, 2026-11-07). */
+/** Drag helper (Gary, 2026-11-08 — recovered): the handle drags the
+ *  input taller/shorter; the dragged height is a cap, not a floor. */
 
 describe('prompt input bubble', () => {
   test('the default cap is one-third of the page', () => {
@@ -169,9 +173,9 @@ describe('prompt input bubble', () => {
     // Padding: the text starts 12px in from the bubble edge.
     expect(textarea.parentElement?.className).toContain('px-3');
     // Scrollable past the cap (was overflow-hidden: clipped). The CSS
-    // maxHeight is the 33.33vh default cap — no drag max anymore.
+    // maxHeight is the 50vh drag max again (recovered).
     expect(textarea.className).toContain('overflow-y-auto');
-    expect(textarea.style.maxHeight).toBe('33.33vh');
+    expect(textarea.style.maxHeight).toBe('50vh');
 
     const longText = Array.from({ length: 60 }, (_, i) => `line ${i}`).join(
       '\n',
@@ -194,9 +198,9 @@ describe('prompt input flat (LuciferAI disabled — no bubble)', () => {
     // It shows while a command runs, LuciferAI off or on.
     expect(container.querySelector('.processing-glow-border')).not.toBeNull();
     expect(container.querySelector('.processing-glow-pulse')).not.toBeNull();
-    // And there is no drag handle on the prompt at all (Gary,
-    // 2026-11-07): the prompt area must not be drag-extendable.
-    expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+    // And the drag handle IS there in the flat prompt too (Gary,
+    // 2026-11-08): resizing is not bubbling, so flat keeps it.
+    expect(screen.queryByTestId('input-drag-handle')).not.toBeNull();
   });
 
   test('flat prompt shows no glow while idle — the swirl is processing-only', async () => {
@@ -205,6 +209,16 @@ describe('prompt input flat (LuciferAI disabled — no bubble)', () => {
     await screen.findByTestId('monaco-editor');
     expect(container.querySelector('.processing-glow-border')).toBeNull();
     expect(container.querySelector('.processing-glow-pulse')).toBeNull();
+  });
+
+  test('flat prompt still insets the text from the edge (Gary, 2026-11-08)', async () => {
+    // The flat prompt lost its side padding when it went flat — the
+    // cursor sat flush to the bubble edge. Recovered: px-3 in BOTH
+    // states, so the cursor has 12px of breathing room either way.
+    mockState.initImpl = () => Promise.resolve();
+    render(<Harness flat />);
+    const editor = await screen.findByTestId('monaco-editor');
+    expect(editor.parentElement?.className).toContain('px-3');
   });
 
   test('non-flat prompt still shows the processing glow while processing', async () => {
@@ -222,27 +236,71 @@ describe('prompt input flat (LuciferAI disabled — no bubble)', () => {
   });
 });
 
-describe('prompt input has no drag handle (Gary, 2026-11-07)', () => {
-  test('no drag handle renders in the Monaco prompt', async () => {
+describe('prompt input has a drag handle (Gary, 2026-11-08 — recovered)', () => {
+  /** Drag the handle up by `dy` px: pointerdown on the handle, then a
+   *  window pointermove / pointerup, like a real pointer drag. */
+  function dragHandleUp(dy: number) {
+    const handle = screen.getByTestId('input-drag-handle');
+    fireEvent.pointerDown(handle, { clientY: 400, pointerId: 1 });
+    act(() => {
+      window.dispatchEvent(
+        new window.MouseEvent('pointermove', { clientY: 400 - dy }),
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        new window.MouseEvent('pointerup', { clientY: 400 - dy }),
+      );
+    });
+  }
+
+  test('drag handle renders in the Monaco prompt', async () => {
     mockState.initImpl = () => Promise.resolve();
     render(<Harness />);
     await screen.findByTestId('monaco-editor');
-    expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+    expect(screen.queryByTestId('input-drag-handle')).not.toBeNull();
   });
 
-  test('no drag handle renders in the flat prompt either', async () => {
+  test('drag handle renders in the flat prompt either', async () => {
     mockState.initImpl = () => Promise.resolve();
     render(<Harness flat />);
     await screen.findByTestId('monaco-editor');
-    expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+    expect(screen.queryByTestId('input-drag-handle')).not.toBeNull();
   });
 
-  test('no drag handle renders in the fallback textarea prompt', async () => {
+  test('drag handle renders in the fallback textarea prompt', async () => {
     mockState.initImpl = () => Promise.reject(new Error('monaco down'));
     mockState.mountEditor = false;
     render(<Harness />);
     await screen.findByPlaceholderText(/plain input/);
-    expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+    expect(screen.queryByTestId('input-drag-handle')).not.toBeNull();
+  });
+
+  test('dragging up raises the cap to the halfway max (50vh)', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    render(<Harness />);
+    await screen.findByTestId('monaco-editor');
+    // Long content: capped at the one-third default first (jsdom
+    // viewport 768px -> 33.33vh = 255px).
+    setContentHeight(2000);
+    expect(editorHeight()).toBe('255');
+    // Drag up 300px: the dragged cap would be 555px, clamped to the
+    // halfway max (50vh of 768px = 384px).
+    dragHandleUp(300);
+    expect(editorHeight()).toBe('384');
+  });
+
+  test('dragged height is a cap, not a floor — shrinking content regresses', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    render(<Harness />);
+    await screen.findByTestId('monaco-editor');
+    setContentHeight(2000);
+    dragHandleUp(300);
+    expect(editorHeight()).toBe('384');
+    // Delete most of the text: the input hugs the content again
+    // instead of staying stuck tall at the dragged height.
+    setContentHeight(100);
+    expect(editorHeight()).toBe('100');
   });
 
   test('content still grows to the default cap and scrolls past it — no drag needed', async () => {
@@ -257,7 +315,7 @@ describe('prompt input has no drag handle (Gary, 2026-11-07)', () => {
 
     // Very long input: capped at one-third of the page (jsdom viewport
     // 768px -> 33.33vh = 255px), and it scrolls there — the cap is
-    // content-driven now, with no drag handle to raise it.
+    // content-driven when never dragged.
     setContentHeight(2000);
     expect(editorHeight()).toBe('255');
     expect(mockState.editorProps?.options?.scrollbar?.vertical).toBe('auto');

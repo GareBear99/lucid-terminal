@@ -194,6 +194,45 @@ describe('forgeStore roster seeding', () => {
     expect(useForgeStore.getState().roster[0].color).toBe('pink');
     expect(m.calls.saveRoster).toHaveLength(0);
   });
+
+  test('LuciferAI OFF does not touch the loaded roster (Gary, 2026-11-08)', async () => {
+    // Gary: "what happened to the loaded homunculi" — the face hides
+    // while LuciferAI is off, but the Forge roster is untouched: it
+    // loads as-is from the saved roster, is never reseeded and never
+    // wiped. Fixture mirrors the Mac's live roster (Lucifer purple,
+    // EVE pink, both untrained, no brain installed).
+    const EVE: Homunculus = {
+      ...LUCIFER,
+      id: 'eve',
+      name: 'EVE',
+      color: 'pink',
+      createdAt: '2026-11-06T18:56:52.261Z',
+    };
+    const m = installMock([
+      { ...LUCIFER, color: 'purple', createdAt: '2026-11-06T01:51:36.953Z' },
+      EVE,
+    ]);
+    restore = m.restore;
+    useSettingsStore.setState((s) => ({
+      settings: {
+        ...s.settings,
+        luciferAiEnabled: false,
+        luciferAiSilenced: true,
+      } as never,
+    }));
+    seedSettingsColor('pink');
+    await useForgeStore.getState().loadRoster();
+    const { roster } = useForgeStore.getState();
+    expect(roster).toHaveLength(2);
+    expect(roster.map((h) => h.id)).toEqual(['lucifer', 'eve']);
+    expect(roster.map((h) => h.color)).toEqual(['purple', 'pink']);
+    // No reseed, no wipe, no rewrite.
+    expect(m.calls.saveRoster).toHaveLength(0);
+    // Leave the shared settings store as the other tests expect it.
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, luciferAiEnabled: true } as never,
+    }));
+  });
 });
 
 describe('forgeStore biography + promotion', () => {

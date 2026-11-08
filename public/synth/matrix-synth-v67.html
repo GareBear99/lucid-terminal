@@ -6183,6 +6183,12 @@ function render(){
   let __overlayHtml = '';
   function renderOverlay(){
     if(!overlayOn) return;
+    // Final sweep: renderOverlay is the only per-frame call
+    // outside any try/catch in frame(). If it ever throws, the rAF
+    // loop dies and the synth freezes permanently. Guard it —
+    // record the error, but never let a debug overlay wedge the
+    // sim (no bootState change).
+    try{
     const sh = shells.get(activeShellId);
     const infl = inflight ? `${inflight.req.action} idx=${inflight.req.target} age=${tick-inflight.t0}` : 'none';
     const __ovHtml = `
@@ -6225,6 +6231,7 @@ function render(){
       if(lines>24) break;
     }
     logEl.textContent = out.trim();
+    }catch(e){ setError(e); }
   }
 
   // ---------- main update loop (fail closed) ----------

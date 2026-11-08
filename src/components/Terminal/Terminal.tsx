@@ -1208,13 +1208,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 plain-terminal rule still holds with LuciferAI off. */}
             {devMode && (
               <div data-testid="dev-command-bar" className="px-5 pb-4">
-                {/* Original prompt when LuciferAI is disabled (Gary,
+                {/* Prompt when LuciferAI is disabled (Gary,
                     2026-11-08): the ORIGINAL Lucid terminal prompt
-                    (pre-ec33aa9, 4d8ef4e) — flat, no box: the ~
-                    tilde + a bare input, no background, no border,
-                    no glass. When LuciferAI is on, the squared
-                    bottom-drop section. The rainbow glow still shows
-                    either way (platform trait). */}
+                    (pre-ec33aa9, 4d8ef4e) — the ~ tilde + an input
+                    that EXTENDS (flex-1) with HALF-WAY ROUNDED edges
+                    (rounded-lg), but flat otherwise: no background,
+                    no border, no glass. When LuciferAI is on, the
+                    squared bottom-drop section. The rainbow glow
+                    still shows either way (platform trait). */}
                 {luciferAiEnabled ? (
                   <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
                     <InputArea
@@ -1230,7 +1231,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 ) : (
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
-                    <div className="flex-1 overflow-hidden">
+                    <div className="flex-1 rounded-lg overflow-hidden">
                       <InputArea
                         input={devInput}
                         setInput={setDevInput}

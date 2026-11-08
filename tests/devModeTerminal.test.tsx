@@ -261,9 +261,11 @@ describe('dev mode ON (delinked)', () => {
     });
   });
 
-  test('the dev bar prompt is the ORIGINAL flat prompt when LuciferAI is off (Gary, 2026-11-08) — no box, ~ tilde + bare input', async () => {
+  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — ~ tilde + extending input, half-way rounded edges, flat otherwise', async () => {
     // LuciferAI OFF (the default here): the ORIGINAL Lucid terminal
-    // prompt (pre-ec33aa9, 4d8ef4e) — flat, no box.
+    // prompt (pre-ec33aa9, 4d8ef4e) — the ~ tilde + an input that
+    // EXTENDS (flex-1) with HALF-WAY ROUNDED edges (rounded-lg),
+    // but flat otherwise: no border, no background, no glass.
     setDevMode(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
@@ -279,12 +281,14 @@ describe('dev mode ON (delinked)', () => {
     const inputOuter = input.parentElement as HTMLElement;
     expect(inputOuter.className).not.toContain('rounded');
     expect(inputOuter.className).not.toContain('px-3');
-    // The wrapper around the input is flat too — no box: no
-    // rounding, no border, no background.
+    // The wrapper around the input EXTENDS and is HALF-WAY ROUNDED
+    // (rounded-lg) — but flat otherwise: no border, no background.
     const wrapper = inputOuter.parentElement as HTMLElement;
     expect(wrapper.className).toContain('flex-1');
+    expect(wrapper.className).toContain('rounded-lg');
     expect(wrapper.className).toContain('overflow-hidden');
-    expect(wrapper.className).not.toContain('rounded');
+    expect(wrapper.className).not.toContain('rounded-none');
+    expect(wrapper.className).not.toContain('rounded-full');
     expect(wrapper.className).not.toContain('border');
     expect(wrapper.className).not.toContain('bg-');
   });

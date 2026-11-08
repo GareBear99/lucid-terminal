@@ -16,10 +16,12 @@
  * here. About: the Segments add-on itself. Computer control: the
  * pre-installed, agent-only segment. AI Chat: the pre-installed,
  * connectable segment — its own plugin, independent of LuciferAI,
- * a place other things can connect to. Starship: whatever a
- * detected starship carries (nothing detected today). Forge: the
- * Forge ↔ Persona Plex bridge (only when Persona Plex is
- * installed).
+ * a place other things can connect to. Google Drive: the
+ * pre-installed, connectable segment — a place to connect your
+ * Google Drive to Lucid, and a place other things can connect to
+ * the way AI Chat is. Starship: whatever a detected starship
+ * carries (nothing detected today). Forge: the Forge ↔ Persona
+ * Plex bridge (only when Persona Plex is installed).
  */
 
 /** One categorised section of the Segments panel. */
@@ -48,6 +50,11 @@ export const SEGMENT_CATEGORIES: readonly SegmentCategoryInfo[] = [
     id: 'ai-chat',
     title: 'AI Chat segment',
     info: 'AI Chat is a pre-installed segment. It needs no starship and no install step. It is its own plugin, split from the LuciferAI plugin, and it stays when LuciferAI is off. It lives on the status bar and starts off, and turning it on is your choice. It talks through the ping server, your own key, or a local model. It is a place other things can connect to. Things like a starship can use segments to connect to it, so they can talk to Lucid AI through it. How a connection is made is not decided yet, and nothing here invents a connection mechanism.',
+  },
+  {
+    id: 'google-drive',
+    title: 'Google Drive segment',
+    info: 'Google Drive is a pre-installed segment. It needs no starship and no install step. It is a place to connect your Google Drive to Lucid. It lets Lucid find, upload, download, organise and share the files in your Drive, including the documents, notes and notebooks you keep there. It stays when LuciferAI is off. It is a place other things can connect to, the way AI Chat is. To connect, tap Connect and sign in with Google.',
   },
   {
     id: 'starship',

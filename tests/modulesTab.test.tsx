@@ -88,12 +88,13 @@ describe('Modules tab', () => {
 });
 
 describe('Modules tab overview (heavy update 2026-11-07)', () => {
-  it('maps what lives here — all five segment groups, with live statuses', () => {
+  it('maps what lives here — all six segment groups, with live statuses', () => {
     const html = renderSettings('modules');
     expect(html).toContain('What lives here');
     expect(html).toContain('Segments');
     expect(html).toContain('Computer control');
     expect(html).toContain('AI Chat');
+    expect(html).toContain('Google Drive');
     expect(html).toContain('Starship segments');
     expect(html).toContain('Forge ↔ Persona Plex bridge');
     // Statuses are read from live state, never hardcoded: the
@@ -121,7 +122,7 @@ describe('Modules tab overview (heavy update 2026-11-07)', () => {
     expect(html).toContain('Starship-detected');
     expect(html).toContain('Add-on-carried');
     // Each route names an example that actually arrives that way.
-    expect(html).toContain('Computer control and AI Chat arrive this way');
+    expect(html).toContain('Computer control, AI Chat and Google Drive arrive this way');
     expect(html).toContain('The Forge ↔ Persona Plex bridge arrives this way');
   });
 

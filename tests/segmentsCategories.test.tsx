@@ -34,11 +34,12 @@ const renderModules = () =>
   );
 
 describe('Segments categories', () => {
-  it('has five categories, in panel order, each with a title and info text', () => {
+  it('has six categories, in panel order, each with a title and info text', () => {
     expect(SEGMENT_CATEGORIES.map((c) => c.id)).toEqual([
       'about',
       'computer-control',
       'ai-chat',
+      'google-drive',
       'starship',
       'forge-persona-plex',
     ]);
@@ -61,22 +62,52 @@ describe('Segments categories', () => {
     expect(segmentCategory('no-such-category')).toBeUndefined();
   });
 
-  it('renders the About, Computer control, AI Chat and Starship category headings in the Modules tab', () => {
+  it('renders the About, Computer control, AI Chat, Google Drive and Starship category headings in the Modules tab', () => {
     const html = renderModules();
     expect(html).toContain('About segments');
     expect(html).toContain('Computer control');
     expect(html).toContain('AI Chat segment');
+    expect(html).toContain('Google Drive segment');
     expect(html).toContain('Starship segments');
   });
 
   it('renders each visible category info page verbatim, with a voice button', () => {
     const html = renderModules();
-    for (const id of ['about', 'computer-control', 'ai-chat', 'starship'] as const) {
+    for (const id of ['about', 'computer-control', 'ai-chat', 'google-drive', 'starship'] as const) {
       const category = segmentCategory(id)!;
       expect(html).toContain(category.info);
       expect(html).toContain(`data-segment-voice="${id}"`);
       expect(html).toContain(`Play ${category.title} explanation`);
     }
+  });
+
+  it('places Google Drive between AI Chat and Starship, as a pre-installed connectable segment', () => {
+    const category = segmentCategory('google-drive')!;
+    expect(category.title).toBe('Google Drive segment');
+    // The info page is the voice script: it names what the segment
+    // does, that it stays when LuciferAI is off, and that connecting
+    // is tap Connect and sign in with Google (Gary approved OAuth,
+    // 2026-11-08 ~02:32 PST).
+    expect(category.info).toContain('pre-installed segment');
+    expect(category.info).toContain('connect your Google Drive to Lucid');
+    expect(category.info).toContain('stays when LuciferAI is off');
+    expect(category.info).toContain('To connect, tap Connect and sign in with Google');
+    // The segment itself renders in the panel, honestly not
+    // connected, with an enabled Connect button — the segment's
+    // action, for now (Gary, ~02:35 PST: just a Connect button).
+    // No Gmail anywhere in the segment (separate future segment,
+    // "Gmail Connect", gated on temp verification).
+    const html = renderModules();
+    expect(html).toContain('Google Drive');
+    expect(html).toContain('Connect Google Drive');
+    expect(html).toContain('Not connected');
+    expect(html).toContain('No connections yet');
+    expect(html).not.toContain('Gmail');
+    // The Connect button itself is enabled (not disabled) — it is
+    // the segment's action, for now.
+    const connectButton = html.match(/<button[^>]*aria-label="Connect Google Drive"[^>]*>/);
+    expect(connectButton).not.toBeNull();
+    expect(connectButton![0]).not.toContain('disabled');
   });
 
   it('does not render the Forge category until Persona Plex is installed', () => {

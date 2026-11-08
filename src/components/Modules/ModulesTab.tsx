@@ -114,6 +114,15 @@ export function ModulesTab() {
           </div>
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
+              <span className="block text-sm">Google Drive</span>
+              <span className="block text-xs text-[var(--text-muted)]">
+                Pre-installed, connectable — a place to connect your Google Drive to Lucid. Not connected yet — how the connection is made is Gary&apos;s call.
+              </span>
+            </span>
+            <span className="text-xs text-[var(--text-muted)] shrink-0">Pre-installed · Live</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">
               <span className="block text-sm">Starship segments</span>
               <span className="block text-xs text-[var(--text-muted)]">
                 Whatever a detected starship carries — shown here when one is detected.
@@ -150,7 +159,7 @@ export function ModulesTab() {
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Pre-installed</span>
               <span className="block text-xs text-[var(--text-muted)]">
-                Ships with Lucid — no starship, no install step. Computer control and AI Chat arrive this way.
+                Ships with Lucid — no starship, no install step. Computer control, AI Chat and Google Drive arrive this way.
               </span>
             </span>
           </div>

@@ -40,6 +40,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { AIChatSegment } from './AIChatSegment';
 import { ComputerControlSegment } from './ComputerControlSegment';
 import { ForgePersonaPlexSegment } from './ForgePersonaPlexSegment';
+import { GoogleDriveSegment } from './GoogleDriveSegment';
 import { SegmentCategorySection } from './SegmentCategorySection';
 
 export function SegmentsPanel() {
@@ -56,6 +57,7 @@ export function SegmentsPanel() {
   const about = segmentCategory('about');
   const control = segmentCategory('computer-control');
   const aiChat = segmentCategory('ai-chat');
+  const googleDrive = segmentCategory('google-drive');
   const starship = segmentCategory('starship');
   const forge = segmentCategory('forge-persona-plex');
 
@@ -105,6 +107,18 @@ export function SegmentsPanel() {
       {aiChat && (
         <SegmentCategorySection category={aiChat}>
           <AIChatSegment />
+        </SegmentCategorySection>
+      )}
+
+      {/* Google Drive — the pre-installed, connectable segment
+          (Gary, 2026-11-08). A place to connect your Google Drive
+          to Lucid, exactly like the AI Chat segment: it stays when
+          LuciferAI is off, and it is a place other things can
+          connect to. The connection mechanism is not decided yet
+          (Gary's call) — nothing here invents one. */}
+      {googleDrive && (
+        <SegmentCategorySection category={googleDrive}>
+          <GoogleDriveSegment />
         </SegmentCategorySection>
       )}
 

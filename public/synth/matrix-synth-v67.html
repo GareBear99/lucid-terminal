@@ -3946,6 +3946,23 @@ function eyeStep(){
     return true;
   }
 
+  // Final sweep: eyeConsumeApproval was called at the PLANNED →
+  // INTEGRITY transition but never defined — a ReferenceError that
+  // broke the demo's build flow the moment an eye approval was
+  // present. It returns the approved action and clears the approval
+  // (one-shot); AUTO mode re-approves on the next refresh.
+  function eyeConsumeApproval(){
+    if(!EyeCtl.approved) return null;
+    const out = {kind: EyeCtl.approvedKind, index: EyeCtl.approvedIndex, tick: EyeCtl.approvedTick};
+    EyeCtl.approved = false;
+    EyeCtl.approvedKind = 'idle';
+    EyeCtl.approvedIndex = -1;
+    EyeCtl.approvedTick = -1;
+    EyeCtl.note = 'approval consumed';
+    syncEyeHud();
+    return out;
+  }
+
   function eyeRefreshAuthority(){
     const len = PRB.queue ? PRB.queue.length : 0;
     if(!len){
@@ -4898,6 +4915,13 @@ if(buildState === Build.MAPPING){
   btnLoadProbe.addEventListener('click', IV.wrap('module.upload.open.probe', ()=>fileProbe.click()));
   btnLoadHud.addEventListener('click', IV.wrap('module.upload.open.hud', ()=>fileHud.click()));
 
+  // Final sweep: safeFail was called by every module-upload error
+  // handler but never defined — a file read/parse error threw an
+  // uncaught ReferenceError instead of being handled. It logs the
+  // failure (never throws); the call sites already append receipts.
+  function safeFail(code, err){
+    try{ IV.log('FAIL', `${code}: ${err && err.message ? err.message : err}`); }catch(_e){}
+  }
   fileShip.addEventListener('change', IV.wrap('module.upload.file.ship', ()=>{ const f=fileShip.files&&fileShip.files[0]; fileShip.value=''; if(!f) return;
     readJSONFile(f,(err,obj)=>{ if(err){safeFail('SHIP_MODULE_READ',err); appendReceipt('module_read_error', { moduleType:'ship', msg:String(err&&err.message||err) }); return;}
       try{ const mod=parseModuleJSON(obj,'ship'); setModule('ship', mod); }catch(e){ appendReceipt('module_parse_error', { moduleType:'ship', msg:String(e&&e.message||e) }); safeFail('SHIP_MODULE_PARSE', e); }

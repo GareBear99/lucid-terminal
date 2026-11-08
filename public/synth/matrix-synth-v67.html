@@ -617,6 +617,12 @@
 
   const _now = ()=> (performance && performance.now) ? performance.now() : Date.now();
 
+  // Runtime fix #8: textContent writes that ran every tick with no
+  // change check (IV.updateUI, syncReticlePacket, syncReticleSeed,
+  // hudState, updateEyeCommandPanel). Assigning textContent with an
+  // identical string still costs a style/layout pass in some engines,
+  // and it was 20+ writes/tick. setText writes only on change.
+  function setText(el, s){ if(!el) return; if(el.textContent !== s) el.textContent = s; }
   const IV = {
     strict:false,
     autoWrapped:0,
@@ -799,31 +805,31 @@
     },
     updateUI:()=>{
       const violCount = IV.violations.length;
-      vViol.textContent = String(violCount);
-      vAutowrap.textContent = String(IV.autoWrapped);
+      setText(vViol, String(violCount));
+      setText(vAutowrap, String(IV.autoWrapped));
       const seedTag = (STATE && STATE.seedStr) ? ` • seed=${STATE.seedStr}` : ''; // live reticle seed
-      vsum.textContent = violCount ? `${violCount} violation(s)${seedTag}` : `OK • autowrap=${IV.autoWrapped}${seedTag}`;
+      setText(vsum, violCount ? `${violCount} violation(s)${seedTag}` : `OK • autowrap=${IV.autoWrapped}${seedTag}`);
       vstrip.classList.toggle('bad', !!violCount);
 
       // reticle contract display
       if(IV.reticle.on){
-        vRet.textContent = `on @ ${IV.reticle.x.toFixed(1)},${IV.reticle.y.toFixed(1)} (W=${IV.reticle.W} H=${IV.reticle.H})`;
+        setText(vRet, `on @ ${IV.reticle.x.toFixed(1)},${IV.reticle.y.toFixed(1)} (W=${IV.reticle.W} H=${IV.reticle.H})`);
       }else{
-        vRet.textContent = 'off';
+        setText(vRet, 'off');
       }
-      vPtr.textContent = IV.lastPointer ? `${IV.lastPointer.type} ${IV.lastPointer.x.toFixed(1)},${IV.lastPointer.y.toFixed(1)}` : '—';
+      setText(vPtr, IV.lastPointer ? `${IV.lastPointer.type} ${IV.lastPointer.x.toFixed(1)},${IV.lastPointer.y.toFixed(1)}` : '—');
       // blueprint/shell/module contracts
       try{
-        if(typeof vSeed !== 'undefined') vSeed.textContent = (STATE && STATE.seedStr) ? `LIVE ${STATE.seedStr} • BASE ${(STATE.baseSeedStr||STATE.seedStr)} • ${STATE.seedSource||'BASE'} (${STATE.seedOk?'OK':'BAD'})` : '—';
-        vBp.textContent = blueprintLoaded ? 'loaded' : '—';
-        vShell.textContent = activeShellId ? activeShellId : '—';
+        if(typeof vSeed !== 'undefined') setText(vSeed, (STATE && STATE.seedStr) ? `LIVE ${STATE.seedStr} • BASE ${(STATE.baseSeedStr||STATE.seedStr)} • ${STATE.seedSource||'BASE'} (${STATE.seedOk?'OK':'BAD'})` : '—');
+        setText(vBp, blueprintLoaded ? 'loaded' : '—');
+        setText(vShell, activeShellId ? activeShellId : '—');
         const mShip = Modules.ship ? 'ship' : null;
         const mScn  = Modules.scanner ? 'scanner' : null;
         const mPrb  = Modules.probe ? 'probe' : null;
         const mHud  = Modules.hud ? 'hud' : null;
         const arr = [mShip,mScn,mPrb,mHud].filter(Boolean);
-        vMods.textContent = arr.length ? (arr.join(', ')) : '—';
-        if(vFlow) vFlow.textContent = `boot=${bootState} build=${buildState} phase=${scanPhase}`;
+        setText(vMods, arr.length ? (arr.join(', ')) : '—');
+        if(vFlow) setText(vFlow, `boot=${bootState} build=${buildState} phase=${scanPhase}`);
       }catch(e){}
 
       // reticle -> tile resolver
@@ -831,10 +837,10 @@
         const pkt = RETICLE_PACKET || syncReticlePacket();
         const rt = resolveReticleTile();
         if(pkt){
-          vTile.textContent = `idx=${rt&&rt.idx>=0?rt.idx:'-'}  f${pkt.face} i${pkt.i} j${pkt.j}  dot=${((rt&&rt.dot)||0).toFixed(4)}  occ=${pkt.occupancy}`;
-          if(vAddr) vAddr.textContent = pkt.address;
-          if(vPkt) vPkt.textContent = `${pkt.hitKind}/${pkt.objectType} room=${pkt.roomId||'-'} mat=${pkt.material||'-'} route=${pkt.routeIndex>=0?pkt.routeIndex:'-'} shell=${pkt.shellId||'-'} source=${STATE.seedSource||'-'}`;
-          if(vProof) vProof.textContent = pkt.proof ? pkt.proof.summary : 'waiting';
+          setText(vTile, `idx=${rt&&rt.idx>=0?rt.idx:'-'}  f${pkt.face} i${pkt.i} j${pkt.j}  dot=${((rt&&rt.dot)||0).toFixed(4)}  occ=${pkt.occupancy}`);
+          if(vAddr) setText(vAddr, pkt.address);
+          if(vPkt) setText(vPkt, `${pkt.hitKind}/${pkt.objectType} room=${pkt.roomId||'-'} mat=${pkt.material||'-'} route=${pkt.routeIndex>=0?pkt.routeIndex:'-'} shell=${pkt.shellId||'-'} source=${STATE.seedSource||'-'}`);
+          if(vProof) setText(vProof, pkt.proof ? pkt.proof.summary : 'waiting');
           const sh = shells.get(activeShellId);
           if(sh && sh.occupancyMap){
             const rec = sh.occupancyMap.get(tileKey({face:pkt.face,i:pkt.i,j:pkt.j}));
@@ -846,11 +852,11 @@
             }
           }
         }else{
-          vTile.textContent = '—';
-          if(vAddr) vAddr.textContent = '—';
-          if(vPkt) vPkt.textContent = '—';
+          setText(vTile, '—');
+          if(vAddr) setText(vAddr, '—');
+          if(vPkt) setText(vPkt, '—');
         }
-      }catch(e){ vTile.textContent='—'; if(vAddr) vAddr.textContent='—'; if(vPkt) vPkt.textContent='—'; }
+      }catch(e){ setText(vTile, '—'); if(vAddr) setText(vAddr, '—'); if(vPkt) setText(vPkt, '—'); }
 
     },
     validateReticle:()=>{
@@ -1894,14 +1900,26 @@
     return pkt;
   }
 
+  // Runtime fix #7: cache the reticle packet — its inputs (camera, eye,
+  // shell, route length, mappedCount, pole, anchor) are stable while
+  // idle, so rebuilding it + an O(routeTiles) resolve every tick is
+  // pure waste. validateAuthorityState() still runs every call.
+  let _reticleCacheKey = '', _reticleCachePkt = null;
   function syncReticlePacket(){
-    RETICLE_PACKET = buildReticlePacket();
+    const sh0 = shells.get(activeShellId);
+    const __key = [qCam.x.toFixed(6), qCam.y.toFixed(6), qCam.z.toFixed(6), qCam.w.toFixed(6), eye.x.toFixed(6), eye.y.toFixed(6), eye.z.toFixed(6), activeShellId, sh0 ? (sh0.routeTiles ? sh0.routeTiles.length : 0) : 0, sh0 ? (sh0.mappedCount||0) : 0, POLE.label, POLE.alignment, sh0 ? sh0.anchorMode : '', sh0 ? sh0.anchorSource : '', sh0 && sh0.centerShift ? sh0.centerShift.u.toFixed(4) : '', sh0 && sh0.centerShift ? sh0.centerShift.v.toFixed(4) : ''].join('|');
+    if(__key === _reticleCacheKey && _reticleCachePkt){
+      RETICLE_PACKET = _reticleCachePkt;
+    } else {
+      RETICLE_PACKET = buildReticlePacket();
+      _reticleCacheKey = __key; _reticleCachePkt = RETICLE_PACKET;
+    }
     STATE.reticlePacket = RETICLE_PACKET;
     STATE.addressStr = RETICLE_PACKET.address;
-    if(addressLine) addressLine.textContent = RETICLE_PACKET.address;
+    setText(addressLine, RETICLE_PACKET.address);
     if(hudAnchor){
       const sh = shells.get(activeShellId);
-      hudAnchor.textContent = sh ? `${sh.anchorMode} • source=${sh.anchorSource} • shift=(${sh.centerShift.u.toFixed(4)}, ${sh.centerShift.v.toFixed(4)}) • f${RETICLE_PACKET.face}/i${RETICLE_PACKET.i}/j${RETICLE_PACKET.j}` : `center • f${RETICLE_PACKET.face}/i${RETICLE_PACKET.i}/j${RETICLE_PACKET.j}`;
+      setText(hudAnchor, sh ? `${sh.anchorMode} • source=${sh.anchorSource} • shift=(${sh.centerShift.u.toFixed(4)}, ${sh.centerShift.v.toFixed(4)}) • f${RETICLE_PACKET.face}/i${RETICLE_PACKET.i}/j${RETICLE_PACKET.j}` : `center • f${RETICLE_PACKET.face}/i${RETICLE_PACKET.i}/j${RETICLE_PACKET.j}`);
     }
     validateAuthorityState();
     return RETICLE_PACKET;
@@ -2035,10 +2053,12 @@
     STATE.seedStr = next.seedStr;
     STATE.seedSource = 'RETICLE';
     STATE.reticleSeedMeta = next.meta;
-    if(document.activeElement !== seedInput){
+    if(document.activeElement !== seedInput && seedInput.value !== STATE.seedStr){
       seedInput.value = STATE.seedStr;
     }
-    seedInput.title = `live reticle seed ${STATE.seedStr} | base ${STATE.baseSeedStr} | ${next.meta}`;
+    // Runtime fix #8: title rebuilt every tick — write only on change.
+    const __seedTitle = `live reticle seed ${STATE.seedStr} | base ${STATE.baseSeedStr} | ${next.meta}`;
+    if(seedInput.title !== __seedTitle) seedInput.title = __seedTitle;
     return changed;
   }
 
@@ -3081,7 +3101,7 @@ function eyeStep(){
     POLE.poleOffset = 1 - Math.abs(clamp(d.y, -1, 1));
     POLE.dominantCardinal = headingDeg < 45 || headingDeg >= 315 ? 'N' : (headingDeg < 135 ? 'E' : (headingDeg < 225 ? 'S' : 'W'));
     if(compassLine){
-      compassLine.textContent = `hdg=${headingDeg.toFixed(1)}° ${POLE.dominantCardinal}  lat=${POLE.latitudeDeg.toFixed(1)}°  poleOff=${POLE.poleOffset.toFixed(3)}`;
+      setText(compassLine, `hdg=${headingDeg.toFixed(1)}° ${POLE.dominantCardinal}  lat=${POLE.latitudeDeg.toFixed(1)}°  poleOff=${POLE.poleOffset.toFixed(3)}`);
     }
   }
 
@@ -5252,12 +5272,12 @@ if(buildState === Build.MAPPING){
 
   function updateEyeCommandPanel(){
     const chosen = PRB.queue && PRB.queue.length ? PRB.queue[Math.max(0, Math.min(EyeCtl.selected|0, PRB.queue.length-1))] : null;
-    if(eyePanelMode) eyePanelMode.textContent = `mode=${EyeCtl.mode}  approved=${EyeCtl.approved ? 'yes' : 'no'}`;
-    if(eyePanelTarget) eyePanelTarget.textContent = chosen ? `target=${chosen.kind}#${chosen.index}  p=${chosen.priority!==undefined?chosen.priority.toFixed(2):'0.00'}` : 'target=none';
-    if(eyePanelReason) eyePanelReason.textContent = `reason=${chosen ? (chosen.reason || 'planner') : EyeCtl.note}`;
-    if(eyePanelProgress) eyePanelProgress.textContent = `scan=${SCANFX.activeAction}  progress=${Math.round(SCANFX.progress*100)}%  links=${SCANFX.edgeLinks}`;
-    if(eyePanelPhase) eyePanelPhase.textContent = `phase=${scanPhase}  note=${SCANFX.phaseNote || '-'}`;
-    if(eyePanelResult) eyePanelResult.textContent = `result=${SCANFX.result}  writes=${SCANFX.evidenceWrites}`;
+    if(eyePanelMode) setText(eyePanelMode, `mode=${EyeCtl.mode}  approved=${EyeCtl.approved ? 'yes' : 'no'}`);
+    if(eyePanelTarget) setText(eyePanelTarget, chosen ? `target=${chosen.kind}#${chosen.index}  p=${chosen.priority!==undefined?chosen.priority.toFixed(2):'0.00'}` : 'target=none');
+    if(eyePanelReason) setText(eyePanelReason, `reason=${chosen ? (chosen.reason || 'planner') : EyeCtl.note}`);
+    if(eyePanelProgress) setText(eyePanelProgress, `scan=${SCANFX.activeAction}  progress=${Math.round(SCANFX.progress*100)}%  links=${SCANFX.edgeLinks}`);
+    if(eyePanelPhase) setText(eyePanelPhase, `phase=${scanPhase}  note=${SCANFX.phaseNote || '-'}`);
+    if(eyePanelResult) setText(eyePanelResult, `result=${SCANFX.result}  writes=${SCANFX.evidenceWrites}`);
   }
 
   function rebuildScannerContacts(sh){
@@ -5354,13 +5374,13 @@ if(buildState === Build.MAPPING){
     if(inflight && inflight.t0 >= 0) SCANFX.progress = clamp((tick - inflight.t0) / Math.max(1, PING_TTL), 0, 1);
     const classBits = Object.entries(classCounts).map(([k,v])=>`${k}:${v}`).join(' ');
     const pkt = RETICLE_PACKET || syncReticlePacket();
-    hudScan.textContent = `scanner=${SCN.mode} directive=${SCN.directive} op=${SCANFX.activeAction}${SCANFX.activeIndex>=0?`#${SCANFX.activeIndex}`:''} progress=${Math.round(SCANFX.progress*100)}% sweep=${SCANFX.sweepAngle.toFixed(2)} hi=${hi}${classBits?`  ${classBits}`:''}${pkt?`  tile=f${pkt.face}/${pkt.i}/${pkt.j}`:''}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}`;
-    if(queueLine){ queueLine.textContent = `${PRB.queueSummary}  focus=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  ${sh ? commitPlanSummary(sh) : 'commit=0/0'}`; }
+    setText(hudScan, `scanner=${SCN.mode} directive=${SCN.directive} op=${SCANFX.activeAction}${SCANFX.activeIndex>=0?`#${SCANFX.activeIndex}`:''} progress=${Math.round(SCANFX.progress*100)}% sweep=${SCANFX.sweepAngle.toFixed(2)} hi=${hi}${classBits?`  ${classBits}`:''}${pkt?`  tile=f${pkt.face}/${pkt.i}/${pkt.j}`:''}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}`);
+    if(queueLine){ setText(queueLine, `${PRB.queueSummary}  focus=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  ${sh ? commitPlanSummary(sh) : 'commit=0/0'}`); }
     if(truthLine){
       const sh = shells.get(activeShellId);
       const summary = sh && sh.contactSummary ? Object.entries(sh.contactSummary).map(([k,v])=>`${k}:${v}`).join(' ') : 'contacts=0';
       const pktBits = pkt ? `  addr=${pkt.address}  occ=${pkt.occupancy}  route=${pkt.routeIndex>=0?pkt.routeIndex:'-'}` : '';
-      truthLine.textContent = `lock=CENTER  pole=${POLE.label}  θ=${POLE.angleDeg.toFixed(1)}°  phase=${scanPhase}  ${summary}${pktBits}  planner=${PRB.plannedKind}${PRB.plannedIndex>=0?`:${PRB.plannedIndex}`:''}  evidence=${SCANFX.evidenceWrites} links=${SCANFX.edgeLinks}`;
+      setText(truthLine, `lock=CENTER  pole=${POLE.label}  θ=${POLE.angleDeg.toFixed(1)}°  phase=${scanPhase}  ${summary}${pktBits}  planner=${PRB.plannedKind}${PRB.plannedIndex>=0?`:${PRB.plannedIndex}`:''}  evidence=${SCANFX.evidenceWrites} links=${SCANFX.edgeLinks}`);
     }
   }
 
@@ -6066,7 +6086,7 @@ function render(){
     const sh = shells.get(activeShellId);
     if(!sh){
       syncReticlePacket();
-      hudState.textContent = `boot=${effectiveBootState()}  build=${buildState}  waiting=UPLOAD_BLUEPRINT  zoom=${viewZoom.toFixed(2)}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  eye=${EyeCtl.mode}`;
+      setText(hudState, `boot=${effectiveBootState()}  build=${buildState}  waiting=UPLOAD_BLUEPRINT  zoom=${viewZoom.toFixed(2)}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  eye=${EyeCtl.mode}`);
       drawCenterReticle(cx, cy);
       drawEyeShip(cx, cy, R);
       drawSurfaceRider(cx, cy, R);
@@ -6168,9 +6188,9 @@ function render(){
     drawTileFocusOverlay(cx, cy, R);
 
     // HUD
-    hudState.textContent =
+    setText(hudState,
       `boot=${effectiveBootState()}  build=${buildState}  route=${routeIndex}/${sh.routeTiles.length}  mapped=${sh.mappedCount}/${sh.routeTiles.length}  ${commitPlanSummary(sh)}  zoom=${viewZoom.toFixed(2)}  tile=${TILEVIEW.mode}${TILEVIEW.activeKey?`@${TILEVIEW.activeKey}`:''}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  eye=${EyeCtl.mode}` +
-      (sh.emptyRepoReady ? `  EMPTY_REPO_READY` : ``);
+      (sh.emptyRepoReady ? `  EMPTY_REPO_READY` : ``));
   }
 
   // Runtime fix #12: renderOverlay rebuilt innerHTML every frame when on.
@@ -7482,7 +7502,7 @@ function render(){
 
   function recountSynth(synth){
     const counts = {generator:0, relay:0, memory:0, router:0, assembler:0};
-    let built = 0, active = 0, peak = 0, corrupt = 0, overload = 0;
+    let built = 0, active = 0, peak = 0, corrupt = 0, overload = 0, peakC = 0, peakO = 0;
     for(const n of synth.nodes){
       counts[n.role] = (counts[n.role]||0) + 1;
       if(n.built > 0.5) built++;
@@ -7490,6 +7510,9 @@ function render(){
       if(n.signal > peak) peak = n.signal;
       if((n.corrupt||0) > 0.04) corrupt++;
       if((n.overload||0) > 0.18) overload++;
+      // Runtime fix #7: track peak corrupt/overload for the cadence gate.
+      if((n.corrupt||0) > peakC) peakC = n.corrupt;
+      if((n.overload||0) > peakO) peakO = n.overload;
     }
     synth.roleCounts = counts;
     synth.builtCount = built;
@@ -7497,6 +7520,8 @@ function render(){
     synth.peakSignal = peak;
     synth.corruptCount = corrupt;
     synth.overloadCount = overload;
+    synth._peakCorrupt = peakC;
+    synth._peakOverload = peakO;
     const cstats = {parasite:0, cascade:0, deadzone:0, bloom:0};
     for(const n of synth.nodes){ if((n.corrupt||0) > 0.04 && n.corruptType && cstats[n.corruptType] != null) cstats[n.corruptType]++; }
     synth.corruptionStats = cstats;
@@ -7901,8 +7926,19 @@ function render(){
     synthMaybeAutoRestore();
     const routeSynth = ensureRouteSynth(sh);
     const globeSynth = ensureGlobeSynth(sh);
-    synthStepOne(routeSynth);
-    synthStepOne(globeSynth);
+    // Runtime fix #7: variable cadence — when both synths are settled
+    // (no corruption/overload, nothing queued, no executor running),
+    // step at half cadence. The generator oscillation is slow, so
+    // halving its rate is visually identical and halves the
+    // ~20k node-visits/tick when idle.
+    const quiet = routeSynth && globeSynth
+      && (routeSynth._peakCorrupt||0) < 0.02 && (routeSynth._peakOverload||0) < 0.02
+      && (globeSynth._peakCorrupt||0) < 0.02 && (globeSynth._peakOverload||0) < 0.02
+      && SYNTH.buildQueue.length === 0 && !SYNTH_EXEC.active;
+    if(!quiet || (tick % 2) === 0){
+      synthStepOne(routeSynth);
+      synthStepOne(globeSynth);
+    }
     const active = SYNTH.domain === 'route' ? routeSynth : globeSynth;
     if(active){
       synthExecutorStep(active);

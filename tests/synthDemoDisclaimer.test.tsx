@@ -7,9 +7,15 @@
  * build your own with Iteration 8, the creator builder. After the
  * Homunculus colour choice the disclaimer asks: commence building
  * your own (with Iteration 8), or explore the demo still? The choice
- * is persisted, so the disclaimer asks once — a stored choice, either
- * one, means it never asks again on later entries. A disclaimer crash
- * must never block the Synth view.
+ * is persisted.
+ *
+ * Gary (2026-11-08 ~00:20 PST): it should know in most cases. The
+ * prompt shows on every entry, but when a valid choice is stored it
+ * shows the known mode with a quick confirm/switch — it only asks the
+ * full "which mode?" question when it genuinely doesn't know (first
+ * time, no saved preference, missing/ambiguous). In most cases it
+ * knows, so going in is frictionless. A disclaimer crash must never
+ * block the Synth view.
  *
  * Iteration 8 itself does not exist yet: "build my own" only records
  * the choice and names Iteration 8 as the creator builder in the
@@ -101,7 +107,7 @@ describe('parseSynthDisclaimerChoice / shouldShowSynthDisclaimer', () => {
     }
   });
 
-  test('hides the disclaimer once a valid choice is stored', () => {
+  test('a valid stored choice means the full question is not needed', () => {
     expect(shouldShowSynthDisclaimer('build')).toBe(false);
     expect(shouldShowSynthDisclaimer('explore')).toBe(false);
   });
@@ -200,6 +206,100 @@ describe('SynthDemoDisclaimer', () => {
     expect(onChoose).toHaveBeenCalledTimes(1);
     expect(onChoose).toHaveBeenCalledWith('explore');
   });
+
+  test('known explore mode shows the saved mode with confirm/switch', () => {
+    const onChoose = vi.fn();
+    render(
+      <SynthDemoDisclaimer onChoose={onChoose} knownChoice="explore" />,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.textContent).toContain("You're exploring the demo");
+    expect(
+      screen.getByRole('button', { name: 'Continue in the demo' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Build my own instead' }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+    // Confirm re-affirms the saved choice, no version step.
+    fireEvent.click(screen.getByRole('button', { name: 'Continue in the demo' }));
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    expect(onChoose).toHaveBeenCalledWith('explore');
+  });
+
+  test('switching from known explore mode opens the version step', () => {
+    const onChoose = vi.fn();
+    render(
+      <SynthDemoDisclaimer onChoose={onChoose} knownChoice="explore" />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Build my own instead' }),
+    );
+    expect(onChoose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Synth version')).toBeTruthy();
+    expect(
+      (screen.getByLabelText('Synth version') as HTMLSelectElement).value,
+    ).toBe('iteration-8');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start with Iteration 8' }),
+    );
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    expect(onChoose).toHaveBeenCalledWith('build', 'iteration-8');
+  });
+
+  test('known build mode shows the saved mode with confirm/switch', () => {
+    const onChoose = vi.fn();
+    render(
+      <SynthDemoDisclaimer
+        onChoose={onChoose}
+        knownChoice="build"
+        knownVersionLabel="Iteration 8"
+      />,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.textContent).toContain(
+      "You're building your own with Iteration 8",
+    );
+    expect(
+      screen.getByRole('button', { name: 'Continue building' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Explore the demo instead' }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+    // Continue re-affirms the build choice, no version step.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Continue building' }),
+    );
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    expect(onChoose).toHaveBeenCalledWith('build');
+  });
+
+  test('switching from known build mode records explore at once', () => {
+    const onChoose = vi.fn();
+    render(
+      <SynthDemoDisclaimer onChoose={onChoose} knownChoice="build" />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Explore the demo instead' }),
+    );
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    expect(onChoose).toHaveBeenCalledWith('explore');
+  });
+
+  test('no known choice asks the full question, not confirm/switch', () => {
+    render(<SynthDemoDisclaimer onChoose={() => undefined} />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.textContent).toContain(
+      'Commence building your own, or explore the demo still?',
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Continue in the demo' }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Continue building' }),
+    ).toBeNull();
+  });
 });
 
 describe('SynthDemoDisclaimerErrorBoundary', () => {
@@ -244,7 +344,7 @@ describe('SynthView disclaimer flow', () => {
     });
   });
 
-  test('choosing build my own persists choice and version, never asks again', async () => {
+  test('choosing build my own persists choice and version; a later entry confirms the known mode', async () => {
     const { unmount } = render(<SynthView />);
     fireEvent.click(screen.getByRole('button', { name: 'Choose pink' }));
     await waitFor(() => expect(disclaimerDialog()).not.toBeNull(), {
@@ -273,14 +373,21 @@ describe('SynthView disclaimer flow', () => {
     // landing for the choice, not a faked builder.
     expect(screen.getByText(/build: your own/)).toBeTruthy();
     expect(screen.getByText(/Iteration 8, the creator builder/)).toBeTruthy();
-    // A later entry does not ask again.
+    // A later entry shows the known mode with confirm/switch — it
+    // knows you're building, so it doesn't ask from scratch.
     unmount();
     render(<SynthView />);
-    expect(disclaimerDialog()).toBeNull();
+    expect(disclaimerDialog()).not.toBeNull();
+    expect(disclaimerDialog()?.textContent).toContain(
+      "You're building your own with Iteration 8",
+    );
+    expect(
+      screen.getByRole('button', { name: 'Continue building' }),
+    ).toBeTruthy();
     expect(screen.getByText(/build: your own/)).toBeTruthy();
   });
 
-  test('choosing explore the demo still persists it and never asks again', async () => {
+  test('choosing explore the demo still persists it; a later entry confirms the known mode', async () => {
     const { unmount } = render(<SynthView />);
     fireEvent.click(screen.getByRole('button', { name: 'Choose purple' }));
     await waitFor(() => expect(disclaimerDialog()).not.toBeNull(), {
@@ -299,10 +406,16 @@ describe('SynthView disclaimer flow', () => {
     expect(disclaimerDialog()).toBeNull();
     // No build landing for the explore choice.
     expect(screen.queryByText(/build: your own/)).toBeNull();
-    // A later entry does not ask again.
+    // A later entry shows the known mode with confirm/switch.
     unmount();
     render(<SynthView />);
-    expect(disclaimerDialog()).toBeNull();
+    expect(disclaimerDialog()).not.toBeNull();
+    expect(disclaimerDialog()?.textContent).toContain(
+      "You're exploring the demo",
+    );
+    expect(
+      screen.getByRole('button', { name: 'Continue in the demo' }),
+    ).toBeTruthy();
   });
 
   test('a stored colour with no disclaimer answer shows it on entry', () => {
@@ -312,14 +425,20 @@ describe('SynthView disclaimer flow', () => {
     expect(disclaimerDialog()).not.toBeNull();
   });
 
-  test('a stored choice, either one, means no disclaimer on later entries', () => {
+  test('a stored choice shows the known mode with confirm/switch on later entries', () => {
     seedHomunculusColor('pink');
     seedSynthDisclaimerChoice('build');
     const { unmount } = render(<SynthView />);
-    expect(disclaimerDialog()).toBeNull();
+    expect(disclaimerDialog()).not.toBeNull();
+    expect(disclaimerDialog()?.textContent).toContain(
+      "You're building your own with Iteration 8",
+    );
     unmount();
     seedSynthDisclaimerChoice('explore');
     render(<SynthView />);
-    expect(disclaimerDialog()).toBeNull();
+    expect(disclaimerDialog()).not.toBeNull();
+    expect(disclaimerDialog()?.textContent).toContain(
+      "You're exploring the demo",
+    );
   });
 });

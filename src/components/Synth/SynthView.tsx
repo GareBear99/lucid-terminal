@@ -46,8 +46,8 @@ import {
 } from '../../lib/homunculusColor';
 import {
   SYNTH_VERSION_LABELS,
+  parseSynthDisclaimerChoice,
   parseSynthVersion,
-  shouldShowSynthDisclaimer,
   type SynthDisclaimerChoice,
   type SynthVersion,
 } from '../../lib/synthDisclaimer';
@@ -194,15 +194,21 @@ export function SynthView() {
   // Demo disclaimer — after the colour choice. Gary (2026-11-05): the
   // Lucid synth is a demo, the demo of what it can become, until you
   // build your own — and you build your own with Iteration 8, the
-  // creator builder. The disclaimer asks once: commence building your
-  // own (Iteration 8), or explore the demo still? A stored choice,
-  // either one, means it never asks again.
+  // creator builder. Gary (2026-11-08 ~00:20 PST): it should know in
+  // most cases. The prompt shows on every entry (SynthView mounts
+  // fresh each time), but when a valid choice is stored it shows the
+  // known mode with a quick confirm/switch — it only asks the full
+  // "which mode?" question when it genuinely doesn't know (first
+  // time, no saved preference, missing/ambiguous). In most cases it
+  // knows, so going in is frictionless.
   const storedSynthDisclaimerChoice = useSettingsStore(
     (s) => s.settings?.synthDisclaimerChoice,
   );
+  const knownSynthDisclaimerChoice = parseSynthDisclaimerChoice(
+    storedSynthDisclaimerChoice,
+  );
   const [synthDisclaimerDone, setSynthDisclaimerDone] = useState(false);
   const showSynthDisclaimer =
-    shouldShowSynthDisclaimer(storedSynthDisclaimerChoice) &&
     !synthDisclaimerDone &&
     chosenHomunculusColor !== null &&
     synthDisclaimerDelayDone;
@@ -421,13 +427,18 @@ export function SynthView() {
           <HomunculusColorPicker onChoose={chooseHomunculusColor} />
         </HomunculusPickerErrorBoundary>
       )}
-      {/* After the colour choice: the demo disclaimer. It asks once —
-          build your own with Iteration 8, the creator builder, or
-          explore the demo still — and never blocks the view (a
+      {/* After the colour choice: the demo disclaimer. It shows on
+          every entry — with the known mode and a quick confirm/switch
+          when a choice is stored, and the full question only when it
+          genuinely doesn't know — and never blocks the view (a
           disclaimer crash renders nothing, error boundary). */}
       {showSynthDisclaimer && (
         <SynthDemoDisclaimerErrorBoundary>
-          <SynthDemoDisclaimer onChoose={chooseSynthDisclaimer} />
+          <SynthDemoDisclaimer
+            onChoose={chooseSynthDisclaimer}
+            knownChoice={knownSynthDisclaimerChoice}
+            knownVersionLabel={buildVersionLabel}
+          />
         </SynthDemoDisclaimerErrorBoundary>
       )}
     </div>

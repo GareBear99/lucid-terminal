@@ -6,6 +6,11 @@
  * Iteration 8, the creator builder. This card asks: commence building
  * your own, or explore the demo still?
  *
+ * Gary (2026-11-08 ~00:20 PST): it should know in most cases. When a
+ * choice is already stored the card shows the known mode and offers a
+ * quick confirm/switch instead of asking from scratch; only when
+ * nothing valid is stored does it ask the full question.
+ *
  * Pure presentational component: it calls `onChoose` and the parent
  * (SynthView) persists the choice. It never touches storage itself,
  * so it is trivially testable and can never block the view on a
@@ -22,10 +27,13 @@
  * disclaimer itself throws, the Synth view must still open. A
  * disclaimer crash renders nothing and the demo continues.
  *
- * Iteration 8 does not exist yet as a built feature — "build my own"
- * only records the choice and the version; the parent lands on a clear
- * state naming Iteration 8 as the creator builder. It does not fake a
- * builder UI.
+ * Gary (2026-11-08 ~00:20 PST): the prompt should KNOW which mode
+ * you're in, in most cases. When a choice is already stored it shows
+ * the known mode and offers a quick confirm/switch — it does not ask
+ * the question from scratch. Only when nothing valid is stored does
+ * it ask the full question. `knownChoice` carries the saved mode
+ * (null = genuinely unknown); `knownVersionLabel` names the version
+ * a stored build is on (Iteration 8, the fallback).
  */
 
 import { Component, useState, type ReactNode } from 'react';
@@ -39,14 +47,68 @@ import {
 
 export function SynthDemoDisclaimer({
   onChoose,
+  knownChoice = null,
+  knownVersionLabel = 'Iteration 8',
 }: {
   onChoose: (choice: SynthDisclaimerChoice, version?: SynthVersion) => void;
+  /** The saved mode, or null when the entry genuinely doesn't know. */
+  knownChoice?: SynthDisclaimerChoice | null;
+  /** Label for the version a stored build is on (Iteration 8 default). */
+  knownVersionLabel?: string;
 }) {
   // Step 1: build or explore. Step 2 (build only): pick the synth
   // version — Iteration 8, the only version for now, selected.
   const [pickingVersion, setPickingVersion] = useState(false);
   const [selectedVersion, setSelectedVersion] =
     useState<SynthVersion>(DEFAULT_SYNTH_VERSION);
+
+  // Known mode (most entries): confirm or switch — not a from-scratch
+  // question. Continue re-affirms the saved choice; switching to build
+  // goes through the version step, switching to explore records it.
+  if (knownChoice !== null && !pickingVersion) {
+    const inDemo = knownChoice === 'explore';
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="The Lucid synth is a demo"
+        className="absolute inset-0 z-50 flex items-center justify-center bg-black/70"
+      >
+        <div className="w-[340px] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-5 text-center shadow-2xl">
+          <h2 className="text-base font-semibold text-[var(--text-primary)]">
+            This synth is a demo
+          </h2>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            The Lucid synth is the demo of what it can become. Build your
+            own with Iteration 8, the creator builder.
+          </p>
+          <p className="mt-2 text-sm text-[var(--text-primary)]">
+            {inDemo
+              ? "You're exploring the demo."
+              : `You're building your own with ${knownVersionLabel}, the creator builder.`}
+          </p>
+          <div className="mt-5 flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => onChoose(knownChoice)}
+              className="rounded-md border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)]"
+            >
+              {inDemo ? 'Continue in the demo' : 'Continue building'}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                inDemo ? setPickingVersion(true) : onChoose('explore')
+              }
+              className="rounded-md border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)]"
+            >
+              {inDemo ? 'Build my own instead' : 'Explore the demo instead'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

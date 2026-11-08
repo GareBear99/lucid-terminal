@@ -358,7 +358,9 @@
   // - Wraps event listeners to prevent silent crashes
   // - Tracks bind-sites for unwrapped listeners (best-effort)
   // - Provides strict mode for "unwrapped listener" violations
-  // - Tracks center-reticle placement contract
+  // - Tracks reticle placement contract (Gary, 2026-11-08 ~00:53 PST:
+  //   the reticle is on the OUTSIDE of the blueprint, not locked to canvas
+  //   center — the old "center-reticle" lock is superseded).
   // ============================================================
 
   const vstrip = document.getElementById('vstrip');
@@ -863,7 +865,13 @@
       if(!IV.reticle.on) return;
       const {x,y,W,H} = IV.reticle;
       const eps = 0.5; // pixels
-      // DARPA contract: reticle must be at true canvas center when enabled
+      // CORRECTED MODEL (Gary, 2026-11-08 ~00:53 PST): the reticle is on the
+      // OUTSIDE of the blueprint, NOT locked to canvas center — the old DARPA
+      // "reticle must be at true canvas center" assertion is superseded and
+      // must NOT be re-enabled as a center check. This validator is currently
+      // inert (IV.reticle is never populated, so .on is always false); if the
+      // reticle is ever populated, validate it against its outside anchor,
+      // not the canvas center.
       const cx = W*0.5, cy = H*0.5;
       const dx = Math.abs(x - cx), dy = Math.abs(y - cy);
       if(dx>eps || dy>eps){
@@ -2791,18 +2799,26 @@ const quatFromTo=(a,b)=>{
   // ---------- camera + planet ----------
   // DIRECTIONAL LOCK (authoritative visual/control contract)
   // -----------------------------------------------------------------------------
-  // This build is the known-good directional baseline for the centered-eye shell.
+  // This build is the known-good directional baseline for the blueprint-core shell.
   // Preserve these rules unless a future test intentionally replaces the whole model:
   //
-  // 1) Eye / reticle presentation
-  //    - The eye is the CENTER authority anchor of the blueprint presentation.
-  //    - The user/rider reads as being on the OUTSIDE surface aligned to that center eye.
+  // 1) Blueprint / reticle presentation
+  //    - The BLUEPRINT is the core/center of the presentation.
+  //    - The neural synth (ntDrawThinker) and the Lucid spectrum animation
+  //      (drawSynthEyeField) are NOT the core — they live on the OUTSIDE of the
+  //      blueprint and MOVE with the reticle, which is on the outside of the
+  //      blueprint. They follow the reticle around the outside.
+  //      (Gary, 2026-11-08 ~00:53 PST — CORRECTS the old "centered-eye" model,
+  //      which said "the eye is the CENTER authority anchor". That was wrong:
+  //      the eye field + thinker are outside elements, not the center.)
+  //    - The user/rider reads as being on the OUTSIDE surface, aligned to the
+  //      reticle on the outside of the blueprint.
   //
   // 2) Movement contract
   //    - WASD controls surface traversal and MUST remain stable.
   //    - ArrowUp / ArrowDown share the same forward/back shell traversal channel.
   //    - ArrowLeft / ArrowRight do not change traversal; they only spin the planet/map
-  //      around the centered eye.
+  //      around the blueprint core.
   //
   // 3) Reticle / heading contract
   //    - Movement direction is authoritative.
@@ -5365,7 +5381,7 @@ if(buildState === Build.MAPPING){
       const sh = shells.get(activeShellId);
       const summary = sh && sh.contactSummary ? Object.entries(sh.contactSummary).map(([k,v])=>`${k}:${v}`).join(' ') : 'contacts=0';
       const pktBits = pkt ? `  addr=${pkt.address}  occ=${pkt.occupancy}  route=${pkt.routeIndex>=0?pkt.routeIndex:'-'}` : '';
-      setText(truthLine, `lock=CENTER  pole=${POLE.label}  θ=${POLE.angleDeg.toFixed(1)}°  phase=${scanPhase}  ${summary}${pktBits}  planner=${PRB.plannedKind}${PRB.plannedIndex>=0?`:${PRB.plannedIndex}`:''}  evidence=${SCANFX.evidenceWrites} links=${SCANFX.edgeLinks}`);
+      setText(truthLine, `lock=RETICLE  pole=${POLE.label}  θ=${POLE.angleDeg.toFixed(1)}°  phase=${scanPhase}  ${summary}${pktBits}  planner=${PRB.plannedKind}${PRB.plannedIndex>=0?`:${PRB.plannedIndex}`:''}  evidence=${SCANFX.evidenceWrites} links=${SCANFX.edgeLinks}`);
     }
   }
 
@@ -5858,15 +5874,23 @@ function drawPoleCompass(){
   }
 
   /* ============================================================================
-   * LUCID SYNTH PATCH — Neural Synth thinker mounted in the eye (Phase 1)
+   * LUCID SYNTH PATCH — Neural Synth thinker (Phase 1)
    * Source: Iteration 11 preview_v0.2.html ("Proto-Synth Neural + Voxel
    * Directory Merge") — mulberry32 / hashString / seededColor and the node,
    * voxel, ring and link construction are ported verbatim from that file's
    * rebuildFromSeed(); the draw is adapted to the v67 eye: the thinker is
    * projected into the pupil disc (clipped to R*0.55) and drawn between
    * drawSynthEyeField() and drawCenterReticle()/drawEyeShip(), so Lucifer
-   * the Sentinel — the LuciferAI plugin embodied — sits on top of it, at
-   * the heart of the eye. 8 categories, seed-bound RGB via seededColor().
+   * the Sentinel — the LuciferAI plugin embodied — sits on top of it.
+   * 8 categories, seed-bound RGB via seededColor().
+   * CORRECTED MODEL (Gary, 2026-11-08 ~00:53 PST): the thinker and the
+   * spectrum animation (drawSynthEyeField) are NOT the core — they live on
+   * the OUTSIDE of the blueprint and move with the reticle. The draw below
+   * still places them at canvas center (cx, cy); repositioning them to
+   * follow the reticle on the outside is a flagged follow-up (see report),
+   * NOT done in this pass — the reticle has no "outside" position defined
+   * in code yet (IV.reticle is never populated; drawCenterReticle is
+   * hardcoded to cx, cy), so the anchor needs Gary's confirmation first.
    * The "64 tracked each" figure from standing memory is NOT verified in
    * the engine source and is NOT asserted anywhere here.
    * Deliberately scoped: no comm-event simulation, no receipts, no hover —
@@ -6002,9 +6026,26 @@ function drawPoleCompass(){
   // design — the shell never asks what the mounted thing IS classified as;
   // it only asks whether an embodiment is mounted. That is what lets Lucifer
   // (classification: Sentinel) mount as the synth embodiment.
+  //
+  // Demo progress wipe (Gary, 2026-11-08 ~00:46 PST): leaving the demo to
+  // build your own wipes the demo progress — the build starts fresh, demo
+  // progress does NOT carry over. {type:'lucid-synth-wipe-demo'} clears the
+  // persisted demo state (world state, restore flag, survey save,
+  // bookmarks) and reloads the shell, which is what resets the in-memory
+  // state (tiles, receipts, blueprint, residency). The parent re-posts the
+  // mount on iframe load, so the fresh shell mounts the same way.
   window.addEventListener('message', function(ev){
     const d = ev && ev.data;
-    if(!d || d.type !== 'lucid-synth-mount') return;
+    if(!d) return;
+    if(d.type === 'lucid-synth-wipe-demo'){
+      try{ localStorage.removeItem(SYNTH_PERSIST_KEY); }catch(err){}
+      try{ localStorage.removeItem(SYNTH_RESTORE_FLAG_KEY); }catch(err){}
+      try{ localStorage.removeItem(BOOKMARKS_KEY); }catch(err){}
+      try{ const sk = surveyStorageKey(); if(sk) localStorage.removeItem(sk); }catch(err){}
+      try{ location.reload(); }catch(err){}
+      return;
+    }
+    if(d.type !== 'lucid-synth-mount') return;
     ntMounted = !!d.mounted;
     if(typeof d.seed === 'string' && /^[0-9A-Fa-f]{1,16}$/.test(d.seed)){ NT_SEED_HEX = d.seed.toUpperCase(); ntBuilt = false; }
   });
@@ -6041,8 +6082,11 @@ function render(){
     ctx.beginPath(); ctx.arc(cx,cy,R*0.96,0,Math.PI*2); ctx.fill();
     ctx.restore();
 
+    // Spectrum animation + Neural Synth thinker. CORRECTED MODEL (Gary,
+    // 2026-11-08 ~00:53 PST): these are NOT the core — they live OUTSIDE the
+    // blueprint and move with the reticle. Drawn at center for now;
+    // repositioning to the reticle on the outside is a flagged follow-up.
     drawSynthEyeField(cx, cy, R);
-    // LUCID SYNTH PATCH: Neural Synth thinker mounted in the eye, under the Sentinel.
     ntDrawThinker(cx, cy, R);
     drawWorldCompassRing(cx, cy, R);
 
@@ -6208,7 +6252,7 @@ function render(){
       <div class="row"><span class="pill">microAgg</span><code>${(sh&&sh.microAggregate)?('pop='+sh.microAggregate.population+' struct='+sh.microAggregate.structures+' roads='+sh.microAggregate.roads+' hubs='+sh.microAggregate.hubs+' relays='+sh.microAggregate.relays+' held='+(sh.microAggregate.held||0)+' penalty='+(sh.microAggregate.penalty||0)):'(none)'}</code></div>
       <div class="row"><span class="pill">contacts</span><code>${SCANFX.contacts.length}</code> highlighted=<code>${SCANFX.highlighted}</code></div>
       <div class="row"><span class="pill">classes</span><code>${Object.entries((sh&&sh.contactSummary)||{}).map(([k,v])=>`${k}:${v}`).join(' ') || '(none)'}</code></div>
-      <div class="row"><span class="pill">centerLock</span><code>${showReticle ? 'enabled' : 'forced-eye-center'}</code> drift=<code>${Math.hypot(lookVX,lookVY).toFixed(3)}</code></div>
+      <div class="row"><span class="pill">reticleLock</span><code>${showReticle ? 'enabled' : 'outside'}</code> drift=<code>${Math.hypot(lookVX,lookVY).toFixed(3)}</code></div>
       <div class="row"><span class="pill">pole</span><code>${POLE.label}</code> theta=<code>${POLE.angleDeg.toFixed(2)}°</code> align=<code>${POLE.alignment}</code> hdg=<code>${POLE.headingDeg.toFixed(1)}° ${POLE.dominantCardinal}</code> lat=<code>${POLE.latitudeDeg.toFixed(1)}°</code></div>
       <div class="row"><span class="pill">address</span><code>${STATE.addressStr||'ARC://pending'}</code></div>
       <div class="row"><span class="pill">reticleHit</span><code>${RETICLE_PACKET?RETICLE_PACKET.summary:'pending'}</code> route=<code>${RETICLE_PACKET&&RETICLE_PACKET.routeIndex>=0?RETICLE_PACKET.routeIndex:'-'}</code></div>

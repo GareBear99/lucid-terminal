@@ -756,7 +756,7 @@ declare global {
         create: () => void;
       };
       fs: {
-        readDir: (dirPath: string) => Promise<FileEntry[]>;
+        readDir: (dirPath: string, options?: { depth?: number }) => Promise<FileEntry[]>;
         readFile: (filePath: string) => Promise<string>;
         writeFile: (filePath: string, content: string) => Promise<void>;
         createFile: (filePath: string, content?: string) => Promise<void>;

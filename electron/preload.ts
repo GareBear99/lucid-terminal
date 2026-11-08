@@ -25,7 +25,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
 
   // File system operations
   fs: {
-    readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', dirPath),
+    readDir: (dirPath: string, options?: { depth?: number }) =>
+      ipcRenderer.invoke('fs:readDir', dirPath, options),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
     writeFile: (filePath: string, content: string) =>
       ipcRenderer.invoke('fs:writeFile', filePath, content),
@@ -537,7 +538,7 @@ export interface LucidAPI {
     create: () => void;
   };
   fs: {
-    readDir: (dirPath: string) => Promise<FileEntry[]>;
+    readDir: (dirPath: string, options?: { depth?: number }) => Promise<FileEntry[]>;
     readFile: (filePath: string) => Promise<string>;
     writeFile: (filePath: string, content: string) => Promise<void>;
     createFile: (filePath: string, content?: string) => Promise<void>;

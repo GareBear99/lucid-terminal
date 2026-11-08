@@ -98,22 +98,26 @@ describe('createEvent — WHEN + WHY, honestly', () => {
   });
 });
 
-describe('the startup walk diagnosis (a) — the 3 TCC prompts', () => {
-  it('names the startup code path: App init → setCurrentDir → fs:readDir, recursive', () => {
+describe('the startup load diagnosis (a) — the 3 TCC prompts, fixed', () => {
+  it('names the startup code path: App init → setCurrentDir → fs:readDir, top level only', () => {
     const why = diagnoseStartupFileExplorerWalk();
     expect(why).toContain('src/App.tsx');
     expect(why).toContain('fileStore.setCurrentDir');
     expect(why).toContain('fs:readDir');
-    expect(why).toContain('recursive');
+    expect(why).toContain('top level only');
+    expect(why).toContain('depth 1');
+    expect(why).toContain('no recursive walk');
+    expect(why).toContain('no prompts at startup');
   });
 
-  it('explains the mechanism: the walk reads the three protected folders', () => {
+  it('explains the mechanism: the old walk read the three protected folders; the fix prompts nothing on startup', () => {
     const detail = startupFileExplorerWalkDetail();
     expect(detail).toContain('~/Desktop');
     expect(detail).toContain('~/Documents');
     expect(detail).toContain('~/Downloads');
     expect(detail).toContain('one TCC prompt per protected folder');
     expect(detail).toContain('4dd778a');
+    expect(detail).toContain('zero prompts on startup');
   });
 
   it('the user folder-read diagnosis names its own path, not the startup one', () => {

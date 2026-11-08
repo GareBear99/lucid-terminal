@@ -13,10 +13,13 @@
  * what is unknown, never assume, check before acting. The event
  * log is that standard applied to everything Lucid asks for:
  *
- * - INITIAL (startup) events: the startup file-explorer walk
- *   (the cause of the 3 macOS TCC prompts Gary reported —
- *   "still asks 3 times on startup for same thing", 2026-11-08
- *   ~09:49 PST) and the startup permission probe.
+ * - INITIAL (startup) events: the startup file-explorer load
+ *   (before the 4dd778a fix it walked the whole home tree
+ *   recursively — the cause of the 3 macOS TCC prompts Gary
+ *   reported, "still asks 3 times on startup for same thing",
+ *   2026-11-08 ~09:49 PST; the fix was re-applied on Gary's yes
+ *   2026-11-08 ~13:37 PST, so the startup load is top level
+ *   only now) and the startup permission probe.
  * - THROUGHOUT (ongoing) events: permission prompts and probe
  *   runs during the session, permission state changes, directory
  *   reads and folder-picker dialogs, browser permission and
@@ -219,27 +222,30 @@ export function eventOutcomeLabel(outcome: EventOutcome): string {
 /* ------------------------------------------------------------------ */
 
 /**
- * WHY the startup file-explorer walk happens — the diagnosis for
+ * WHY the startup file-explorer load happens — the diagnosis for
  * Gary's 3-prompts report ("still asks 3 times on startup for
  * same thing", 2026-11-08 ~09:49 PST): App's init effect loads
- * the file explorer in the background by reading the whole home
- * tree recursively, and macOS shows one TCC prompt per protected
- * folder on first read.
+ * the file explorer in the background. Before the 4dd778a fix it
+ * read the whole home tree recursively, and macOS showed one TCC
+ * prompt per protected folder on first read. The fix (re-applied
+ * on Gary's yes, 2026-11-08 ~13:37 PST) reads the top level only
+ * (depth 1) and lazy-loads on expand, so the startup load prompts
+ * nothing.
  */
 export function diagnoseStartupFileExplorerWalk(): string {
-  return 'App startup (src/App.tsx init effect) → fileStore.setCurrentDir(home) → window.lucidAPI.fs.readDir → electron/ipc/fileSystem.ts fs:readDir, which reads the whole directory tree recursively';
+  return 'App startup (src/App.tsx init effect) → fileStore.setCurrentDir(home) → window.lucidAPI.fs.readDir → electron/ipc/fileSystem.ts fs:readDir, top level only (depth 1), lazy-load on expand — no recursive walk, no prompts at startup';
 }
 
 /** The mechanism behind the startup walk's prompts — recorded
  *  as the event's detail, not its why (the why is the code
  *  path; this is what the code path does to the OS). */
 export function startupFileExplorerWalkDetail(): string {
-  return 'The recursive walk reads ~/Desktop, ~/Documents and ~/Downloads, so macOS shows one TCC prompt per protected folder the first time it is read — the three prompts on startup. The lazy-load fix (read top level only, expand on demand, commit 4dd778a) is reverted pending Gary\'s decision; this event only records the walk, it does not change it.';
+  return 'Before the fix, the recursive walk read ~/Desktop, ~/Documents and ~/Downloads, so macOS showed one TCC prompt per protected folder the first time it was read — the three prompts on startup. The lazy-load fix (read top level only, expand on demand, commit 4dd778a) was re-applied on Gary\'s yes (2026-11-08 ~13:37 PST), so the startup load now prompts nothing — zero prompts on startup, one prompt only when the user explicitly opens a protected folder.';
 }
 
 export function diagnoseDirectoryRead(origin: 'startup' | 'user'): string {
   if (origin === 'startup') return diagnoseStartupFileExplorerWalk();
-  return 'User opened a folder (Sidebar / Files screen → fileStore.setCurrentDir → window.lucidAPI.fs.readDir → electron/ipc/fileSystem.ts fs:readDir, which reads the whole directory tree recursively)';
+  return 'User opened a folder (Sidebar / Files screen → fileStore.setCurrentDir → window.lucidAPI.fs.readDir → electron/ipc/fileSystem.ts fs:readDir, top level only by default; deeper reads skip protected folders below the root)';
 }
 
 export type PermissionProbeOrigin = 'startup' | 'user-refresh' | 'after-request';

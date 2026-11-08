@@ -15,6 +15,37 @@ function errorMessage(error: unknown): string {
     .trim();
 }
 
+/**
+ * Find an entry by path in a (possibly nested) file tree, or null.
+ * `children === undefined` means the directory's children have not
+ * been loaded yet (lazy); `children === []` means loaded and empty.
+ */
+export function findFileEntry(entries: FileEntry[], path: string): FileEntry | null {
+  for (const entry of entries) {
+    if (entry.path === path) return entry;
+    if (entry.children) {
+      const found = findFileEntry(entry.children, path);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Return a new tree with `children` set on the entry at `path`. */
+export function withFileEntryChildren(
+  entries: FileEntry[],
+  path: string,
+  children: FileEntry[],
+): FileEntry[] {
+  return entries.map((entry) => {
+    if (entry.path === path) return { ...entry, children };
+    if (entry.children) {
+      return { ...entry, children: withFileEntryChildren(entry.children, path, children) };
+    }
+    return entry;
+  });
+}
+
 interface OpenFile {
   path: string;
   name: string;
@@ -40,7 +71,9 @@ interface FileState {
   clearError: () => void;
   setCurrentDir: (dir: string) => Promise<void>;
   refreshDir: () => Promise<void>;
-  toggleDir: (path: string) => void;
+  toggleDir: (path: string) => Promise<void>;
+  /** Load a directory's children (top level only) and merge them into the tree. */
+  loadChildren: (path: string) => Promise<void>;
   selectPath: (path: string) => void;
   openFile: (path: string) => Promise<boolean>;
   closeFile: (path: string) => void;
@@ -89,6 +122,13 @@ export const useFileStore = create<FileState>((set, get) => ({
           recentWorkspaces: newRecent
         };
       });
+      // Restore children for dirs the user had expanded — the
+      // top-level reload replaced the entries, so their loaded
+      // children were lost. Re-fetch them (each is one top-level
+      // read of that folder; a folder the user explicitly opened
+      // prompts once for itself, which is correct).
+      const expanded = [...get().expandedDirs];
+      await Promise.allSettled(expanded.map((p) => get().loadChildren(p)));
       console.log('✅ FileStore: setCurrentDir completed successfully');
     } catch (error) {
       console.error('❌ FileStore: setCurrentDir failed:', error);
@@ -105,16 +145,46 @@ export const useFileStore = create<FileState>((set, get) => ({
     }
   },
 
-  toggleDir: (path) => {
-    set((state) => {
-      const newExpanded = new Set(state.expandedDirs);
-      if (newExpanded.has(path)) {
-        newExpanded.delete(path);
-      } else {
-        newExpanded.add(path);
+  loadChildren: async (path) => {
+    try {
+      const children = await window.lucidAPI.fs.readDir(path);
+      set((state) => ({ entries: withFileEntryChildren(state.entries, path, children) }));
+    } catch (error) {
+      const message = errorMessage(error);
+      useToastStore.getState().error(`Could not open folder: ${message}`);
+      throw error;
+    }
+  },
+
+  toggleDir: async (path) => {
+    const state = get();
+    if (state.expandedDirs.has(path)) {
+      // Collapse — no fetch needed.
+      const next = new Set(state.expandedDirs);
+      next.delete(path);
+      set({ expandedDirs: next });
+      return;
+    }
+    // Expand: mark expanded immediately so the chevron responds,
+    // then lazily load the children if they were never loaded.
+    // The startup load reads only the top level, so a protected
+    // folder (Desktop / Documents / Downloads) is only read when
+    // the user explicitly expands it — one prompt for that folder,
+    // which is correct, instead of three prompts at startup.
+    set({ expandedDirs: new Set(state.expandedDirs).add(path) });
+    const entry = findFileEntry(get().entries, path);
+    if (entry && entry.isDirectory && entry.children === undefined) {
+      try {
+        await get().loadChildren(path);
+      } catch {
+        // Loading failed (e.g. access denied) — collapse back so
+        // the dir does not sit open and empty. loadChildren already
+        // told the user why.
+        const next = new Set(get().expandedDirs);
+        next.delete(path);
+        set({ expandedDirs: next });
       }
-      return { expandedDirs: newExpanded };
-    });
+    }
   },
 
   selectPath: (path) => {

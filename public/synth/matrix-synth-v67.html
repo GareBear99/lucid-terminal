@@ -3371,6 +3371,29 @@ function eyeStep(){
     const cx=W*0.5, cy=H*0.5;
     return {x:cx + r.x*R, y:cy - r.y*R, z:clamp(r.z,0,1), rv:r};
   }
+  // Runtime fix #5: scalar projection into preallocated scratch.
+  // preprojectGrid allocated ~35k objects/frame (7 per vertex: the v
+  // literal + qrot's p/qi/two qmul results/return + projectDir's return).
+  // Same math, same operation order as qmul/qrot — bit-identical
+  // results, zero allocation. (render()'s ~25 projectDir calls/frame
+  // were left alone: several sites hold A and B simultaneously, so a
+  // single shared scratch would corrupt them.)
+  const _projOut = {x:0, y:0, z:0};
+  function projectDirInto(vx, vy, vz, R, cx, cy, out){
+    const qx=qCam.x, qy=qCam.y, qz=qCam.z, qw=qCam.w;
+    // t = qmul(q, p), p = (vx,vy,vz,0)
+    const tw = -(qx*vx + qy*vy + qz*vz);
+    const tx = qw*vx + qy*vz - qz*vy;
+    const ty = qw*vy - qx*vz + qz*vx;
+    const tz = qw*vz + qx*vy - qy*vx;
+    // r = qmul(t, qi), qi = (-qx,-qy,-qz,qw)
+    const rx = -tw*qx + tx*qw - ty*qz + tz*qy;
+    const ry = -tw*qy + tx*qz + ty*qw - tz*qx;
+    const rz = -tw*qz - tx*qy + ty*qx + tz*qw;
+    if(rz <= 0) return null;
+    out.x = cx + rx*R; out.y = cy - ry*R; out.z = clamp(rz, 0, 1);
+    return out;
+  }
   
   // ---------- reticle resolver (DARPA contract) ----------
   // Resolves the tile under the CENTER reticle (screen center) by casting the
@@ -3408,8 +3431,7 @@ function eyeStep(){
     const warp = 1.0 + Math.sin(t*(1.05 + seedPhase*0.4) + seedPhase*Math.PI*2)*0.0065;
     const swirl = Math.sin(t*(0.50 + seedPhase*0.3) + seedPhase*7.0)*0.010;
     for(let i=0;i<vCount;i++){
-      const v = {x:V[i*3+0], y:V[i*3+1], z:V[i*3+2]};
-      const p = projectDir(v);
+      const p = projectDirInto(V[i*3+0], V[i*3+1], V[i*3+2], R, cx, cy, _projOut);
       if(!p){ sz[i]=0; continue; }
       let x = p.x, y = p.y;
       const dx = (x - cx) / Math.max(1, R);
@@ -6028,14 +6050,16 @@ function render(){
     ctx.globalCompositeOperation='lighter';
     ctx.strokeStyle = 'rgba(255,120,235,0.10)';
     ctx.lineWidth = 1.0*dpr;
+    // Runtime fix #6: one path + one stroke for all visible edges
+    // (was one beginPath+stroke per edge — 9,744 strokes/frame).
+    ctx.beginPath();
     for(let k=0;k<E.length;k+=2){
       const a = E[k], b = E[k+1];
       if(sz[a]===0 || sz[b]===0) continue;
-      ctx.beginPath();
       ctx.moveTo(sx[a], sy[a]);
       ctx.lineTo(sx[b], sy[b]);
-      ctx.stroke();
     }
+    ctx.stroke();
     ctx.restore();
 
     // if no blueprint: show nothing else (EMPTY)

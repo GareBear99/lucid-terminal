@@ -287,15 +287,24 @@ describe('dev mode ON (delinked)', () => {
     });
   });
 
-  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — blood drop + ❯ prompt arrow + extending input, half-way rounded edges, flat otherwise', async () => {
+  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — blood drop + gold arrow + ~ tilde + extending input, half-way rounded edges, inside the original BUBBLE', async () => {
     // LuciferAI OFF (the default here): the ORIGINAL Lucid terminal
     // prompt (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's photo:
-    // the BLOOD DROP (as set up) + the PROMPT ARROW ❯ (Gary,
-    // 2026-11-08 ~11:22 PST: when LuciferAI is off the squiggly ~
-    // tilde switches to the prompt arrow) + an input that EXTENDS
-    // (flex-1) with HALF-WAY ROUNDED edges (rounded-lg), but flat
-    // otherwise: no border, no background, no glass.
-    // No gold arrow, no Sentinel face, no "Idle • Awaiting
+    // the BLOOD DROP (as set up) + the GOLD ARROW (the ➜ send
+    // arrow, gold, immediately after the blood drop, before the ~;
+    // Gary, 2026-11-08 ~11:46 PST: "you took mine out and never
+    // put it back" — it is his arrow, in the photo, and it goes
+    // back in) + the ~ tilde (the squiggly line, as in the photo;
+    // Gary, 2026-11-08 ~11:44 PST: "no arrow prompt either" —
+    // there is NO prompt arrow in the original; the ❯ was a
+    // misstep and is removed, the ~ is back) + an input that
+    // EXTENDS (flex-1) with HALF-WAY ROUNDED edges (rounded-lg)
+    // inside the ORIGINAL prompt BUBBLE (Gary, 2026-11-08 ~11:40
+    // PST: the bubble is back — the distinct rounded input field,
+    // dark background + subtle border, as in the photo, from
+    // before the terminal and glass work; the wrapper carries the
+    // bubble, the InputArea inside stays flat).
+    // No prompt arrow, no Sentinel face, no "Idle • Awaiting
     // Commands..." line.
     setDevMode(true);
     render(<Terminal tabId="tab-1" />);
@@ -307,28 +316,43 @@ describe('dev mode ON (delinked)', () => {
     const drop = within(bar).getByTestId('blood-drop-svg');
     expect(drop).not.toBeNull();
     expect(drop.getAttribute('fill')).toBe('#ef4444');
-    // The original prompt has the ❯ prompt arrow before the
-    // input — and the ~ tilde is gone.
+    // The GOLD ARROW is back in — the ➜ send arrow, gold,
+    // immediately after the blood drop, before the ~. (getByText
+    // throws if it is missing, so reaching here proves it is
+    // rendered.) It is GOLD (text-[var(--warning)]) and it sits
+    // before the ~ tilde in the row order.
+    const sendArrow = within(bar).getByTestId('dev-send-arrow');
+    expect(sendArrow.textContent).toBe('➜');
+    expect(sendArrow.className).toContain('text-[var(--warning)]');
+    // The original prompt has the ~ tilde before the input — and
+    // NO prompt arrow (the ❯ was a misstep, removed 2026-11-08).
     // (getByText throws if it is missing, so reaching here proves
     // it is rendered.)
-    const arrow = within(bar).getByText('❯');
-    expect(arrow.textContent).toBe('❯');
-    expect(within(bar).queryByText('~')).toBeNull();
+    const tilde = within(bar).getByText('~');
+    expect(tilde.textContent).toBe('~');
+    expect(within(bar).queryByText('❯')).toBeNull();
+    // Order: the gold arrow comes BEFORE the ~ tilde.
+    expect(
+      Boolean(sendArrow.compareDocumentPosition(tilde) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
     // The input itself is bare — no rounding, no padding.
     const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
     const inputOuter = input.parentElement as HTMLElement;
     expect(inputOuter.className).not.toContain('rounded');
     expect(inputOuter.className).not.toContain('px-3');
     // The wrapper around the input EXTENDS and is HALF-WAY ROUNDED
-    // (rounded-lg) — but flat otherwise: no border, no background.
+    // (rounded-lg) AND carries the ORIGINAL prompt BUBBLE — a dark
+    // background + subtle border, as in Gary's photo. (Gary,
+    // 2026-11-08 ~11:40 PST: the bubble is back. The InputArea
+    // inside stays flat; the bubble is the wrapper.)
     const wrapper = inputOuter.parentElement as HTMLElement;
     expect(wrapper.className).toContain('flex-1');
     expect(wrapper.className).toContain('rounded-lg');
     expect(wrapper.className).toContain('overflow-hidden');
     expect(wrapper.className).not.toContain('rounded-none');
     expect(wrapper.className).not.toContain('rounded-full');
-    expect(wrapper.className).not.toContain('border');
-    expect(wrapper.className).not.toContain('bg-');
+    expect(wrapper.className).toContain('border');
+    expect(wrapper.className).toContain('bg-');
   });
 
   test('the dev console is ABSENT when LuciferAI is off in devmode (Gary, 2026-11-08) — it disappears when the original prompt input comes back', async () => {

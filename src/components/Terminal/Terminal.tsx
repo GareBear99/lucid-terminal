@@ -1216,14 +1216,25 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's
                     photo: the BLOOD DROP (as set up — the silencer,
                     red while speaking, grey while silenced) + the
-                    PROMPT ARROW ❯ (Gary, 2026-11-08 ~11:22 PST:
-                    when LuciferAI is off the squiggly ~ tilde
-                    switches to the prompt arrow) + an input that
+                    ~ tilde (the squiggly line, as in the photo;
+                    Gary, 2026-11-08 ~11:44 PST: "no arrow prompt
+                    either" — there is NO prompt arrow in the
+                    original; the ❯ added by 3b0f2f1 was a misstep
+                    and is removed, the ~ is back) + an input that
                     EXTENDS (flex-1) with HALF-WAY ROUNDED edges
-                    (rounded-lg), but flat otherwise: no background,
-                    no border, no glass. No gold arrow, no Sentinel
-                    face, no "Idle • Awaiting Commands..." line.
-                    When LuciferAI is on, the squared bottom-drop
+                    (rounded-lg) inside the ORIGINAL prompt BUBBLE
+                    (Gary, 2026-11-08 ~11:40 PST: "wheres our
+                    fucking prompt bubble" — the bubble is the
+                    distinct rounded input field, dark background +
+                    subtle border, as in the photo, from BEFORE the
+                    terminal and glass work; the wrapper carries the
+                    bubble, the InputArea inside stays flat). The
+                    GOLD ARROW (the ➜ send arrow, gold, immediately
+                    after the blood drop, before the ~) is back in
+                    (Gary, 2026-11-08 ~11:46 PST — it is his arrow,
+                    in the photo). No prompt arrow, no Sentinel face,
+                    no "Idle • Awaiting Commands..." line. When
+                    LuciferAI is on, the squared bottom-drop
                     section. The rainbow glow still shows either way
                     (platform trait). */}
                 {luciferAiEnabled ? (
@@ -1258,8 +1269,42 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     ) : (
                       <BloodDropIcon fill={luciferAiSilenced ? BLOOD_DROP_GREY : BLOOD_DROP_RED} />
                     )}
-                    <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">❯</span>
-                    <div className="flex-1 rounded-lg overflow-hidden">
+                    {/* GOLD ARROW — the SEND arrow (Gary, 2026-11-08
+                        ~11:46 PST: "you took mine out and never put
+                        it back" — it is Gary's arrow, in the photo,
+                        and it goes back in). Restored from the
+                        4d8ef4e original: the ➜ send arrow, gold
+                        (text-[var(--warning)] — #fbbf24 amber/gold
+                        in the LuciferAI theme), immediately after
+                        the blood drop, before the ~. It submits
+                        exactly like Enter: the current dev input,
+                        read from the same devInput state. Disabled
+                        while the dev input is empty. This OVERRIDES
+                        the earlier "no gold arrow" instruction — the
+                        gold arrow is Gary's and it stays. */}
+                    <Tooltip content="Send" shortcut="Enter">
+                      <button
+                        type="button"
+                        data-testid="dev-send-arrow"
+                        onClick={() => void handleDevSubmit(devInput)}
+                        disabled={!devInput.trim()}
+                        aria-label="Send command"
+                        className="shrink-0 rounded px-1 text-[var(--warning)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                        style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.5)' }}
+                      >
+                        ➜
+                      </button>
+                    </Tooltip>
+                    <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
+                    {/* The ORIGINAL prompt BUBBLE (Gary, 2026-11-08
+                        ~11:40 PST): the distinct rounded input
+                        field — dark background + subtle border, as
+                        in Gary's photo / the 4d8ef4e original
+                        (bg + border on the prompt-input-wrap). Theme
+                        vars, same as the ON squared section, so the
+                        bubble follows the theme and the themes stay
+                        intact. The InputArea inside stays flat. */}
+                    <div className="flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
                       <InputArea
                         input={devInput}
                         setInput={setDevInput}

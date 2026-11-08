@@ -17,9 +17,11 @@
  * mode — dev mode ON, detached bar + dev console — so the terminal
  * still works. It must never be left with a broken, synced-but-
  * dead prompt bar. The fallback is VISIBLE: an amber notice above
- * the dev bar AND a line in the dev console. Dev mode ON still
- * means desync (unchanged) — and a failure while already in dev
- * mode does not re-fire the fallback.
+ * the dev bar AND a line in the dev console (the console line
+ * only while LuciferAI is on — Gary, 2026-11-08 ~11:22 PST: the
+ * console disappears when the original prompt input comes back).
+ * Dev mode ON still means desync (unchanged) — and a failure
+ * while already in dev mode does not re-fire the fallback.
  *
  * Harness: jsdom has no canvas, so XtermSurface renders its
  * plain-text fallback and InputArea falls back to a plain
@@ -101,6 +103,11 @@ afterEach(() => {
 function setDevMode(enabled: boolean) {
   const base = useSettingsStore.getState().settings;
   useSettingsStore.setState({ settings: { ...base, devMode: enabled } });
+}
+
+function setLuciferAiEnabled(enabled: boolean) {
+  const base = useSettingsStore.getState().settings;
+  useSettingsStore.setState({ settings: { ...base, luciferAiEnabled: enabled } });
 }
 
 /** Type a line into the xterm fallback input and press Enter. */
@@ -185,6 +192,10 @@ describe('checkPromptFocus — the click half of the sync (pure)', () => {
 describe('topology failsafe — sync failure falls into dev mode', () => {
   test('a click that cannot focus the terminal falls into dev mode with a visible notice', async () => {
     setDevMode(false);
+    // The dev console only renders while LuciferAI is on (Gary,
+    // 2026-11-08 ~11:22 PST) — the console-line assertions below
+    // run ON.
+    setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('xterm-surface');
 
@@ -210,6 +221,38 @@ describe('topology failsafe — sync failure falls into dev mode', () => {
     await waitFor(() => {
       expect(devConsoleText()).toContain('Topology sync failed');
     });
+    // The detached bar still works: a bare line runs one-shot.
+    const bar = screen.getByTestId('dev-command-bar');
+    const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
+    fireEvent.change(input, { target: { value: 'echo hello-dev' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => {
+      expect(executeCommandMock).toHaveBeenCalledWith('echo hello-dev');
+    });
+  });
+
+  test('failsafe with LuciferAI off: the bar + notice still fire, but no dev console (Gary, 2026-11-08)', async () => {
+    setDevMode(false);
+    // LuciferAI OFF (the default here): the original prompt input
+    // is back, so the dev console must not render — the fallback
+    // stays VISIBLE through the amber notice alone.
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    const xtermInput = screen.getByTestId('xterm-fallback-input');
+    vi.spyOn(xtermInput, 'focus').mockImplementation(() => {
+      throw new Error('focus broke');
+    });
+
+    fireEvent.click(screen.getByTestId('prompt-section'));
+
+    await waitFor(() => {
+      expect(settingsSetMock).toHaveBeenCalledWith('devMode', true);
+    });
+    expect(screen.getByTestId('dev-command-bar')).not.toBeNull();
+    expect(screen.queryByTestId('dev-console')).toBeNull();
+    const notice = screen.getByTestId('topology-fallback-notice');
+    expect(notice.textContent).toContain('Topology sync failed');
     // The detached bar still works: a bare line runs one-shot.
     const bar = screen.getByTestId('dev-command-bar');
     const input = within(bar).getByPlaceholderText(/Monaco unavailable/);

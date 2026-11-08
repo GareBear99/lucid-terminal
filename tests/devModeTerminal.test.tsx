@@ -9,11 +9,14 @@
  *
  * ON (delinked): a detached command bar appears in the prompt
  * section (revived InputArea, own input state) with its own dev
- * console beneath it. Clicking the prompt section does NOT focus
- * the terminal. Slash lines run through runSlashCommand with the
- * dev console as their output sink; bare lines run detached via
- * terminal:executeCommand. The visible terminal screen is never
- * written to by the bar, and it keeps running independently.
+ * console beneath it — but only while LuciferAI is on (Gary,
+ * 2026-11-08 ~11:22 PST: the console disappears when the
+ * original prompt input comes back). Clicking the prompt section
+ * does NOT focus the terminal. Slash lines run through
+ * runSlashCommand with the dev console as their output sink; bare
+ * lines run detached via terminal:executeCommand. The visible
+ * terminal screen is never written to by the bar, and it keeps
+ * running independently.
  *
  * Harness: jsdom has no canvas, so XtermSurface renders its
  * plain-text fallback and InputArea falls back to a plain
@@ -152,6 +155,9 @@ describe('dev mode OFF (default, topology-synced)', () => {
 describe('dev mode ON (delinked)', () => {
   test('detached bar + DEV badge + delinked note render; prompt-section click does NOT focus the terminal', async () => {
     setDevMode(true);
+    // The dev console only renders while LuciferAI is on (Gary,
+    // 2026-11-08 ~11:22 PST) — so this console assertion runs ON.
+    setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('xterm-surface');
 
@@ -173,6 +179,9 @@ describe('dev mode ON (delinked)', () => {
 
   test('a slash command in the bar routes to the dev console, never the terminal screen', async () => {
     setDevMode(true);
+    // Dev console present only while LuciferAI is on (Gary,
+    // 2026-11-08 ~11:22 PST).
+    setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
@@ -190,6 +199,9 @@ describe('dev mode ON (delinked)', () => {
 
   test('a bare line in the bar runs detached via executeCommand — terminal screen untouched', async () => {
     setDevMode(true);
+    // Dev console present only while LuciferAI is on (Gary,
+    // 2026-11-08 ~11:22 PST).
+    setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
@@ -207,6 +219,9 @@ describe('dev mode ON (delinked)', () => {
   test('a failed detached command shows its error in the dev console, not the screen', async () => {
     executeCommandMock.mockResolvedValue({ success: false, output: '', error: 'boom' });
     setDevMode(true);
+    // Dev console present only while LuciferAI is on (Gary,
+    // 2026-11-08 ~11:22 PST).
+    setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
@@ -217,21 +232,32 @@ describe('dev mode ON (delinked)', () => {
     expect(terminalOutputText()).not.toContain('boom');
   });
 
-  test('/help needs-LuciferAI note goes through the dev sink when off', async () => {
+  test('/help needs-LuciferAI note has nowhere visible to go when off (Gary, 2026-11-08) — dev console hidden, screen untouched', async () => {
     setDevMode(true);
     setLuciferAiEnabled(false);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
+    // The dev console is gone when LuciferAI is off (the original
+    // prompt input is back) — the note still goes to the dev sink
+    // state, but it has nowhere visible to go until the top-feed
+    // routing lands.
+    expect(screen.queryByTestId('dev-console')).toBeNull();
+
     submitToDevBar('/help');
-    await waitFor(() => {
-      expect(devConsoleText()).toContain('/help needs LuciferAI');
-    });
+    // Let the detached submit settle (the /help handler writes
+    // the note to the dev sink, not the screen), then the console
+    // must still be absent and the screen must not carry the note.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(screen.queryByTestId('dev-console')).toBeNull();
     expect(terminalOutputText()).not.toContain('/help needs LuciferAI');
   });
 
   test('the dev console Clear button empties it', async () => {
     setDevMode(true);
+    // Dev console present only while LuciferAI is on (Gary,
+    // 2026-11-08 ~11:22 PST).
+    setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
@@ -261,12 +287,14 @@ describe('dev mode ON (delinked)', () => {
     });
   });
 
-  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — blood drop + ~ tilde + extending input, half-way rounded edges, flat otherwise', async () => {
+  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — blood drop + ❯ prompt arrow + extending input, half-way rounded edges, flat otherwise', async () => {
     // LuciferAI OFF (the default here): the ORIGINAL Lucid terminal
     // prompt (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's photo:
-    // the BLOOD DROP (as set up) + the ~ tilde + an input that
-    // EXTENDS (flex-1) with HALF-WAY ROUNDED edges (rounded-lg),
-    // but flat otherwise: no border, no background, no glass.
+    // the BLOOD DROP (as set up) + the PROMPT ARROW ❯ (Gary,
+    // 2026-11-08 ~11:22 PST: when LuciferAI is off the squiggly ~
+    // tilde switches to the prompt arrow) + an input that EXTENDS
+    // (flex-1) with HALF-WAY ROUNDED edges (rounded-lg), but flat
+    // otherwise: no border, no background, no glass.
     // No gold arrow, no Sentinel face, no "Idle • Awaiting
     // Commands..." line.
     setDevMode(true);
@@ -279,11 +307,13 @@ describe('dev mode ON (delinked)', () => {
     const drop = within(bar).getByTestId('blood-drop-svg');
     expect(drop).not.toBeNull();
     expect(drop.getAttribute('fill')).toBe('#ef4444');
-    // The original prompt has the ~ tilde before the input.
+    // The original prompt has the ❯ prompt arrow before the
+    // input — and the ~ tilde is gone.
     // (getByText throws if it is missing, so reaching here proves
     // it is rendered.)
-    const tilde = within(bar).getByText('~');
-    expect(tilde.textContent).toBe('~');
+    const arrow = within(bar).getByText('❯');
+    expect(arrow.textContent).toBe('❯');
+    expect(within(bar).queryByText('~')).toBeNull();
     // The input itself is bare — no rounding, no padding.
     const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
     const inputOuter = input.parentElement as HTMLElement;
@@ -299,6 +329,19 @@ describe('dev mode ON (delinked)', () => {
     expect(wrapper.className).not.toContain('rounded-full');
     expect(wrapper.className).not.toContain('border');
     expect(wrapper.className).not.toContain('bg-');
+  });
+
+  test('the dev console is ABSENT when LuciferAI is off in devmode (Gary, 2026-11-08) — it disappears when the original prompt input comes back', async () => {
+    setDevMode(true);
+    // LuciferAI OFF (the default here): the original prompt input
+    // is back, so the dev console must not render at all.
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    expect(screen.getByTestId('dev-command-bar')).not.toBeNull();
+    expect(screen.queryByTestId('dev-console')).toBeNull();
+    expect(screen.queryByTestId('dev-console-output')).toBeNull();
+    expect(screen.queryByText('Dev console — detached output')).toBeNull();
   });
 
   test('the dev bar prompt is squared when LuciferAI is on (Gary, 2026-11-08)', async () => {
@@ -323,6 +366,10 @@ describe('dev mode ON (delinked)', () => {
       () => new Promise((res) => { resolveExec = res; }),
     );
     setDevMode(true);
+    // Dev console present only while LuciferAI is on (Gary,
+    // 2026-11-08 ~11:22 PST) — the final output assertion below
+    // reads it.
+    setLuciferAiEnabled(true);
     const { container } = render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 

@@ -1200,26 +1200,32 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             )}
             {/* Detached command bar (dev mode ON only) — the prompt
                 bar delinked from the terminal screen. Its own
-                Monaco input (plain-textarea fallback) and its own
-                dev console below it; nothing here writes to the
-                terminal screen or reads its cwd, and the terminal
-                keeps running independently. No blood drop, no
-                heartbeat, no Sentinel face is added here — the
-                plain-terminal rule still holds with LuciferAI off. */}
+                Monaco input (plain-textarea fallback) and — only
+                while LuciferAI is on — its own dev console below
+                it (Gary, 2026-11-08 ~11:22 PST: the console
+                disappears when the original prompt input comes
+                back); nothing here writes to the terminal screen
+                or reads its cwd, and the terminal keeps running
+                independently. No blood drop, no heartbeat, no
+                Sentinel face is added here — the plain-terminal
+                rule still holds with LuciferAI off. */}
             {devMode && (
               <div data-testid="dev-command-bar" className="px-5 pb-4">
                 {/* Prompt when LuciferAI is disabled (Gary,
                     2026-11-08): the ORIGINAL Lucid terminal prompt
                     (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's
                     photo: the BLOOD DROP (as set up — the silencer,
-                    red while speaking, grey while silenced) + the ~
-                    tilde + an input that EXTENDS (flex-1) with
-                    HALF-WAY ROUNDED edges (rounded-lg), but flat
-                    otherwise: no background, no border, no glass.
-                    No gold arrow, no Sentinel face, no "Idle •
-                    Awaiting Commands..." line. When LuciferAI is on,
-                    the squared bottom-drop section. The rainbow glow
-                    still shows either way (platform trait). */}
+                    red while speaking, grey while silenced) + the
+                    PROMPT ARROW ❯ (Gary, 2026-11-08 ~11:22 PST:
+                    when LuciferAI is off the squiggly ~ tilde
+                    switches to the prompt arrow) + an input that
+                    EXTENDS (flex-1) with HALF-WAY ROUNDED edges
+                    (rounded-lg), but flat otherwise: no background,
+                    no border, no glass. No gold arrow, no Sentinel
+                    face, no "Idle • Awaiting Commands..." line.
+                    When LuciferAI is on, the squared bottom-drop
+                    section. The rainbow glow still shows either way
+                    (platform trait). */}
                 {luciferAiEnabled ? (
                   <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
                     <InputArea
@@ -1252,7 +1258,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     ) : (
                       <BloodDropIcon fill={luciferAiSilenced ? BLOOD_DROP_GREY : BLOOD_DROP_RED} />
                     )}
-                    <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
+                    <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">❯</span>
                     <div className="flex-1 rounded-lg overflow-hidden">
                       <InputArea
                         input={devInput}
@@ -1266,22 +1272,33 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     </div>
                   </div>
                 )}
-                <div data-testid="dev-console" className="mt-2 rounded-none border border-[var(--border)] bg-black/30">
-                  <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Dev console — detached output</span>
-                    <button
-                      type="button"
-                      onClick={devClear}
-                      aria-label="Clear dev console"
-                      className="ml-auto text-[11px] text-[var(--text-muted)] underline hover:text-[var(--text-primary)]"
-                    >
-                      Clear
-                    </button>
+                {/* Dev console (Gary, 2026-11-08 ~11:22 PST): it
+                    shows ONLY when LuciferAI is ON. When LuciferAI
+                    is off the original prompt input comes back and
+                    the dev console disappears. NOTE: dev-bar output
+                    (devWrite) still lands in the dev sink state,
+                    but with the console hidden it has nowhere
+                    visible to go until the top-feed routing lands
+                    (prompts go to the terminal screen) — a separate
+                    follow-up. */}
+                {luciferAiEnabled && (
+                  <div data-testid="dev-console" className="mt-2 rounded-none border border-[var(--border)] bg-black/30">
+                    <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Dev console — detached output</span>
+                      <button
+                        type="button"
+                        onClick={devClear}
+                        aria-label="Clear dev console"
+                        className="ml-auto text-[11px] text-[var(--text-muted)] underline hover:text-[var(--text-primary)]"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <pre data-testid="dev-console-output" className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-primary)]">
+                      {devLines.length > 0 ? devLines.join('\n') : 'Detached output appears here. Slash commands run Lucid; bare lines run one-shot in the shell. The terminal screen is untouched.'}
+                    </pre>
                   </div>
-                  <pre data-testid="dev-console-output" className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-primary)]">
-                    {devLines.length > 0 ? devLines.join('\n') : 'Detached output appears here. Slash commands run Lucid; bare lines run one-shot in the shell. The terminal screen is untouched.'}
-                  </pre>
-                </div>
+                )}
               </div>
             )}
           </div>

@@ -248,6 +248,12 @@ export function stepZoomFactor(factor: number, direction: 1 | -1): number {
   return clampZoomFactor(Math.round(next * 100) / 100);
 }
 
+/** How long `browser_navigate` waits for a newly opened tab's view
+ * to appear in main (the renderer creates the tab on
+ * `browser:open-url`, then the panel attaches it) before it reports
+ * the tab as still opening. */
+export const BROWSER_NAVIGATE_NEW_TAB_WAIT_MS = 5000;
+
 export function setupBrowserHandlers(
   ipcMain: IpcMain,
   getMainWindow: () => BrowserWindow | null,
@@ -522,7 +528,7 @@ export function setupBrowserHandlers(
       agentFlowIds.clear();
     },
     getLuciferAiEnabled: () =>
-      options?.getAgentSettings?.().luciferAiEnabled ?? true,
+      options?.getAgentSettings?.().luciferAiEnabled ?? false,
     isFingerLocked: () =>
       options?.getAgentSettings?.().browserFingerLocked ?? false,
     setFingerLockedSetting: (locked) => {
@@ -1176,8 +1182,29 @@ export function setupBrowserHandlers(
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return `Could not open ${url}: only http(s) URLs can be opened.`;
       }
-      const wc = activeWebContents();
-      if (!wc) return 'No browser tab is open.';
+      let wc = activeWebContents();
+      if (!wc) {
+        // No tab open: the agent could never browse until Gary
+        // opened one by hand — so open one. `browser:open-url` is
+        // the renderer's new-tab route (BrowserPanel creates the
+        // tab, main creates its view already pointed at the URL),
+        // then wait briefly for the view to exist before reporting.
+        const win = getMainWindow();
+        if (!win || win.isDestroyed()) {
+          return 'No browser tab is open, and the main window is not available to open one.';
+        }
+        win.webContents.send('browser:open-url', url);
+        const started = Date.now();
+        while (Date.now() - started < BROWSER_NAVIGATE_NEW_TAB_WAIT_MS) {
+          await new Promise((r) => setTimeout(r, 200));
+          wc = activeWebContents();
+          if (wc) break;
+        }
+        if (!wc) {
+          return `Could not open ${url}: no browser tab is open and a new one did not appear — open the Browser tab in the AI panel and try again.`;
+        }
+        return `Opened ${url} in a new tab.`;
+      }
       void wc.loadURL(url);
       return `Opened ${url} in the active tab.`;
     },

@@ -58,10 +58,14 @@ describe('LuciferStatusIndicator', () => {
   });
 });
 
-describe('LuciferStatusIndicator — blood drop toggle (Gary, 2026-11-07 ~09:20 PST)', () => {
-  // The drop next to the send arrow is a clickable toggle for the
-  // blood drop terminal. It ALWAYS defaults darkened/off, so no blood
-  // drop terminal is awaiting commands until it is turned on.
+describe('LuciferStatusIndicator — blood drop quick disable (Gary, 2026-11-07 ~18:57 PST)', () => {
+  // The drop next to the send arrow IS LuciferAI's quick disable:
+  // clicking it flips the plugin on/off. It ALWAYS defaults
+  // darkened/off, is lit when on, never greyed-out unclickable,
+  // and never prints or repeats the "awaiting commands" line
+  // (toggling only flips the setting). With a toggle handler the
+  // drop stays rendered even while disabled — darkened, clickable —
+  // because a quick disable with no way back on is a trap.
   const base = {
     enabled: true,
     checking: false,
@@ -72,44 +76,57 @@ describe('LuciferStatusIndicator — blood drop toggle (Gary, 2026-11-07 ~09:20 
 
   it('defaults darkened/off — the drop is dimmed until turned on', () => {
     render(
-      <LuciferStatusIndicator {...base} bloodDropActive={false} onToggleBloodDrop={() => {}} />,
+      <LuciferStatusIndicator {...base} toggleActive={false} onToggleBloodDrop={() => {}} />,
     );
-    const button = screen.getByRole('button', { name: 'Toggle blood drop terminal' });
+    const button = screen.getByRole('button', { name: 'Toggle LuciferAI' });
     expect(button).toBeTruthy();
     expect(button.className.split(' ')).toContain('opacity-40');
     expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.hasAttribute('disabled')).toBe(false);
   });
 
-  it('clicking the drop toggles the blood drop terminal', () => {
+  it('clicking the drop toggles LuciferAI', () => {
     const onToggleBloodDrop = vi.fn();
     render(
-      <LuciferStatusIndicator {...base} bloodDropActive={false} onToggleBloodDrop={onToggleBloodDrop} />,
+      <LuciferStatusIndicator {...base} toggleActive={false} onToggleBloodDrop={onToggleBloodDrop} />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle blood drop terminal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle LuciferAI' }));
     expect(onToggleBloodDrop).toHaveBeenCalledTimes(1);
   });
 
-  it('when on, the drop is full brightness', () => {
+  it('when on, the drop is full brightness — never greyed', () => {
     render(
-      <LuciferStatusIndicator {...base} bloodDropActive={true} onToggleBloodDrop={() => {}} />,
+      <LuciferStatusIndicator {...base} toggleActive={true} onToggleBloodDrop={() => {}} />,
     );
-    const button = screen.getByRole('button', { name: 'Toggle blood drop terminal' });
+    const button = screen.getByRole('button', { name: 'Toggle LuciferAI' });
     const classes = button.className.split(' ');
     expect(classes).toContain('opacity-100');
     expect(classes).not.toContain('opacity-40');
     expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.hasAttribute('disabled')).toBe(false);
   });
 
-  it('renders nothing when disabled, even with a toggle handler', () => {
+  it('stays rendered while disabled when it is the toggle — darkened, clickable', () => {
+    render(
+      <LuciferStatusIndicator enabled={false} checking={false} modelAvailable={false} modelNames={[]} available={false} toggleActive={false} onToggleBloodDrop={() => {}} />,
+    );
+    const button = screen.getByRole('button', { name: 'Toggle LuciferAI' });
+    expect(button).toBeTruthy();
+    expect(button.className.split(' ')).toContain('opacity-40');
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.textContent).toBe('🩸');
+  });
+
+  it('renders nothing when disabled WITHOUT a toggle handler', () => {
     const { container } = render(
-      <LuciferStatusIndicator enabled={false} checking={false} modelAvailable={false} modelNames={[]} available={false} bloodDropActive={false} onToggleBloodDrop={() => {}} />,
+      <LuciferStatusIndicator enabled={false} checking={false} modelAvailable={false} modelNames={[]} available={false} />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it('without a toggle handler it stays a plain status display (no button)', () => {
     render(<LuciferStatusIndicator {...base} />);
-    expect(screen.queryByRole('button', { name: 'Toggle blood drop terminal' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Toggle LuciferAI' })).toBeNull();
     expect(screen.getByText('🩸')).toBeTruthy();
   });
 });

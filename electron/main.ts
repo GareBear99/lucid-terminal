@@ -116,17 +116,24 @@ app.whenReady().then(() => {
     mini: {
       create: (onClosed) => createMiniBrowserWindow({ onClosed }),
       get: () => getMiniBrowserWindow(),
+    },
     // Agent browser (Phase B): LuciferAI enabled + browser
     // finger lock, read live from the same settings store the
-    // renderer persists to.
+    // renderer persists to. These live on the OPTIONS object, NOT
+    // inside `mini` — nesting them there silently drops them
+    // (options.getAgentSettings is undefined, so the agent session
+    // always saw LuciferAI on + finger unlocked, and the
+    // LuciferAI-off stop/take-control bar could never appear).
+    // Plain `tsc` does not catch this: it only typechecks src/
+    // (see tsconfig.json include); tsconfig.node.json DOES flag
+    // it (TS2353) but is already red with pre-existing errors.
     getAgentSettings: () => ({
-      luciferAiEnabled: settings.get<boolean>('luciferAiEnabled') ?? true,
+      luciferAiEnabled: settings.get<boolean>('luciferAiEnabled') ?? false,
       browserFingerLocked:
         settings.get<boolean>('browserFingerLocked') ?? false,
     }),
     setBrowserFingerLocked: (locked) => {
       settings.set('browserFingerLocked', locked);
-    },
     },
   });
   // Phone streaming (scrcpy) needs the window for the PhoneView canvas host.

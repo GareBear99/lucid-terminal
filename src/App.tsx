@@ -33,7 +33,7 @@ import { SplashMist } from './components/Splash/SplashMist';
 import { View } from './types';
 
 function App() {
-  const { loadSettings, isLoading, storageDegraded, settings } = useSettingsStore();
+  const { loadSettings, isLoading, storageDegraded, settings, updateSetting } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone - its surfaces, its Help,
   // its commands. Every gate in this file reads this value.
@@ -362,7 +362,7 @@ function App() {
                           key={tab.id}
                           className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                         >
-                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} bloodDropActive={bloodDropActive} onToggleBloodDrop={() => setBloodDropActive((v) => !v)} />
+                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} luciferToggleActive={luciferAiEnabled} onToggleLuciferAi={() => void updateSetting('luciferAiEnabled', !isLuciferAiEnabled(useSettingsStore.getState().settings))} />
                         </div>
                       ))}
                       {tabs.length === 0 && (

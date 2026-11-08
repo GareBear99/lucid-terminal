@@ -1,9 +1,12 @@
 /**
  * The LuciferAI enabled state — the disable rule's one source of
  * truth (Gary, 2026-11-05): when the plugin is off it is completely
- * gone. These tests pin the default (ON), the missing-key rule
- * (older persisted settings count as ON), the persistence through
- * the settings store, and the five prompt-row indicator states.
+ * gone. These tests pin the default (OFF, Gary 2026-11-07: the
+ * prompt blood drop is the quick disable and defaults disabled;
+ * the drop itself stays visible to turn it back on), the
+ * missing-key rule (older persisted settings count as OFF), the
+ * persistence through the settings store, and the five prompt-row
+ * indicator states.
  *
  * Run with: npm test
  */
@@ -25,9 +28,9 @@ describe('isLuciferAiEnabled', () => {
     expect(isLuciferAiEnabled({ luciferAiEnabled: false })).toBe(false);
   });
 
-  it('a missing key (older persisted settings) counts as ON', () => {
-    expect(isLuciferAiEnabled({} as { luciferAiEnabled: boolean })).toBe(true);
-    expect(isLuciferAiEnabled({ luciferAiEnabled: undefined as unknown as boolean })).toBe(true);
+  it('a missing key (older persisted settings) counts as OFF', () => {
+    expect(isLuciferAiEnabled({} as { luciferAiEnabled: boolean })).toBe(false);
+    expect(isLuciferAiEnabled({ luciferAiEnabled: undefined as unknown as boolean })).toBe(false);
   });
 });
 
@@ -83,18 +86,21 @@ describe('luciferAiEnabled setting', () => {
       lucidAPI: { settings: { set: vi.fn().mockResolvedValue(undefined) } },
     });
     useSettingsStore.setState((state) => ({
-      settings: { ...state.settings, luciferAiEnabled: true, customPlugins: {} },
+      settings: { ...state.settings, luciferAiEnabled: false, customPlugins: {} },
     }));
   });
 
-  it('defaults ON and customPlugins defaults empty', () => {
+  it('defaults OFF and customPlugins defaults empty', () => {
     const { settings } = useSettingsStore.getState();
-    expect(settings.luciferAiEnabled).toBe(true);
+    expect(settings.luciferAiEnabled).toBe(false);
     expect(settings.customPlugins).toEqual({});
-    expect(isLuciferAiEnabled(settings)).toBe(true);
+    expect(isLuciferAiEnabled(settings)).toBe(false);
   });
 
-  it('toggling off persists through updateSetting and disables', async () => {
+  it('toggling on then off persists through updateSetting', async () => {
+    await useSettingsStore.getState().updateSetting('luciferAiEnabled', true);
+    expect(useSettingsStore.getState().settings.luciferAiEnabled).toBe(true);
+    expect(isLuciferAiEnabled(useSettingsStore.getState().settings)).toBe(true);
     await useSettingsStore.getState().updateSetting('luciferAiEnabled', false);
     const { settings } = useSettingsStore.getState();
     expect(settings.luciferAiEnabled).toBe(false);

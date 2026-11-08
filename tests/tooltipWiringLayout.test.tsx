@@ -16,10 +16,17 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import StatusBar from '../src/components/Layout/StatusBar';
 import { TOOLTIP_SHOW_DELAY_MS } from '../src/components/Tooltip/Tooltip';
+import { useSettingsStore } from '../src/stores/settingsStore';
 
 describe('StatusBar tooltip wiring', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    // The Help button is a LuciferAI surface: it only renders
+    // while LuciferAI is on, and LuciferAI defaults OFF now
+    // (Gary, 2026-11-07).
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, luciferAiEnabled: true },
+    }));
   });
 
   afterEach(() => {

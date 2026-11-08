@@ -32,13 +32,13 @@ interface TerminalProps {
   onOpenSynth?: () => void;
   /** Open the Forge (the Homunculi roster). */
   onOpenForge?: () => void;
-  /** Whether the blood drop terminal is shown (the prompt drop's toggle state). */
-  bloodDropActive?: boolean;
-  /** Toggle the blood drop terminal (the prompt drop next to the send arrow). */
-  onToggleBloodDrop?: () => void;
+  /** Whether the prompt blood drop (LuciferAI quick disable) is ON. */
+  luciferToggleActive?: boolean;
+  /** Toggle LuciferAI on/off (the prompt blood drop next to the send arrow). */
+  onToggleLuciferAi?: () => void;
 }
 
-function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, bloodDropActive, onToggleBloodDrop }: TerminalProps) {
+function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleActive, onToggleLuciferAi }: TerminalProps) {
   const { settings } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
@@ -1051,19 +1051,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, bloodDropActive
                   only a loaded model is. A wrapper with no model says so.
                   When the plugin is DISABLED the indicator renders
                   nothing at all - the flex row reflows and the input
-                  stretches to fill the gap. It is also the toggle for
-                  the blood drop terminal (Gary, 2026-11-07 ~09:20 PST):
-                  clicking it toggles the blood drop terminal; it
-                  defaults darkened/off, so no blood drop terminal is
-                  awaiting commands until it is turned on. */}
+                  stretches to fill the gap. It is also LuciferAI's
+                  quick disable (Gary, 2026-11-07 ~18:57 PST):
+                  clicking it flips the plugin on/off; it defaults
+                  darkened/off, is lit when on, and never prints or
+                  repeats the "awaiting commands" line. The blood
+                  drop PANEL opens from the tab-strip drop, not here. */}
               <LuciferStatusIndicator
                 enabled={luciferAiEnabled}
                 checking={luciferAIChecking}
                 modelAvailable={modelAvailable}
                 modelNames={modelNames}
                 available={luciferAIAvailable}
-                bloodDropActive={bloodDropActive}
-                onToggleBloodDrop={onToggleBloodDrop}
+                toggleActive={luciferToggleActive}
+                onToggleBloodDrop={onToggleLuciferAi}
               />
               
               {/* Send arrow — this used to be a decorative span, so clicking it

@@ -4,7 +4,7 @@
  * The Plugins tab is the single home for plugin toggles: the
  * "Toolbar plugins" section moved out of the Customization tab into
  * the Plugins tab's Core plugins section, the LuciferAI row carries
- * its own disable toggle (default ON), and the Add-ons section
+ * its own disable toggle, and the Add-ons section
  * lists Android Connect as anchor-installed with the Devices
  * plugin and Segments as anchor-installed with the Modules plugin,
  * while Persona Plex reads Not installed with an enabled Install
@@ -42,6 +42,11 @@ const disabledButtonCount = (html: string) =>
   (html.match(/<button[^>]*\bdisabled\b[^>]*>/g) || []).length;
 
 describe('Plugins tab', () => {
+  // NOTE: these tests render with renderToStaticMarkup, and under
+  // SSR zustand reads the store's INITIAL state — a beforeEach
+  // setState cannot change what renders. So these tests pin the
+  // DEFAULT state: LuciferAI OFF (Gary, 2026-11-07 — the prompt
+  // blood drop is the quick disable and defaults disabled).
   it('appears in the tab list', () => {
     const html = renderSettings();
     expect(html).toContain('Plugins');
@@ -71,13 +76,16 @@ describe('Plugins tab', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('LuciferAI');
     expect(html).toContain('Built-in');
-    // No backend fetch runs under SSR, so the condition reads Checking…
-    expect(html).toContain('Checking…');
-    // The disable toggle is ON by default (Synth and Blood drop are the
-    // other ON switches; AI Chat and Forge default off).
+    // LuciferAI defaults OFF, so the row reads Disabled (not
+    // Checking… — that is the enabled-and-probing state, which no
+    // backend fetch runs under SSR to reach).
+    expect(html).toContain('Built-in · Disabled');
+    expect(html).toContain('Disabled — the plugin is completely gone');
+    // The disable toggle is OFF by default; Synth and Blood drop
+    // are the other ON switches (checked but disabled while the
+    // plugin is off); AI Chat and Forge default off.
     expect(switchCount(html)).toBe(5);
-    expect(switchesOnCount(html)).toBe(3);
-    expect(html).toContain('turning it off removes the plugin entirely');
+    expect(switchesOnCount(html)).toBe(2);
   });
 
   it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator and Desktop Commander installable', () => {
@@ -92,8 +100,10 @@ describe('Plugins tab', () => {
     expect((html.match(/Not installed/g) || []).length).toBe(3);
     expect(html).toContain('Installed · Anchored with Devices');
     expect(html).toContain('Installed · Anchored with Modules');
-    // No add-on is blocked now — no disabled Install button.
-    expect(disabledButtonCount(html)).toBe(0);
+    // The LuciferAI-surface switches (Synth, Blood drop) are
+    // disabled while the plugin is off — two disabled buttons;
+    // no add-on Install button is blocked.
+    expect(disabledButtonCount(html)).toBe(2);
     expect(html).toContain('Install');
     expect(html).not.toContain('six decisions');
   });

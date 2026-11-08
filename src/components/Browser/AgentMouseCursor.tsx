@@ -14,6 +14,15 @@
  *
  * Hidden when there is no mouse position (idle, or Gary took
  * control — his mouse is the real one then).
+ *
+ * LIMIT (Gary, 2026-11-07 — browser up-to-par pass): this DOM
+ * cursor cannot paint over an attached BrowserView — the view
+ * sits above its host window's DOM — so while a page is attached
+ * it is invisible. The VISIBLE agent mouse over a page is the
+ * in-page cursor injected by CDP (`buildAgentCursorScript`,
+ * `electron/services/browserCdp.ts`); this component is the
+ * fallback for the empty container (no view attached, e.g. the
+ * panel while the tab is popped out).
  */
 
 import { MousePointer2 } from 'lucide-react';

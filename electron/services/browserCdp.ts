@@ -79,6 +79,56 @@ export interface CdpWebContents {
   executeJavaScript(script: string): Promise<unknown>;
 }
 
+/** The agent cursor's in-page id (one element per page). */
+export const AGENT_CURSOR_ELEMENT_ID = 'lucid-agent-cursor';
+
+/** How long the in-page agent cursor stays visible after the
+ * last move (ms) — each move re-arms it, so it vanishes shortly
+ * after the agent stops. */
+export const AGENT_CURSOR_IDLE_HIDE_MS = 2500;
+
+/** Script: show the live agent cursor inside the page at (x, y)
+ * (viewport CSS px), or move it there if it already exists.
+ *
+ * Why in-page: a BrowserView paints ABOVE its host window's DOM,
+ * so the renderer's AgentMouseCursor overlay (MiniBrowser /
+ * BrowserPanel) is invisible while a page is attached — Gary
+ * could never see the agent mouse move over the page itself.
+ * The cursor has to live in the page's own DOM, drawn by CDP
+ * `Runtime.evaluate` on every move. It is `position: fixed`,
+ * `pointer-events: none`, highest z-index, and removes nothing:
+ * it only creates/updates one div, and hides itself after
+ * `AGENT_CURSOR_IDLE_HIDE_MS` with no further move. */
+export function buildAgentCursorScript(x: number, y: number): string {
+  return `(() => {
+  const id = ${JSON.stringify(AGENT_CURSOR_ELEMENT_ID)};
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = id;
+    el.setAttribute('data-lucid-agent-cursor', 'true');
+    el.style.cssText = 'position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;font-family:sans-serif;';
+    el.innerHTML = '<span style="display:inline-flex;align-items:flex-start;filter:drop-shadow(0 0 6px #58a6ff);"><svg width="20" height="20" viewBox="0 0 24 24" fill="#58a6ff" stroke="#58a6ff" stroke-width="1"><path d="M4 2l16 8-7 2-3 7z"/></svg><span style="margin-left:2px;border:1px solid #58a6ff;background:rgba(0,0,0,0.7);color:#58a6ff;border-radius:9999px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;">Agent</span></span>';
+    (document.body || document.documentElement).appendChild(el);
+  }
+  el.style.transform = 'translate(' + ${JSON.stringify(Math.round(x))} + 'px,' + ${JSON.stringify(Math.round(y))} + 'px)';
+  el.style.display = 'block';
+  if (el.__lucidHideTimer) clearTimeout(el.__lucidHideTimer);
+  el.__lucidHideTimer = setTimeout(() => { el.style.display = 'none'; }, ${AGENT_CURSOR_IDLE_HIDE_MS});
+  return true;
+})()`;
+}
+
+/** Script: hide the in-page agent cursor now (it reappears on
+ * the next move). */
+export function buildAgentCursorHideScript(): string {
+  return `(() => {
+  const el = document.getElementById(${JSON.stringify(AGENT_CURSOR_ELEMENT_ID)});
+  if (el) el.style.display = 'none';
+  return !!el;
+})()`;
+}
+
 /** Script: scroll an element into view and return its centre
  * in viewport (CSS) coordinates, or null when it is missing. */
 export function buildElementCenterScript(selector: string): string {
@@ -131,6 +181,12 @@ export interface BrowserCdpManager {
     tabId: string,
     x: number,
     y: number,
+  ): Promise<{ ok: boolean; error?: string }>;
+  /** Hide the in-page agent cursor now (it reappears on the
+   * next move). Best-effort: a page without a session or a
+   * cursor reports ok:false, never a throw. */
+  hideAgentCursor(
+    tabId: string,
   ): Promise<{ ok: boolean; error?: string }>;
   /** Move the agent mouse to an element's centre (scrolls it into
    * view first) and return the point, so a click can visibly
@@ -361,7 +417,27 @@ export function createBrowserCdpManager(): BrowserCdpManager {
         'Input.dispatchMouseEvent',
         { type: 'mouseMoved', x, y, button: 'none' },
       );
-      return { ok: moved.ok, ...(moved.error ? { error: moved.error } : {}) };
+      if (!moved.ok) return { ok: false, error: moved.error };
+      // Draw the cursor where the pointer went: the renderer's
+      // DOM cursor cannot paint over a BrowserView, so the visible
+      // agent mouse lives in the page itself (see
+      // buildAgentCursorScript). Best-effort — a page that refuses
+      // the evaluate still got the real mouse event.
+      try {
+        await manager.sendCommand(tabId, 'Runtime.evaluate', {
+          expression: buildAgentCursorScript(x, y),
+        });
+      } catch {
+        // Best effort only.
+      }
+      return { ok: true };
+    },
+
+    async hideAgentCursor(tabId) {
+      const hidden = await manager.sendCommand(tabId, 'Runtime.evaluate', {
+        expression: buildAgentCursorHideScript(),
+      });
+      return { ok: hidden.ok, ...(hidden.error ? { error: hidden.error } : {}) };
     },
 
     async moveMouseToElement(tabId, selector) {

@@ -2,7 +2,13 @@
  * rhythm with a glass treatment: frosted translucent panel over
  * the tab, backdrop blur, hairline border, smoke puffs drifting
  * behind a rising wordmark, then a fade. Pure CSS motion
- * (transform/opacity on pre-blurred gradients), no per-frame JS. */
+ * (transform/opacity on pre-blurred gradients), no per-frame JS.
+ * Clean high-tech bar (Gary, 2026-11-07): every ease is the same
+ * smooth decelerate curve — cubic-bezier(0.22, 1, 0.36, 1) — so
+ * the fade in and out reads polished and futuristic, never
+ * linear or clunky. The wordmark letters only stagger once the
+ * wordmark phase starts (they used to animate under the hidden
+ * container during smoke and arrive fully formed). */
 
 .browser-glass-splash {
   position: absolute;
@@ -24,7 +30,8 @@
   backdrop-filter: blur(18px) saturate(1.4);
   border: 1px solid rgba(255, 255, 255, 0.35);
   opacity: 0;
-  transition: opacity 300ms ease;
+  transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity;
 }
 
 .browser-glass-splash-mounted {
@@ -34,7 +41,7 @@
 .browser-glass-splash-phase-fade,
 .browser-glass-splash-skipping {
   opacity: 0;
-  transition: opacity 1000ms ease;
+  transition: opacity 1000ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .browser-glass-splash-skipping {
@@ -57,7 +64,7 @@
   );
   filter: blur(18px);
   opacity: 0;
-  animation: browser-glass-splash-drift 3.2s ease-in-out forwards;
+  animation: browser-glass-splash-drift 3.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .browser-glass-splash-puff-0 { width: 45%; height: 30%; left: -5%; top: 55%; animation-delay: 0ms; }
@@ -79,17 +86,18 @@
   align-items: center;
   gap: 6px;
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(8px) scale(0.98);
   transition:
-    opacity 700ms ease,
-    transform 700ms ease;
+    opacity 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
 }
 
 .browser-glass-splash-phase-wordmark .browser-glass-splash-wordmark,
 .browser-glass-splash-phase-hold .browser-glass-splash-wordmark,
 .browser-glass-splash-phase-fade .browser-glass-splash-wordmark {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 
 .browser-glass-splash-wordmark-text {
@@ -103,7 +111,15 @@
 .browser-glass-splash-wordmark-letter {
   display: inline-block;
   opacity: 0;
-  animation: browser-glass-splash-letter-in 500ms ease forwards;
+}
+
+/* The letters stagger only once the wordmark is showing — during
+ * smoke they sit hidden with the container, so the rise is
+ * visible instead of arriving fully formed. */
+.browser-glass-splash-phase-wordmark .browser-glass-splash-wordmark-letter,
+.browser-glass-splash-phase-hold .browser-glass-splash-wordmark-letter,
+.browser-glass-splash-phase-fade .browser-glass-splash-wordmark-letter {
+  animation: browser-glass-splash-letter-in 500ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
   animation-delay: calc(var(--i) * 60ms);
 }
 

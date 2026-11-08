@@ -83,3 +83,47 @@ describe('resolveMiniBounds', () => {
     ).toEqual({ x: 0, y: 0, width: 320, height: 240 });
   });
 });
+
+describe('resolveMiniBounds — on-screen clamp (Gary, 2026-11-07)', () => {
+  // Stored bounds from a disconnected second monitor used to strand
+  // the mini off-screen (invisible; the OS reported a degenerate
+  // frame). With the display known, the window always lands where
+  // Gary can see it.
+  const display = { width: 1440, height: 900 };
+
+  it('pulls an off-screen window back onto the display', () => {
+    expect(
+      resolveMiniBounds(
+        { x: 2000, y: 1200, width: 640, height: 420 },
+        display,
+      ),
+    ).toEqual({ x: 800, y: 480, width: 640, height: 420 });
+  });
+
+  it('pulls negative origins back to zero', () => {
+    expect(
+      resolveMiniBounds(
+        { x: -300, y: -50, width: 640, height: 420 },
+        display,
+      ),
+    ).toEqual({ x: 0, y: 0, width: 640, height: 420 });
+  });
+
+  it('shrinks a window larger than the display to fit', () => {
+    expect(
+      resolveMiniBounds(
+        { x: 0, y: 0, width: 3000, height: 2000 },
+        display,
+      ),
+    ).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+  });
+
+  it('leaves on-screen bounds alone', () => {
+    expect(
+      resolveMiniBounds(
+        { x: 100, y: 100, width: 640, height: 420 },
+        display,
+      ),
+    ).toEqual({ x: 100, y: 100, width: 640, height: 420 });
+  });
+});

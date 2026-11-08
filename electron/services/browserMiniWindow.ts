@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import path from 'path';
 import Store from 'electron-store';
 import type { BrowserViewBounds } from './browserViewAdapter';
@@ -43,10 +43,18 @@ export const MINI_WINDOW_MIN_HEIGHT = 240;
 const MINI_BOUNDS_STORE_KEY = 'bounds';
 
 /** Validate stored bounds (garbage in → defaults, never a crash
- * and never an off-screen or unusably small window). */
-export function resolveMiniBounds(stored: unknown): BrowserViewBounds {
+ * and never an off-screen or unusably small window). When the
+ * display size is known the window is also clamped ONTO the
+ * display: stored bounds from a disconnected second monitor used
+ * to strand the mini off-screen (invisible, reported by the OS
+ * with a degenerate frame) — the window now always lands where
+ * Gary can see it. */
+export function resolveMiniBounds(
+  stored: unknown,
+  display?: { width: number; height: number } | null,
+): BrowserViewBounds {
   const fallback = { ...MINI_WINDOW_DEFAULT_BOUNDS };
-  if (!stored || typeof stored !== 'object') return fallback;
+  if (!stored || typeof stored !== 'object') return clampToDisplay(fallback, display);
   const raw = stored as Record<string, unknown>;
   const num = (key: string): number | null =>
     typeof raw[key] === 'number' && Number.isFinite(raw[key])
@@ -57,15 +65,43 @@ export function resolveMiniBounds(stored: unknown): BrowserViewBounds {
   const width = num('width');
   const height = num('height');
   if (x === null || y === null || width === null || height === null) {
-    return fallback;
+    return clampToDisplay(fallback, display);
   }
+  return clampToDisplay(
+    {
+      x,
+      y,
+      width: Math.max(MINI_WINDOW_MIN_WIDTH, width),
+      height: Math.max(MINI_WINDOW_MIN_HEIGHT, height),
+    },
+    display,
+  );
+}
+
+/** Clamp bounds inside a display (or, without one, to non-negative
+ * origins). A window wider/taller than the display shrinks to fit. */
+export function clampToDisplay(
+  bounds: BrowserViewBounds,
+  display?: { width: number; height: number } | null,
+): BrowserViewBounds {
+  if (!display || !Number.isFinite(display.width) || !Number.isFinite(display.height) || display.width <= 0 || display.height <= 0) {
+    return { ...bounds, x: Math.max(0, bounds.x), y: Math.max(0, bounds.y) };
+  }
+  const width = Math.min(bounds.width, display.width);
+  const height = Math.min(bounds.height, display.height);
   return {
-    x,
-    y,
-    width: Math.max(MINI_WINDOW_MIN_WIDTH, width),
-    height: Math.max(MINI_WINDOW_MIN_HEIGHT, height),
+    x: Math.min(Math.max(0, bounds.x), Math.max(0, display.width - width)),
+    y: Math.min(Math.max(0, bounds.y), Math.max(0, display.height - height)),
+    width,
+    height,
   };
 }
+
+/** How long the mini window waits for its first paint before it
+ * shows anyway. `ready-to-show` is the normal path; if the load
+ * stalls the window must never sit hidden forever (a hidden
+ * window is what the OS reported as a tiny off-screen window). */
+export const MINI_WINDOW_SHOW_FALLBACK_MS = 4000;
 
 let miniWindow: BrowserWindow | null = null;
 
@@ -108,7 +144,16 @@ export function setMiniWindowFullscreen(inUse: boolean): boolean {
     win.setFullScreen(false);
     miniFullscreen = false;
     if (pipBoundsBeforeFullscreen) {
-      win.setBounds(pipBoundsBeforeFullscreen);
+      // macOS drops a setBounds issued while the fullscreen-exit
+      // animation is still running, which used to strand the PiP
+      // window fullscreen-sized: set it now AND re-apply it when
+      // the window actually leaves fullscreen.
+      const pip = { ...pipBoundsBeforeFullscreen };
+      win.setBounds(pip);
+      win.once('leave-full-screen', () => {
+        const live = getMiniBrowserWindow();
+        if (live && !live.isDestroyed() && !miniFullscreen) live.setBounds(pip);
+      });
       pipBoundsBeforeFullscreen = null;
     }
   }
@@ -164,7 +209,8 @@ export function createMiniBrowserWindow(
       set: (key, value) => memory.set(key, value),
     };
   }
-  const bounds = resolveMiniBounds(boundsStore.get(MINI_BOUNDS_STORE_KEY));
+  const display = screen?.getPrimaryDisplay?.()?.workAreaSize ?? null;
+  const bounds = resolveMiniBounds(boundsStore.get(MINI_BOUNDS_STORE_KEY), display);
 
   const win = new BrowserWindow({
     x: Math.round(bounds.x),
@@ -189,6 +235,10 @@ export function createMiniBrowserWindow(
 
   const saveBounds = () => {
     if (win.isDestroyed()) return;
+    // Never persist fullscreen bounds as the PiP bounds: a
+    // move/resize during the fullscreen animation would strand
+    // the next pop-out fullscreen-sized.
+    if (miniFullscreen) return;
     const b = win.getBounds();
     boundsStore.set(MINI_BOUNDS_STORE_KEY, {
       x: b.x,
@@ -219,8 +269,27 @@ export function createMiniBrowserWindow(
     options.onClosed();
   });
 
+  let shown = false;
   win.once('ready-to-show', () => {
+    shown = true;
     win.show();
+  });
+  // If the first paint never arrives (stalled load), show the
+  // window anyway after a few seconds — a hidden mini window is
+  // invisible to Gary and looks, from the OS side, like a tiny
+  // off-screen window. A failed load shows too, so the failure
+  // is visible instead of silent.
+  setTimeout(() => {
+    if (!shown && !win.isDestroyed()) {
+      shown = true;
+      win.show();
+    }
+  }, MINI_WINDOW_SHOW_FALLBACK_MS);
+  win.webContents?.on?.('did-fail-load', () => {
+    if (!shown && !win.isDestroyed()) {
+      shown = true;
+      win.show();
+    }
   });
 
   const devUrl = process.env['VITE_DEV_SERVER_URL'];

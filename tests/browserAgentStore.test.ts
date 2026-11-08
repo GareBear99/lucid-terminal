@@ -72,6 +72,13 @@ describe('browser agent store', () => {
     expect(state.queuedHolders).toEqual(['agent-2']);
   });
 
+  it('applyAgentState marks the mirror hydrated (the LuciferAI-off bar waits for it)', () => {
+    useBrowserAgentStore.setState({ hydrated: false });
+    expect(useBrowserAgentStore.getState().hydrated).toBe(false);
+    useBrowserAgentStore.getState().applyAgentState(snapshot({}));
+    expect(useBrowserAgentStore.getState().hydrated).toBe(true);
+  });
+
   it('mirrors LuciferAI disabled + Gary in control', () => {
     useBrowserAgentStore.getState().applyAgentState(
       snapshot({

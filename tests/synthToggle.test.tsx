@@ -16,7 +16,7 @@
  * Run with: npm test
  */
 
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { toggleSynthView } from '../src/lib/synthToggle';
 import Sidebar from '../src/components/Layout/Sidebar';
@@ -41,6 +41,15 @@ describe('toggleSynthView', () => {
 });
 
 describe('sidebar blood-drop button opens the blood drop terminal', () => {
+  // These tests describe the LuciferAI-ON sidebar: LuciferAI
+  // defaults OFF now (Gary, 2026-11-07), and with it off the
+  // Synth button and the blood-drop button are gone.
+  beforeEach(() => {
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, luciferAiEnabled: true },
+    }));
+  });
+
   const renderSidebar = (currentView: 'terminal' | 'synth') => {
     const onOpenBloodDrop = vi.fn();
     const onViewChange = vi.fn();
@@ -74,6 +83,13 @@ describe('sidebar blood-drop button opens the blood drop terminal', () => {
 });
 
 describe('sidebar Synth button opens the Synth view', () => {
+  // Same LuciferAI-ON setup as the blood-drop describe above.
+  beforeEach(() => {
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, luciferAiEnabled: true },
+    }));
+  });
+
   const renderSidebar = (
     currentView: 'terminal' | 'synth',
     onToggleSynth = vi.fn(),

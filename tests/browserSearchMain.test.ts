@@ -288,7 +288,7 @@ describe('bridge target', () => {
       /only http\(s\)/,
     );
     expect(await target!.navigate('https://example.com/')).toBe(
-      'No browser tab is open.',
+      'Could not open https://example.com/: no browser tab is open and a new one did not appear — open the Browser tab in the AI panel and try again.',
     );
     createAndActivateTab(handlers);
     expect(await target!.navigate('https://other.example/page')).toBe(

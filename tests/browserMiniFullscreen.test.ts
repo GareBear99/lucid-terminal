@@ -64,7 +64,7 @@ vi.mock('electron', () => {
     loadFile() {}
   }
 
-  return { BrowserWindow: FakeBrowserWindow };
+  return { BrowserWindow: FakeBrowserWindow, screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1440, height: 900 } }) } };
 });
 
 vi.mock('electron-store', () => ({

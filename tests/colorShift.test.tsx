@@ -23,6 +23,7 @@ import path from 'node:path';
 import { SplashScreen } from '../src/components/Splash/SplashScreen';
 import { InputDragHandle } from '../src/components/InputDragHandle';
 import Sidebar from '../src/components/Layout/Sidebar';
+import { useSettingsStore } from '../src/stores/settingsStore';
 
 // Vitest runs from the repo root, so the shared stylesheet is read
 // from there (same pattern as tests/packaging.test.ts).
@@ -50,6 +51,12 @@ function mockMatchMedia(matches: boolean) {
 
 beforeEach(() => {
   mockMatchMedia(false);
+  // This file tests the LuciferAI-ON sidebar (Synth/Help/divider
+  // visible): LuciferAI defaults OFF now (Gary, 2026-11-07), and
+  // with it off those surfaces are gone.
+  useSettingsStore.setState((s) => ({
+    settings: { ...s.settings, luciferAiEnabled: true },
+  }));
 });
 
 afterEach(() => {

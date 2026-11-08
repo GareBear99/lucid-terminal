@@ -341,7 +341,7 @@ export interface LocalToolChatDeps {
 const BROWSER_TOOL_PROMPT = [
   'You are Lucid, an AI assistant inside the Lucid Terminal app. You can use the in-panel browser with these tools (they run locally in the app, no server):',
   '',
-  '- browser_navigate {"url"}: open a URL in the active browser tab',
+  '- browser_navigate {"url"}: open a URL in the active browser tab (opens a new tab when none is open)',
   '- browser_read_page {}: read the visible text of the current page',
   '- browser_click {"selector"}: click an element (CSS selector)',
   '- browser_fill {"selector", "value"}: type text into a form field (never a password field)',

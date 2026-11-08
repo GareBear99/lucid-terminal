@@ -22,7 +22,6 @@ import { focusAddressBar } from '../../lib/browserAddressBar';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { useBrowserAgentStore } from '../../stores/browserAgentStore';
 import { AgentMouseCursor } from './AgentMouseCursor';
-import { BrowserGlassSplash } from './BrowserGlassSplash';
 import type { BrowserBounds, BrowserTabState } from '../../types';
 
 /**
@@ -54,22 +53,25 @@ function MiniBrowser() {
   // Agent browser (Phase B): the live agent mouse, the glass
   // splash, and Gary's stop / take-control surface.
   const agentMouse = useBrowserAgentStore((s) => s.mouse);
-  const agentSplash = useBrowserAgentStore((s) => s.splash);
   const agentInUse = useBrowserAgentStore((s) => s.inUse);
   const agentFullscreen = useBrowserAgentStore((s) => s.fullscreen);
   const agentHolder = useBrowserAgentStore((s) => s.holder);
   const garyHasControl = useBrowserAgentStore((s) => s.garyHasControl);
   const fingerLocked = useBrowserAgentStore((s) => s.fingerLocked);
   const luciferAiEnabled = useBrowserAgentStore((s) => s.luciferAiEnabled);
-  // The splash dismisses locally on skip; a new burst re-arms it.
-  const [splashDismissed, setSplashDismissed] = useState(false);
-  useEffect(() => {
-    if (agentSplash) setSplashDismissed(false);
-  }, [agentSplash]);
-
-  // Phone entries: the external app always, the in-app stream only
-  // when the Android add-on is installed — greyed out with its
-  // hover reason when the GPU gate is closed (same gate as the panel).
+  // The agent-state snapshot has arrived at least once: before
+  // that the store is a placeholder, and the LuciferAI-off bar
+  // must not flash on a default.
+  const agentHydrated = useBrowserAgentStore((s) => s.hydrated);
+  // No glass splash here: a BrowserView paints ABOVE its host
+  // window's DOM, so any overlay inside the container below (the
+  // splash, the fullscreen badge, the DOM agent cursor) is
+  // invisible while the page is attached. The splash lives on the
+  // browser tab in the main window instead — the view is detached
+  // there during an agent burst, so the splash is visible while
+  // the mini goes fullscreen. The visible agent mouse is the
+  // in-page cursor (CDP, electron/services/browserCdp.ts); the
+  // DOM cursor below only shows while no view is attached.
   const androidAddonInstalled = usePhoneStore((s) => s.androidAddonInstalled);
   const gpuGate = usePhoneStore((s) => s.gpuGate);
   const refreshGpuGate = usePhoneStore((s) => s.refreshGpuGate);
@@ -222,6 +224,11 @@ function MiniBrowser() {
             style={noDragStyle}
           />
           <span style={noDragStyle} className="flex items-center gap-1">
+            {agentFullscreen && (
+              <span className="rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm whitespace-nowrap">
+                Fullscreen — agent browsing
+              </span>
+            )}
             <Tooltip
               content={
                 fingerLocked
@@ -291,7 +298,7 @@ function MiniBrowser() {
           or take the mouse. The Stop button ends the agent's
           browsing (and any running flow); Take control hands Gary
           the mouse and refuses agent tools until he gives it back. */}
-      {!luciferAiEnabled && (
+      {!luciferAiEnabled && agentHydrated && (
         <div
           data-testid="agent-control-bar"
           className="shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] bg-[var(--bg-secondary)] text-xs"
@@ -354,14 +361,6 @@ function MiniBrowser() {
           by the main process. White underneath so the viewport reads
           as a browser while a page loads. */}
       <div ref={containerRef} className="flex-1 min-h-0 bg-white relative">
-        {agentFullscreen && (
-          <div className="absolute top-2 right-2 z-40 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
-            Fullscreen — agent browsing
-          </div>
-        )}
-        {agentSplash && !splashDismissed && (
-          <BrowserGlassSplash onDone={() => setSplashDismissed(true)} />
-        )}
         <AgentMouseCursor mouse={agentMouse} />
         {!tabId ? (
           <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-[var(--text-muted)] bg-white">

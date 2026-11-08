@@ -21,18 +21,24 @@
  * panel may read this setting, or the panel disappears with the
  * plugin again.
  *
- * The state is the `luciferAiEnabled` settings key (default ON,
- * persisted via updateSetting like toolbarPlugins). Every consumer
- * reads it through isLuciferAiEnabled below — never by comparing the
- * raw field — because settings persisted before the key existed have
- * no value at all, and a missing key must count as ON.
+ * The state is the `luciferAiEnabled` settings key (default OFF,
+ * persisted via updateSetting like toolbarPlugins — Gary,
+ * 2026-11-07: the prompt blood drop is LuciferAI's QUICK DISABLE
+ * and it defaults disabled; the drop itself stays visible as the
+ * re-enable control, so off-by-default can never strand the
+ * plugin off). Every consumer reads it through
+ * isLuciferAiEnabled below — never by comparing the raw field —
+ * because settings persisted before the key existed have no value
+ * at all, and a missing key must count as OFF.
  */
 import type { Settings } from '../types';
 
-/** True unless the setting is explicitly false. Missing (older
- *  persisted settings) counts as ON. */
+/** True only when the setting is explicitly true. Missing (older
+ *  persisted settings) counts as OFF — the prompt blood drop is
+ *  LuciferAI's quick disable and defaults disabled (Gary,
+ *  2026-11-07); the drop stays visible to turn it back on. */
 export function isLuciferAiEnabled(settings: Pick<Settings, 'luciferAiEnabled'>): boolean {
-  return settings.luciferAiEnabled !== false;
+  return settings.luciferAiEnabled === true;
 }
 
 /** Refusal text for anything that would activate the plugin while
@@ -56,10 +62,14 @@ export function refusalForDisabledCommand(commandType: string): string {
 }
 
 /** Which LuciferAI status indicator the terminal prompt row shows.
- *  'hidden' is the disabled state: the blood drop renders NOTHING
- *  (not even the grey offline dot — that is itself a LuciferAI
- *  trace), so the flex row reflows and the input stretches to fill
- *  the gap. 'offline' is the plugin-down-but-enabled state. */
+ *  'hidden' is the disabled state for the STATUS DISPLAY: the blood
+ *  drop renders NOTHING (not even the grey offline dot — that is
+ *  itself a LuciferAI trace), so the flex row reflows and the input
+ *  stretches to fill the gap. The QUICK-DISABLE TOGGLE is the one
+ *  exception (Gary, 2026-11-07): when a toggle handler is passed,
+ *  the drop stays rendered while disabled — darkened, clickable —
+ *  because a quick disable with no way back on is a trap. 'offline'
+ *  is the plugin-down-but-enabled state. */
 export type LuciferStatus = 'hidden' | 'checking' | 'ready' | 'loaded-no-model' | 'offline';
 
 export function luciferStatusIndicator(

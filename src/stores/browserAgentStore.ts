@@ -34,6 +34,11 @@ export const initialBrowserAgentState: BrowserAgentStateSnapshot = {
 };
 
 interface BrowserAgentState extends BrowserAgentStateSnapshot {
+  /** A snapshot has arrived from main at least once. Before that
+   * the mirror is a placeholder — surfaces gated on the snapshot
+   * (e.g. the LuciferAI-off control bar) wait for it instead of
+   * flashing on a default. */
+  hydrated: boolean;
   /** Merge a snapshot pushed by main. */
   applyAgentState: (state: BrowserAgentStateSnapshot) => void;
   /** Hide the agent mouse locally (it left the browser area). */
@@ -42,9 +47,11 @@ interface BrowserAgentState extends BrowserAgentStateSnapshot {
 
 export const useBrowserAgentStore = create<BrowserAgentState>()((set) => ({
   ...initialBrowserAgentState,
+  hydrated: false,
 
   applyAgentState: (state) => {
     set({
+      hydrated: true,
       holder: state.holder,
       queuedHolders: [...state.queuedHolders],
       inUse: state.inUse,

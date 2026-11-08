@@ -9,6 +9,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import {
+  AGENT_CURSOR_ELEMENT_ID,
+  AGENT_CURSOR_IDLE_HIDE_MS,
+  buildAgentCursorHideScript,
+  buildAgentCursorScript,
   CDP_ALLOWED_METHODS,
   MAX_CDP_DIAGNOSTICS,
   createBrowserCdpManager,
@@ -330,5 +334,64 @@ describe('diagnostics', () => {
   it('a tab that never attached has no diagnostics', () => {
     const manager = createBrowserCdpManager();
     expect(manager.getDiagnostics('tab-1')).toBeNull();
+  });
+});
+
+describe('in-page agent cursor (Gary, 2026-11-07)', () => {
+  // A BrowserView paints ABOVE its host window's DOM, so the
+  // renderer's DOM agent cursor is invisible while a page is
+  // attached. The visible agent mouse lives in the page itself,
+  // drawn by Runtime.evaluate on every move.
+  it('buildAgentCursorScript targets one fixed, non-interactive element', () => {
+    const script = buildAgentCursorScript(120, 80);
+    expect(script).toContain(AGENT_CURSOR_ELEMENT_ID);
+    expect(script).toContain('position:fixed');
+    expect(script).toContain('pointer-events:none');
+    expect(script).toContain('2147483647');
+    expect(script).toContain('120');
+    expect(script).toContain('80');
+    expect(script).toContain(String(AGENT_CURSOR_IDLE_HIDE_MS));
+    expect(script).toContain('Agent');
+  });
+
+  it('buildAgentCursorHideScript hides that element', () => {
+    expect(buildAgentCursorHideScript()).toContain(AGENT_CURSOR_ELEMENT_ID);
+    expect(buildAgentCursorHideScript()).toContain("display = 'none'");
+  });
+
+  it('moveMouse dispatches the real event AND draws the in-page cursor', async () => {
+    const manager = createBrowserCdpManager();
+    const { wc, dbg } = makeWc();
+    await manager.attach('tab-1', wc);
+    dbg.commands.length = 0;
+    expect(await manager.moveMouse('tab-1', 120, 80)).toEqual({ ok: true });
+    expect(dbg.commands[0]).toEqual({
+      method: 'Input.dispatchMouseEvent',
+      params: { type: 'mouseMoved', x: 120, y: 80, button: 'none' },
+    });
+    expect(dbg.commands[1].method).toBe('Runtime.evaluate');
+    expect(String(dbg.commands[1].params?.expression)).toContain(
+      AGENT_CURSOR_ELEMENT_ID,
+    );
+  });
+
+  it('hideAgentCursor evaluates the hide script', async () => {
+    const manager = createBrowserCdpManager();
+    const { wc, dbg } = makeWc();
+    await manager.attach('tab-1', wc);
+    dbg.commands.length = 0;
+    expect(await manager.hideAgentCursor('tab-1')).toEqual({ ok: true });
+    expect(dbg.commands[0].method).toBe('Runtime.evaluate');
+    expect(String(dbg.commands[0].params?.expression)).toContain(
+      AGENT_CURSOR_ELEMENT_ID,
+    );
+  });
+
+  it('moveMouse on a tab with no session reports not-attached', async () => {
+    const manager = createBrowserCdpManager();
+    expect(await manager.moveMouse('tab-1', 10, 10)).toEqual({
+      ok: false,
+      error: 'not-attached',
+    });
   });
 });

@@ -141,7 +141,7 @@ export const tools: ToolDefinition[] = [
         type: 'function',
         function: {
             name: 'browser_navigate',
-            description: 'Open a URL in the in-panel browser (the active tab). Use this to go to a page the user asked about.',
+            description: 'Open a URL in the in-panel browser (the active tab). If no browser tab is open, it opens a new one for the URL — use this to go to a page the user asked about.',
             parameters: {
                 type: 'object',
                 properties: {

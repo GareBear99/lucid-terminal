@@ -253,7 +253,7 @@ describe('terminal prompt — whole glass section', () => {
 
   test('glass match (Gary, 2026-11-07 ~09:26 PST): everything ON the glass is glass, not opaque', async () => {
     setLuciferAiEnabled(true);
-    render(<Terminal tabId="tab-1" bloodDropActive={false} onToggleBloodDrop={() => {}} />);
+    render(<Terminal tabId="tab-1" luciferToggleActive={false} onToggleLuciferAi={() => {}} />);
     await screen.findByTestId('monaco-editor');
     // An on-glass element carries no opaque fill: every bg- token is
     // either a hover: sheen or a translucent (/NN) tint.
@@ -264,7 +264,7 @@ describe('terminal prompt — whole glass section', () => {
       expect(opaque).toEqual([]);
     };
     // The blood drop toggle: darkened/off, transparent, no fill.
-    expectGlassMatched(screen.getByRole('button', { name: 'Toggle blood drop terminal' }));
+    expectGlassMatched(screen.getByRole('button', { name: 'Toggle LuciferAI' }));
     // The send arrow: transparent at rest, white sheen on hover only.
     expectGlassMatched(screen.getByRole('button', { name: 'Send command' }));
     // The `~` and the header row: plain text, no fill.

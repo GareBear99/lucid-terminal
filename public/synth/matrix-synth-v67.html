@@ -6459,6 +6459,81 @@ function render(){
     if(btnTileMicro) btnTileMicro.textContent = (TILEVIEW.mode === TILE_VIEW.MICRO || TILEVIEW.mode === TILE_VIEW.SUBMICRO) ? 'Exit Tile Micro (V)' : 'Tile Micro (V)';
     if(btnMicroTool) btnMicroTool.textContent = `Tool: ${(TILEVIEW.tool||'road')[0].toUpperCase() + (TILEVIEW.tool||'road').slice(1)} (T)`;
   }
+  // Synth runtime fix #1: stepGridLayer was CALLED but never DEFINED, so
+  // every tick in tile view threw a ReferenceError, step()'s catch set
+  // bootState = SAFE_MODE (terminal — no recovery branch), tick++ was
+  // skipped, and the sim advanced 1 tick per (R+1) frames. This restores
+  // the micro grid step: it advances one tick of the layer's grid sim
+  // (scanner sweep, builder movement/building, power/signal diffusion)
+  // and returns the summary stats tileViewStep needs. Deterministic —
+  // no Math.random, so replays stay stable.
+  let _diffPow = new Float32Array(0), _diffSig = new Float32Array(0);
+  function stepGridLayer(rec, layer, isActive){
+    const zero = {power:0, signal:0, pop:0, structures:0, roads:0, hubs:0, relays:0, anomalies:0};
+    if(!layer || !Array.isArray(layer.cells) || !layer.cells.length) return zero;
+    const cells = layer.cells, w = layer.w || 8, h = layer.h || 8, n = cells.length;
+    const sc = layer.scanner || (layer.scanner = {radius:2, sweepPhase:0, validationHits:0, anomalies:0});
+    sc.sweepPhase = (sc.sweepPhase + 0.08) % (Math.PI * 2);
+    // builders: walk one cell toward target per tick; on arrival, build
+    // (4 ticks per build), convert the cell, pick a deterministic next target.
+    const builders = Array.isArray(layer.builders) ? layer.builders : [];
+    for(let bi=0; bi<builders.length; bi++){
+      const b = builders[bi]; if(!b) continue;
+      if(b.x === b.tx && b.y === b.ty){
+        b.state = 'building';
+        b.progress = (b.progress || 0) + 0.25;
+        if(b.progress >= 1){
+          b.progress = 0; b.state = 'idle'; b.builds = (b.builds || 0) + 1;
+          const idx = clamp(b.y * w + b.x, 0, n - 1);
+          const c = cells[idx];
+          if(c){
+            if(c.kind === 'empty') c.kind = 'block';
+            else if(c.kind === 'block' && (c.power||0) > 0.15) c.kind = 'hub';
+            else if(c.kind === 'road' && (c.signal||0) > 0.10) c.kind = 'relay';
+            c.power = clamp((c.power||0) + 0.22, 0, 1);
+            c.signal = clamp((c.signal||0) + 0.12, 0, 1);
+            c.active = 1;
+          }
+          const nidx = (((b.builds * 37 + bi * 17 + (rec && rec.key ? rec.key.length : 0) * 7) % n) + n) % n;
+          b.tx = nidx % w; b.ty = (nidx / w) | 0;
+        }
+      } else {
+        b.state = 'idle';
+        if(b.x < b.tx) b.x++; else if(b.x > b.tx) b.x--;
+        else if(b.y < b.ty) b.y++; else if(b.y > b.ty) b.y--;
+      }
+    }
+    // diffusion: each cell pulls 10% toward the 4-neighbour mean power /
+    // signal (scratch arrays, allocated once, grown only if a layer is bigger).
+    if(_diffPow.length < n){ _diffPow = new Float32Array(n); _diffSig = new Float32Array(n); }
+    for(let i=0;i<n;i++){ _diffPow[i] = cells[i].power||0; _diffSig[i] = cells[i].signal||0; }
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const i = y*w + x;
+      const l = x > 0 ? _diffPow[i-1] : _diffPow[i], r = x < w-1 ? _diffPow[i+1] : _diffPow[i];
+      const u = y > 0 ? _diffPow[i-w] : _diffPow[i], d = y < h-1 ? _diffPow[i+w] : _diffPow[i];
+      cells[i].power = clamp(_diffPow[i]*0.9 + (l+r+u+d)*0.025, 0, 1);
+      const ls = x > 0 ? _diffSig[i-1] : _diffSig[i], rs = x < w-1 ? _diffSig[i+1] : _diffSig[i];
+      const us = y > 0 ? _diffSig[i-w] : _diffSig[i], ds = y < h-1 ? _diffSig[i+w] : _diffSig[i];
+      cells[i].signal = clamp(_diffSig[i]*0.9 + (ls+rs+us+ds)*0.025, 0, 1);
+    }
+    // count stats for the caller (tileViewStep writes these into rec.summary)
+    let power=0, signal=0, pop=0, structures=0, roads=0, hubs=0, relays=0, anomalies=0;
+    for(let i=0;i<n;i++){
+      const c = cells[i]; if(!c) continue;
+      power += c.power||0; signal += c.signal||0;
+      if(c.kind === 'block') structures++;
+      else if(c.kind === 'road') roads++;
+      else if(c.kind === 'hub') hubs++;
+      else if(c.kind === 'relay') relays++;
+      if(c.kind !== 'empty') pop++;
+      if((c.power||0) > 0.85 || (c.signal||0) > 0.85) anomalies++;
+      c.active = (c.active||0) * 0.96;
+    }
+    const stats = {power: power/n, signal: signal/n, pop, structures, roads, hubs, relays, anomalies};
+    sc.anomalies = anomalies;
+    return stats;
+  }
+
   function tileViewStep(){
     const active = TILEVIEW.mode !== TILE_VIEW.GLOBE;
     const rate = active ? 0.18 : -0.18;

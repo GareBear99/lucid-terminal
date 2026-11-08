@@ -42,6 +42,7 @@ import { ComputerControlSegment } from './ComputerControlSegment';
 import { ForgePersonaPlexSegment } from './ForgePersonaPlexSegment';
 import { GoogleDriveSegment } from './GoogleDriveSegment';
 import { SegmentCategorySection } from './SegmentCategorySection';
+import { TelegramSegment } from './TelegramSegment';
 
 export function SegmentsPanel() {
   const segments = PLUGIN_ADDONS.find((addon) => addon.id === 'segments');
@@ -58,6 +59,7 @@ export function SegmentsPanel() {
   const control = segmentCategory('computer-control');
   const aiChat = segmentCategory('ai-chat');
   const googleDrive = segmentCategory('google-drive');
+  const telegram = segmentCategory('telegram');
   const starship = segmentCategory('starship');
   const forge = segmentCategory('forge-persona-plex');
 
@@ -119,6 +121,21 @@ export function SegmentsPanel() {
       {googleDrive && (
         <SegmentCategorySection category={googleDrive}>
           <GoogleDriveSegment />
+        </SegmentCategorySection>
+      )}
+
+      {/* Telegram — the pre-installed, connectable segment
+          (Gary, 2026-11-08). A place to connect your Telegram to
+          Lucid through your own bot: a BotFather token, verified
+          with a real getMe call, stored encrypted. It stays when
+          LuciferAI is off, and it is a place other things can
+          connect to. It is also the conversion path for verified
+          temps (temp → verified → Telegram → full user, link
+          preserved) — the account system for that is not built
+          yet, and the segment says so. */}
+      {telegram && (
+        <SegmentCategorySection category={telegram}>
+          <TelegramSegment />
         </SegmentCategorySection>
       )}
 

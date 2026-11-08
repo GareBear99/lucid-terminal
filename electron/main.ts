@@ -17,7 +17,7 @@ import {
 } from './services/browserMiniWindow';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
-import { apiKeyStorage, pingKeyStorage, settings } from './services/secureStorage';
+import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, settings } from './services/secureStorage';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
@@ -177,6 +177,19 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:deletePingKey', () => {
     pingKeyStorage.deletePingKey();
+  });
+
+  // Telegram bot token handlers — the Bot API token for the user's
+  // own bot (created in BotFather), stored encrypted like the API
+  // key and the ping key.
+  ipcMain.handle('settings:setTelegramBotToken', (_, token) => {
+    telegramBotTokenStorage.setTelegramBotToken(token);
+  });
+  ipcMain.handle('settings:hasTelegramBotToken', () => {
+    return telegramBotTokenStorage.hasTelegramBotToken();
+  });
+  ipcMain.handle('settings:deleteTelegramBotToken', () => {
+    telegramBotTokenStorage.deleteTelegramBotToken();
   });
 
 

@@ -435,6 +435,13 @@ export interface Settings {
   // one: create a Google Cloud project, create an OAuth client ID
   // of type Desktop app, and store the client ID here.
   googleDriveClientId: string;
+  // Telegram segment (Gary, 2026-11-08): the username of the
+  // user's Telegram bot (created in BotFather), captured when the
+  // bot token is verified with a real getMe call. A public
+  // identifier, not a secret — the token itself is stored
+  // encrypted in secureStorage (telegram-bot-token) and never
+  // lives in Settings.
+  telegramBotUsername: string;
 }
 
 /** SP balance for the Lucid ping server (Cloudflare Worker).
@@ -912,6 +919,9 @@ declare global {
         setPingKey: (key: string) => Promise<void>;
         hasPingKey: () => Promise<boolean>;
         deletePingKey: () => Promise<void>;
+        setTelegramBotToken: (token: string) => Promise<void>;
+        hasTelegramBotToken: () => Promise<boolean>;
+        deleteTelegramBotToken: () => Promise<void>;
         getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;

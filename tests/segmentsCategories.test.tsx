@@ -34,12 +34,13 @@ const renderModules = () =>
   );
 
 describe('Segments categories', () => {
-  it('has six categories, in panel order, each with a title and info text', () => {
+  it('has seven categories, in panel order, each with a title and info text', () => {
     expect(SEGMENT_CATEGORIES.map((c) => c.id)).toEqual([
       'about',
       'computer-control',
       'ai-chat',
       'google-drive',
+      'telegram',
       'starship',
       'forge-persona-plex',
     ]);
@@ -62,18 +63,19 @@ describe('Segments categories', () => {
     expect(segmentCategory('no-such-category')).toBeUndefined();
   });
 
-  it('renders the About, Computer control, AI Chat, Google Drive and Starship category headings in the Modules tab', () => {
+  it('renders the About, Computer control, AI Chat, Google Drive, Telegram and Starship category headings in the Modules tab', () => {
     const html = renderModules();
     expect(html).toContain('About segments');
     expect(html).toContain('Computer control');
     expect(html).toContain('AI Chat segment');
     expect(html).toContain('Google Drive segment');
+    expect(html).toContain('Telegram segment');
     expect(html).toContain('Starship segments');
   });
 
   it('renders each visible category info page verbatim, with a voice button', () => {
     const html = renderModules();
-    for (const id of ['about', 'computer-control', 'ai-chat', 'google-drive', 'starship'] as const) {
+    for (const id of ['about', 'computer-control', 'ai-chat', 'google-drive', 'telegram', 'starship'] as const) {
       const category = segmentCategory(id)!;
       expect(html).toContain(category.info);
       expect(html).toContain(`data-segment-voice="${id}"`);
@@ -81,7 +83,7 @@ describe('Segments categories', () => {
     }
   });
 
-  it('places Google Drive between AI Chat and Starship, as a pre-installed connectable segment', () => {
+  it('places Google Drive between AI Chat and Telegram, as a pre-installed connectable segment', () => {
     const category = segmentCategory('google-drive')!;
     expect(category.title).toBe('Google Drive segment');
     // The info page is the voice script: it names what the segment
@@ -106,6 +108,49 @@ describe('Segments categories', () => {
     // The Connect button itself is enabled (not disabled) — it is
     // the segment's action, for now.
     const connectButton = html.match(/<button[^>]*aria-label="Connect Google Drive"[^>]*>/);
+    expect(connectButton).not.toBeNull();
+    expect(connectButton![0]).not.toContain('disabled');
+  });
+
+  it('places Telegram between Google Drive and Starship, as a pre-installed connectable segment', () => {
+    const category = segmentCategory('telegram')!;
+    expect(category.title).toBe('Telegram segment');
+    // The info page is the voice script: it names what the segment
+    // does, that it stays when LuciferAI is off, and that connecting
+    // is a BotFather bot token + tap Connect (Gary approved the bot
+    // token mechanism, 2026-11-08 ~03:00 PST).
+    expect(category.info).toContain('pre-installed segment');
+    expect(category.info).toContain('connect your Telegram to Lucid');
+    expect(category.info).toContain('stays when LuciferAI is off');
+    expect(category.info).toContain(
+      'To connect, create a bot in BotFather, paste the bot token here, and tap Connect',
+    );
+    // The verified-temp conversion path is in the info text: a
+    // verified temp becomes a full user through Telegram, with no
+    // Lucid retrieval step, and stays linked to the temp (Gary,
+    // 2026-11-08 ~03:01–03:02 PST).
+    expect(category.info).toContain(
+      'Once a temp is verified, Telegram is the way that temp becomes a full user',
+    );
+    expect(category.info).toContain('no Lucid retrieval step needed');
+    expect(category.info).toContain('the new user stays linked to the temp');
+    // The segment itself renders in the panel, honestly not
+    // connected, with a bot token input + an enabled Connect
+    // button — the segment's action, for now. No Gmail anywhere
+    // in the segment (Gmail is a separate future segment,
+    // "Gmail Connect", gated on temp verification).
+    const html = renderModules();
+    expect(html).toContain('Telegram');
+    expect(html).toContain('Connect Telegram');
+    expect(html).toContain('Not connected');
+    expect(html).toContain('No connections yet');
+    expect(html).not.toContain('Gmail');
+    // The token input is a password field — the token is a secret,
+    // stored encrypted, never shown in plain text.
+    expect(html).toContain('type="password"');
+    // The Connect button itself is enabled (not disabled) — it is
+    // the segment's action, for now.
+    const connectButton = html.match(/<button[^>]*aria-label="Connect Telegram"[^>]*>/);
     expect(connectButton).not.toBeNull();
     expect(connectButton![0]).not.toContain('disabled');
   });

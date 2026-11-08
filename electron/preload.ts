@@ -154,6 +154,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setPingKey: (key: string) => ipcRenderer.invoke('settings:setPingKey', key),
     hasPingKey: () => ipcRenderer.invoke('settings:hasPingKey'),
     deletePingKey: () => ipcRenderer.invoke('settings:deletePingKey'),
+    setTelegramBotToken: (token: string) => ipcRenderer.invoke('settings:setTelegramBotToken', token),
+    hasTelegramBotToken: () => ipcRenderer.invoke('settings:hasTelegramBotToken'),
+    deleteTelegramBotToken: () => ipcRenderer.invoke('settings:deleteTelegramBotToken'),
     getStorageStatus: () => ipcRenderer.invoke('settings:getStorageStatus'),
     export: () => ipcRenderer.invoke('settings:export'),
     import: (data: string) => ipcRenderer.invoke('settings:import', data),
@@ -697,6 +700,9 @@ export interface LucidAPI {
     setPingKey: (key: string) => Promise<void>;
     hasPingKey: () => Promise<boolean>;
     deletePingKey: () => Promise<void>;
+    setTelegramBotToken: (token: string) => Promise<void>;
+    hasTelegramBotToken: () => Promise<boolean>;
+    deleteTelegramBotToken: () => Promise<void>;
     getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
     export: () => Promise<string>;
     import: (data: string) => Promise<void>;

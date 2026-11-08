@@ -313,3 +313,27 @@ export const pingKeyStorage = {
   },
 
 };
+
+// Telegram bot token — the Bot API token for the user's own bot
+// (created in BotFather), stored encrypted like the API key and
+// the ping key. The renderer only ever sees whether one is stored
+// (hasTelegramBotToken); the token itself never crosses into
+// plain Settings.
+export const telegramBotTokenStorage = {
+  setTelegramBotToken(token: string): void {
+    secureStorage.setSecret('telegram-bot-token', token);
+  },
+
+  getTelegramBotToken(): string | null {
+    return secureStorage.getSecret('telegram-bot-token');
+  },
+
+  hasTelegramBotToken(): boolean {
+    return secureStorage.hasSecret('telegram-bot-token');
+  },
+
+  deleteTelegramBotToken(): void {
+    secureStorage.deleteSecret('telegram-bot-token');
+  },
+
+};

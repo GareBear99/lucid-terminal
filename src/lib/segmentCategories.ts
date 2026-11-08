@@ -19,7 +19,10 @@
  * a place other things can connect to. Google Drive: the
  * pre-installed, connectable segment — a place to connect your
  * Google Drive to Lucid, and a place other things can connect to
- * the way AI Chat is. Starship: whatever a detected starship
+ * the way AI Chat is. Telegram: the pre-installed, connectable
+ * segment — a place to connect your Telegram to Lucid through a
+ * bot you create in BotFather, and a place other things can
+ * connect to the way AI Chat is. Starship: whatever a detected starship
  * carries (nothing detected today). Forge: the Forge ↔ Persona
  * Plex bridge (only when Persona Plex is installed).
  */
@@ -55,6 +58,11 @@ export const SEGMENT_CATEGORIES: readonly SegmentCategoryInfo[] = [
     id: 'google-drive',
     title: 'Google Drive segment',
     info: 'Google Drive is a pre-installed segment. It needs no starship and no install step. It is a place to connect your Google Drive to Lucid. It lets Lucid find, upload, download, organise and share the files in your Drive, including the documents, notes and notebooks you keep there. It stays when LuciferAI is off. It is a place other things can connect to, the way AI Chat is. To connect, tap Connect and sign in with Google.',
+  },
+  {
+    id: 'telegram',
+    title: 'Telegram segment',
+    info: 'Telegram is a pre-installed segment. It needs no starship and no install step. It is a place to connect your Telegram to Lucid, through a bot you create in BotFather. It lets Lucid send and read Telegram messages through your bot. It stays when LuciferAI is off. It is a place other things can connect to, the way AI Chat is. To connect, create a bot in BotFather, paste the bot token here, and tap Connect. Once a temp is verified, Telegram is the way that temp becomes a full user, with no Lucid retrieval step needed, and the new user stays linked to the temp.',
   },
   {
     id: 'starship',

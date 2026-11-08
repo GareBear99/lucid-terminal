@@ -31,11 +31,15 @@ import {
   assignPersonaVoices,
   resolvePersonaVoice,
   personaVoiceSample,
+  activeHomunculus,
+  speakActorOptions,
+  resolveDefaultSpeakVoice,
   newCustomPersona,
   soulsConfigPath,
   type ParsedSoul,
   type Persona,
 } from '../src/lib/personaPlex';
+import { emptyHomunculus } from '../src/lib/homunculi';
 
 const soul = (over: Partial<ParsedSoul> = {}): ParsedSoul => ({
   id: 'soul-1',
@@ -388,5 +392,130 @@ describe('getActivePersonaVoiceSettings with availableVoices', () => {
     expect(PERSONA_VOICE_CAST).not.toContain('Alex');
     expect(PERSONA_VOICE_CAST).not.toContain('Lily');
     expect(new Set(PERSONA_VOICE_CAST).size).toBe(PERSONA_VOICE_CAST.length);
+  });
+});
+
+describe('Speak actor dropdown default — the active Homunculus voice (Gary, 2026-11-07)', () => {
+  const macVoices = ['Samantha', 'Daniel', 'Karen', 'Moira', 'Tessa', 'Fred'];
+  const lucifer = emptyHomunculus('lucifer', 'Lucifer', 'purple');
+  const eve = emptyHomunculus('eve', 'EVE', 'pink');
+  const cfg = (voice: string, homunculusId: string | null = null) => ({
+    voice,
+    allowedTools: [],
+    homunculusId,
+    speakEnabled: true,
+    autoSpeak: false,
+    volume: 1,
+    rate: 1,
+  });
+
+  it('activeHomunculus is the selected one, else the first in the roster, else null', () => {
+    expect(activeHomunculus([lucifer, eve], 'eve')).toBe(eve);
+    expect(activeHomunculus([lucifer, eve], null)).toBe(lucifer);
+    expect(activeHomunculus([lucifer, eve], 'no-such-id')).toBe(lucifer);
+    expect(activeHomunculus([], null)).toBeNull();
+  });
+
+  it('speakActorOptions lists the installed cast voices first, in cast order, then the rest', () => {
+    expect(speakActorOptions(['Zara', 'Karen', 'Samantha', 'Alex'])).toEqual([
+      'Samantha',
+      'Karen',
+      'Zara',
+      'Alex',
+    ]);
+    expect(speakActorOptions([])).toEqual([]);
+    expect(speakActorOptions(['Zara'])).toEqual(['Zara']);
+  });
+
+  it('the default is the paired persona\'s effective voice when one is paired to the active Homunculus', () => {
+    const paired = persona({ id: 'c-nova', source: 'custom', name: 'Nova', homunculusId: 'lucifer', voice: 'Karen' });
+    const resolved = resolveDefaultSpeakVoice({
+      roster: [lucifer, eve],
+      selectedId: 'lucifer',
+      config: {},
+      customPersonas: [paired],
+      availableVoices: macVoices,
+    });
+    expect(resolved.voice).toBe('Karen');
+    expect(resolved.homunculus).toBe(lucifer);
+    expect(resolved.source).toBe('homunculus-persona');
+    expect(resolved.personaName).toBe('Nova');
+    expect(resolved.label).toBe("Lucifer's voice · Karen (paired persona Nova)");
+  });
+
+  it('a paired persona with a stored phantom Lily resolves to its assigned cast voice, never the system default for everyone', () => {
+    const resolved = resolveDefaultSpeakVoice({
+      roster: [lucifer],
+      selectedId: 'lucifer',
+      config: { 'soul-1': cfg('Lily', 'lucifer') },
+      customPersonas: [],
+      availableVoices: macVoices,
+    });
+    expect(resolved.source).toBe('homunculus-persona');
+    expect(resolved.voice).not.toBe('Lily');
+    expect(macVoices).toContain(resolved.voice);
+  });
+
+  it('an unpaired Homunculus gets a stable deterministic cast voice from its own id', () => {
+    const args = {
+      roster: [lucifer],
+      selectedId: 'lucifer',
+      config: {},
+      customPersonas: [],
+      availableVoices: macVoices,
+    } as const;
+    const first = resolveDefaultSpeakVoice(args);
+    const second = resolveDefaultSpeakVoice(args);
+    expect(first.source).toBe('homunculus-assigned');
+    expect(first.voice).toBe(second.voice);
+    expect(first.voice).not.toBe('Lily');
+    expect(macVoices).toContain(first.voice);
+    expect(first.label).toBe(`Lucifer's voice · ${first.voice}`);
+    // A different Homunculus in the same roster gets a different voice
+    // (distinctness holds within one assignment over the roster — the
+    // two resolutions below share the same roster, so the probe
+    // separates them).
+    const luciferInPair = resolveDefaultSpeakVoice({ ...args, roster: [lucifer, eve], selectedId: 'lucifer' });
+    const eveVoice = resolveDefaultSpeakVoice({ ...args, roster: [lucifer, eve], selectedId: 'eve' });
+    expect(eveVoice.voice).not.toBe(luciferInPair.voice);
+  });
+
+  it('selecting the second Homunculus moves the default to its voice', () => {
+    const args = {
+      roster: [lucifer, eve],
+      selectedId: 'eve',
+      config: {},
+      customPersonas: [],
+      availableVoices: macVoices,
+    } as const;
+    const resolved = resolveDefaultSpeakVoice(args);
+    expect(resolved.homunculus).toBe(eve);
+    expect(resolved.label.startsWith("EVE's voice · ")).toBe(true);
+  });
+
+  it('with no Homunculus at all the default is the active persona\'s voice (the old Speak behaviour)', () => {
+    const resolved = resolveDefaultSpeakVoice({
+      roster: [],
+      selectedId: null,
+      config: { 'soul-1': cfg('Karen') },
+      customPersonas: [],
+      availableVoices: macVoices,
+      activePersonaId: 'soul-1',
+    });
+    expect(resolved.source).toBe('persona');
+    expect(resolved.homunculus).toBeNull();
+    expect(resolved.voice).toBe('Karen');
+  });
+
+  it('with no voices available at all the default is null — the caller falls back to the system default', () => {
+    const resolved = resolveDefaultSpeakVoice({
+      roster: [lucifer],
+      selectedId: 'lucifer',
+      config: {},
+      customPersonas: [],
+      availableVoices: [],
+    });
+    expect(resolved.voice).toBeNull();
+    expect(resolved.label).toContain('system default');
   });
 });

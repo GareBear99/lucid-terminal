@@ -11,7 +11,8 @@ import { getChatModelOptions, AUTO_CHAT_MODEL_VALUE } from '../../lib/chatModels
 import { formatTimeSinceRestock, isPingUnreachableError } from '../../lib/pingQuota';
 import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
 import { MessageContextMenu } from './MessageContextMenu';
-import { shouldShowSpeakOption, getActivePersonaVoiceSettings } from '../../lib/personaPlex';
+import { shouldShowSpeakOption, getActivePersonaVoiceSettings, resolveDefaultSpeakVoice, speakActorOptions } from '../../lib/personaPlex';
+import { useForgeStore } from '../../stores/forgeStore';
 import { speakText, getAvailableSpeakVoices } from '../../lib/speak';
 import { InputDragHandle } from '../InputDragHandle';
 import {
@@ -66,8 +67,9 @@ function AIChat({ onClose }: AIChatProps) {
   const [showSidebar, setShowSidebar] = useState(false);
 
   // Right-click context menu on a message (Speak). Set on right-click
-  // when the Speak gate passes; null = no menu.
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string; showSpeak: boolean } | null>(null);
+  // when the Speak gate passes; null = no menu. `actors` is the voice
+  // list for the Speak dropdown, captured at right-click time.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string; showSpeak: boolean; actors: string[] } | null>(null);
 
   // Persona Plex Speak gate (Gary, 2026-11-06): Speak shows only
   // when Persona Plex is installed AND the Speak toggle is on AND
@@ -87,6 +89,33 @@ function AIChat({ onClose }: AIChatProps) {
     availableVoices: getAvailableSpeakVoices(),
   });
 
+  // Speak actor dropdown (Gary, 2026-11-07): the picked actor is
+  // the persisted `speakActorVoice` setting (null = none picked).
+  // The DEFAULT is the active Homunculus's voice — resolved from
+  // the Forge roster (selected Homunculus, else the first in the
+  // roster) and the persona paired to it, through the same
+  // deterministic cast path as personas (see
+  // resolveDefaultSpeakVoice). The roster is loaded on mount (the
+  // same loadRoster ForgeView makes) so the default is known
+  // without visiting Forge first; with an empty roster the default
+  // falls back to the active persona's voice (the old Speak
+  // behaviour). The picked actor applies to right-click Speak
+  // only — auto-speak keeps the active persona's voice.
+  const forgeRoster = useForgeStore((s) => s.roster);
+  const forgeSelectedId = useForgeStore((s) => s.selectedId);
+  const selectedActor = settings.speakActorVoice ?? null;
+  const defaultSpeak = resolveDefaultSpeakVoice({
+    roster: forgeRoster,
+    selectedId: forgeSelectedId,
+    config: settings.personaPlexConfig ?? {},
+    customPersonas: settings.personaPlexCustomPersonas ?? [],
+    availableVoices: getAvailableSpeakVoices(),
+    activePersonaId: settings.personaPlexActiveId ?? null,
+  });
+  // The voice the Speak row will use right now (shown as its hint).
+  const currentSpeakVoice =
+    selectedActor ?? defaultSpeak.voice ?? activePersonaVoiceSettings.voice;
+
   // The active persona's voice settings, resolved fresh at speak
   // time against the voices loaded NOW (not the render-time list,
   // which can predate the voices loading). Used by right-click
@@ -98,6 +127,35 @@ function AIChat({ onClose }: AIChatProps) {
       customPersonas: useSettingsStore.getState().settings.personaPlexCustomPersonas ?? [],
       availableVoices: getAvailableSpeakVoices(),
     });
+
+  // The default Speak voice (the active Homunculus's voice),
+  // resolved fresh at speak time — same inputs as the render-time
+  // `defaultSpeak`, read live from the stores so a Homunculus
+  // activated after this render still resolves correctly.
+  const resolveDefaultSpeakNow = () => {
+    const live = useSettingsStore.getState().settings;
+    const forge = useForgeStore.getState();
+    return resolveDefaultSpeakVoice({
+      roster: forge.roster,
+      selectedId: forge.selectedId,
+      config: live.personaPlexConfig ?? {},
+      customPersonas: live.personaPlexCustomPersonas ?? [],
+      availableVoices: getAvailableSpeakVoices(),
+      activePersonaId: live.personaPlexActiveId ?? null,
+    });
+  };
+
+  // Speak a message in a given actor's voice (null = the default,
+  // the active Homunculus's voice), at the active persona's volume
+  // and rate. The voice is resolved fresh, so a pick made a moment
+  // ago speaks in that voice even if the render-time list predates
+  // the voices loading.
+  const speakWithActor = (text: string, actorVoice: string | null) => {
+    const fresh = speakSettingsNow();
+    const voice =
+      actorVoice ?? resolveDefaultSpeakNow().voice ?? fresh.voice;
+    speakText(text, voice, { volume: fresh.volume, rate: fresh.rate });
+  };
 
   // The per-chat model dropdown options (chatModels.ts is the
   // single list source): Auto first, then the ping server models
@@ -158,6 +216,10 @@ function AIChat({ onClose }: AIChatProps) {
     // now, so the gate below shows the live state instead of the
     // launch-time snapshot.
     checkBackendStatus();
+    // Load the Forge roster so the Speak default (the active
+    // Homunculus's voice) is known without visiting Forge first —
+    // the same loadRoster ForgeView makes on mount.
+    void useForgeStore.getState().loadRoster();
   }, []);
 
   // Sync context directory with file store current directory
@@ -398,7 +460,7 @@ function AIChat({ onClose }: AIChatProps) {
   const handleMessageContextMenu = (e: React.MouseEvent, text: string) => {
     e.preventDefault();
     const showSpeak = shouldShowSpeakOption({ personaPlexInstalled, speakEnabled, personaSpeakEnabled: activePersonaVoiceSettings.speakEnabled });
-    setContextMenu({ x: e.clientX, y: e.clientY, text, showSpeak });
+    setContextMenu({ x: e.clientX, y: e.clientY, text, showSpeak, actors: speakActorOptions(getAvailableSpeakVoices()) });
   };
 
   // ChatGPT-style bubbles: user messages are a bubble hugging the right
@@ -808,9 +870,20 @@ function AIChat({ onClose }: AIChatProps) {
             x={contextMenu.x}
             y={contextMenu.y}
             showSpeak={contextMenu.showSpeak}
+            speakActors={contextMenu.actors}
+            selectedActor={selectedActor}
+            defaultActorLabel={defaultSpeak.label}
+            currentSpeakVoice={currentSpeakVoice}
             onSpeak={() => {
-              const fresh = speakSettingsNow();
-              speakText(contextMenu.text, fresh.voice, { volume: fresh.volume, rate: fresh.rate });
+              speakWithActor(contextMenu.text, selectedActor);
+            }}
+            onPickActor={(voice) => {
+              // Picking an actor remembers it (persisted, so later
+              // Speaks use it) AND speaks this message in it now.
+              // Picking Default clears the pick — Speak goes back
+              // to the active Homunculus's voice.
+              void updateSetting('speakActorVoice', voice);
+              speakWithActor(contextMenu.text, voice);
             }}
             onCopy={() => copyToClipboard(contextMenu.text)}
             onClose={() => setContextMenu(null)}

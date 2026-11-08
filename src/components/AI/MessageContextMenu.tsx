@@ -11,9 +11,21 @@
  * the browser's default menu on a message right-click, so Copy is
  * never lost to an unreliable default menu in Electron. Closes on
  * any click outside the menu, on Escape, or after picking an option.
+ *
+ * Speak actor dropdown (Gary, 2026-11-07): a dropdown arrow sits
+ * next to Speak. Clicking it opens the actor list — the voices
+ * this machine can speak (the Persona Plex cast first). Picking an
+ * actor speaks the message in that actor's voice right away AND
+ * remembers the pick (AIChat persists it as `speakActorVoice`),
+ * so later Speaks use that actor. The Default row clears the pick:
+ * Speak then uses the default — the ACTIVE HOMUNCULUS's voice
+ * (see resolveDefaultSpeakVoice in src/lib/personaPlex.ts). When
+ * no actor is picked, the Speak row shows the voice it will use.
+ * Clicking Speak itself (not the arrow) speaks with the current
+ * selection and never opens the list.
  */
-import { useEffect } from 'react';
-import { Volume2, Copy } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Volume2, Copy, ChevronRight, ChevronDown, Check } from 'lucide-react';
 
 interface MessageContextMenuProps {
   /** Screen position of the right-click. */
@@ -27,6 +39,21 @@ interface MessageContextMenuProps {
   onCopy: () => void;
   /** Close the menu without picking anything. */
   onClose: () => void;
+  /** Actors to pick from — voice names, cast first (see
+   *  speakActorOptions). Empty / omitted = only the Default row. */
+  speakActors?: string[];
+  /** The picked actor's voice name, or null = none picked (the
+   *  default — the active Homunculus's voice). */
+  selectedActor?: string | null;
+  /** What the Default row says, e.g. "Lucifer's voice · Karen". */
+  defaultActorLabel?: string;
+  /** The voice Speak will use right now (the picked actor, else
+   *  the default voice) — shown as a hint on the Speak row. */
+  currentSpeakVoice?: string | null;
+  /** Pick an actor: persist the pick AND speak the message in
+   *  that voice now. Null = pick the Default (clear the pick)
+   *  and speak in the default voice. The menu closes after. */
+  onPickActor?: (voice: string | null) => void;
 }
 
 export function MessageContextMenu({
@@ -36,7 +63,16 @@ export function MessageContextMenu({
   onSpeak,
   onCopy,
   onClose,
+  speakActors = [],
+  selectedActor = null,
+  defaultActorLabel = 'Active Homunculus voice',
+  currentSpeakVoice = null,
+  onPickActor,
 }: MessageContextMenuProps) {
+  // The actor list is closed until the arrow is clicked — opening
+  // the menu never opens the list on its own.
+  const [actorsOpen, setActorsOpen] = useState(false);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -47,6 +83,11 @@ export function MessageContextMenu({
 
   const itemClass =
     'w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded';
+
+  const pickActor = (voice: string | null) => {
+    onPickActor?.(voice);
+    onClose();
+  };
 
   return (
     <>
@@ -67,18 +108,80 @@ export function MessageContextMenu({
         role="menu"
       >
         {showSpeak && (
-          <button
-            data-message-speak
-            onClick={() => {
-              onSpeak();
-              onClose();
-            }}
-            className={itemClass}
-            role="menuitem"
-          >
-            <Volume2 size={14} />
-            Speak
-          </button>
+          <>
+            <div className="flex items-center gap-0.5" role="none">
+              <button
+                data-message-speak
+                onClick={() => {
+                  onSpeak();
+                  onClose();
+                }}
+                className={`${itemClass} flex-1`}
+                role="menuitem"
+                title={
+                  selectedActor
+                    ? `Speak in ${selectedActor}'s voice`
+                    : `Speak in the default voice — ${defaultActorLabel}`
+                }
+              >
+                <Volume2 size={14} />
+                <span>Speak</span>
+                {currentSpeakVoice && (
+                  <span className="ml-auto text-xs text-[var(--text-muted)]">
+                    {selectedActor ? selectedActor : `Default · ${currentSpeakVoice}`}
+                  </span>
+                )}
+              </button>
+              <button
+                data-message-speak-actors
+                onClick={() => setActorsOpen((open) => !open)}
+                className="shrink-0 p-2 rounded text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                role="menuitem"
+                aria-label="Choose speaking voice"
+                aria-expanded={actorsOpen}
+                title="Choose speaking voice — pick an actor, or Default for the active Homunculus's voice"
+              >
+                {actorsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+            </div>
+            {actorsOpen && (
+              <div
+                data-message-speak-actor-list
+                className="mt-1 pt-1 border-t border-[var(--border)]"
+                role="menu"
+                aria-label="Speaking voices"
+              >
+                <button
+                  data-speak-actor-default
+                  onClick={() => pickActor(null)}
+                  className={itemClass}
+                  role="menuitem"
+                  title={`Use the default voice — ${defaultActorLabel}`}
+                >
+                  <span className="w-4 shrink-0">
+                    {selectedActor === null && <Check size={14} />}
+                  </span>
+                  <span className="truncate">Default — {defaultActorLabel}</span>
+                </button>
+                {speakActors.map((voice) => (
+                  <button
+                    key={voice}
+                    data-message-speak-actor
+                    data-voice={voice}
+                    onClick={() => pickActor(voice)}
+                    className={itemClass}
+                    role="menuitem"
+                    title={`Speak in ${voice}'s voice`}
+                  >
+                    <span className="w-4 shrink-0">
+                      {selectedActor === voice && <Check size={14} />}
+                    </span>
+                    <span className="truncate">{voice}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
         <button
           data-message-copy

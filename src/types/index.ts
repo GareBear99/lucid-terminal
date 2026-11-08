@@ -391,6 +391,13 @@ export interface Settings {
   personaPlexConfig: Record<string, PersonaConfig>;
   personaPlexActiveId: string | null;
   personaPlexSpeakEnabled: boolean;
+  /** The Speak actor picked in the right-click menu (Gary,
+   *  2026-11-07): a voice name, e.g. 'Fred'. Null = no actor
+   *  picked — Speak uses the default, the active Homunculus's
+   *  voice (see resolveDefaultSpeakVoice in
+   *  src/lib/personaPlex.ts). Written immediately via
+   *  updateSetting when an actor is picked, loaded on startup. */
+  speakActorVoice: string | null;
   // Ping server (test path) — the Cloudflare Worker that fronts a
   // free Workers AI model for Lucid's API streams
   // (ARC-Neuron-LLMBuilder/cloudflare/ping-server). Disabled by

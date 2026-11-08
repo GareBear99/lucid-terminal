@@ -111,6 +111,9 @@ const defaultSettings: Settings = {
   personaPlexConfig: {},
   personaPlexActiveId: null,
   personaPlexSpeakEnabled: false,
+  // Speak actor — null = no actor picked, Speak defaults to the
+  // active Homunculus's voice (see src/lib/personaPlex.ts).
+  speakActorVoice: null,
   customPlugins: {},
   luciferAiEnabled: false,
   // Full Glass unlock state (Gary, 2026-11-07) — the referral +

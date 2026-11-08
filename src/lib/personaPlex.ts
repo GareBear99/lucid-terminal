@@ -23,6 +23,7 @@
  */
 
 import type { Persona, PersonaConfig } from '../types';
+import type { Homunculus } from './homunculi';
 
 /** The default voice for a persona — Lily, the voice of the Forge
  *  voice messages (avocado_v2:Lily). NOTE: Lily is the voice of the
@@ -170,6 +171,205 @@ export function resolvePersonaVoice(
 export function personaVoiceSample(persona: Pick<Persona, 'name'>): string {
   const name = persona.name.trim() || 'Persona';
   return `Hi, I'm ${name}. This is my voice.`;
+}
+
+/**
+ * The ACTIVE Homunculus — the one the Speak default voice belongs
+ * to (Gary, 2026-11-07: the right-click Speak dropdown defaults to
+ * the active Homunculus's voice). The selected Homunculus when one
+ * is selected (Forge select / double-click activation sets
+ * selectedId); otherwise the first Homunculus in the roster (the
+ * same fallback forgeStore.loadRoster uses for the selection);
+ * null when the roster is empty — no Homunculus exists yet, so
+ * there is no Homunculus voice to default to. A Homunculus is
+ * never invented here: an empty roster stays empty.
+ */
+export function activeHomunculus(
+  roster: readonly Homunculus[],
+  selectedId: string | null | undefined,
+): Homunculus | null {
+  if (selectedId) {
+    const selected = roster.find((h) => h.id === selectedId);
+    if (selected) return selected;
+  }
+  return roster[0] ?? null;
+}
+
+/**
+ * The actor list for the Speak dropdown: the Persona Plex voice
+ * cast voices actually installed on this machine, in cast order,
+ * then any other available system voices (in the order the system
+ * reports them) — so Gary can pick any voice the machine can
+ * speak, with the curated cast first. Empty when no voices have
+ * loaded yet (the dropdown then shows only the Default row).
+ */
+export function speakActorOptions(
+  availableVoices: readonly string[],
+): string[] {
+  const byLower = new Map(
+    availableVoices.map((v) => [v.toLowerCase(), v] as const),
+  );
+  const cast = PERSONA_VOICE_CAST.filter((name) =>
+    byLower.has(name.toLowerCase()),
+  ).map((name) => byLower.get(name.toLowerCase()) as string);
+  const castLower = new Set(cast.map((c) => c.toLowerCase()));
+  const rest = availableVoices.filter((v) => !castLower.has(v.toLowerCase()));
+  return [...cast, ...rest];
+}
+
+/** What the Speak default resolves to (see resolveDefaultSpeakVoice). */
+export interface DefaultSpeakVoice {
+  /** The live voice name to speak in, or null when no voices are
+   *  available at all (the caller then falls back to the system
+   *  default voice, as speakText does). */
+  voice: string | null;
+  /** The Homunculus the default belongs to, or null when there is
+   *  no Homunculus (the default is then the active persona's voice). */
+  homunculus: Homunculus | null;
+  /** The paired persona's name, when the voice comes from a persona
+   *  paired to the Homunculus (null when the name is not known
+   *  from settings alone, e.g. a soul persona's name lives in
+   *  souls.json, not in the config). */
+  personaName: string | null;
+  /** Where the voice came from. */
+  source:
+    | 'homunculus-persona'
+    | 'homunculus-assigned'
+    | 'persona'
+    | 'none';
+  /** The label the dropdown shows for the Default row, e.g.
+   *  "Lucifer's voice · Karen". */
+  label: string;
+}
+
+/**
+ * The voice right-click Speak uses when NO actor is picked — the
+ * DEFAULT (Gary, 2026-11-07: "should default to your active
+ * homunculus's voice"). Resolved from settings only (no souls.json
+ * read), so AI chat can resolve it at speak time:
+ *
+ * 1. Active Homunculus with a persona paired to it → that
+ *    persona's EFFECTIVE voice (its stored voice when that matches
+ *    a voice on this machine, otherwise its assigned distinct
+ *    voice — a stored 'Lily' never speaks as the system default
+ *    for everyone). This is the existing voiceForHomunculus
+ *    pairing, run through resolvePersonaVoice.
+ * 2. Active Homunculus with NO persona paired → a deterministic
+ *    voice from the cast, assigned from the Homunculus's own id
+ *    (`homunculus:<id>`) through the same assignPersonaVoices
+ *    path — stable across restarts, distinct per Homunculus.
+ *    A Homunculus has NO voice field of its own in the codebase
+ *    (see src/lib/homunculi.ts — name, colour, biography, model,
+ *    status, lineage only), so this assignment IS the
+ *    Homunculus→voice mapping; it is derived, never invented as a
+ *    stored fact.
+ * 3. No Homunculus at all (empty roster) → the active persona's
+ *    effective voice — the Speak behaviour before this dropdown.
+ * 4. No voices available at all → voice null; speakText then falls
+ *    back to the system default voice.
+ */
+export function resolveDefaultSpeakVoice(args: {
+  roster: readonly Homunculus[];
+  selectedId: string | null | undefined;
+  config: Readonly<Record<string, PersonaConfig>> | null | undefined;
+  customPersonas: readonly Persona[] | null | undefined;
+  availableVoices: readonly string[];
+  /** All persona ids, for the distinct assignment — defaults to
+   *  the config keys + custom persona ids. */
+  personaIds?: readonly string[];
+  activePersonaId?: string | null | undefined;
+}): DefaultSpeakVoice {
+  const homunculus = activeHomunculus(args.roster, args.selectedId);
+  const knownIds =
+    args.personaIds ??
+    [
+      ...Object.keys(args.config ?? {}),
+      ...(args.customPersonas ?? []).map((p) => p.id),
+    ];
+  const personaIds = [
+    ...new Set([
+      ...knownIds,
+      ...(args.activePersonaId ? [args.activePersonaId] : []),
+    ]),
+  ];
+  if (homunculus) {
+    // A persona paired to this Homunculus (custom record first,
+    // then a soul persona's config) — its effective voice is the
+    // Homunculus's voice.
+    const custom = (args.customPersonas ?? []).find(
+      (p) => p.homunculusId === homunculus.id,
+    );
+    if (custom) {
+      const voice = resolvePersonaVoice(custom, {
+        availableVoices: args.availableVoices,
+        personaIds,
+      });
+      return {
+        voice,
+        homunculus,
+        personaName: custom.name,
+        source: 'homunculus-persona',
+        label: `${homunculus.name}'s voice · ${voice ?? 'system default'} (paired persona ${custom.name})`,
+      };
+    }
+    for (const [id, cfg] of Object.entries(args.config ?? {})) {
+      if (cfg.homunculusId === homunculus.id) {
+        const voice = resolvePersonaVoice(
+          { id, voice: cfg.voice },
+          { availableVoices: args.availableVoices, personaIds },
+        );
+        return {
+          voice,
+          homunculus,
+          personaName: null,
+          source: 'homunculus-persona',
+          label: `${homunculus.name}'s voice · ${voice ?? 'system default'}`,
+        };
+      }
+    }
+    // No persona paired: the Homunculus's own deterministic cast
+    // voice, from its id — same assignment path as personas. The
+    // whole roster's Homunculus ids join the assignment, so two
+    // Homunculi in one roster get different voices from each other
+    // (and from the personas), not just different ids hashing to
+    // the same slot.
+    const pseudoId = `homunculus:${homunculus.id}`;
+    const homunculusIds = args.roster.map((h) => `homunculus:${h.id}`);
+    const voice = resolvePersonaVoice(
+      { id: pseudoId, voice: DEFAULT_PERSONA_VOICE },
+      {
+        availableVoices: args.availableVoices,
+        personaIds: [...personaIds, ...homunculusIds],
+      },
+    );
+    return {
+      voice,
+      homunculus,
+      personaName: null,
+      source: 'homunculus-assigned',
+      label: `${homunculus.name}'s voice · ${voice ?? 'system default'}`,
+    };
+  }
+  // No Homunculus: the active persona's effective voice.
+  const settings = getActivePersonaVoiceSettings({
+    activeId: args.activePersonaId ?? null,
+    config: args.config,
+    customPersonas: args.customPersonas,
+    availableVoices: args.availableVoices,
+    personaIds,
+  });
+  const custom = args.activePersonaId
+    ? (args.customPersonas ?? []).find((p) => p.id === args.activePersonaId)
+    : undefined;
+  return {
+    voice: settings.voice,
+    homunculus: null,
+    personaName: custom?.name ?? null,
+    source: 'persona',
+    label: custom
+      ? `${custom.name}'s voice · ${settings.voice}`
+      : `Active persona's voice · ${settings.voice}`,
+  };
 }
 
 /** The default per-persona voice options: Speak on for the persona,

@@ -28,7 +28,7 @@ import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
 import { applyTheme } from './themes/themes';
-import { themeForView, showSplashMistForView, showBlackBackboard } from './lib/filesScreen';
+import { themeForView, showSplashMistForView } from './lib/filesScreen';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
@@ -56,17 +56,6 @@ function App() {
   const { currentDir, setCurrentDir } = useFileStore();
 
   const [currentView, setCurrentView] = useState<View>('terminal');
-  // BLACK BACKBOARD (Gary, 2026-11-08 ~07:27 PST): in NON-DEVMODE
-  // the terminal screen is inverted into the black backboard
-  // topology, like Warp — BrowserWindow, page and xterm backgrounds
-  // all FULL BLACK #000, light text on top, black prompt bar on the
-  // black backboard. Dev mode keeps the glass + mist, and every
-  // other view keeps its own look. The class redefines the theme
-  // background vars to black for the whole subtree (see
-  // src/index.css .black-backboard), and the mist is not rendered
-  // under it — a misty splash showing in non-devmode is a bug.
-  const devMode = settings.devMode === true;
-  const blackBackboard = showBlackBackboard(currentView, devMode);
   // The Files screen (Editor view) is Full Glass, no splash back
   // (Gary, 2026-11-08 — see src/lib/filesScreen.ts): it shows just
   // the theme, the full glass theme, not the splashscreen misty
@@ -291,15 +280,11 @@ function App() {
     // Files screen (Editor view) has no splash back — just the
     // theme, the full glass theme — so the mist is hidden while the
     // Editor is the current view (and the Full Glass theme is
-    // applied by the effect above). SECOND EXCEPTION (Gary,
-    // 2026-11-08 ~07:27 PST): the NON-DEVMODE terminal screen is
-    // the BLACK BACKBOARD — no mist, all backgrounds #000 (see
-    // showBlackBackboard) — so the mist is hidden while the
-    // terminal is current and dev mode is off.
-    <div className={`relative isolate h-screen flex flex-col bg-black overflow-hidden${blackBackboard ? ' black-backboard' : ''}`} data-testid="app-root">
+    // applied by the effect above).
+    <div className="relative isolate h-screen flex flex-col bg-black overflow-hidden">
       {/* Boot splash - overlays the dashboard until it fades out. */}
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
-      {showSplashMistForView(currentView) && !blackBackboard && <SplashMist />}
+      {showSplashMistForView(currentView) && <SplashMist />}
 
       {/* Title Bar */}
       <TitleBar />

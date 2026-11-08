@@ -51,15 +51,6 @@ interface XtermSurfaceProps {
   onResize?: (cols: number, rows: number) => void;
   /** The shell has exited: stop accepting input. */
   disabled?: boolean;
-  /**
-   * BLACK BACKBOARD (Gary, 2026-11-08 ~07:27 PST): in NON-DEVMODE
-   * the terminal background is FULL BLACK #000000 — not the misty
-   * splash, not #0d1117, not transparent. Dev mode keeps the
-   * transparent background (the mist shows through — the dev-mode
-   * look). The theme is applied at creation and re-applied when
-   * this flips, so toggling dev mode re-inverts the surface live.
-   */
-  blackBackground?: boolean;
 }
 
 /** xterm.js cannot open without a canvas 2d context (jsdom). */
@@ -83,7 +74,7 @@ function stripAnsi(data: string): string {
 const FALLBACK_OUTPUT_CAP = 100_000;
 
 export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
-  function XtermSurface({ onInput, onResize, disabled = false, blackBackground = false }, ref) {
+  function XtermSurface({ onInput, onResize, disabled = false }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
@@ -135,7 +126,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       const term = new XTerm({
         allowTransparency: true,
         theme: {
-          background: blackBackground ? '#000000' : 'transparent',
+          background: 'transparent',
           foreground: '#e6edf3',
           cursor: '#58a6ff',
           cursorAccent: '#0d1117',
@@ -213,18 +204,6 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       if (termRef.current) termRef.current.options.disableStdin = disabled;
     }, [disabled]);
 
-    // BLACK BACKBOARD flip: toggling dev mode re-inverts the surface
-    // live — the theme background follows blackBackground without
-    // recreating the terminal (the PTY stream is untouched).
-    useEffect(() => {
-      const term = termRef.current;
-      if (!term) return;
-      term.options.theme = {
-        ...term.options.theme,
-        background: blackBackground ? '#000000' : 'transparent',
-      };
-    }, [blackBackground]);
-
     if (fallback) {
       // Per-keystroke forwarding, same contract as xterm onData:
       // printable chars as they arrive (diffed out of the change
@@ -301,7 +280,6 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
         <div
           ref={containerRef}
           data-testid="xterm-surface"
-          data-black-background={blackBackground ? 'true' : 'false'}
           className="flex h-full w-full flex-col overflow-hidden"
         >
           <pre
@@ -330,7 +308,6 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       <div
         ref={containerRef}
         data-testid="xterm-surface"
-        data-black-background={blackBackground ? 'true' : 'false'}
         className="h-full w-full overflow-hidden"
         onClick={() => termRef.current?.focus()}
       />

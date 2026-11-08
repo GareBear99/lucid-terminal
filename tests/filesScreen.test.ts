@@ -18,7 +18,6 @@ import {
   isFilesScreen,
   themeForView,
   showSplashMistForView,
-  showBlackBackboard,
 } from '../src/lib/filesScreen';
 import { fullGlassTheme, getTheme } from '../src/themes/themes';
 import type { View } from '../src/types';
@@ -72,16 +71,5 @@ describe('Files screen', () => {
     expect(
       isThemeUnlocked(fullGlassTheme, { referralCount: 2, purchaseTierActive: true }),
     ).toBe(true);
-  });
-});
-
-describe('Black backboard (Gary, 2026-11-08 ~07:27 PST)', () => {
-  it('is the non-devmode terminal view only — full black #000, like Warp', () => {
-    expect(showBlackBackboard('terminal', false)).toBe(true);
-    expect(showBlackBackboard('terminal', true)).toBe(false);
-    for (const view of ALL_VIEWS.filter((v) => v !== 'terminal')) {
-      expect(showBlackBackboard(view, false)).toBe(false);
-      expect(showBlackBackboard(view, true)).toBe(false);
-    }
   });
 });

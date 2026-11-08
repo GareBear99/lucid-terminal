@@ -1009,7 +1009,6 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 onInput={handleXtermInput}
                 onResize={handleResize}
                 disabled={shellExited !== null}
-                blackBackground={!devMode}
               />
             </div>
           </div>

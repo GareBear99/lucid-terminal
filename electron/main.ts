@@ -39,11 +39,7 @@ async function createWindow() {
     minHeight: 600,
     frame: false, // Custom titlebar
     titleBarStyle: 'hidden',
-    // BLACK BACKBOARD (Gary, 2026-11-08 ~07:27 PST): the window
-    // itself is full black #000 - the non-devmode terminal screen
-    // is the black backboard topology, like Warp. The old #0d1117
-    // showed as a dark-grey edge wherever the page did not paint.
-    backgroundColor: '#000000',
+    backgroundColor: '#0d1117',
     // Window icon: resources/icon.icns on macOS, resources/icon.ico on
     // Windows. The old path pointed at a resources/ directory that did
     // not exist, and .ico is a Windows format — macOS wants .icns.

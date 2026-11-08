@@ -135,10 +135,6 @@ describe('non-devmode — full black page, black prompt bar (Warp-style)', () =>
     expect(wrap.className).toContain('border-t-2');
     expect(wrap.className).not.toContain('backdrop-blur-md');
     expect(wrap.className).not.toContain('bg-[var(--bg-tertiary)]/50');
-    // BLACK BACKBOARD (Gary, 2026-11-08 ~07:27 PST): the xterm
-    // surface itself is full black #000 in non-devmode — the
-    // terminal background is black, not transparent over the mist.
-    expect(screen.getByTestId('xterm-surface').getAttribute('data-black-background')).toBe('true');
     // No dev-mode artifacts: no badge, no detached bar, no console.
     expect(screen.queryByTestId('dev-command-bar')).toBeNull();
     expect(screen.queryByTestId('dev-console')).toBeNull();
@@ -160,9 +156,6 @@ describe('non-devmode — full black page, black prompt bar (Warp-style)', () =>
     expect(wrap.className).toContain('bg-[var(--bg-tertiary)]/50');
     expect(wrap.className).toContain('backdrop-blur-md');
     expect(screen.getByTestId('dev-command-bar')).not.toBeNull();
-    // Dev mode: the xterm surface stays transparent (the mist
-    // shows through) — the black backboard is non-devmode only.
-    expect(screen.getByTestId('xterm-surface').getAttribute('data-black-background')).toBe('false');
   });
 });
 

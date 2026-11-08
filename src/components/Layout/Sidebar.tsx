@@ -435,7 +435,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           onClick={async () => {
             selectPath(item.path);
             if (item.isDirectory) {
-              await toggleDir(item.path);
+              toggleDir(item.path);
             } else {
               // Only switch to the editor when the file actually opened —
               // a failed open shows the error instead of an empty editor.

@@ -42,19 +42,3 @@ export function themeForView(view: View, userTheme: Theme): Theme {
 export function showSplashMistForView(view: View): boolean {
   return !isFilesScreen(view);
 }
-
-/**
- * BLACK BACKBOARD (Gary, 2026-11-08 ~07:27 PST): "invert the screen
- * into the black backboard topology like warp does". In NON-DEVMODE
- * the terminal screen is a full black backboard: the BrowserWindow
- * background, the page background and the terminal (xterm) background
- * are all FULL BLACK (#000000 — not the misty splash, not #0d1117,
- * not a gradient), with light text on top, and the prompt bar is a
- * BLACK bar sitting on that black backboard. The topology sync means
- * the prompt bar and the terminal are one input / one screen. This
- * is the non-devmode terminal view only — dev mode keeps the glass
- * + mist, and every other view keeps its own look.
- */
-export function showBlackBackboard(view: View, devMode: boolean): boolean {
-  return view === 'terminal' && !devMode;
-}

@@ -3,10 +3,11 @@ import type { WebContents } from 'electron';
 
 // ... imports
 import { chat, cancelStream, hasApiKey, ChatMessage } from '../services/openai';
-import { chatPing, cancelPingStream, pingServerHealth, isPingServerEnabled } from '../services/pingServer';
+import { chatPing, cancelPingStream, pingServerHealth, isPingServerEnabled, PingRateLimitError } from '../services/pingServer';
 import { chatLocal, checkLocalBackendHealth, cancelLocalChat, chatLocalWithBrowserTools } from '../services/local_ai'; // Import local service
 import { historyManager } from '../services/historyManager';
 import { isAnyModelAvailable } from './lucidWorkflow';
+import { resolveInstantReplyFallbackAfterPingError } from '../../src/lib/instantReplyPackets';
 
 export type ChatRoute = 'ping' | 'local' | 'openai' | 'none';
 
@@ -30,7 +31,7 @@ export interface ChatRouteResult {
 /**
  * Decide which route answers one reply, from the current chat's
  * model choice (the header dropdown) and what can answer now.
- * Pure - unit-tested in tests/ipc/ai-chat-route.test.ts.
+ * Pure - unit-tested in tests/aiChatRoute.test.ts.
  *
  * An explicit model is authoritative WHEN its route can answer:
  * a local choice needs a loaded local model, an OpenAI choice
@@ -145,23 +146,72 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
       });
     }
 
+    // OpenAI path, shared by the normal OpenAI route and the second
+    // fallback after a ping error (see the ping branch below). The
+    // `silentOnError` call is the fallback: its error is recorded by
+    // the caller instead of sent, so a failed reply sends exactly
+    // one ai:streamError for the whole reply instead of one per
+    // failed route. The normal route keeps the existing behaviour
+    // (its onError sends immediately).
+    const runOpenAIPath = async (silentOnError = false): Promise<string> => {
+      console.log('Using OpenAI', route.model ? `(model ${route.model})` : '(settings default)');
+      if (stream) {
+        const response = await chat(
+          messages,
+          contextDirectory,
+          (chunk: string) => {
+            streamCoalescer.push(chunk);
+          },
+          () => {
+            streamCoalescer.flush();
+            if (!sender.isDestroyed()) {
+              sender.send('ai:streamEnd');
+            }
+          },
+          (error: string) => {
+            if (!silentOnError && !sender.isDestroyed()) {
+              sender.send('ai:streamError', error);
+            }
+          },
+          route.model,
+        );
+        return response;
+      }
+      return await chat(messages, contextDirectory, undefined, undefined, undefined, route.model);
+    };
+
     try {
       // Ping server (test path): when enabled in Settings, AI chat
       // routes to the Cloudflare Worker instead of the local backend
       // or OpenAI. The route was decided above - ping wins while
       // enabled and no other route is chosen, or when the chosen
       // route cannot answer (cascade fallback).
-      // Errors send exactly one ai:streamError (tracked by errorSent)
-      // and return the message instead of rethrowing, so the outer
-      // catch below cannot send the same failure a second time.
+      //
+      // SECOND FALLBACK (Gary, 2026-11-08): a ping error used to end
+      // here — one ai:streamError, and the error text returned as
+      // the reply. Now the ping error falls through once more, by
+      // resolveInstantReplyFallbackAfterPingError() (the rule lives
+      // in src/lib/instantReplyPackets.ts, mirrored in
+      // instant_reply/branches.py): a 429 is terminal (the SP gate
+      // is never bypassed), a partial ping reply already streamed
+      // is terminal (no Franken-reply), otherwise OpenAI answers
+      // when a key is configured, else an honest error. The local
+      // route is NEVER the fallback here — running a model on the
+      // user's machine is user-side CPU, and Gary's rule is
+      // user-side CPU = NONE. The ping error is therefore recorded
+      // (not sent) until the fallback is decided, so a successful
+      // fallback shows no error event at all, and a failed reply
+      // sends exactly one ai:streamError.
       if (route.route === 'ping') {
         console.log('Using Lucid ping server (test path)');
-        let errorSent = false;
+        let pingErrorText: string | null = null;
+        let pingStreamedAny = false;
         try {
           if (stream) {
             const response = await chatPing(
               messages,
               (chunk: string) => {
+                pingStreamedAny = true;
                 streamCoalescer.push(chunk);
               },
               (quota) => {
@@ -171,10 +221,7 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
                 }
               },
               (error: string) => {
-                errorSent = true;
-                if (!sender.isDestroyed()) {
-                  sender.send('ai:streamError', error);
-                }
+                pingErrorText = error;
               },
               // The model the dropdown chose (a Workers AI id);
               // absent (Auto) = the worker's default.
@@ -185,13 +232,36 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
           return await chatPing(messages, undefined, undefined, undefined, route.model);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-          // Flush any buffered chunks first, in order, so the
-          // partial reply is not lost behind the error.
-          streamCoalescer.flush();
-          if (!errorSent && !sender.isDestroyed()) {
-            sender.send('ai:streamError', errorMessage);
+          const pingError = pingErrorText ?? errorMessage;
+          const fallback = resolveInstantReplyFallbackAfterPingError({
+            isRateLimited: error instanceof PingRateLimitError,
+            hasApiKey: hasApiKey(),
+            partialReplyStreamed: pingStreamedAny,
+          });
+          if (fallback === 'openai') {
+            try {
+              // No partial ping reply was streamed (the fallback
+              // rule guarantees it), so the coalescer holds nothing
+              // of the failed ping reply; flush anyway for safety.
+              streamCoalescer.flush();
+              return await runOpenAIPath(true);
+            } catch (openAiError) {
+              const openAiMessage = openAiError instanceof Error ? openAiError.message : 'Unknown error occurred';
+              streamCoalescer.flush();
+              if (!sender.isDestroyed()) {
+                sender.send('ai:streamError', pingError);
+              }
+              return `Ping server error: ${pingError} — OpenAI fallback also failed: ${openAiMessage}`;
+            }
           }
-          return errorMessage;
+          // No second fallback: rate-limited, partial reply already
+          // streamed, or no OpenAI key. One error event, and the
+          // error text as the reply (unchanged from before).
+          streamCoalescer.flush();
+          if (!sender.isDestroyed()) {
+            sender.send('ai:streamError', pingError);
+          }
+          return pingError;
         }
       }
 
@@ -248,32 +318,9 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
       }
 
       // Fallback to OpenAI if local backend is down or has no model
-      console.log('Using OpenAI', route.model ? `(model ${route.model})` : '(settings default)');
-
-      if (stream) {
-        const response = await chat(
-          messages,
-          contextDirectory,
-          (chunk: string) => {
-            streamCoalescer.push(chunk);
-          },
-          () => {
-            streamCoalescer.flush();
-            if (!sender.isDestroyed()) {
-              sender.send('ai:streamEnd');
-            }
-          },
-          (error: string) => {
-            if (!sender.isDestroyed()) {
-              sender.send('ai:streamError', error);
-            }
-          },
-          route.model
-        );
-        return response;
-      } else {
-        return await chat(messages, contextDirectory, undefined, undefined, undefined, route.model);
-      }
+      // (the normal OpenAI route — same helper the ping-error
+      // fallback uses, with its error reporting on).
+      return await runOpenAIPath();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       streamCoalescer.flush();

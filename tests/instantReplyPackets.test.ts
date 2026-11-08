@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   decideInstantReplyDelivery,
+  resolveInstantReplyFallbackAfterPingError,
 } from '../src/lib/instantReplyPackets';
 import {
   shouldCallConnection,
@@ -70,6 +71,48 @@ describe('decideInstantReplyDelivery — branch-pass', () => {
     });
     expect(out.decision).toBe('fallback_ping');
     expect(out.replyText).toBeNull();
+  });
+});
+
+describe('resolveInstantReplyFallbackAfterPingError — second fallback (Gary, 2026-11-08)', () => {
+  it('clean ping error with a key falls back to OpenAI (server-side, no user CPU)', () => {
+    expect(
+      resolveInstantReplyFallbackAfterPingError({
+        isRateLimited: false,
+        hasApiKey: true,
+        partialReplyStreamed: false,
+      }),
+    ).toBe('openai');
+  });
+
+  it('clean ping error without a key is an honest error, not a fake reply', () => {
+    expect(
+      resolveInstantReplyFallbackAfterPingError({
+        isRateLimited: false,
+        hasApiKey: false,
+        partialReplyStreamed: false,
+      }),
+    ).toBe('none');
+  });
+
+  it('rate limit is terminal even with a key — the SP gate is never bypassed', () => {
+    expect(
+      resolveInstantReplyFallbackAfterPingError({
+        isRateLimited: true,
+        hasApiKey: true,
+        partialReplyStreamed: false,
+      }),
+    ).toBe('none');
+  });
+
+  it('partial ping reply already streamed is terminal even with a key — no Franken-reply', () => {
+    expect(
+      resolveInstantReplyFallbackAfterPingError({
+        isRateLimited: false,
+        hasApiKey: true,
+        partialReplyStreamed: true,
+      }),
+    ).toBe('none');
   });
 });
 

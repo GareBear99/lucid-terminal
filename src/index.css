@@ -52,6 +52,28 @@ html[data-glass] .bg-\[var\(--bg-tertiary\)\] {
   -webkit-backdrop-filter: blur(16px) saturate(150%);
 }
 
+/* BLACK BACKBOARD (Gary, 2026-11-08 ~07:27 PST): "invert the screen
+   into the black backboard topology like warp does". In NON-DEVMODE
+   the terminal screen is full black #000 - BrowserWindow, page and
+   xterm backgrounds, light text on top, black prompt bar on the
+   black backboard. App applies this class to its root only while
+   the terminal view is current and dev mode is off (see
+   showBlackBackboard in src/lib/filesScreen.ts); dev mode and every
+   other view keep their own look. The class redefines the theme
+   background variables for the whole subtree, so every surface
+   painted with a theme background - title bar, sidebar rail +
+   panel, status bar, terminal blocks, hovers - goes black without
+   touching any component. Borders go to a neutral dark grey
+   (Warp's subtle divider); hovers/active states go to #111 so they
+   stay perceptible on black. Text, accent and status colors are
+   untouched: light text on black is the inversion. */
+.black-backboard {
+  --bg-primary: #000000;
+  --bg-secondary: #000000;
+  --bg-tertiary: #111111;
+  --border: #262626;
+}
+
 * {
   margin: 0;
   padding: 0;

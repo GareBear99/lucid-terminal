@@ -145,6 +145,18 @@ describe('prompt input bubble', () => {
     );
   });
 
+  test('long text scrolls right instead of wrapping (Gary, 2026-11-08)', async () => {
+    // Typing past the edge scrolls the line right so the cursor and
+    // the text being typed stay visible — instead of the line wrapping
+    // (and growing the bar tall) or clipping at the edge.
+    mockState.initImpl = () => Promise.resolve();
+    render(<Harness />);
+    await screen.findByTestId('monaco-editor');
+    expect(mockState.editorProps?.options?.wordWrap).toBe('off');
+    expect(mockState.editorProps?.options?.scrollbar?.horizontal).toBe('auto');
+    expect(mockState.editorProps?.options?.scrollbar?.vertical).toBe('auto');
+  });
+
   test('Monaco editor grows with content up to one-third of the page, then caps', async () => {
     mockState.initImpl = () => Promise.resolve();
     render(<Harness />);
@@ -176,6 +188,11 @@ describe('prompt input bubble', () => {
     // maxHeight is the 50vh drag max again (recovered).
     expect(textarea.className).toContain('overflow-y-auto');
     expect(textarea.style.maxHeight).toBe('50vh');
+    // Long text scrolls right, not wraps (Gary, 2026-11-08): no wrap,
+    // horizontal scroll on, so the cursor stays visible past the edge.
+    expect(textarea.getAttribute('wrap')).toBe('off');
+    expect(textarea.className).toContain('whitespace-nowrap');
+    expect(textarea.className).toContain('overflow-x-auto');
 
     const longText = Array.from({ length: 60 }, (_, i) => `line ${i}`).join(
       '\n',

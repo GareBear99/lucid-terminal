@@ -474,3 +474,43 @@ describe('/devmode slash command', () => {
     expect(screen.queryByTestId('dev-command-bar')).toBeNull();
   });
 });
+
+describe('dev bar sizing + dev console placement in devmode (Gary, 2026-11-08)', () => {
+  /** No fixed height on the element itself: the bar sizes to its
+   *  content. (h-full is the page root filling the window, not a bar
+   *  height — it never appears here.) */
+  function expectNoFixedHeight(el: HTMLElement) {
+    const classes = el.className.split(/\s+/);
+    expect(classes.filter((c) => /^h-/.test(c))).toEqual([]);
+  }
+
+  test('bar sizes to its content whether elements are there or gone; console below only when LuciferAI is ON', async () => {
+    // OFF: original prompt back, NO dev console — and the bar is still
+    // content-sized, no gap left behind by the missing console, face,
+    // or anything else. Drag handle + bubble input still there.
+    setDevMode(true);
+    setLuciferAiEnabled(false);
+    const off = render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+    const barOff = screen.getByTestId('dev-command-bar');
+    expectNoFixedHeight(barOff);
+    expectNoFixedHeight(screen.getByTestId('prompt-section'));
+    expect(screen.queryByTestId('dev-console')).toBeNull();
+    expect(within(barOff).queryByTestId('input-drag-handle')).not.toBeNull();
+    off.unmount();
+
+    // ON: squared prompt + dev console BELOW the bar (it is the bar's
+    // last child, so it sits underneath the prompt) — still no fixed
+    // height, the bar just grows to fit it.
+    setDevMode(true);
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+    const barOn = screen.getByTestId('dev-command-bar');
+    expectNoFixedHeight(barOn);
+    expectNoFixedHeight(screen.getByTestId('prompt-section'));
+    const consoleEl = screen.getByTestId('dev-console');
+    expect(barOn.lastElementChild).toBe(consoleEl);
+    expect(within(barOn).queryByTestId('input-drag-handle')).not.toBeNull();
+  });
+});

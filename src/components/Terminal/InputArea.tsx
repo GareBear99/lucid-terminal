@@ -283,10 +283,11 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleFallbackKeyDown}
                     rows={1}
+                    wrap="off"
                     autoFocus
                     placeholder="Type a command… (plain input — Monaco unavailable)"
                     title="Monaco editor unavailable — using plain input"
-                    className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-y-auto"
+                    className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-y-auto overflow-x-auto whitespace-nowrap"
                     style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace", maxHeight: `${INPUT_DRAG_MAX_HEIGHT_VH}vh` }}
                 />
             ) : (
@@ -307,11 +308,15 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     lineNumbersMinChars: 0,
                     scrollbar: {
                         vertical: 'auto',
-                        horizontal: 'hidden',
+                        horizontal: 'auto',
                         handleMouseWheel: true
                     },
                     scrollBeyondLastLine: false,
-                    wordWrap: 'on',
+                    // Long text scrolls RIGHT (Gary, 2026-11-08): no wrap,
+                    // horizontal scroll on — typing past the edge scrolls
+                    // the line right so the cursor stays visible, instead
+                    // of the line wrapping (and growing the bar tall).
+                    wordWrap: 'off',
                     wrappingIndent: 'none',
                     automaticLayout: true,
                     quickSuggestions: false,

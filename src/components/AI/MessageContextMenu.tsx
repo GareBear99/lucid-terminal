@@ -147,7 +147,11 @@ export function MessageContextMenu({
             {actorsOpen && (
               <div
                 data-message-speak-actor-list
-                className="mt-1 pt-1 border-t border-[var(--border)]"
+                // The list can be long (every voice on the machine) —
+                // cap its height and scroll it, so rows below the
+                // window's bottom edge stay reachable instead of
+                // being clipped away with no way to get to them.
+                className="mt-1 pt-1 border-t border-[var(--border)] max-h-72 overflow-y-auto"
                 role="menu"
                 aria-label="Speaking voices"
               >

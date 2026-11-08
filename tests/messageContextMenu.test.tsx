@@ -186,6 +186,16 @@ describe('Speak actor dropdown (Gary, 2026-11-07 — pick an actor, or Default f
     expect(screen.getByText('Fred')).toBeTruthy();
   });
 
+  test('a long actor list scrolls instead of clipping rows below the window edge', () => {
+    renderMenu({ speakActors: ['Karen', 'Fred', 'Moira', 'Tessa', 'Samantha'] });
+    openActors();
+    const list = document.querySelector('[data-message-speak-actor-list]') as HTMLElement;
+    expect(list).not.toBeNull();
+    // Capped height + vertical scroll: rows past the cap stay reachable.
+    expect(list.className).toContain('max-h-72');
+    expect(list.className).toContain('overflow-y-auto');
+  });
+
   test('picking an actor calls onPickActor with that voice and closes the menu (it does not call onSpeak)', () => {
     const { onPickActor, onSpeak, onClose } = renderMenu();
     openActors();

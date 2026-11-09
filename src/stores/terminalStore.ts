@@ -31,6 +31,14 @@ export interface TerminalState {
   // live-looking dead terminal apart from a live one. It is NOT a
   // timer and NOT a guess: the PTY really exited.
   exitedTabs: Record<string, number>;
+  // Whether any PTY state is known yet (Gary, 2026-11-09): false
+  // from startup until the first tab is created or the first shell
+  // exit is recorded. While false the online indicator shows the
+  // grey unknown state instead of guessing online/offline. It is
+  // set by real tab-lifecycle events only - never by a timer - and
+  // once true it stays true: closing the last tab leaves the
+  // terminal offline, not unknown again.
+  ptyStateKnown: boolean;
 
   // Actions
   createTab: (cwd?: string) => Promise<string>;
@@ -85,6 +93,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   activeTabId: null,
   createErrors: {},
   exitedTabs: {},
+  ptyStateKnown: false,
 
   createTab: async (cwd?: string) => {
     // Reserve the lowest free number synchronously, before any await:
@@ -132,6 +141,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         tabs: [...state.tabs.map(t => ({ ...t, isActive: false })), newTab],
         activeTabId: id,
         exitedTabs,
+        // A tab exists now, so the PTY state is known (live, or
+        // dead on a spawn failure - createErrors says which).
+        ptyStateKnown: true,
       };
     });
 
@@ -181,7 +193,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   },
 
   markTabExited: (id, code) => {
-    set((state) => ({ exitedTabs: { ...state.exitedTabs, [id]: code } }));
+    set((state) => ({ exitedTabs: { ...state.exitedTabs, [id]: code }, ptyStateKnown: true }));
   },
 
   setActiveTab: (id) => {
@@ -231,4 +243,29 @@ export function isActiveTerminalOnline(
   if (exitedTabs[activeTabId] !== undefined) return false;
   if (createErrors[activeTabId]) return false;
   return true;
+}
+
+/**
+ * The terminal's status in three states (Gary, 2026-11-09): the
+ * online indicator's dot is green / blackened / grey.
+ *
+ * - 'unknown' while no PTY state is known yet (ptyStateKnown is
+ *   false: startup, before the first tab is created or the first
+ *   shell exit is recorded). The indicator shows grey and its
+ *   hover overlay types 'N/A' - it never guesses.
+ * - 'online' / 'offline' once PTY state is known, from the same
+ *   real PTY state isActiveTerminalOnline reads (live active tab
+ *   vs exited / failed-to-spawn / no tab at all).
+ *
+ * A zustand selector as well as a plain function: use it as
+ * `useTerminalStore(activeTerminalStatus)` so the indicator only
+ * re-renders when the status itself flips.
+ */
+export type TerminalStatus = 'online' | 'offline' | 'unknown';
+
+export function activeTerminalStatus(
+  state: Pick<TerminalState, 'tabs' | 'activeTabId' | 'exitedTabs' | 'createErrors' | 'ptyStateKnown'>,
+): TerminalStatus {
+  if (!state.ptyStateKnown) return 'unknown';
+  return isActiveTerminalOnline(state) ? 'online' : 'offline';
 }

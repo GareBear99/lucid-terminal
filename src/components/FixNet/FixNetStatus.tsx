@@ -12,12 +12,15 @@
  * - Offline success rate (measured from real lookups, 0% when none yet)
  *
  * Refreshes every 30s so the bar tracks the dictionary as fixes are
- * stored. Renders nothing until the first successful fetch, and stays
- * hidden if the preload API is unavailable.
+ * stored. The row renders from the start — the dot shows grey
+ * (unknown) until PTY state is known, instead of the whole line
+ * hiding until the first successful fetch (Gary, 2026-11-09
+ * ~03:58 PST). Until the first fetch lands, the left side shows a
+ * muted placeholder.
  */
 
 import { useEffect, useState } from 'react';
-import { useTerminalStore, isActiveTerminalOnline } from '../../stores/terminalStore';
+import { useTerminalStore, activeTerminalStatus } from '../../stores/terminalStore';
 import { OnlineIndicator } from './OnlineIndicator';
 
 interface FixNetStats {
@@ -30,12 +33,13 @@ interface FixNetStats {
 
 export function FixNetStatus() {
   const [stats, setStats] = useState<FixNetStats | null>(null);
-  // Online indicator (Gary, 2026-11-09): the terminal's real PTY
-  // state — green + "online" while the active tab's shell is alive,
-  // blackened + "offline" when it is not. The selector only flips
-  // when the boolean flips, so the 30 s stats poll does not
-  // re-render the dot.
-  const isOnline = useTerminalStore(isActiveTerminalOnline);
+  // Online indicator (Gary, 2026-11-09, refined ~03:58 PST): the
+  // terminal's real PTY state in three states — green "online" while
+  // the active tab's shell is alive, blackened "offline" when it is
+  // not, GREY "unknown" while no PTY state is known yet. The
+  // selector only flips when the status flips, so the 30 s stats
+  // poll does not re-render the dot.
+  const status = useTerminalStore(activeTerminalStatus);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +56,7 @@ export function FixNetStatus() {
           setStats(result as FixNetStats);
         }
       } catch {
-        // FixNet stats are best-effort; a failed fetch leaves the bar hidden.
+        // FixNet stats are best-effort; a failed fetch leaves the placeholder up.
       }
     };
 
@@ -64,7 +68,17 @@ export function FixNetStatus() {
     };
   }, []);
 
-  if (!stats) return null;
+  if (!stats) {
+    // No stats yet (Gary, 2026-11-09 ~03:58 PST): the row still
+    // renders — the dot shows grey (unknown) instead of hiding —
+    // with a muted placeholder where the stats will land.
+    return (
+      <div className="fixnet-status px-4 py-1 border-b border-gray-800 flex items-center justify-between gap-3">
+        <div className="text-xs text-gray-600 font-mono">[FixNet: …]</div>
+        <OnlineIndicator status={status} />
+      </div>
+    );
+  }
 
   return (
     // Same line, opposite side (Gary, 2026-11-09): FixNet stats on
@@ -80,7 +94,7 @@ export function FixNetStatus() {
         <span className="text-cyan-400">{stats.offline_percentage}%</span> offline
         <span className="text-gray-600">]</span>
       </div>
-      <OnlineIndicator isOnline={isOnline} />
+      <OnlineIndicator status={status} />
     </div>
   );
 }

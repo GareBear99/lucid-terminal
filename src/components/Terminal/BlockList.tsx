@@ -82,7 +82,13 @@ interface BlockListProps {
 }
 
 export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
-  const blocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS);
+  // The feed is the LIVE session's transcript: restored blocks (last
+  // session's record — see historyStore) never render here. Showing
+  // them would present commands this shell never ran as if they ran
+  // now. They still show in the History panel, which is the record.
+  const blocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS).filter(
+    (b) => !b.restored,
+  );
   const [copied, setCopied] = useState<string | null>(null);
 
   if (blocks.length === 0) {

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Per-tab history store tests.
  *
@@ -10,7 +11,7 @@
  * Run with: npm test
  */
 
-import { useHistoryStore, EMPTY_BLOCKS } from '../src/stores/historyStore';
+import { useHistoryStore, EMPTY_BLOCKS, HISTORY_STORAGE_KEY, HISTORY_MAX_BLOCKS_PER_TAB, HISTORY_MAX_OUTPUT_CHARS, flushHistoryPersistence, clearPersistedHistory, readPersistedHistory } from '../src/stores/historyStore';
 import { TerminalBlock } from '../src/types';
 
 function block(id: string, command: string): TerminalBlock {
@@ -96,5 +97,81 @@ describe('useHistoryStore', () => {
     api.setBlocks('tab-1', [block('b1', 'ls')]);
     api.removeTab('tab-404');
     expect(useHistoryStore.getState().blocksByTab['tab-1']).toHaveLength(1);
+  });
+});
+
+/**
+ * Persistence across a relaunch (Gary, 2026-11-09 — history must
+ * survive a relaunch, not reset to 0 commands). A fresh module import
+ * is a fresh launch: the store rehydrates from localStorage.
+ */
+describe('history persistence across relaunch', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    clearPersistedHistory();
+    useHistoryStore.setState({ blocksByTab: {} });
+    // The reset above schedules a debounced persist of {} — flush
+    // now so no stray timer writes over the test's own data later.
+    flushHistoryPersistence();
+  });
+
+  test('setBlocks persists and rehydrates as restored + complete on a fresh import', async () => {
+    const api = useHistoryStore.getState();
+    api.setBlocks('terminal-1', [block('b1', 'ls'), block('b2', 'pwd')]);
+    flushHistoryPersistence();
+    expect(localStorage.getItem(HISTORY_STORAGE_KEY)).not.toBeNull();
+
+    // A fresh import = a new launch.
+    vi.resetModules();
+    const fresh = await import('../src/stores/historyStore');
+    const blocks = fresh.useHistoryStore.getState().blocksByTab['terminal-1'];
+    expect(blocks.map((b) => b.id)).toEqual(['b1', 'b2']);
+    // Restored: a record for the History panel, never the live feed.
+    expect(blocks.every((b) => b.restored === true)).toBe(true);
+    // Complete: the run ended when the app closed.
+    expect(blocks.every((b) => b.isComplete === true)).toBe(true);
+  });
+
+  test('clearBlocks persists the cleared state', () => {
+    const api = useHistoryStore.getState();
+    api.setBlocks('terminal-1', [block('b1', 'ls')]);
+    api.setBlocks('terminal-2', [block('b2', 'pwd')]);
+    api.clearBlocks('terminal-1');
+    flushHistoryPersistence();
+    const persisted = readPersistedHistory();
+    expect(persisted['terminal-1']).toBeUndefined();
+    expect(persisted['terminal-2']).toHaveLength(1);
+  });
+
+  test('corrupt storage rehydrates empty, never throws', async () => {
+    localStorage.setItem(HISTORY_STORAGE_KEY, 'this is not json{');
+    vi.resetModules();
+    const fresh = await import('../src/stores/historyStore');
+    expect(fresh.useHistoryStore.getState().blocksByTab).toEqual({});
+    // And the reader itself is safe to call directly.
+    expect(readPersistedHistory()).toEqual({});
+  });
+
+  test('wrong-shaped storage rehydrates empty', async () => {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ 'terminal-1': 'nope' }));
+    vi.resetModules();
+    const fresh = await import('../src/stores/historyStore');
+    expect(fresh.useHistoryStore.getState().blocksByTab).toEqual({});
+  });
+
+  test('caps: at most 100 blocks per tab, newest kept; output trimmed', () => {
+    const api = useHistoryStore.getState();
+    const many = Array.from({ length: 150 }, (_, i) => ({
+      ...block(`b${i}`, `cmd-${i}`),
+      output: 'x'.repeat(5000),
+    }));
+    api.setBlocks('terminal-1', many);
+    flushHistoryPersistence();
+    const persisted = readPersistedHistory()['terminal-1'];
+    expect(persisted).toHaveLength(HISTORY_MAX_BLOCKS_PER_TAB);
+    // Newest 100 kept (b50..b149).
+    expect(persisted[0].id).toBe('b50');
+    expect(persisted[99].id).toBe('b149');
+    expect(persisted.every((b) => b.output.length <= HISTORY_MAX_OUTPUT_CHARS)).toBe(true);
   });
 });

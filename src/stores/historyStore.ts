@@ -17,6 +17,29 @@ import { dropPendingEscape } from '../lib/terminalBlocks';
  * Per-tab, never flattened: the Sidebar shows only the ACTIVE tab's
  * blocks, and clearing history clears only that tab. A closed tab's
  * blocks are dropped by terminalStore.closeTab.
+ *
+ * PERSISTENCE (Gary, 2026-11-09 — command history must survive a
+ * relaunch): the store used to be memory-only, so every relaunch reset
+ * the History panel to 0 commands. The blocks now persist to
+ * localStorage (best-effort, capped, never throws — the same pattern
+ * as eventLogStore / browserHistory) and rehydrate on launch. Tab ids
+ * are `terminal-N` with the lowest free number reused (see
+ * terminalStore), so a fresh launch's first tab re-reads the previous
+ * session's tab-1 record — that is the history surviving, not a leak.
+ *
+ * RESTORED BLOCKS ARE A RECORD, NOT THE FEED: rehydrated blocks are
+ * marked `restored: true` (and complete — their run ended when the app
+ * closed). The BlockList feed never renders them: the feed is the live
+ * session's transcript, and showing last session's commands as if they
+ * ran now would be false. Only the History panel shows them. Jump-to-
+ * block on a restored block is a no-op (no DOM element exists for it
+ * in this session) — jumpToBlock already returns early when the
+ * element is missing, so nothing breaks.
+ *
+ * WRITE RATE: the Terminal calls setBlocks on every PTY chunk while a
+ * block is open, so persistence is DEBOUNCED (1s trailing) — one
+ * localStorage write per burst, not one per chunk — plus a flush on
+ * beforeunload so the last burst is not lost when the app closes.
  */
 
 /** A stable empty list so selectors never hand out a fresh array. */
@@ -25,6 +48,112 @@ export const EMPTY_BLOCKS: TerminalBlock[] = [];
 export type BlocksUpdater =
   | TerminalBlock[]
   | ((prev: TerminalBlock[]) => TerminalBlock[]);
+
+/** localStorage key for the persisted blocks. */
+export const HISTORY_STORAGE_KEY = 'lucid-terminal-history-v1';
+
+/** Most blocks kept per tab, newest first — the record, not the scrollback. */
+export const HISTORY_MAX_BLOCKS_PER_TAB = 100;
+
+/** Most output chars kept per persisted block — the History panel only
+ *  shows a 60-char preview, and restored blocks never render in the
+ *  feed, so the full transcript is not needed in the record. */
+export const HISTORY_MAX_OUTPUT_CHARS = 2000;
+
+/** Debounce for the persisted write (ms) — see the module header. */
+const HISTORY_PERSIST_DEBOUNCE_MS = 1000;
+
+/** Is one persisted block plausible? A block needs at least an id and
+ *  a command string; anything else is repaired or dropped, never
+ *  trusted blindly. */
+function isPlausibleBlock(value: unknown): value is TerminalBlock {
+  if (typeof value !== 'object' || value === null) return false;
+  const b = value as Record<string, unknown>;
+  return typeof b.id === 'string' && typeof b.command === 'string';
+}
+
+/** Trim one block for the record: cap the output, keep everything else. */
+function trimBlockForRecord(block: TerminalBlock): TerminalBlock {
+  if (block.output.length <= HISTORY_MAX_OUTPUT_CHARS) return block;
+  return { ...block, output: block.output.slice(0, HISTORY_MAX_OUTPUT_CHARS) };
+}
+
+/** Cap one tab's blocks to the newest N, trimmed for the record. */
+function capBlocksForRecord(blocks: TerminalBlock[]): TerminalBlock[] {
+  return blocks.slice(-HISTORY_MAX_BLOCKS_PER_TAB).map(trimBlockForRecord);
+}
+
+/**
+ * Read the persisted blocks, or {} when there are none / they are
+ * corrupt / storage is unavailable. Never throws. Every block comes
+ * back marked restored + complete (see the module header).
+ */
+export function readPersistedHistory(): Record<string, TerminalBlock[]> {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, TerminalBlock[]> = {};
+    for (const [tabId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(value)) continue;
+      const blocks = value
+        .filter(isPlausibleBlock)
+        .map((b) => ({ ...b, restored: true, isComplete: true }));
+      if (blocks.length > 0) out[tabId] = capBlocksForRecord(blocks);
+    }
+    return out;
+  } catch {
+    // Corrupt or unreadable storage: start empty, never crash.
+    return {};
+  }
+}
+
+/** Serialize one state snapshot for storage (capped + trimmed). */
+function serializeHistory(blocksByTab: Record<string, TerminalBlock[]>): string {
+  const capped: Record<string, TerminalBlock[]> = {};
+  for (const [tabId, blocks] of Object.entries(blocksByTab)) {
+    if (blocks.length > 0) capped[tabId] = capBlocksForRecord(blocks);
+  }
+  return JSON.stringify(capped);
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Write the current state to storage now. Never throws. */
+export function flushHistoryPersistence(): void {
+  try {
+    if (persistTimer !== null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(HISTORY_STORAGE_KEY, serializeHistory(useHistoryStore.getState().blocksByTab));
+  } catch {
+    // Private mode / quota: history just doesn't persist this session.
+  }
+}
+
+/** Schedule a persisted write (debounced — see the module header). */
+function scheduleHistoryPersistence(): void {
+  if (typeof localStorage === 'undefined') return;
+  if (persistTimer !== null) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    flushHistoryPersistence();
+  }, HISTORY_PERSIST_DEBOUNCE_MS);
+}
+
+/** Remove the persisted copy (tests / a future "forget history" action). */
+export function clearPersistedHistory(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(HISTORY_STORAGE_KEY);
+  } catch {
+    // Unavailable storage: nothing to clear.
+  }
+}
 
 interface HistoryState {
   /** Command blocks per terminal tab, keyed by tab id. */
@@ -39,7 +168,9 @@ interface HistoryState {
 }
 
 export const useHistoryStore = create<HistoryState>((set) => ({
-  blocksByTab: {},
+  // Rehydrated from the previous session when there is one ({} on a
+  // fresh install / corrupt storage) — see readPersistedHistory.
+  blocksByTab: readPersistedHistory(),
 
   setBlocks: (tabId, updater) =>
     set((state) => {
@@ -73,12 +204,28 @@ export const useHistoryStore = create<HistoryState>((set) => ({
     }),
 }));
 
+// Every mutation persists (debounced) — including direct setState,
+// which tests use to reset. The write is the debounced one, so a
+// burst of PTY-chunk updates costs one localStorage write, and the
+// beforeunload flush below catches the last burst on quit.
+useHistoryStore.subscribe(() => {
+  scheduleHistoryPersistence();
+});
+
+// Flush the last burst when the app closes (renderer quit / reload).
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('beforeunload', () => {
+    flushHistoryPersistence();
+  });
+}
+
 /**
  * Scroll the terminal to a block and flash-highlight it. DOM-only — the
  * block elements are rendered by the Terminal (`id="block-<id>"`), so this
  * is a no-op when the Terminal view is not mounted (e.g. the user is in
  * the Synth view); the Sidebar switches to the terminal view first and
- * calls this after the Terminal has rendered.
+ * calls this after the Terminal has rendered. It is also a no-op for a
+ * restored block (no DOM element exists for it in this session).
  */
 export function jumpToBlock(blockId: string): void {
   const blockElement = document.getElementById(`block-${blockId}`);

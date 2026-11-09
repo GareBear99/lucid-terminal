@@ -157,6 +157,16 @@ export interface TerminalBlock {
    *  still open. Git branch is NOT in scope for this build. */
   durationMs?: number;
   isCollapsed?: boolean;
+  /**
+   * Restored from the previous session (Gary, 2026-11-09 — command
+   * history must survive a relaunch): this block was NOT run in
+   * this session. It is a record for the History panel only — the
+   * BlockList feed never renders restored blocks (the feed is the
+   * live session's transcript; showing last session's commands as
+   * if they ran now would be false). Restored blocks are always
+   * complete: their run ended when the app closed.
+   */
+  restored?: boolean;
   
   // Warp-style validation tracking
   validation?: {

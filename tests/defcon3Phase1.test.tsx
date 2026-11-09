@@ -19,9 +19,10 @@
  * Below 3 today's behavior is unchanged (typing at the xterm
  * cursor; dev bar delinked in devmode) — covered by
  * tests/devModeTerminal.test.tsx at level 1, plus one explicit
- * level-2 check here. Non-devmode landing is a later phase:
- * at level 3 in non-devmode the cursor stays and xterm keeps
- * owning input.
+ * level-2 check here. Non-devmode landing is Phase 5
+ * (tests/defcon3Phase5.test.tsx): at level 3 in non-devmode
+ * the same composer lands in the prompt section, the xterm
+ * surface is unmounted, and the BlockList is the feed.
  *
  * Harness: same as tests/devModeTerminal.test.tsx — jsdom has no
  * canvas, so XtermSurface renders its plain-text fallback and
@@ -273,13 +274,20 @@ describe('DEFCON 3 cursor — hidden always at level 3, present below 3', () => 
     expect(screen.getByTestId('xterm-surface').getAttribute('data-cursor-hidden')).toBe('false');
   });
 
-  test('level 3, NON-devmode: cursor present — the prompter has not landed there yet (Phase 5)', async () => {
+  test('level 3, NON-devmode: the prompter HAS landed (Phase 5) — xterm unmounted, composer in the prompt section', async () => {
     setDevMode(false);
     setDefconLevel(3);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('xterm-surface');
+    await screen.findByTestId('prompter-composer-wrap');
 
-    expect(screen.getByTestId('xterm-surface').getAttribute('data-cursor-hidden')).toBe('false');
+    // No xterm surface at all — no flashing cursor as the
+    // input, because there is no xterm cursor any more. The
+    // BlockList is the feed (see Phase 2's landing test and
+    // tests/defcon3Phase5.test.tsx).
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
+    expect(screen.getByTestId('prompter-composer')).not.toBeNull();
+    // The dev bar never renders in non-devmode.
+    expect(screen.queryByTestId('dev-command-bar')).toBeNull();
   });
 });
 

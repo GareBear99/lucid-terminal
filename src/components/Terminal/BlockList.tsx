@@ -39,15 +39,49 @@ import { copyText, formatBlockDuration } from '../../lib/terminalBlocks';
  * Exit-code coloring is NOT here: no per-command exit code is
  * capturable cleanly (see terminalBlocks.ts) — deferred, not
  * faked.
+ *
+ * DEFCON 3 Phase 5 — the non-devmode landing (Gary,
+ * 2026-11-09): the SAME list lands in non-devmode at level
+ * 3+, as the feed itself (`fill` — it takes the terminal
+ * column, borderless and transparent, per the DEFCON 2 merge:
+ * the terminal box is GONE, so the feed is text floating over
+ * the mist, not a panel). THE DUPLICATION DECISION (recorded
+ * with reasoning): output appeared TWICE in devmode (live
+ * xterm stream + block transcript). The smallest change that
+ * leaves non-devmode clean is to UNMOUNT the xterm surface
+ * at level 3 in non-devmode (Terminal.tsx) — the BlockList
+ * becomes the sole feed, so output appears exactly once.
+ * Why unmount, not suppress-or-hide: suppressing the xterm
+ * write while keeping the surface would leave a frozen stale
+ * snapshot below the blocks; hiding it with display:none
+ * would fire the ResizeObserver fit on a 0-size container and
+ * risk a 0-column PTY resize; unmounting is deterministic —
+ * XtermSurface's cleanup disposes only the xterm.js instance,
+ * the PTY itself lives in the main process keyed by tabId and
+ * keeps running, and dropping back to level 2 remounts a
+ * fresh surface. KNOWN COSTS (not hidden): scrollback is lost
+ * on landing (blocks are the record), and full-screen
+ * interactive programs (vim / less / htop) have no live
+ * surface at level 3 in non-devmode — their escape sequences
+ * land as text in the block transcript. Dropping to level 2
+ * restores the live xterm. In DEVMODE both surfaces stay: the
+ * war zone keeps the raw stream visible for debugging, and
+ * the duplication there is the known, documented devmode
+ * state — it is not the settle.
  */
 
 interface BlockListProps {
   tabId: string;
   /** Put a block's command back into the composer. */
   onReinput: (command: string) => void;
+  /** Phase 5: the list IS the feed — it fills the terminal
+   *  column (non-devmode at level 3+), borderless and
+   *  transparent per the DEFCON 2 merge. Default (devmode):
+   *  the capped panel above the live xterm. */
+  fill?: boolean;
 }
 
-export function BlockList({ tabId, onReinput }: BlockListProps) {
+export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
   const blocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -63,7 +97,11 @@ export function BlockList({ tabId, onReinput }: BlockListProps) {
   return (
     <div
       data-testid="terminal-blocks"
-      className="mx-4 mt-4 max-h-72 shrink-0 overflow-y-auto rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50"
+      className={
+        fill
+          ? 'mx-4 mb-4 mt-4 min-h-0 flex-1 overflow-y-auto rounded-none border-0 bg-transparent'
+          : 'mx-4 mt-4 max-h-72 shrink-0 overflow-y-auto rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50'
+      }
     >
       {blocks.map((block, index) => (
         <div key={block.id}>

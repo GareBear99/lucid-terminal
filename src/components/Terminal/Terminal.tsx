@@ -142,13 +142,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   const defconMerge = defconMergeActive(settings.defconLevel ?? DEFCON_DEFAULT);
   // DEFCON 3 prompter switch (Gary, 2026-11-09 ~08:10 PST —
   // "proceed until complete", same composer in both modes):
-  // at DEFCON 3+ in devmode the prompt-section composer is
-  // LINKED to the terminal it sits under (the prompter). Below
-  // 3 today's behavior is unchanged (typing at the xterm
-  // cursor; dev bar delinked in devmode). Non-devmode landing
-  // is a later phase — the switch is devmode-only for now. No
-  // code moves the level; it stays whatever Gary set.
-  const prompterActive = devMode && defconPrompterActive(settings.defconLevel ?? DEFCON_DEFAULT);
+  // at DEFCON 3+ the prompt-section composer is LINKED to the
+  // terminal it sits under (the prompter) — in DEVMODE and in
+  // NON-devmode alike (Phase 5 landing: the same composer
+  // lands in the non-devmode prompt section, and the BlockList
+  // becomes the feed there). Below 3 today's behavior is
+  // unchanged (typing at the xterm cursor; dev bar delinked in
+  // devmode; non-devmode byte-for-byte as it stands). No code
+  // moves the level; it stays whatever Gary set.
+  const prompterActive = defconPrompterActive(settings.defconLevel ?? DEFCON_DEFAULT);
   // Dragged-height state for the ONE composer (dissection gap
   // #19): lifted out of InputArea so toggling LuciferAI on/off
   // does not remount the height state away. Terminal stays
@@ -1043,8 +1045,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   };
 
   // Submit from the LINKED composer — DEFCON 3 prompter
-  // (Gary, 2026-11-09 ~08:10 PST). Devmode + DEFCON 3+ only;
-  // below 3 the delinked handleDevSubmit above still runs.
+  // (Gary, 2026-11-09 ~08:10 PST). DEFCON 3+ only, both
+  // modes (Phase 5 landing); below 3 the delinked
+  // handleDevSubmit above still runs.
   // Slash lines route EXPLICITLY to runSlashCommand — a
   // composed line was never echoed by the shell, so there is
   // no line to wipe (`\x15\r` would erase an unrelated shell
@@ -1248,9 +1251,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // the sync has failed: FALL INTO dev mode (the failsafe), so the
   // user gets the detached bar instead of a dead prompt bar. Dev
   // mode ON (delinked): a click must NOT focus the terminal, or the
-  // detached bar could never be typed in.
+  // detached bar could never be typed in. DEFCON 3 Phase 5: the
+  // same early return applies whenever the prompter owns typing
+  // (non-devmode at level 3+) — the xterm surface is UNMOUNTED
+  // there, so the focus check below would read termRef null and
+  // fire the failsafe for a surface that is deliberately gone;
+  // the composer is the input, and it takes focus itself.
   const handlePromptSectionClick = () => {
-    if (devMode) return;
+    if (devMode || prompterActive) return;
     const check = checkPromptFocus(
       termRef.current !== null,
       () => termRef.current?.focus(),
@@ -1259,6 +1267,62 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       void fallBackToDevMode(check.reason ?? 'the terminal could not be focused');
     }
   };
+
+  // DEFCON 3 linked composer (Gary, 2026-11-09 ~08:10 PST —
+  // "proceed until complete", SAME composer in both modes):
+  // ONE InputArea in the prompt section, shared across
+  // LuciferAI on/off AND across devmode/non-devmode — the
+  // dragged height lives in Terminal (composerDrag), so
+  // toggling never resets it (gap #19). Submit is linked:
+  // slash lines route explicitly to runSlashCommand (never
+  // the shell, no wipe — the line was never echoed); bare
+  // lines go composed `text + '\r'` via ptyWrite into the
+  // real shell. Output sinks to the terminal feed in ALL
+  // three LuciferAI states (on / off / silenced) — the dev
+  // console is retired as a composer sink. Visuals stay
+  // settled per state via props: squared wrapper when on;
+  // gold arrow + `~` + bubble, no blood drop, when off.
+  // Rendered in the dev-command-bar (devmode) and in the
+  // prompt section itself (non-devmode, Phase 5 landing) —
+  // the same function, the same component, both modes.
+  const renderPrompterComposer = () => (
+    <div data-testid="prompter-composer" className={luciferAiEnabled ? 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50' : 'flex items-center gap-2'}>
+      {!luciferAiEnabled && (
+        <>
+          <Tooltip content="Send" shortcut="Enter">
+            <button
+              type="button"
+              data-testid="dev-send-arrow"
+              onClick={() => void handleComposerSubmit(devInput)}
+              disabled={!devInput.trim()}
+              aria-label="Send command"
+              className="shrink-0 rounded px-1 text-[var(--warning)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+              style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.5)' }}
+            >
+              ➜
+            </button>
+          </Tooltip>
+          <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
+        </>
+      )}
+      <div className={luciferAiEnabled ? '' : 'flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
+        <InputArea
+          input={devInput}
+          setInput={setDevInput}
+          onSubmit={(value) => void handleComposerSubmit(value)}
+          onHistoryUp={devHistoryUp}
+          onHistoryDown={devHistoryDown}
+          isProcessing={devRunning}
+          flat={!luciferAiEnabled}
+          dragState={composerDrag}
+          ghostSuggestion={ghostSuggestion}
+          onAcceptSuggestion={acceptGhostSuggestion}
+          onInterrupt={handleComposerInterrupt}
+          onEof={handleComposerEof}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -1367,13 +1431,33 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               xterm (see BlockList.tsx for the renderer choice).
               One feed — the list lives in this same terminal
               column, not a second panel — and it renders only
-              when the prompter is active, so non-devmode keeps
-              its exact settle shape. Empty until the first
-              composer submit, so no layout shift before then. */}
+              when the prompter is active. Empty until the first
+              composer submit, so no layout shift before then.
+              DEFCON 3 Phase 5 — the non-devmode landing: at
+              level 3+ in NON-devmode the list IS the feed
+              (`fill` — it takes the terminal column, and the
+              xterm surface below is unmounted, so output
+              appears exactly once; see the duplication decision
+              in BlockList.tsx). In devmode it stays the capped
+              panel above the live xterm. */}
           {prompterActive && (
-            <BlockList tabId={tabId} onReinput={(command) => setDevInput(command)} />
+            <BlockList tabId={tabId} onReinput={(command) => setDevInput(command)} fill={!devMode} />
           )}
 
+          {/* DEFCON 3 Phase 5 — the xterm surface is UNMOUNTED
+              at level 3+ in NON-devmode (see the duplication
+              decision in BlockList.tsx): the BlockList above is
+              the sole feed, so output appears exactly once — no
+              live stream duplicating the block transcript, no
+              flashing cursor as the input. The PTY keeps
+              running in the main process (it is tab-owned, not
+              surface-owned), so dropping back below 3 remounts
+              a fresh surface on the live shell. In devmode the
+              surface stays: the war zone keeps the raw stream
+              visible, duplication and all (documented devmode
+              state, not the settle). Below 3 in non-devmode
+              this is exactly today's surface. */}
+          {!(prompterActive && !devMode) && (
           <div className="flex-1 overflow-hidden p-4">
             <div data-testid="prompt-input-wrap"
                  className={defconMerge
@@ -1390,6 +1474,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               />
             </div>
           </div>
+          )}
 
           {/* Idle heartbeat — the original "Idle • Awaiting Commands..."
               animation (blood drop only where the demon head was, per Gary),
@@ -1552,6 +1637,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 </Tooltip>
               )}
             </div>
+            {/* DEFCON 3 Phase 5 — the non-devmode landing
+                (Gary, 2026-11-09): the SAME composer lands in
+                the non-devmode prompt section at level 3+ — the
+                shared renderPrompterComposer, not a second
+                input. It sits below the blood-drop row, in the
+                solid-black prompt section (the mist stays as
+                DEFCON 2 left it — the prompt section is NOT
+                part of the merge). Below 3 this renders
+                nothing: non-devmode is byte-for-byte today's
+                behavior (the section IS the terminal's input,
+                typing at the xterm cursor). */}
+            {!devMode && prompterActive && (
+              <div className="px-5 pb-4" data-testid="prompter-composer-wrap">
+                {renderPrompterComposer()}
+              </div>
+            )}
             {/* Topology fallback notice (Gary, 2026-11-08 ~07:05
                 PST): the failsafe FIRED — the sync failed and the
                 app fell into dev mode. The notice says so plainly
@@ -1632,60 +1733,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     LuciferAI is on, the squared bottom-drop
                     section. The rainbow glow still shows either way
                     (platform trait). */}
-                {prompterActive ? (
-                  // DEFCON 3 linked composer (Gary, 2026-11-09
-                  // ~08:10 PST — "proceed until complete", same
-                  // composer in both modes): ONE InputArea in the
-                  // prompt section, shared across LuciferAI on/off
-                  // — the dragged height lives in Terminal
-                  // (composerDrag), so toggling never resets it
-                  // (gap #19). Submit is linked: slash lines route
-                  // explicitly to runSlashCommand (never the shell,
-                  // no wipe — the line was never echoed); bare lines
-                  // go composed `text + '\r'` via ptyWrite into the
-                  // real shell. Output sinks to the terminal feed in
-                  // ALL three LuciferAI states (on / off /
-                  // silenced) — the dev console is retired as a
-                  // composer sink. Visuals stay settled per state
-                  // via props: squared wrapper when on; gold arrow
-                  // + `~` + bubble, no blood drop, when off.
-                  <div data-testid="prompter-composer" className={luciferAiEnabled ? 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50' : 'flex items-center gap-2'}>
-                    {!luciferAiEnabled && (
-                      <>
-                        <Tooltip content="Send" shortcut="Enter">
-                          <button
-                            type="button"
-                            data-testid="dev-send-arrow"
-                            onClick={() => void handleComposerSubmit(devInput)}
-                            disabled={!devInput.trim()}
-                            aria-label="Send command"
-                            className="shrink-0 rounded px-1 text-[var(--warning)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                            style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.5)' }}
-                          >
-                            ➜
-                          </button>
-                        </Tooltip>
-                        <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
-                      </>
-                    )}
-                    <div className={luciferAiEnabled ? '' : 'flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
-                      <InputArea
-                        input={devInput}
-                        setInput={setDevInput}
-                        onSubmit={(value) => void handleComposerSubmit(value)}
-                        onHistoryUp={devHistoryUp}
-                        onHistoryDown={devHistoryDown}
-                        isProcessing={devRunning}
-                        flat={!luciferAiEnabled}
-                        dragState={composerDrag}
-                        ghostSuggestion={ghostSuggestion}
-                        onAcceptSuggestion={acceptGhostSuggestion}
-                        onInterrupt={handleComposerInterrupt}
-                        onEof={handleComposerEof}
-                      />
-                    </div>
-                  </div>
-                ) : luciferAiEnabled ? (
+                {prompterActive ? renderPrompterComposer() : luciferAiEnabled ? (
                   <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
                     <InputArea
                       input={devInput}

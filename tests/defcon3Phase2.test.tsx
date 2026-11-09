@@ -21,7 +21,9 @@
  * CMD, never an exit code.
  *
  * Below level 3 the old paths create NO blocks. Non-devmode
- * landing is a later phase (Phase 5).
+ * landing is Phase 5 (tests/defcon3Phase5.test.tsx) — the
+ * same composer + block list land there, with the xterm
+ * surface unmounted so output appears exactly once.
  *
  * Harness: same as tests/defcon3Phase1.test.tsx — jsdom has no
  * canvas, so XtermSurface renders its plain-text fallback and
@@ -435,13 +437,31 @@ describe('below 3, no blocks are created by the old paths', () => {
     expect(screen.queryByTestId('terminal-blocks')).toBeNull();
   });
 
-  test('level 3 NON-devmode: no block list — the prompter has not landed there yet (Phase 5)', async () => {
+  test('level 3 NON-devmode: the block list HAS landed (Phase 5) — composer submit opens a block, output lands once', async () => {
     setDevMode(false);
     setDefconLevel(3);
+    setLuciferAiEnabled(true);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('xterm-surface');
+    await screen.findByTestId('prompter-composer-wrap');
 
-    expect(blocks()).toHaveLength(0);
-    expect(screen.queryByTestId('terminal-blocks')).toBeNull();
+    // The non-devmode composer is the same InputArea (fallback
+    // textarea in jsdom) — submitted from the prompt section,
+    // not the dev bar.
+    const wrap = screen.getByTestId('prompter-composer-wrap');
+    const input = within(wrap).getByPlaceholderText(/Monaco unavailable/);
+    fireEvent.change(input, { target: { value: 'echo hi' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => {
+      expect(writeMock).toHaveBeenCalledWith('tab-1', 'echo hi\r');
+    });
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+
+    // PTY output lands in the block transcript — and there is
+    // no xterm surface for it to duplicate into.
+    emitPty('echo hi\r\nhi\r\n');
+    await waitFor(() => expect(blocks()[0].output).toContain('hi'));
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
+    expect(screen.queryByTestId('xterm-fallback-output')).toBeNull();
+    expect(screen.getByTestId('terminal-blocks')).not.toBeNull();
   });
 });

@@ -416,16 +416,24 @@ describe('DEFCON 3 composer — cwd chip, static hint, multi-line, re-input', ()
     expect(chip.className).toContain('bg-[var(--bg-tertiary)]/50');
   });
 
-  test('no cwd chip below 3, and none in non-devmode (untouched until Phase 5)', async () => {
+  test('no cwd chip below 3, and none in non-devmode (Phase 5: plain cwd text stays)', async () => {
     setDevMode(true);
     setDefconLevel(2);
-    render(<Terminal tabId="tab-1" />);
+    const first = render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
     expect(screen.queryByTestId('cwd-chip')).toBeNull();
+    first.unmount();
 
-    // Non-devmode at level 3 keeps its plain cwd text.
-    const { unmount } = render(<Terminal tabId="tab-1" />);
-    unmount();
+    // Non-devmode at level 3 keeps its plain cwd text — the
+    // chip stays devmode-only (Phase 5 decision: the settled
+    // header is not redesigned; the context is present either
+    // way, and block headers carry the cwd too).
+    setDevMode(false);
+    setDefconLevel(3);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('prompter-composer-wrap');
+    expect(screen.queryByTestId('cwd-chip')).toBeNull();
+    expect(screen.getByText(TAB_CWD)).not.toBeNull();
   });
 
   test('the hint bar stays static', async () => {

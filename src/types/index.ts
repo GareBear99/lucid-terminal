@@ -151,6 +151,11 @@ export interface TerminalBlock {
   isComplete: boolean;
   cwd?: string;
   exitCode?: number;
+  /** DEFCON 3 Phase 2 (Gary, 2026-11-09): how long the block
+   *  ran, submit → close (next-prompt detection, see
+   *  src/lib/terminalBlocks.ts). Undefined while the block is
+   *  still open. Git branch is NOT in scope for this build. */
+  durationMs?: number;
   isCollapsed?: boolean;
   
   // Warp-style validation tracking

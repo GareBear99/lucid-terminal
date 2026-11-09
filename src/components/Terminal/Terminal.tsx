@@ -5,11 +5,14 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { useAIStore } from '../../stores/aiStore';
-import { useHistoryStore } from '../../stores/historyStore';
+import { useHistoryStore, EMPTY_BLOCKS } from '../../stores/historyStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
 import { InputArea } from './InputArea';
+import { BlockList } from './BlockList';
+import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, newBlock } from '../../lib/terminalBlocks';
+import type { TerminalBlock } from '../../types';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
 import { HelpPanel } from '../Help/HelpPanel';
 import { PlanningPanel } from '../Planning/PlanningPanel';
@@ -51,8 +54,11 @@ interface TerminalProps {
  * completion and job control. Every keystroke reaches the PTY the
  * moment it is typed; PTY output streams into the terminal as it
  * arrives, for as long as it arrives. There is no Monaco prompt,
- * no send arrow, no block list, no 500ms fake-completion timer,
- * and no dispatcher intercepting bare words.
+ * no send arrow, no 500ms fake-completion timer, and no
+ * dispatcher intercepting bare words. (DEFCON 3 Phase 2:
+ * composer-submitted commands DO become blocks — see
+ * BlockList / src/lib/terminalBlocks.ts — but only at
+ * DEFCON 3+ in devmode, via the linked composer.)
  *
  * Bare words go to the shell, always. Lucid commands are EXPLICIT
  * slash commands (`/fix`, `/llm`, `/help`, ...): the input handler
@@ -147,6 +153,90 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // does not remount the height state away. Terminal stays
   // mounted across the toggle, so the dragged cap survives it.
   const composerDrag = useDraggableInputHeight();
+  // DEFCON 3 Phase 2 — block lifecycle (Gary, 2026-11-09).
+  // The store is the REVIVED historyStore.setBlocks (zero
+  // callers before this phase): the Terminal writes a block
+  // on every composer submit and closes it on next-prompt
+  // detection. These helpers touch only refs + the store's
+  // getState, so the PTY effect below — which closes over
+  // the first render's instances — always sees live state.
+  // `currentBlockIdRef` is the block receiving output until
+  // the NEXT submit replaces it; `currentBlockClosedRef`
+  // tracks whether its header/duration are stamped yet — a
+  // quiet-closed block keeps receiving late output (see
+  // src/lib/terminalBlocks.ts for the full mechanism).
+  const currentBlockIdRef = useRef<string | null>(null);
+  const currentBlockClosedRef = useRef(false);
+  const blockQuietTimerRef = useRef<number | null>(null);
+  const prompterActiveRef = useRef(false);
+  useEffect(() => {
+    prompterActiveRef.current = prompterActive;
+  });
+  useEffect(() => () => {
+    if (blockQuietTimerRef.current !== null) {
+      window.clearTimeout(blockQuietTimerRef.current);
+    }
+  }, []);
+  const clearBlockQuietTimer = () => {
+    if (blockQuietTimerRef.current !== null) {
+      window.clearTimeout(blockQuietTimerRef.current);
+      blockQuietTimerRef.current = null;
+    }
+  };
+  const updateCurrentBlock = (fn: (b: TerminalBlock) => TerminalBlock) => {
+    const id = currentBlockIdRef.current;
+    if (id === null) return;
+    const prev = useHistoryStore.getState().blocksByTab[tabId] ?? EMPTY_BLOCKS;
+    const idx = prev.findIndex((b) => b.id === id);
+    if (idx === -1) return;
+    const nextBlock = fn(prev[idx]);
+    if (nextBlock === prev[idx]) return;
+    const next = [...prev];
+    next[idx] = nextBlock;
+    useHistoryStore.getState().setBlocks(tabId, next);
+  };
+  /** Close the current block: stamp it complete with
+   *  durationMs = close − submit. No-op when there is no
+   *  current block or it already closed — the first close
+   *  wins, so a quiet-close followed by a force-close at
+   *  next submit cannot restamp the duration. */
+  const closeCurrentBlock = () => {
+    if (currentBlockIdRef.current === null || currentBlockClosedRef.current) return;
+    currentBlockClosedRef.current = true;
+    clearBlockQuietTimer();
+    const now = Date.now();
+    updateCurrentBlock((b) => closeBlock(b, now));
+  };
+  /** Re-arm the quiet timer: when the PTY stream stays quiet
+   *  for BLOCK_QUIET_CLOSE_MS the prompt is taken to have
+   *  returned and the block closes (see terminalBlocks.ts). */
+  const armBlockQuietClose = () => {
+    clearBlockQuietTimer();
+    blockQuietTimerRef.current = window.setTimeout(() => {
+      blockQuietTimerRef.current = null;
+      closeCurrentBlock();
+    }, BLOCK_QUIET_CLOSE_MS);
+  };
+  /** Append transcript text to the current block (capped —
+   *  see appendBlockOutput). */
+  const appendToCurrentBlock = (text: string) => {
+    updateCurrentBlock((b) => appendBlockOutput(b, text));
+  };
+  /** Open a block for a composer submit: the previous block
+   *  closes first (a new submit proves a fresh prompt had
+   *  returned), then the new block is written to the store
+   *  with the command + submit stamp + live cwd. Composer
+   *  submits only, at DEFCON 3+ in devmode — below 3 this
+   *  is a no-op and the old paths create no blocks. */
+  const openBlock = (command: string) => {
+    if (!prompterActiveRef.current) return;
+    closeCurrentBlock();
+    const cwd = useTerminalStore.getState().tabs.find((t) => t.id === tabId)?.cwd;
+    const block = newBlock(command, cwd, Date.now());
+    currentBlockIdRef.current = block.id;
+    currentBlockClosedRef.current = false;
+    useHistoryStore.getState().setBlocks(tabId, (prev) => [...prev, block]);
+  };
   // Detached dev-bar input + its own submitted-line history
   // (Up/Down), separate from the shell's history.
   const [devInput, setDevInput] = useState('');
@@ -357,6 +447,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       // timer, no block completion, no re-parse: xterm.js owns the
       // screen and the ANSI.
       termRef.current?.write(cleaned);
+
+      // DEFCON 3 Phase 2 — blocks: every PTY chunk while a
+      // composer block is current is that block's output (the
+      // shell echo + the command's output, as a transcript),
+      // and each chunk re-arms the quiet timer — when the
+      // stream goes quiet the prompt is taken to have returned
+      // and the block closes (see terminalBlocks.ts).
+      if (prompterActiveRef.current && currentBlockIdRef.current !== null) {
+        appendToCurrentBlock(cleaned);
+        armBlockQuietClose();
+      }
     };
 
     // Any shell exit — `exit`, Ctrl+D, a crash, a spawn failure —
@@ -365,6 +466,8 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // live.
     const handleExit = (id: string, code: number) => {
       if (id !== tabId) return;
+      // DEFCON 3 Phase 2: the shell exiting closes any open block.
+      closeCurrentBlock();
       shellExitedRef.current = true;
       setShellExited({ code });
       termRef.current?.write(`\r\n\x1b[31mShell exited (code ${code}).\x1b[0m\r\n`);
@@ -420,10 +523,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     ]);
   }, []);
 
-  const termWriteLines = useCallback(async (text: string) => {
+  const termWriteLines = useCallback(async (text: string, opts?: { captureToBlock?: boolean }) => {
     await waitForPromptEcho();
     const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
     termRef.current?.write(`\r\n${normalized}\r\n`);
+    // DEFCON 3 Phase 2 — slash output is captured into the
+    // current block: it never reaches the PTY, so handleData
+    // cannot see it. The `$ <line>` echo is excluded by its
+    // caller (captureToBlock: false) — the command is already
+    // the block header.
+    if (opts?.captureToBlock !== false && prompterActiveRef.current && currentBlockIdRef.current !== null) {
+      appendToCurrentBlock(text.replace(/\r\n/g, '\n'));
+    }
   }, [waitForPromptEcho]);
 
   // Write into the dev console (dev mode ON only): appends lines,
@@ -956,14 +1067,25 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     setDevRunning(true);
     try {
       if (trimmed.startsWith('/')) {
+        // DEFCON 3 Phase 2: open the block FIRST — slash
+        // output lands via termWriteLines while
+        // runSlashCommand runs, and the block closes exactly
+        // when it resolves.
+        openBlock(trimmed);
         // No wipe: record the PTY sequence so the feed echo
         // waits for genuinely-new PTY data (80 ms cap), the
         // same ordering termWriteLines gives slash output.
         slashPromptSeqRef.current = ptyDataSeqRef.current;
-        await termWriteLines(`$ ${trimmed}`);
+        await termWriteLines(`$ ${trimmed}`, { captureToBlock: false });
         await runSlashCommand(trimmed);
+        closeCurrentBlock();
         return;
       }
+      // DEFCON 3 Phase 2: the block opens at submit; its
+      // output arrives as PTY chunks (handleData) and it
+      // closes on next-prompt detection (quiet timer) or at
+      // the next submit.
+      openBlock(trimmed);
       if (!ptyWrite(`${trimmed}\r`)) {
         await termWriteLines('❌ Could not write to the terminal — the input path is down.');
       }
@@ -1201,6 +1323,19 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               bright text stays crisp. The prompt section below is
               NOT part of the merge — its solid black bar
               (non-devmode) stays. */}
+          {/* DEFCON 3 Phase 2 — blocks in devmode (Gary,
+              2026-11-09): the structured record of
+              composer-submitted commands, as DOM above the
+              xterm (see BlockList.tsx for the renderer choice).
+              One feed — the list lives in this same terminal
+              column, not a second panel — and it renders only
+              when the prompter is active, so non-devmode keeps
+              its exact settle shape. Empty until the first
+              composer submit, so no layout shift before then. */}
+          {prompterActive && (
+            <BlockList tabId={tabId} onReinput={(command) => setDevInput(command)} />
+          )}
+
           <div className="flex-1 overflow-hidden p-4">
             <div data-testid="prompt-input-wrap"
                  className={defconMerge

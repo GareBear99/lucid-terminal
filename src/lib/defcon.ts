@@ -50,14 +50,18 @@
  * "build it directly in the terminal and see how it lands in
  * non dev mode"): reading (b), directly in the terminal — the
  * opaque black lifts off the terminal page and the wrap drops
- * its glass/black for a darkening blur (`bg-black/50
+ * its glass/black for a darkening blur (`bg-black/25
  * backdrop-blur-sm`), so the mist shows directly behind the
  * text, darkened where the text sits so it stays readable.
- * It is level-gated: it takes effect at DEFCON 2 and above
- * (`defconMergeActive`), and it is judged by how it lands in
- * NON-devmode. At DEFCON 1 the terminal is exactly as it
- * stands. The prompt section (the black bar in non-devmode)
- * is NOT part of the merge — it stays as it is.
+ * Calibration (live read 2026-11-09 ~05:50 PST): the first
+ * build used bg-black/50, which halved an already-faint mist
+ * (peak 0.17 opacity) into invisibility; /25 is the veil
+ * that lets the mist read. It is level-gated: it takes effect
+ * at DEFCON 2 and above (`defconMergeActive`), and it is
+ * judged by how it lands in NON-devmode. At DEFCON 1 the
+ * terminal is exactly as it stands. The prompt section (the
+ * black bar in non-devmode) is NOT part of the merge — it
+ * stays as it is.
  *
  * Pure functions + data, so the logic is unit-testable without
  * a browser or Electron — same pattern as permissions.ts /

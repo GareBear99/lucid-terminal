@@ -1094,15 +1094,23 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               terminal): at DEFCON 2+ the wrap drops BOTH the
               solid black (non-devmode) and the frosted tertiary
               glass (devmode) for the mist as the direct
-              background — `bg-black/50 backdrop-blur-sm`, a
+              background — `bg-black/25 backdrop-blur-sm`, a
               darkening blur directly behind the text, so the
               drifting puffs show through but never eat the
-              text. The prompt section below is NOT part of the
+              text. CALIBRATION (live read, 2026-11-09 ~05:50 PST):
+              the first build used bg-black/50 — too strong. The
+              mist's own peak is only 0.17 opacity (SplashScreen
+              .splash-puff), so halving it left the mist invisible
+              in non-devmode (empty-area mean 0.68 vs 0.03 at
+              DEFCON 1 — a real signal, but nothing the eye
+              reads). /25 keeps the mist reading directly behind
+              the text while the bright text stays crisp. The
+              prompt section below is NOT part of the
               merge — its solid black bar (non-devmode) stays. */}
           <div className="flex-1 overflow-hidden p-4">
             <div data-testid="prompt-input-wrap"
                  className={defconMerge
-                   ? 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-black/50 backdrop-blur-sm'
+                   ? 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-black/25 backdrop-blur-sm'
                    : devMode
                    ? 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-[var(--bg-tertiary)]/50 backdrop-blur-md'
                    : 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-black'}>

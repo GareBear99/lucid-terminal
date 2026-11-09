@@ -579,7 +579,7 @@ describe('/defcon slash command (Gary, 2026-11-09)', () => {
 describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-11-09 ~04:27–04:30 PST)', () => {
   // No jest-dom in this repo — assert on DOM properties, not
   // matchers. Class tokens, split exactly: 'bg-black' must not
-  // false-match 'bg-black/50'.
+  // false-match 'bg-black/25'.
   function classesOf(el: HTMLElement): string[] {
     return el.className.split(/\s+/);
   }
@@ -595,7 +595,7 @@ describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-
     const wrap = screen.getByTestId('prompt-input-wrap');
     expect(classesOf(wrap)).toContain('bg-black');
     expect(classesOf(wrap)).not.toContain('backdrop-blur-sm');
-    expect(classesOf(wrap)).not.toContain('bg-black/50');
+    expect(classesOf(wrap)).not.toContain('bg-black/25');
   });
 
   test('DEFCON 2, non-devmode: the black lifts — mist directly behind the text, darkening blur, bar untouched', async () => {
@@ -611,7 +611,7 @@ describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-
     // The wrap drops the solid black for the darkening blur:
     // mist directly behind the text, darkened where the text sits.
     const wrap = screen.getByTestId('prompt-input-wrap');
-    expect(classesOf(wrap)).toContain('bg-black/50');
+    expect(classesOf(wrap)).toContain('bg-black/25');
     expect(classesOf(wrap)).toContain('backdrop-blur-sm');
     expect(classesOf(wrap)).not.toContain('bg-black');
     expect(classesOf(wrap)).not.toContain('bg-[var(--bg-tertiary)]/50');
@@ -628,7 +628,7 @@ describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-
     await screen.findByTestId('xterm-surface');
 
     const wrap = screen.getByTestId('prompt-input-wrap');
-    expect(classesOf(wrap)).toContain('bg-black/50');
+    expect(classesOf(wrap)).toContain('bg-black/25');
     expect(classesOf(wrap)).toContain('backdrop-blur-sm');
     expect(classesOf(wrap)).not.toContain('bg-[var(--bg-tertiary)]/50');
     expect(classesOf(wrap)).not.toContain('backdrop-blur-md');
@@ -643,7 +643,7 @@ describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-
     const wrap = screen.getByTestId('prompt-input-wrap');
     expect(classesOf(wrap)).toContain('bg-[var(--bg-tertiary)]/50');
     expect(classesOf(wrap)).toContain('backdrop-blur-md');
-    expect(classesOf(wrap)).not.toContain('bg-black/50');
+    expect(classesOf(wrap)).not.toContain('bg-black/25');
   });
 });
 

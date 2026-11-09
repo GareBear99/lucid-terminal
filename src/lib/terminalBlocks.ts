@@ -276,8 +276,27 @@ export function appendBlockOutput(
   if (!text) return block;
   const source = opts?.source ?? 'pty';
   const pending = source === 'pty' ? pendingEscapeByBlock.get(block.id) ?? '' : '';
+  // LIVE BUG #2 (pid 31024, /devmode off block): a write capture
+  // shared one line with the prompt the PTY had already stored,
+  // so a LATER prompt redraw's `\r` rewound over the message —
+  // its prompt overwrote itself (invisible) except its trailing
+  // space, which overwrote the message's first char ("Dev" ->
+  // " ev"). Reproduced exactly in tests: redraw, write, redraw
+  // yields "gary@Garys-Mac-mini ~ % ev mode OFF — …". On the
+  // screen the message is on its own lines (termWriteLines
+  // writes `\r\n` + msg + `\r\n`), so the capture is fenced
+  // with newlines to match: the message occupies its own
+  // lines, and no redraw can rewind over it. A redraw landing
+  // after a write with no prompt stored yet gutted the message
+  // the same way ("r and terminal…") — the trailing fence
+  // fixes that too, by putting the redraw on a fresh line.
+  let fenced = text;
+  if (source === 'write') {
+    if (block.output && !block.output.endsWith('\n')) fenced = '\n' + fenced;
+    if (!fenced.endsWith('\n')) fenced = fenced + '\n';
+  }
   const { text: clean, pending: nextPending } = sanitizeWithPending(
-    block.output + pending + text,
+    block.output + pending + fenced,
   );
   if (source === 'pty') {
     if (nextPending) pendingEscapeByBlock.set(block.id, nextPending);

@@ -276,7 +276,11 @@ describe("DEFCON 3 fix — a split escape never eats the next capture's first ch
     const afterWrite = appendBlockOutput(afterRedraw, 'Dev mode ON — prompt bar delinked', {
       source: 'write',
     });
-    expect(afterWrite.output).toBe('gary@mac ~ $Dev mode ON — prompt bar delinked');
+    // The write is fenced onto its own lines (see the LIVE BUG
+    // #2 note on appendBlockOutput): the prompt and the message
+    // no longer share a line, so a later redraw cannot rewind
+    // over the message.
+    expect(afterWrite.output).toBe('gary@mac ~ $\nDev mode ON — prompt bar delinked\n');
     expect(afterWrite.output).toContain('Dev mode ON');
   });
 
@@ -295,11 +299,11 @@ describe("DEFCON 3 fix — a split escape never eats the next capture's first ch
     const afterFirst = appendBlockOutput(block, '\x1b]7;file://mac/Users/gary');
     expect(afterFirst.output).toBe('');
     const afterWrite = appendBlockOutput(afterFirst, 'Dev mode ON', { source: 'write' });
-    expect(afterWrite.output).toBe('Dev mode ON');
+    expect(afterWrite.output).toBe('Dev mode ON\n');
     // The PTY remainder (BEL terminator) completes the OSC —
     // no residue, and the write text is untouched.
     const afterSecond = appendBlockOutput(afterWrite, '\x07');
-    expect(afterSecond.output).toBe('Dev mode ON');
+    expect(afterSecond.output).toBe('Dev mode ON\n');
   });
 
   test('dropping the pending abandons the escape', () => {
@@ -313,7 +317,115 @@ describe("DEFCON 3 fix — a split escape never eats the next capture's first ch
   });
 });
 
+describe("DEFCON 3 fix — a prompt redraw after a write cannot overwrite the message (LIVE BUG #2, pid 31024)", () => {
+  const REDRAW =
+    '\x1b[?2004l\r\r\x1b[32mgary@Garys-Mac-mini\x1b[0m \x1b[34m~\x1b[0m % \x1b[K\x1b[?2004h';
+  const MSG =
+    'Dev mode OFF — prompt bar and terminal topology-synced. Clicking anywhere in the prompt section focuses the terminal; typing always lands in the shell.';
+
+  test('redraw, write, redraw: the D survives and the prompt repeats on its own line', () => {
+    const block = newBlock('/devmode off', TAB_CWD, 1000);
+    const afterFirst = appendBlockOutput(block, REDRAW);
+    expect(afterFirst.output).toBe('gary@Garys-Mac-mini ~ %');
+    const afterWrite = appendBlockOutput(afterFirst, MSG, { source: 'write' });
+    expect(afterWrite.output).toBe(`gary@Garys-Mac-mini ~ %\n${MSG}\n`);
+    const afterSecond = appendBlockOutput(afterWrite, REDRAW);
+    // Before the fence this read "… % ev mode OFF" — the second
+    // redraw's trailing space overwrote the D. Now the redraw
+    // lands on a fresh line after the message.
+    expect(afterSecond.output).toBe(`gary@Garys-Mac-mini ~ %\n${MSG}\ngary@Garys-Mac-mini ~ %`);
+    expect(afterSecond.output).toContain('Dev mode OFF');
+    expect(afterSecond.output).not.toContain('% ev mode OFF');
+  });
+
+  test('a single redraw after a write no longer guts the message', () => {
+    const block = newBlock('/devmode off', TAB_CWD, 2000);
+    const afterWrite = appendBlockOutput(block, MSG, { source: 'write' });
+    expect(afterWrite.output).toBe(`${MSG}\n`);
+    const afterRedraw = appendBlockOutput(afterWrite, REDRAW);
+    // Before the fence this read "… % r and terminal…" — the
+    // prompt overwrote the message's first 24 chars.
+    expect(afterRedraw.output).toBe(`${MSG}\ngary@Garys-Mac-mini ~ %`);
+    expect(afterRedraw.output).toContain('Dev mode OFF');
+  });
+
+  test('a write to an empty block adds no leading blank line', () => {
+    const block = newBlock('/devmode off', TAB_CWD, 3000);
+    const afterWrite = appendBlockOutput(block, 'Dev mode OFF', { source: 'write' });
+    expect(afterWrite.output).toBe('Dev mode OFF\n');
+  });
+
+  test('a write whose text already ends with a newline is not doubled', () => {
+    const block = newBlock('/defcon', TAB_CWD, 4000);
+    const afterFirst = appendBlockOutput(block, 'prompt $');
+    const afterWrite = appendBlockOutput(afterFirst, 'Level 3\n', { source: 'write' });
+    expect(afterWrite.output).toBe('prompt $\nLevel 3\n');
+    expect(afterWrite.output).not.toContain('\n\n');
+  });
+
+  test('PTY-vs-PTY carriage-return overwrite still works (progress bars)', () => {
+    const block = newBlock('curl', TAB_CWD, 5000);
+    const afterFirst = appendBlockOutput(block, '50%');
+    const afterSecond = appendBlockOutput(afterFirst, '\r100%');
+    expect(afterSecond.output).toBe('100%');
+  });
+});
+
 describe('DEFCON 3 fix — live-shaped block transcript in devmode', () => {
+  test('LIVE REPRO (pid 31024): a /devmode off slash block keeps the D of Dev', async () => {
+    setDevMode(true);
+    setDefconLevel(3);
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    submitToComposer('/devmode off');
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    // The prompt redraw from the resize the slash itself caused,
+    // its last PTY chunk ending mid-escape (bracketed-paste
+    // enable split after the CSI introducer) — this is also the
+    // chunk waitForPromptEcho was waiting for.
+    emitPty('\x1b[?2004l\r\x1b[32mgary@mac\x1b[0m \x1b[34m~\x1b[0m $ \x1b[K\x1b[');
+    // The remainder of the split escape, as the PTY delivers it.
+    emitPty('?2004h');
+
+    await waitFor(() => expect(blocks()[0].isComplete).toBe(true), { timeout: 5000 });
+    const [block] = blocks();
+    // The write is fenced onto its own lines, so the exact
+    // transcript is prompt / message / (trailing newline) —
+    // the D survives, and there is no "% ev mode OFF".
+    expect(block.output).toBe(
+      'gary@mac ~ $\nDev mode OFF — prompt bar and terminal topology-synced. ' +
+        'Clicking anywhere in the prompt section focuses the terminal; typing always lands in the shell.\n',
+    );
+    expect(block.output).not.toContain('% ev mode OFF');
+  });
+
+  test('LIVE REPRO (pid 31024): a second prompt redraw after the message cannot eat the D', async () => {
+    setDevMode(true);
+    setDefconLevel(3);
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    submitToComposer('/devmode off');
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    // Redraw #1 (the resize the slash itself caused).
+    emitPty('\x1b[?2004l\r\x1b[32mgary@mac\x1b[0m \x1b[34m~\x1b[0m $ \x1b[K\x1b[?2004h');
+    await waitFor(() => expect(blocks()[0].isComplete).toBe(true), { timeout: 5000 });
+    // Redraw #2 — a second resize/redraw after the message
+    // landed. Before the write fence this overwrote the D
+    // with the prompt's trailing space ("% ev mode OFF").
+    emitPty('\x1b[?2004l\r\x1b[32mgary@mac\x1b[0m \x1b[34m~\x1b[0m $ \x1b[K\x1b[?2004h');
+    await waitFor(() => expect(blocks()[0].output).toContain('Dev mode OFF'));
+    const [block] = blocks();
+    expect(block.output).toContain('Dev mode OFF');
+    expect(block.output).not.toContain('% ev mode OFF');
+    // The second redraw's prompt lands on its own line after
+    // the message, exactly as on the screen.
+    expect(block.output).toContain('shell.\ngary@mac ~ $');
+  });
+
   test('a submitted echo shows a clean transcript: no ANSI, no doubled first char', async () => {
     setDevMode(true);
     setDefconLevel(3);

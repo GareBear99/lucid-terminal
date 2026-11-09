@@ -365,6 +365,15 @@ function App() {
               onToggleAI={handleToggleAI}
               bloodDropDisabled={luciferAiSilenced}
               onOpenBloodDrop={() => {
+                // DISABLED (Gary, 2026-11-09 ~12:38 PST — the blood
+                // drop screen must NOT exist when LuciferAI is
+                // disabled): the toolbar drop is filtered out of the
+                // sidebar in that state, but the handler must fail
+                // safe on its own too — a stale or future caller
+                // must never open the panel while the plugin is
+                // off. Read the LIVE setting, not the render's
+                // closure, like the silenced check below it.
+                if (!isLuciferAiEnabled(useSettingsStore.getState().settings)) return;
                 // SILENCED (Gary, 2026-11-08 ~06:41 PST — potential
                 // daemon only): the terminal link is disabled while
                 // silenced, so the toolbar drop does nothing — it
@@ -460,11 +469,20 @@ function App() {
                   <div className="flex-1 flex overflow-hidden">
                     {/* Terminal */}
                     <div className="flex-1 overflow-hidden">
-                      {bloodDropActive ? (
+                      {bloodDropActive && luciferAiEnabled ? (
                         // Blood drop tab selected: the blood drop panel,
                         // not a terminal. The terminals stay mounted
                         // underneath (hidden), so switching back is
-                        // instant and nothing is lost.
+                        // instant and nothing is lost. Render-gated on
+                        // the plugin being enabled (Gary, 2026-11-09
+                        // ~12:38 PST — the blood drop screen must NOT
+                        // exist when LuciferAI is disabled): the
+                        // effect below only closes the state AFTER a
+                        // render, so without this gate the panel
+                        // flashed for one frame on the toggle itself.
+                        // With the gate, disabling falls back to the
+                        // terminals (or the default create screen when
+                        // there are no tabs) in the same render.
                         <LuciferAITabPanel />
                       ) : (
                         <>

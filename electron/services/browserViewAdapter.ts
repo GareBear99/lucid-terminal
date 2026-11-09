@@ -40,7 +40,7 @@ export function createBrowserView(options: {
    * polls on a timer; throttling would stall its stream). */
   backgroundThrottling: boolean;
 }): BrowserViewHandle {
-  return new BrowserView({
+  const view = new BrowserView({
     webPreferences: {
       partition: options.partition,
       nodeIntegration: false,
@@ -49,6 +49,34 @@ export function createBrowserView(options: {
       backgroundThrottling: options.backgroundThrottling,
     },
   });
+  // A page whose <html> background is painted via `light-dark()`
+  // (color-scheme: light dark — example.com and the IANA family)
+  // renders correctly in the compositor (capturePage shows white
+  // text on #222) but its background does NOT paint on screen in
+  // the BrowserView: the view shows its default white background
+  // and the page's dark-mode (white) text goes invisible, so the
+  // page looks blank white. Pages with an explicit background
+  // (Hacker News, the phone page, a plain local page) paint fine
+  // — their opaque background covers the view. Give the view the
+  // app's dark background (#0d1117, the same colour the main
+  // window and the mini window hardcode), so light-dark() text
+  // stays readable even when the page's own background does not
+  // paint. NOTE: this is the dark value, not scheme-aware — the
+  // app is dark-only (its windows hardcode the same colour), and
+  // reading nativeTheme here would break every electron mock in
+  // tests. If the app ever runs light, this wants
+  // nativeTheme.shouldUseDarkColors. The typeof guard is for the
+  // same reason: the 12 hand-rolled BrowserView mocks in tests do
+  // not define setBackgroundColor, and this adapter must not throw
+  // there. A real Electron 28 BrowserView always has the method.
+  // Verified live 2026-11-09: plain local page paints, a local
+  // copy of example.com's exact CSS stays white on screen while
+  // capturePage shows it dark, and the same page with explicit
+  // black text reads fine on the white view.
+  if (typeof view.setBackgroundColor === 'function') {
+    view.setBackgroundColor('#0d1117');
+  }
+  return view;
 }
 
 /** Attach a view to a window and place it at `bounds`. */

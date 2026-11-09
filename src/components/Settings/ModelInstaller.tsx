@@ -276,7 +276,7 @@ const [tiers, setTiers] = useState<ModelTier[]>([
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold mb-1">Core Dependencies</h3>
-              <p className="text-xs text-[var(--text-muted)]">
+              <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                 Install essential models: {CORE_MODELS.join(', ')} (~8GB total)
               </p>
             </div>
@@ -313,7 +313,7 @@ const [tiers, setTiers] = useState<ModelTier[]>([
               <h3 className="text-sm font-semibold" style={{ color: tier.color }}>
                 {tier.label}
               </h3>
-              <p className="text-xs text-[var(--text-muted)]">{tier.description}</p>
+              <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{tier.description}</p>
             </div>
           </div>
 
@@ -332,7 +332,7 @@ const [tiers, setTiers] = useState<ModelTier[]>([
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-1">
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-2">
                     <span className="font-mono">{model.size}</span>
                     <span>•</span>
                     <span>{model.name}</span>

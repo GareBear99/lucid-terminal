@@ -152,7 +152,7 @@ export function TelegramSegment() {
         <Send size={18} className="text-[var(--text-muted)] shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm">Telegram</span>
-          <span className="block text-xs text-[var(--text-muted)]">
+          <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
             Connect your Telegram to Lucid — through a bot you create in BotFather.
           </span>
         </span>
@@ -195,9 +195,9 @@ export function TelegramSegment() {
           </button>
         )}
       </div>
-      <p className="text-xs text-[var(--text-muted)]">{note}</p>
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{note}</p>
 
-      <p className="text-xs text-[var(--text-muted)]">
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
         Connects your Telegram to Lucid through a bot you create in BotFather. Sending and
         reading messages through the bot is the next step — the connection is what this
         segment builds now. It stays when LuciferAI is off — turning LuciferAI off removes
@@ -216,7 +216,7 @@ export function TelegramSegment() {
         <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">
           Becoming a user
         </h4>
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           Once a temp is verified, Telegram is how that temp becomes a full user — no Lucid
           retrieval step is needed, and the new user stays linked to the temp that referred
           them, so the referrer keeps the credit. The account system that makes this live is
@@ -228,7 +228,7 @@ export function TelegramSegment() {
           connect to, the way AI Chat is. */}
       <div>
         <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">Connections</h4>
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           No connections yet. A starship, or anything else, can use segments to connect to
           Telegram the way they connect to AI Chat.
         </p>

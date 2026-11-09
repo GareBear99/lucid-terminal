@@ -56,7 +56,7 @@ export function ModulesTab() {
           <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="block text-sm">{MODULES_PLUGIN.name}</span>
-            <span className="block text-xs text-[var(--text-muted)]">
+            <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
               {MODULES_PLUGIN.description}
             </span>
           </span>
@@ -84,7 +84,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Segments</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 The add-on this plugin is anchored around — an extension of Modules.
               </span>
             </span>
@@ -97,7 +97,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Computer control</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Pre-installed, agent-only — a trained, user-directed agent drives the Mac one verified action at a time.
               </span>
             </span>
@@ -106,7 +106,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">AI Chat</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Pre-installed, connectable — its own plugin, independent of LuciferAI, and a place things like a starship can connect to.
               </span>
             </span>
@@ -115,7 +115,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Google Drive</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Pre-installed, connectable — a place to connect your Google Drive to Lucid. Not connected yet — how the connection is made is Gary&apos;s call.
               </span>
             </span>
@@ -124,7 +124,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Telegram</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Pre-installed, connectable — a place to connect your Telegram to Lucid through your own bot. Not connected yet — a bot token from BotFather is needed.
               </span>
             </span>
@@ -133,7 +133,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Stripe</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Pre-installed, connectable — a place to connect your Stripe to Lucid through your own key. Not connected yet — a key from the Stripe Dashboard is needed.
               </span>
             </span>
@@ -142,7 +142,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Starship segments</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Whatever a detected starship carries — shown here when one is detected.
               </span>
             </span>
@@ -155,7 +155,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Forge ↔ Persona Plex bridge</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 The bridge between Forge and Persona Plex — carried by the Persona Plex add-on.
               </span>
             </span>
@@ -176,7 +176,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Pre-installed</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Ships with Lucid — no starship, no install step. Computer control, AI Chat, Google Drive, Telegram and Stripe arrive this way.
               </span>
             </span>
@@ -184,7 +184,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Starship-detected</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Appears when a starship is detected. Detection is not wired yet — Gary&apos;s call.
               </span>
             </span>
@@ -192,7 +192,7 @@ export function ModulesTab() {
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Add-on-carried</span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Arrives with an installed add-on, and hides again if it is removed. The Forge ↔ Persona Plex bridge arrives this way.
               </span>
             </span>

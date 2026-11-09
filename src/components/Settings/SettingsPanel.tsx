@@ -676,7 +676,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   )}
                   <span className="text-xs text-[var(--text-muted)]">Referral + purchase tier reward</span>
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Frosted glass throughout. Unlocks with referrals and an active purchase tier.
                 </p>
                 <div className={`p-3 rounded-lg border transition-all ${currentTheme.id === fullGlassTheme.id
@@ -743,7 +743,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   )}
                   <span className="text-xs text-[var(--text-muted)]">First referral reward</span>
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Pure black throughout. Unlocks with your first referral.
                 </p>
                 <div className={`p-3 rounded-lg border transition-all ${currentTheme.id === allBlackTheme.id
@@ -888,7 +888,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     step={1000}
                   />
 </Tooltip>
-                <p className="text-xs text-[var(--text-muted)] mt-1">Number of lines to keep in history</p>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-1">Number of lines to keep in history</p>
               </section>
 
               <section>
@@ -930,7 +930,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Commands</h3>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Every command the terminal understands, grouped by kind. The same catalogue the Help screen is built from — what the router actually routes, plus what Help documents. The list shows only what the terminal will actually run: while LuciferAI is off, its commands are hidden, because the terminal refuses them.
                 </p>
                 <input
@@ -952,7 +952,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                           {entries.map((entry) => (
                             <div key={entry.name} className="flex items-start gap-2">
                               <code className="text-xs font-mono shrink-0 bg-[var(--bg-tertiary)] rounded px-1.5 py-0.5">{entry.syntax}</code>
-                              <span className="text-xs text-[var(--text-muted)]">{entry.description}</span>
+                              <span className="text-xs leading-[1.5] text-[var(--text-muted)]">{entry.description}</span>
                             </div>
                           ))}
                         </div>
@@ -968,7 +968,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
             <div className="space-y-6">
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">API Key (Tier 5)</h3>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Your own key for the chat API — sent straight to the API, never through a middleman. The model picked below is the model actually used.
                 </p>
                 {hasApiKey ? (
@@ -1034,14 +1034,14 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 </Tooltip>
                   <span className="text-sm w-8">{settings.aiTemperature}</span>
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mt-1">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-1">
                   Lower = more focused, Higher = more creative
                 </p>
               </section>
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Ping Server (test)</h3>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Test path: AI chat goes to the Cloudflare ping server Worker instead of the local model or OpenAI. Free model, 100 SP to start — 1 SP per reply, refills over time. Nothing else changes.
                 </p>
                 <label className="flex items-center gap-2 text-sm mb-3">
@@ -1150,7 +1150,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 </Tooltip>
                   <span className="text-sm w-10">{settings.gazeSensitivity ?? 50}%</span>
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mt-1">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-1">
                   How focused the Sentinel face&rsquo;s eyes are on the cursor. Low = the eyes stay wandering and only glance toward it; high = they track it closely and lock on quickly. Applies right away, no restart needed.
                 </p>
               </section>
@@ -1215,7 +1215,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Core plugins</h3>
                   <PluginsVoiceButton />
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Built in — always installed.
                 </p>
                 <div className="space-y-3">
@@ -1264,7 +1264,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                           checked={luciferAiEnabled}
                           onChange={(checked) => updateSetting('luciferAiEnabled', checked)}
                         />
-                        <span className="text-xs text-[var(--text-muted)]">
+                        <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
                           {luciferAiEnabled
                             ? 'Enabled — turning it off removes the plugin entirely (blood drop, heartbeat, Help and Synth all go with it). AI Chat stays — it is its own plugin now. Persona Plex stays too — it is an add-on, not one of its surfaces.'
                             : 'Disabled — the plugin is completely gone. Turn it back on to restore it. (AI Chat stays — it is its own plugin now. Persona Plex stays too — it is an add-on, not one of its surfaces.)'}
@@ -1309,7 +1309,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     </span>
                   </div>
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mt-2">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">
                   Toggled-on plugins show as buttons in the icon bar, in the section above Settings. Applies right away, no restart needed. LuciferAI is always built in — its switch is on its row above: turning it off disables the plugin entirely.
                 </p>
               </section>
@@ -1321,7 +1321,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                 </p>
                 <div className="space-y-3">
                   {CUSTOM_PLUGINS.length === 0 ? (
-                    <p className="text-xs text-[var(--text-muted)]">
+                    <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                       No custom plugins registered yet. Add one to src/data/customPlugins.ts and it appears here with its own toggle.
                     </p>
                   ) : (
@@ -1493,7 +1493,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     </div>
                   ))}
                   {!devicesState.loading && devicesState.devices.length === 0 && (
-                    <p className="text-xs text-[var(--text-muted)]">
+                    <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                       No USB or Android devices detected. Connect one and press Refresh.
                     </p>
                   )}
@@ -1563,7 +1563,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       <span className="text-sm">Auto-fix errors on file change</span>
                     </label>
 </Tooltip>
-                  <div className="text-xs text-[var(--text-muted)] pl-6">
+                  <div className="text-xs leading-[1.5] text-[var(--text-muted)] pl-6">
                     Off = suggest fixes only (watch mode). On applies fixes automatically.
                   </div>
 <Tooltip content="Log new commits in watched repos">
@@ -1576,7 +1576,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       <span className="text-sm">GitHub-style commit tracking</span>
                     </label>
 </Tooltip>
-                  <div className="text-xs text-[var(--text-muted)] pl-6">
+                  <div className="text-xs leading-[1.5] text-[var(--text-muted)] pl-6">
                     On = the watcher logs each new commit in a watched git repo (see Daemon Logs below). Off = commits are ignored. The watcher only reads HEAD — it never commits anything itself.
                   </div>
                 </div>
@@ -1585,11 +1585,11 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Watched Directories</h3>
                 <div className="space-y-2">
-                  <div className="text-xs text-[var(--text-muted)] mb-2">
+                  <div className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2">
                     Directories being monitored for changes
                   </div>
                   {watchPaths.length === 0 ? (
-                    <div className="text-xs text-[var(--text-muted)]">No directories watched yet.</div>
+                    <div className="text-xs leading-[1.5] text-[var(--text-muted)]">No directories watched yet.</div>
                   ) : (
                     watchPaths.map((dir) => (
                       <div key={dir} className="flex items-center gap-2 text-sm">
@@ -1717,7 +1717,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     onChange={(checked) => updateSetting('devMode', checked)}
                     ariaLabel="Dev mode"
                   />
-                  <span className="text-xs text-[var(--text-muted)]">
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
                     {settings.devMode === true
                       ? 'On — the prompt bar is delinked from the terminal screen: a detached command bar in the prompt section runs slash commands and one-shot shell commands into its own dev console, and the terminal screen runs independently. Clicking the prompt section does not focus the terminal. Works with LuciferAI on or off.'
                       : 'Off — the prompt bar and the terminal are topology-synced: clicking anywhere in the prompt section focuses the terminal, so typing always lands in the shell (Warp-style, one input, one screen). Turn it on to delink the bar for troubleshooting, or run /devmode on in the terminal.'}

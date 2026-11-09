@@ -22,7 +22,7 @@ export function SegmentCategorySection({ category, children }: SegmentCategorySe
   return (
     <section>
       <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">{category.title}</h3>
-      <p className="text-xs text-[var(--text-muted)] mb-3">{category.info}</p>
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">{category.info}</p>
       <div className="mb-3">
         <SegmentVoiceButton
           categoryId={category.id}

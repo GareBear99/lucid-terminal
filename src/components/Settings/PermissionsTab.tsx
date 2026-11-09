@@ -188,7 +188,7 @@ export function PermissionsTab() {
           <h3 className="text-sm font-semibold flex-1">Permissions — what Lucid is allowed to do</h3>
           <PermissionsVoiceButton />
         </div>
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           Listen reads the exact words on this page, nothing added.
         </p>
         {infoParagraphs.map((paragraph, i) => (
@@ -242,18 +242,18 @@ export function PermissionsTab() {
                   {state.source === 'recorded' ? ' (last known)' : ''}
                 </span>
               </div>
-              <p className="text-xs text-[var(--text-muted)]">{def.description}</p>
+              <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{def.description}</p>
               {state.detail && (
-                <p className="text-xs text-[var(--text-muted)]">{state.detail}</p>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{state.detail}</p>
               )}
-              <p className="text-xs text-[var(--text-muted)]">
+              <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                 <span className="font-semibold text-[var(--text-secondary)]">Needs it: </span>
                 {def.dependents.length > 0
                   ? def.dependents.join('; ')
                   : 'No feature uses this yet.'}
               </p>
               {state.status !== 'granted' && state.status !== 'not-applicable' && (
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                   <span className="font-semibold text-[var(--text-secondary)]">To grant: </span>
                   {def.grantPath}
                 </p>
@@ -280,7 +280,7 @@ export function PermissionsTab() {
                 </div>
               )}
               {state.checkedAt && (
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                   {state.source === 'live' ? 'Checked ' : 'Last known from '}
                   {new Date(state.checkedAt).toLocaleString()}
                   {state.source === 'recorded' ? ' — refresh to re-check.' : ''}
@@ -329,7 +329,7 @@ export function PermissionsTab() {
           </p>
         )}
         {events.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">
+          <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
             No events yet. Startup walks, permission probes and
             prompts, folder pickers, and pages asking for things
             are recorded here with when they happened and why.
@@ -340,7 +340,7 @@ export function PermissionsTab() {
               key={event.id}
               data-event={event.type}
               data-event-phase={event.phase}
-              className="rounded-md border border-[var(--border)] p-3 space-y-1"
+              className="rounded-md border border-[var(--border)] p-3 space-y-2"
             >
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold">
@@ -359,12 +359,12 @@ export function PermissionsTab() {
                 </span>
               </div>
               <p className="text-xs">{event.what}</p>
-              <p className="text-xs text-[var(--text-muted)]">
+              <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                 <span className="font-semibold text-[var(--text-secondary)]">Why: </span>
                 {event.why}
               </p>
               {event.detail && (
-                <p className="text-xs text-[var(--text-muted)]">{event.detail}</p>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{event.detail}</p>
               )}
             </div>
           ))

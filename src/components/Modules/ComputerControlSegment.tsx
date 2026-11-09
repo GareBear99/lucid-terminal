@@ -117,7 +117,7 @@ export function ComputerControlSegment() {
         <MousePointerClick size={18} className="text-[var(--text-muted)] shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm">Computer control</span>
-          <span className="block text-xs text-[var(--text-muted)]">
+          <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
             Pre-installed, agent-only — no starship, no server, fully local. A trained,
             user-directed agent drives the Mac one verified action at a time.
           </span>
@@ -147,14 +147,14 @@ export function ComputerControlSegment() {
             />
           </span>
         </button>
-        <span className="text-xs text-[var(--text-muted)]">
+        <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
           {locked
             ? 'Locked — every action is refused before anything runs. Observing still works.'
             : 'Unlocked — a trained agent can drive. Lock it to refuse all actions instantly.'}
         </span>
       </div>
 
-      <p className="text-xs text-[var(--text-muted)]">
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
         Observe → plan → act → read back → decide. Every action is verified by reading the
         screen back afterwards; unchanged means it did not land. One action at a time, with
         a timeout that always frees the slot and a watchdog that force-releases a stuck
@@ -196,7 +196,7 @@ export function ComputerControlSegment() {
       </div>
 
       {/* Protected targets. */}
-      <div className="text-xs text-[var(--text-muted)]">
+      <div className="text-xs leading-[1.5] text-[var(--text-muted)]">
         <span className="font-semibold text-[var(--text-secondary)]">Protected targets — </span>
         {protectedTargets.length > 0 ? (
           <span>
@@ -208,7 +208,7 @@ export function ComputerControlSegment() {
       </div>
 
       {/* Agent-only gate — open decision, stated as open. */}
-      <p className="text-xs text-[var(--text-muted)]">
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
         Agent-only: only a fairly advanced, heavily trained, user-directed agent can drive
         this — it must observe, plan, act, read back, and stop on failure. How the gate is
         enforced in code (allowlist, capability check, or user-directed-only) is Gary&apos;s
@@ -221,7 +221,7 @@ export function ComputerControlSegment() {
       <div>
         <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">Recent actions</h4>
         {segmentState && segmentState.faults.length > 0 && (
-          <p className="text-xs text-[var(--text-muted)] mb-2">
+          <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2">
             Watchdog trips: {segmentState.watchdogTrips} — latest fault:{' '}
             {segmentState.faults[0]?.detail ?? ''}
           </p>

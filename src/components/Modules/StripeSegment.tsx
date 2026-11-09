@@ -173,7 +173,7 @@ export function StripeSegment() {
         <CreditCard size={18} className="text-[var(--text-muted)] shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm">Stripe</span>
-          <span className="block text-xs text-[var(--text-muted)]">
+          <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
             Connect your Stripe to Lucid — the wallet for receiving money.
           </span>
         </span>
@@ -216,9 +216,9 @@ export function StripeSegment() {
           </button>
         )}
       </div>
-      <p className="text-xs text-[var(--text-muted)]">{note}</p>
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{note}</p>
 
-      <p className="text-xs text-[var(--text-muted)]">
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
         Connects your Stripe to Lucid so Lucid can show the account and whether it can take
         payments. Reading the live balance, creating payment links, and taking payments are
         the next step — the connection is what this segment builds now. It stays when
@@ -236,7 +236,7 @@ export function StripeSegment() {
         <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">
           Receiving money
         </h4>
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           Stripe is the wallet for receiving money. The account must have charges and payouts
           enabled in Stripe to actually take money, and the segment shows that status when the
           key is verified. Creating payment links and taking payments is the next step — this
@@ -248,7 +248,7 @@ export function StripeSegment() {
           connect to, the way AI Chat is. */}
       <div>
         <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">Connections</h4>
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           No connections yet. A starship, or anything else, can use segments to connect to
           Stripe the way they connect to AI Chat.
         </p>

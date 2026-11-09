@@ -69,7 +69,7 @@ export function SegmentsPanel() {
     <div className="space-y-6">
       {about && (
         <SegmentCategorySection category={about}>
-          <p className="text-xs text-[var(--text-muted)] mb-3">
+          <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
             An extension of the Modules plugin — anchored to Modules, no
             install step. When a starship is detected, its Segments show
             up here.
@@ -80,7 +80,7 @@ export function SegmentsPanel() {
                 <Puzzle size={18} className="text-[var(--text-muted)] shrink-0" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm">{segments.name}</span>
-                  <span className="block text-xs text-[var(--text-muted)]">{segments.description}</span>
+                  <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">{segments.description}</span>
                 </span>
                 {installed && (
                   <span className="text-xs text-[var(--text-muted)] shrink-0">
@@ -176,7 +176,7 @@ export function SegmentsPanel() {
               )}
             </div>
           ) : (
-            <p className="text-xs text-[var(--text-muted)]">
+            <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
               No starship detected. {detection.detail}
             </p>
           )}

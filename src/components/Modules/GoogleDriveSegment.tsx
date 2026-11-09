@@ -190,7 +190,7 @@ export function GoogleDriveSegment() {
         <HardDrive size={18} className="text-[var(--text-muted)] shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm">Google Drive</span>
-          <span className="block text-xs text-[var(--text-muted)]">
+          <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
             Connect your Google Drive to Lucid — find, upload, download, organise and share
             Drive files.
           </span>
@@ -226,7 +226,7 @@ export function GoogleDriveSegment() {
             Connect Google Drive
           </button>
         )}
-        <span className="text-xs text-[var(--text-muted)]">
+        <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
           {note ??
             (state === 'needs-client-id'
               ? 'Not connected. A Google OAuth client ID is needed before Connect can sign in.'
@@ -234,7 +234,7 @@ export function GoogleDriveSegment() {
         </span>
       </div>
 
-      <p className="text-xs text-[var(--text-muted)]">
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
         Finds, uploads, downloads, organises and shares the files in your Google Drive,
         including the documents, notes and notebooks you keep there. It stays when LuciferAI
         is off — turning LuciferAI off removes the Synth and the blood drop, not Google Drive.
@@ -244,7 +244,7 @@ export function GoogleDriveSegment() {
           connect to, the way AI Chat is. */}
       <div>
         <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">Connections</h4>
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           No connections yet. A starship, or anything else, can use segments to connect to
           Google Drive the way they connect to AI Chat.
         </p>

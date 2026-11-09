@@ -171,7 +171,7 @@ export function ForgePersonaPlexSegment() {
         <Users size={18} className="text-[var(--text-muted)] shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">Forge ↔ Persona Plex</span>
-          <span className="block text-xs text-[var(--text-muted)]">
+          <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
             Installed · the bridge between Forge and Persona Plex. A
             persona&rsquo;s voice is the voice Forge uses for its
             paired Homunculus — and the voice that persona&rsquo;s chat
@@ -181,7 +181,7 @@ export function ForgePersonaPlexSegment() {
       </div>
 
       {homunculi.length === 0 && (
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           No Homunculi yet — create one in the Forge first, then pair a
           persona to it here and pick its voice.
         </p>
@@ -229,7 +229,7 @@ export function ForgePersonaPlexSegment() {
               {paired ? (
                 pairingOptions(paired)
               ) : (
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
                   No persona paired — this Homunculus speaks in the
                   default voice (Lily) until one is paired.
                 </p>

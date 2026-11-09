@@ -48,7 +48,7 @@ export function AIChatSegment() {
         <Sparkles size={18} className="text-[var(--text-muted)] shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm">AI Chat</span>
-          <span className="block text-xs text-[var(--text-muted)]">
+          <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
             {plugin
               ? plugin.description
               : 'Lucid AI chat panel — its own plugin, independent of LuciferAI.'}
@@ -72,14 +72,14 @@ export function AIChatSegment() {
           ariaLabel="Show AI Chat on the toolbar"
           title="Put AI Chat on the toolbar — it lives on the StatusBar today"
         />
-        <span className="text-xs text-[var(--text-muted)]">
+        <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
           {onToolbar
             ? 'On the toolbar — AI Chat is a toolbar button.'
             : 'Off the toolbar — AI Chat lives on the StatusBar. Turning it on is your choice.'}
         </span>
       </div>
 
-      <p className="text-xs text-[var(--text-muted)]">
+      <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
         Runs on the ping server, your API key, or a local model. It stays when LuciferAI is
         off — turning LuciferAI off removes the Synth and the blood drop, not AI Chat.
       </p>
@@ -91,7 +91,7 @@ export function AIChatSegment() {
           invents one. */}
       <div>
         <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)]">Connections</h4>
-        <p className="text-xs text-[var(--text-muted)]">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
           No connections yet. A starship, or anything else, can use segments to connect to AI
           Chat and talk to Lucid AI through it — how a connection is made is not decided yet,
           and this segment does not invent a connection mechanism.

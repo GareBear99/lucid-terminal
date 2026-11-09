@@ -1,5 +1,6 @@
 import { safeStorage } from 'electron';
 import Store from 'electron-store';
+import type { GoogleDriveTokens } from './googleDriveOAuth';
 
 /**
  * Resilient store construction.
@@ -359,6 +360,52 @@ export const stripeApiKeyStorage = {
 
   deleteStripeApiKey(): void {
     secureStorage.deleteSecret('stripe-api-key');
+  },
+
+};
+
+// Google Drive tokens - the access + refresh tokens for the user's
+// own Google account (from the OAuth code exchange), stored
+// encrypted like the API key, the ping key, the Telegram bot token
+// and the Stripe key. The renderer only ever sees whether tokens
+// are stored (hasGoogleDriveTokens); the tokens themselves never
+// cross into plain Settings or the renderer.
+export const googleDriveTokenStorage = {
+  setGoogleDriveTokens(tokens: GoogleDriveTokens): void {
+    secureStorage.setSecret('google-drive-tokens', JSON.stringify(tokens));
+  },
+
+  getGoogleDriveTokens(): GoogleDriveTokens | null {
+    const raw = secureStorage.getSecret('google-drive-tokens');
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<GoogleDriveTokens>;
+      if (
+        typeof parsed.accessToken !== 'string' ||
+        parsed.accessToken.trim() === '' ||
+        typeof parsed.expiresAtMs !== 'number' ||
+        !Number.isFinite(parsed.expiresAtMs)
+      ) {
+        return null;
+      }
+      return {
+        accessToken: parsed.accessToken,
+        refreshToken:
+          typeof parsed.refreshToken === 'string' ? parsed.refreshToken : null,
+        expiresAtMs: parsed.expiresAtMs,
+        scope: typeof parsed.scope === 'string' ? parsed.scope : '',
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  hasGoogleDriveTokens(): boolean {
+    return secureStorage.hasSecret('google-drive-tokens');
+  },
+
+  deleteGoogleDriveTokens(): void {
+    secureStorage.deleteSecret('google-drive-tokens');
   },
 
 };

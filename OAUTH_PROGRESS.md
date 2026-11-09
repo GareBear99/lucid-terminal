@@ -40,12 +40,15 @@ Baselines (2026-11-08 ~16:55 PST, before any new code):
   the verifier and parses a token response (mock fetch); refresh + API
   GET + error mapping covered.
 
-## Phase 2 — secure token storage (TODO)
-- Add `googleDriveTokenStorage` to `electron/services/secureStorage.ts`
+## Phase 2 — secure token storage (DONE 2026-11-08 ~17:07 PST)
+- Added `googleDriveTokenStorage` to `electron/services/secureStorage.ts`
   (same pattern as stripeApiKeyStorage): tokens JSON encrypted via
-  `secureStorage.setSecret('google-drive-tokens', …)`.
-- Test the round-trip with mocked `electron` (safeStorage) +
-  `electron-store`, same pattern as `tests/browserActionsMain.test.ts`.
+  `secureStorage.setSecret('google-drive-tokens', …)`; get validates the
+  shape and returns null on corrupt data instead of crashing.
+- Tests: `tests/googleDriveTokenStorage.test.ts` — **5 passed, 0 failed**.
+  Round-trip, tokens never in plain Settings, delete clears, corrupt
+  value reads as null, refresh-token-null round-trips. (Mock electron +
+  electron-store, same pattern as `tests/browserActionsMain.test.ts`.)
 
 ## Phase 3 — IPC + preload + types (TODO)
 - New: `electron/ipc/googleDrive.ts` — `google-drive:startListener`,

@@ -97,6 +97,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // A slash command is running (the 'command' loading key). The
   // shell itself never sets this — only Lucid work does.
   const [slashRunning, setSlashRunning] = useState(false);
+  // Mounted guard for runSlashCommand's finally (2026-11-09 —
+  // macOS release run 42640504309): runSlashCommand is
+  // fire-and-forget from the xterm input handler, and its finally
+  // calls setSlashRunning. If the component unmounts mid-command
+  // (tab closed, test cleanup), the pending chain resolves after
+  // unmount — and after the jsdom env tears down, React's
+  // dispatchSetState reads `window` and throws an unhandled
+  // rejection that fails the whole run. The zustand finish/wiggle
+  // calls in the same finally are store calls and safe unmounted;
+  // only the React setState needs the guard.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   // A dev-bar command is running (devmode only). The dev bar never sets
   // slashRunning, so without this the rainbow swirl never shows in
   // devmode — ProcessingGlow only renders while isProcessing is true.
@@ -844,7 +860,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       console.error('[Slash] Error:', error);
       await write(`❌ Error: ${String(error)}\n\nTry: /help for available commands`);
     } finally {
-      setSlashRunning(false);
+      // Guarded by mountedRef (see above): a leaked chain must
+      // never setState after unmount / env teardown.
+      if (mountedRef.current) setSlashRunning(false);
       useLoadingStore.getState().finish('command');
       // A command completing wiggles the Sentinel face's horns inward
       // once — a little celebration that the task is done.

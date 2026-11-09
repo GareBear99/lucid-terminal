@@ -123,6 +123,24 @@ function ptyWritten(): string {
   return writeMock.mock.calls.map((c) => String(c[1])).join('');
 }
 
+/** The fallback output pane's text so far. */
+function outputText(): string {
+  return screen.getByTestId('xterm-fallback-output').textContent ?? '';
+}
+
+/** Wait until a slash command's output has landed in the pane — i.e.
+ *  the async chain (80 ms echo wait → write → finally) has
+ *  finished. The old waits only checked the backend mock, so the
+ *  test ended while the chain was still pending; on the macOS
+ *  release runner the file's jsdom env tore down inside that
+ *  window and the finally's setState threw an unhandled rejection
+ *  (run 42640504309). Waiting for the output closes the window. */
+async function waitForOutput(text: string) {
+  await waitFor(() => {
+    expect(outputText()).toContain(text);
+  });
+}
+
 function setLuciferAiEnabled(enabled: boolean) {
   const base = useSettingsStore.getState().settings;
   useSettingsStore.setState({ settings: { ...base, luciferAiEnabled: enabled } });
@@ -198,6 +216,7 @@ describe('Terminal with LuciferAI OFF is a plain terminal', () => {
     await waitFor(() => {
       expect(commandMock).toHaveBeenCalledWith('fixnet stats');
     });
+    await waitForOutput('fixnet stats output');
     expect(ptyWritten()).toContain('\x15\r');
     expect(ptyWritten()).not.toContain('fixnet stats\r');
 
@@ -205,11 +224,13 @@ describe('Terminal with LuciferAI OFF is a plain terminal', () => {
     await waitFor(() => {
       expect(getHistoryMock).toHaveBeenCalled();
     });
+    await waitForOutput('pwd');
 
     submitCommand('/workflow status');
     await waitFor(() => {
       expect(workflowStatusMock).toHaveBeenCalled();
     });
+    await waitForOutput('workflow');
 
     // Bare forms are shell commands now — they go to the PTY as
     // executed lines.
@@ -249,6 +270,11 @@ describe('Terminal with LuciferAI ON keeps the drop and the plugin routing', () 
       await waitFor(() => {
         expect(llmListMock).toHaveBeenCalledTimes(1);
       });
+      // Wait for the output to land before unmounting — otherwise
+      // the slash chain is still pending at unmount (see
+      // waitForOutput) and only the mounted guard stands between
+      // it and the torn-down env.
+      await waitForOutput('[]');
       // The slash line was wiped from the shell, never executed.
       expect(ptyWritten()).not.toContain('llm list\r');
     } finally {

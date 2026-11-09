@@ -12,22 +12,29 @@
  * identifier) lives in settings as googleDriveClientId; it is empty
  * until Gary supplies one.
  *
- * What this file does (the sign-in start, for now):
+ * What this file does (the sign-in start + finish, renderer side):
  * - buildGoogleDriveAuthUrl: the Google authorisation URL, with a
  *   PKCE code challenge. Opened in the browser when Connect is
  *   tapped and a client ID is configured.
  * - generatePkcePair: the code verifier + SHA-256 challenge.
  * - googleDriveConnectionState: not-connected / needs-client-id /
  *   connected, from the client ID and whether a token is stored.
+ * - GoogleDriveAuthRedirect / GoogleDriveIpcResult: the types the
+ *   main process speaks over IPC (the listener hands the redirect
+ *   to the renderer; the exchange + token storage live in main and
+ *   the tokens never cross into the renderer).
+ * - checkGoogleDriveRedirect: verify Google's redirect against the
+ *   saved PKCE attempt (state match) before the code is exchanged.
+ * - googleDriveFailureNote: plain-language notes for every failure
+ *   the segment can hit, so it says what went wrong, not a code.
  *
- * What it does NOT do yet (the approved next step, not this task):
- * the loopback redirect listener that catches Google's redirect
- * back to Lucid, the code-for-token exchange, and the secure token
- * storage. Until those land, tapping Connect with a client ID opens
- * the real Google sign-in page, and the sign-in completes once the
- * listener + exchange are wired in. Nothing here fakes a
- * connection: with no client ID the segment says plainly what is
- * missing, and with no token the segment reports not connected.
+ * What it does NOT do yet (next, not this task): Drive file
+ * operations (find, upload, download, organise, share) — the
+ * connection is this task; the file work is next. And the live
+ * sign-in still needs Gary's Desktop-app OAuth client ID: with no
+ * client ID the segment says plainly what is missing, and with no
+ * token the segment reports not connected. Nothing here fakes a
+ * connection.
  *
  * Scope: drive.file — the least-privilege scope for the segment's
  * job (find, upload, download, organise and share the Drive files
@@ -202,4 +209,89 @@ export function buildGoogleDriveAuthUrl(
     prompt: 'consent',
   });
   return `${GOOGLE_OAUTH_AUTH_URL}?${params.toString()}`;
+}
+
+/** What checking Google's redirect against the saved attempt can say. */
+export type GoogleDriveRedirectCheck =
+  | { ok: true; code: string }
+  | {
+      ok: false;
+      error:
+        | 'denied'
+        | 'missing-code'
+        | 'missing-state'
+        | 'bad-url'
+        | 'timeout'
+        | 'listener-failed'
+        | 'attempt-lost'
+        | 'state-mismatch';
+    };
+
+/**
+ * Check Google's redirect before the code is exchanged: the
+ * redirect must have succeeded, the saved PKCE attempt must still
+ * exist (one-time use — takePkceAttempt clears it), and the state
+ * Google sent back must match the state the attempt saved. A
+ * mismatch means the reply is not for this sign-in and the code
+ * must never be exchanged.
+ */
+export function checkGoogleDriveRedirect(
+  redirect: GoogleDriveAuthRedirect,
+  attempt: PkceAttempt | null,
+): GoogleDriveRedirectCheck {
+  if (!redirect.ok) return { ok: false, error: redirect.error };
+  if (!attempt) return { ok: false, error: 'attempt-lost' };
+  if (redirect.state !== attempt.state) return { ok: false, error: 'state-mismatch' };
+  return { ok: true, code: redirect.code };
+}
+
+/**
+ * Plain-language note for a sign-in failure, for the segment to
+ * show under the Connect button. Every error the flow can produce
+ * maps to something Gary can act on; unknown codes fall back to a
+ * generic note, never a bare code.
+ */
+export function googleDriveFailureNote(error: string): string {
+  switch (error) {
+    case 'needs-client-id':
+    case 'no-client-id':
+      return 'Not connected. To connect, Lucid needs a Google OAuth client ID — create one in Google Cloud Console as a Desktop app, and give the client ID to Slave to store in Settings.';
+    case 'listener-failed':
+      return 'The sign-in could not start — Lucid could not listen for Google’s reply on this computer. Try again; if it keeps failing, restart Lucid.';
+    case 'already-running':
+      return 'A Google sign-in is already in progress — finish it in your browser, or wait for it to time out, then try again.';
+    case 'denied':
+      return 'The Google sign-in was denied — Google did not authorise Lucid. Tap Connect and try again, and approve the sign-in when Google asks.';
+    case 'timeout':
+      return 'The sign-in timed out — Google did not reply within 10 minutes. Tap Connect and try again.';
+    case 'missing-code':
+    case 'missing-state':
+    case 'bad-url':
+      return 'Google’s reply could not be understood — no sign-in code came back. Tap Connect and try again.';
+    case 'attempt-lost':
+      return 'The sign-in attempt was lost before Google replied — Lucid could not match the reply to a sign-in it started. Tap Connect and try again.';
+    case 'state-mismatch':
+      return 'Google’s reply did not match the sign-in Lucid started, so it was not used. Tap Connect and try again.';
+    case 'invalid-grant':
+      return 'Google rejected the sign-in code — it may have expired or already been used. Tap Connect and try again.';
+    case 'invalid-client':
+      return 'Google rejected the client ID — check that the client ID stored in Settings is a Desktop-app OAuth client ID from Google Cloud Console.';
+    case 'invalid-request':
+    case 'bad-response':
+    case 'empty':
+      return 'Google’s reply could not be understood. Tap Connect and try again; if it keeps failing, check the client ID in Settings.';
+    case 'network':
+      return 'Lucid could not reach Google — check the network connection and try again.';
+    case 'server':
+      return 'Google’s servers returned an error. Wait a moment and tap Connect to try again.';
+    case 'not-connected':
+      return 'Not connected. Tap Connect and sign in with Google.';
+    case 'token-expired':
+      return 'The saved sign-in expired and could not be refreshed. Tap Connect and sign in with Google again.';
+    case 'unauthorized':
+    case 'forbidden':
+      return 'Google refused access — the saved sign-in no longer has permission. Tap Connect and sign in with Google again.';
+    default:
+      return 'The sign-in could not be completed. Tap Connect and try again.';
+  }
 }

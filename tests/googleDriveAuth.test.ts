@@ -3,10 +3,14 @@
  *
  * The Connect button starts a Google OAuth sign-in (PKCE, desktop
  * flow, no client secret). These tests cover the pure pieces: the
- * connection state, the authorisation URL, the PKCE pair, and the
- * one-time in-flight attempt storage. The loopback redirect
- * listener + code exchange + token storage are the approved next
- * step, not this file.
+ * connection state, the authorisation URL, the PKCE pair, the
+ * one-time in-flight attempt storage, the redirect check against
+ * the saved attempt, and the plain-language failure notes. The
+ * loopback listener + code exchange + token storage live in the
+ * main process (electron/services/googleDriveOAuth.ts, covered by
+ * tests/googleDriveOAuth.test.ts and
+ * tests/googleDriveTokenStorage.test.ts) — the tokens never cross
+ * into the renderer, so they are not testable from here.
  *
  * Gmail is not in this segment and not in this file: Gmail is a
  * separate future segment ("Gmail Connect"), gated on a temp being
@@ -18,8 +22,10 @@ import {
   GOOGLE_DRIVE_SCOPE,
   GOOGLE_OAUTH_AUTH_URL,
   buildGoogleDriveAuthUrl,
+  checkGoogleDriveRedirect,
   generatePkcePair,
   googleDriveConnectionState,
+  googleDriveFailureNote,
   savePkceAttempt,
   sha256UrlSafe,
   takePkceAttempt,
@@ -100,5 +106,84 @@ describe('PKCE attempt storage', () => {
     savePkceAttempt({ verifier: 'verifier-1', state: 'state-1' });
     expect(takePkceAttempt()).toEqual({ verifier: 'verifier-1', state: 'state-1' });
     expect(takePkceAttempt()).toBeNull();
+  });
+});
+
+describe('checkGoogleDriveRedirect', () => {
+  const attempt = { verifier: 'verifier-1', state: 'state-1' };
+
+  it('passes a matching code + state through', () => {
+    expect(
+      checkGoogleDriveRedirect({ ok: true, code: 'code-1', state: 'state-1' }, attempt),
+    ).toEqual({ ok: true, code: 'code-1' });
+  });
+
+  it('refuses a state mismatch — the code must never be exchanged', () => {
+    expect(
+      checkGoogleDriveRedirect({ ok: true, code: 'code-1', state: 'state-2' }, attempt),
+    ).toEqual({ ok: false, error: 'state-mismatch' });
+  });
+
+  it('fails when the saved attempt is gone', () => {
+    expect(
+      checkGoogleDriveRedirect({ ok: true, code: 'code-1', state: 'state-1' }, null),
+    ).toEqual({ ok: false, error: 'attempt-lost' });
+  });
+
+  it('passes a listener failure through unchanged', () => {
+    expect(checkGoogleDriveRedirect({ ok: false, error: 'timeout' }, attempt)).toEqual({
+      ok: false,
+      error: 'timeout',
+    });
+    expect(checkGoogleDriveRedirect({ ok: false, error: 'denied' }, attempt)).toEqual({
+      ok: false,
+      error: 'denied',
+    });
+    expect(
+      checkGoogleDriveRedirect({ ok: false, error: 'listener-failed' }, attempt),
+    ).toEqual({ ok: false, error: 'listener-failed' });
+  });
+});
+
+describe('googleDriveFailureNote', () => {
+  it('says plainly what is missing when there is no client ID', () => {
+    const note = googleDriveFailureNote('no-client-id');
+    expect(note).toContain('client ID');
+    expect(note).toContain('Google Cloud Console');
+    expect(googleDriveFailureNote('needs-client-id')).toContain('client ID');
+  });
+
+  it('names the failure for every error the flow can produce, never a bare code', () => {
+    const errors = [
+      'listener-failed',
+      'already-running',
+      'denied',
+      'timeout',
+      'missing-code',
+      'missing-state',
+      'bad-url',
+      'attempt-lost',
+      'state-mismatch',
+      'invalid-grant',
+      'invalid-client',
+      'invalid-request',
+      'bad-response',
+      'empty',
+      'network',
+      'server',
+      'not-connected',
+      'token-expired',
+      'unauthorized',
+      'forbidden',
+    ];
+    for (const error of errors) {
+      const note = googleDriveFailureNote(error);
+      expect(note.length).toBeGreaterThan(20);
+      expect(note).not.toBe(error);
+    }
+  });
+
+  it('falls back to a generic note for an unknown code', () => {
+    expect(googleDriveFailureNote('something-new')).toContain('try again');
   });
 });

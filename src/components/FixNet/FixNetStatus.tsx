@@ -22,6 +22,7 @@
 import { useEffect, useState } from 'react';
 import { useTerminalStore, activeTerminalStatus } from '../../stores/terminalStore';
 import { OnlineIndicator } from './OnlineIndicator';
+import { DefconBadge } from './DefconBadge';
 
 interface FixNetStats {
   success: boolean;
@@ -74,7 +75,10 @@ export function FixNetStatus() {
     // with a muted placeholder where the stats will land.
     return (
       <div className="fixnet-status px-4 py-1 border-b border-gray-800 flex items-center justify-between gap-3">
-        <div className="text-xs text-gray-600 font-mono">[FixNet: …]</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-gray-600 font-mono">[FixNet: …]</div>
+          <DefconBadge />
+        </div>
         <OnlineIndicator status={status} />
       </div>
     );
@@ -84,15 +88,18 @@ export function FixNetStatus() {
     // Same line, opposite side (Gary, 2026-11-09): FixNet stats on
     // the left, the online indicator on the right.
     <div className="fixnet-status px-4 py-1 border-b border-gray-800 flex items-center justify-between gap-3">
-      <div className="text-xs text-gray-500 font-mono">
-        <span className="text-gray-600">[</span>
-        <span className="text-purple-400">FixNet:</span>{' '}
-        <span className="text-green-400">{stats.fixes_count}</span> fixes
-        <span className="text-gray-600">, </span>
-        <span className="text-blue-400">{stats.scripts_count}</span> scripts
-        <span className="text-gray-600">, </span>
-        <span className="text-cyan-400">{stats.offline_percentage}%</span> offline
-        <span className="text-gray-600">]</span>
+      <div className="flex items-center gap-2">
+        <div className="text-xs text-gray-500 font-mono">
+          <span className="text-gray-600">[</span>
+          <span className="text-purple-400">FixNet:</span>{' '}
+          <span className="text-green-400">{stats.fixes_count}</span> fixes
+          <span className="text-gray-600">, </span>
+          <span className="text-blue-400">{stats.scripts_count}</span> scripts
+          <span className="text-gray-600">, </span>
+          <span className="text-cyan-400">{stats.offline_percentage}%</span> offline
+          <span className="text-gray-600">]</span>
+        </div>
+        <DefconBadge />
       </div>
       <OnlineIndicator status={status} />
     </div>

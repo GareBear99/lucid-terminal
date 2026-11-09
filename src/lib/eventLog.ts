@@ -86,6 +86,8 @@ export type EventType =
   | 'browser.permission-prompt'
   /** During the session: a web page asked for sign-in. */
   | 'browser.auth-prompt'
+  /** During the session: the DEFCON level changed (Gary's order). */
+  | 'defcon.level-change'
   /** During the session: an ask with no attributable trigger. */
   | 'unexpected-ask';
 
@@ -184,6 +186,8 @@ export function eventTypeLabel(type: EventType): string {
       return 'Page asked for a capability';
     case 'browser.auth-prompt':
       return 'Page asked for sign-in';
+    case 'defcon.level-change':
+      return 'DEFCON level changed';
     case 'unexpected-ask':
       return 'Unexpected ask';
   }

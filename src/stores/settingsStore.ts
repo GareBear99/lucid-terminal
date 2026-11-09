@@ -141,6 +141,13 @@ const defaultSettings: Settings = {
   // Dev mode — OFF by default: the prompt bar and the terminal
   // stay topology-synced on a fresh startup (Gary, 2026-11-07).
   devMode: false,
+  // DEFCON level (Gary, 2026-11-09 — see src/lib/defcon.ts):
+  // 1 = NOW, the war zone. Takes effect in NON-devmode (the main
+  // Warp-style terminal), where it is visible; devmode is where
+  // the levels were understood.
+  defconLevel: 1,
+  // DEFCON 2 merge reading — null = Gary hasn't picked one yet.
+  defconMergeReading: null,
   // Full Glass unlock state (Gary, 2026-11-07) — the referral +
   // active purchase tier reward theme. 0 / false = locked.
   referralCount: 0,

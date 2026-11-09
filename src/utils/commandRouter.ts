@@ -34,6 +34,7 @@ export type CommandType =
   | 'daemon'
   | 'agent'
   | 'devmode'
+  | 'defcon'
   | 'shell'
   | 'unknown';
 
@@ -391,6 +392,23 @@ function parseSlashCommand(input: string): ParsedCommand {
     };
   }
 
+  // DEFCON (Gary, 2026-11-09) — `/defcon`, `/defcon 1|2|3`,
+  // `/defcon merge a|b|c`. Lucid-local, like devmode: it reads
+  // and sets the `defconLevel` setting, so it runs with
+  // LuciferAI on OR off, in devmode or not. The levels take
+  // effect in NON-devmode (the main Warp-style terminal) — that
+  // is the point; devmode is where they were understood.
+  if (command === 'defcon') {
+    return {
+      type: 'defcon',
+      command: 'defcon',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
   // Agent command (explicit)
   if (command === 'agent' || command === 'ai' || command === 'ask') {
     return {
@@ -453,6 +471,8 @@ export function getCommandDescription(type: CommandType): string {
       return 'Routing to LuciferAI agent...';
     case 'devmode':
       return 'Toggling dev mode...';
+    case 'defcon':
+      return 'Reading or setting the DEFCON level...';
     case 'shell':
       return 'Executing shell command...';
     default:
@@ -483,6 +503,7 @@ export function getCommandExamples(prefix: string): string[] {
     '/tokens',
     '/history',
     '/devmode on',
+    '/defcon',
     '/agent explain Docker containers'
   ];
 

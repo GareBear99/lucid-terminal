@@ -92,10 +92,15 @@ afterEach(() => {
   useHistoryStore.setState({ blocksByTab: {} });
   const base = useSettingsStore.getState().settings;
   useSettingsStore.setState({
-    settings: { ...base, devMode: false, luciferAiEnabled: false },
+    settings: { ...base, devMode: false, luciferAiEnabled: false, defconLevel: 1, defconMergeReading: null },
   });
   vi.restoreAllMocks();
 });
+
+function setDefconLevel(level: 1 | 2 | 3) {
+  const base = useSettingsStore.getState().settings;
+  useSettingsStore.setState({ settings: { ...base, defconLevel: level } });
+}
 
 function setDevMode(enabled: boolean) {
   const base = useSettingsStore.getState().settings;
@@ -482,6 +487,163 @@ describe('/devmode slash command', () => {
     });
     expect(settingsSetMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId('dev-command-bar')).toBeNull();
+  });
+});
+
+describe('/defcon slash command (Gary, 2026-11-09)', () => {
+  test('/defcon with no argument prints the current level and its criteria', async () => {
+    setDevMode(false);
+    setDefconLevel(1);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    submitToTerminal('/defcon');
+    await waitFor(() => {
+      expect(terminalOutputText()).toContain('DEFCON 1 — NOW');
+    });
+    await waitFor(() => {
+      expect(terminalOutputText()).toContain('war zone');
+    });
+    expect(settingsSetMock).not.toHaveBeenCalled();
+  });
+
+  test('/defcon 2 from the terminal stream sets the level — and says honestly what is still open', async () => {
+    setDevMode(false);
+    setDefconLevel(1);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    submitToTerminal('/defcon 2');
+    await waitFor(() => {
+      expect(settingsSetMock).toHaveBeenCalledWith('defconLevel', 2);
+    });
+    await waitFor(() => {
+      expect(terminalOutputText()).toContain('DEFCON 2');
+    });
+    // Nothing picked yet — the reading is still open (the merge
+    // build itself has landed; only the pick is outstanding).
+    await waitFor(() => {
+      expect(terminalOutputText()).toContain('Still open');
+    });
+  });
+
+  test('/defcon 9 prints usage, and changes nothing', async () => {
+    setDevMode(false);
+    setDefconLevel(1);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    submitToTerminal('/defcon 9');
+    await waitFor(() => {
+      expect(terminalOutputText()).toContain('Usage: /defcon');
+    });
+    expect(settingsSetMock).not.toHaveBeenCalled();
+  });
+
+  test('/defcon merge b from the dev bar picks the merge reading — the merge is built and takes effect at DEFCON 2', async () => {
+    setDevMode(true);
+    // The dev console only renders while LuciferAI is on — the
+    // merge confirmation lands there, so enable it for this test.
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    submitToDevBar('/defcon merge b');
+    await waitFor(() => {
+      expect(settingsSetMock).toHaveBeenCalledWith('defconMergeReading', 'b');
+    });
+    await waitFor(() => {
+      expect(devConsoleText()).toContain('merge reading picked');
+    });
+    // The merge is built (reading (b)) — picking the reading no
+    // longer says "NOT done"; it says where the merge takes effect.
+    await waitFor(() => {
+      expect(devConsoleText()).toContain('takes effect at DEFCON 2');
+    });
+  });
+
+  test('/defcon merge with no reading prints the three readings, and changes nothing', async () => {
+    setDevMode(false);
+    setDefconLevel(1);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    submitToTerminal('/defcon merge');
+    await waitFor(() => {
+      expect(terminalOutputText()).toContain('terminal over mist');
+    });
+    expect(settingsSetMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-11-09 ~04:27–04:30 PST)', () => {
+  // No jest-dom in this repo — assert on DOM properties, not
+  // matchers. Class tokens, split exactly: 'bg-black' must not
+  // false-match 'bg-black/50'.
+  function classesOf(el: HTMLElement): string[] {
+    return el.className.split(/\s+/);
+  }
+
+  test('DEFCON 1, non-devmode: the page is exactly as it stands — opaque black, solid black wrap', async () => {
+    setDevMode(false);
+    setDefconLevel(1);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    const page = screen.getByTestId('terminal-page');
+    expect(classesOf(page)).toContain('bg-black');
+    const wrap = screen.getByTestId('prompt-input-wrap');
+    expect(classesOf(wrap)).toContain('bg-black');
+    expect(classesOf(wrap)).not.toContain('backdrop-blur-sm');
+    expect(classesOf(wrap)).not.toContain('bg-black/50');
+  });
+
+  test('DEFCON 2, non-devmode: the black lifts — mist directly behind the text, darkening blur, bar untouched', async () => {
+    setDevMode(false);
+    setDefconLevel(2);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    // The opaque black is gone from the page root, so the mist
+    // behind shows through — that is where the DEFCONs take effect.
+    const page = screen.getByTestId('terminal-page');
+    expect(classesOf(page)).not.toContain('bg-black');
+    // The wrap drops the solid black for the darkening blur:
+    // mist directly behind the text, darkened where the text sits.
+    const wrap = screen.getByTestId('prompt-input-wrap');
+    expect(classesOf(wrap)).toContain('bg-black/50');
+    expect(classesOf(wrap)).toContain('backdrop-blur-sm');
+    expect(classesOf(wrap)).not.toContain('bg-black');
+    expect(classesOf(wrap)).not.toContain('bg-[var(--bg-tertiary)]/50');
+    // The prompt section is NOT part of the merge — the solid
+    // black Warp bar stays exactly as it is.
+    const section = screen.getByTestId('prompt-section');
+    expect(section.style.background).toBe('rgb(0, 0, 0)');
+  });
+
+  test('DEFCON 2, devmode: the frosted glass drops for the same darkening blur', async () => {
+    setDevMode(true);
+    setDefconLevel(2);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    const wrap = screen.getByTestId('prompt-input-wrap');
+    expect(classesOf(wrap)).toContain('bg-black/50');
+    expect(classesOf(wrap)).toContain('backdrop-blur-sm');
+    expect(classesOf(wrap)).not.toContain('bg-[var(--bg-tertiary)]/50');
+    expect(classesOf(wrap)).not.toContain('backdrop-blur-md');
+  });
+
+  test('DEFCON 1, devmode: the frosted glass stays — the merge has not taken effect', async () => {
+    setDevMode(true);
+    setDefconLevel(1);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('xterm-surface');
+
+    const wrap = screen.getByTestId('prompt-input-wrap');
+    expect(classesOf(wrap)).toContain('bg-[var(--bg-tertiary)]/50');
+    expect(classesOf(wrap)).toContain('backdrop-blur-md');
+    expect(classesOf(wrap)).not.toContain('bg-black/50');
   });
 });
 

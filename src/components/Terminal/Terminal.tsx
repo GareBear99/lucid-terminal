@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useEventLogStore } from '../../stores/eventLogStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
@@ -17,6 +18,7 @@ import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled, isLuciferAiSilenced, LUCIFER_AI_SILENCED_NOTE } from '../../lib/luciferAi';
+import { DEFCON_DEFAULT, DEFCON2_MERGE_IMPLEMENTED, defconCriteria, defconMergeActive, defconMergeReadingText, defconTagline, describeDefcon, isDefconLevel } from '../../lib/defcon';
 import { checkPromptFocus, ptyWriteFailureReason, TOPOLOGY_FALLBACK_NOTICE, TOPOLOGY_FALLBACK_TITLE } from '../../lib/topologySync';
 import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -70,7 +72,8 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   const { settings } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
-  // this value, never the raw setting (missing key = ON).
+  // this value, never the raw setting (missing key = OFF — see
+  // src/lib/luciferAi.ts, the one source of truth).
   const luciferAiEnabled = isLuciferAiEnabled(settings);
   // The LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST):
   // the blood drop toggle is JUST a silencer — it greys the drop,
@@ -106,6 +109,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // dev console render in the prompt section instead. A missing
   // key in older persisted settings counts as OFF.
   const devMode = settings.devMode === true;
+  // DEFCON 2 merge switch (Gary, 2026-11-09 ~04:29–04:30 PST):
+  // at DEFCON 2+ the terminal merges with the splashback —
+  // mist directly behind the text with a darkening blur — and
+  // it is judged by how it lands in NON-devmode. At DEFCON 1
+  // the terminal is exactly as it stands; the level is the
+  // only switch, nothing else flips the merge.
+  const defconMerge = defconMergeActive(settings.defconLevel ?? DEFCON_DEFAULT);
   // Detached dev-bar input + its own submitted-line history
   // (Up/Down), separate from the shell's history.
   const [devInput, setDevInput] = useState('');
@@ -577,6 +587,69 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       return;
     }
 
+    // DEFCON — Lucid-local, works with LuciferAI on or off, in
+    // devmode or not (the levels take effect in NON-devmode —
+    // Gary, 2026-11-09 ~04:24 PST — but the command is how Gary
+    // sets them, and the dev bar is a legitimate command surface).
+    // `/defcon` prints the current level + criteria;
+    // `/defcon 1|2|3` sets the level — Gary's explicit order
+    // ONLY, nothing auto-escalates, and the change is recorded
+    // in the event log; `/defcon merge a|b|c` picks the DEFCON 2
+    // merge reading. The merge itself is BUILT (Gary, 2026-11-09
+    // ~04:29–04:30 PST, reading (b), directly in the terminal):
+    // it takes effect at DEFCON 2+ — the level is the switch.
+    if (parsed.type === 'defcon') {
+      const settings = useSettingsStore.getState().settings;
+      const level = settings.defconLevel;
+      const mergeReading = settings.defconMergeReading;
+      const arg = (parsed.args[0] ?? '').toLowerCase();
+      if (arg === 'merge') {
+        const reading = (parsed.args[1] ?? '').toLowerCase();
+        if (reading !== 'a' && reading !== 'b' && reading !== 'c') {
+          await write(
+            `DEFCON 2 merge reading — ${mergeReading === null ? 'not picked yet' : `picked: ${defconMergeReadingText(mergeReading)}`}\n\n${defconMergeReadingText('a')}\n${defconMergeReadingText('b')}\n${defconMergeReadingText('c')}\n\nUsage: /defcon merge a|b|c — pick the DEFCON 2 merge reading. The merge (reading (b)) is built: at DEFCON 2+ the mist shows directly behind the text with a darkening blur.`,
+          );
+          return;
+        }
+        await useSettingsStore.getState().updateSetting('defconMergeReading', reading);
+        await write(
+          `DEFCON 2 merge reading picked: ${defconMergeReadingText(reading)}\n\nThe merge is built (reading (b)) — it takes effect at DEFCON 2: set the level with /defcon 2 to see it.`,
+        );
+        return;
+      }
+      if (arg === '') {
+        await write(
+          `${describeDefcon(level, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED })}\n\nUsage: /defcon 1|2|3 — set the level (your order only, nothing auto-escalates). /defcon merge a|b|c — pick the DEFCON 2 merge reading.`,
+        );
+        return;
+      }
+      const next = Number(arg);
+      if (!isDefconLevel(next)) {
+        await write(
+          'Usage: /defcon [1|2|3] — set the level. /defcon — show the current level. /defcon merge a|b|c — pick the DEFCON 2 merge reading.',
+        );
+        return;
+      }
+      if (next === level) {
+        await write(`Already at ${describeDefcon(level, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED })}`);
+        return;
+      }
+      await useSettingsStore.getState().updateSetting('defconLevel', next);
+      useEventLogStore.getState().log({
+        phase: 'throughout',
+        type: 'defcon.level-change',
+        what: `DEFCON level ${level} → ${next}`,
+        why: 'Gary’s explicit order — /defcon command',
+        outcome: 'completed',
+        detail: null,
+      });
+      const unmet = defconCriteria(next, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED }).filter((c) => !c.met);
+      await write(
+        `DEFCON ${next} — ${defconTagline(next)}${unmet.length > 0 ? `\n\nStill open:\n${unmet.map((c) => `  [ ] ${c.text}`).join('\n')}` : ''}\n\nLevels gate nothing — they are readiness milestones, not locks.`,
+      );
+      return;
+    }
+
     setSlashRunning(true);
     useLoadingStore.getState().start('command');
     try {
@@ -948,8 +1021,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           keeps the old look (transparent, mist showing through,
           glass panels): the glass is the troubleshooting mode's
           look now, not the default's. Coherence (Gary, 2026-11-08
-          ~07:08 PST): one unison black page, no mismatched panels. */}
-      <div data-testid="terminal-page" className={`h-full w-full flex overflow-hidden${devMode ? '' : ' bg-black'}`}>
+          ~07:08 PST): one unison black page, no mismatched panels.
+          EXCEPTION — DEFCON 2 merge (Gary, 2026-11-09 ~04:29–
+          04:30 PST, reading (b)): at DEFCON 2+ the opaque black
+          lifts off this root (in non-devmode too — that is where
+          the DEFCONs take effect) so the mist shows directly
+          behind the text, with the darkening blur on the wrap
+          below keeping the text readable. At DEFCON 1 the black
+          stays exactly as it was. */}
+      <div data-testid="terminal-page" className={`h-full w-full flex overflow-hidden${devMode || defconMerge ? '' : ' bg-black'}`}>
         {/* Terminal Content (the chats live in the main Sidebar now).
             Non-devmode: the page root above is opaque black, so this
             stays transparent — the black is the page, not a panel. */}
@@ -1008,10 +1088,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               prompt's panel, square corners, with the 2px top edge
               marking where the output ends and the prompt begins.
               Dev mode keeps the squared glass backwall (frosted
-              translucent, backdrop blur) over the mist. */}
+              translucent, backdrop blur) over the mist.
+              DEFCON 2 MERGE (Gary, 2026-11-09 ~04:27–04:30 PST —
+              his pick, reading (b), built directly in the
+              terminal): at DEFCON 2+ the wrap drops BOTH the
+              solid black (non-devmode) and the frosted tertiary
+              glass (devmode) for the mist as the direct
+              background — `bg-black/50 backdrop-blur-sm`, a
+              darkening blur directly behind the text, so the
+              drifting puffs show through but never eat the
+              text. The prompt section below is NOT part of the
+              merge — its solid black bar (non-devmode) stays. */}
           <div className="flex-1 overflow-hidden p-4">
             <div data-testid="prompt-input-wrap"
-                 className={devMode
+                 className={defconMerge
+                   ? 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-black/50 backdrop-blur-sm'
+                   : devMode
                    ? 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-[var(--bg-tertiary)]/50 backdrop-blur-md'
                    : 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-black'}>
               <XtermSurface

@@ -6,6 +6,7 @@ import type {
   TouchMessage,
 } from '../phone/streaming';
 import type { HomunculusColor } from '../lib/homunculusColor';
+import type { DefconLevel, DefconMergeReading } from '../lib/defcon';
 import type { StopColorDuration } from '../lib/dualUnison';
 import type {
   Homunculus,
@@ -296,20 +297,29 @@ export interface Settings {
   // build yet. null = no version recorded (choice predates the
   // drop-down, or explore was chosen): Iteration 8 is the fallback.
   synthVersion: SynthVersion | null;
-  // LuciferAI plugin enabled state. Default ON (true). When false the
-  // plugin is completely gone — blood drop, heartbeat, Help, AI chat,
-  // Synth surfaces, plugin commands — see src/lib/luciferAi.ts.
-  // Missing keys in older persisted settings count as ON.
+  // LuciferAI plugin enabled state. Default OFF (false) — see
+  // src/lib/luciferAi.ts, the one source of truth: when false the
+  // plugin is completely gone — blood drop, heartbeat, Help,
+  // Synth surfaces, plugin commands. (AI Chat is NOT a LuciferAI
+  // surface any more — it is Lucid AI, its own plugin — so
+  // disabling LuciferAI does NOT remove the AI panel.) Missing
+  // keys in older persisted settings count as OFF.
   luciferAiEnabled: boolean;
   // LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST): the
   // blood drop toggle is JUST a silencer — it silences LuciferAI's
-  // own voices but does NOT stop the runtime (causal ticks keep
-  // running, causal order is held). Silenced = the drop greys out
-  // but stays visible and clickable (clicking un-silences). This is
-  // SEPARATE from luciferAiEnabled: the drop disappears ONLY when
-  // LuciferAI is off via the Settings toggle (Settings → Plugins).
-  // Default false (speaking). Missing keys in older persisted
-  // settings count as NOT silenced.
+  // own voices but does NOT stop the runtime. LuciferAI's OWN
+  // causal ticks FREEZE while silenced (never reset or
+  // re-numbered, they resume from the frozen count on
+  // un-silence); the runtime itself keeps running underneath.
+  // AI Chat ticks are a SEPARATE path (Lucid AI, not a LuciferAI
+  // surface) and are NOT gated by silenced, so they keep running
+  // — that is by design (see src/lib/luciferAi.ts), not a gap.
+  // Silenced = the drop greys out but stays visible and clickable
+  // (clicking un-silences). This is SEPARATE from luciferAiEnabled:
+  // the drop disappears ONLY when LuciferAI is off via the
+  // Settings toggle (Settings → Plugins). Default false
+  // (speaking). Missing keys in older persisted settings count
+  // as NOT silenced.
   luciferAiSilenced: boolean;
   // Dev mode (Gary, 2026-11-07): delinks the terminal prompt bar
   // from the terminal screen. OFF (default) is topology-synced —
@@ -322,6 +332,28 @@ export interface Settings {
   // dev bar works with the plugin on or off. Missing keys in older
   // persisted settings count as OFF.
   devMode: boolean;
+  // DEFCON level (Gary, 2026-11-09 — see src/lib/defcon.ts):
+  // the devmode readiness state, 1–3. DEFCON 1 = NOW, the war
+  // zone, the terminal as it stands. DEFCON 2 = terminal merged
+  // with splashback in devmode. DEFCON 3 = the prompter, when we
+  // get it all sorted out. Levels are readiness milestones — they
+  // gate nothing — and change only on Gary's explicit order (the
+  // `/defcon` command). CORRECTION (Gary, 2026-11-09 ~04:24 PST):
+  // the DEFCONs take effect in NON-devmode — that is the point.
+  // Devmode is where they were understood; non-devmode (the main
+  // Warp-style terminal) is where they take effect. The level is
+  // visible on the main terminal, not locked inside devmode.
+  // Default 1. Missing keys in older persisted settings count
+  // as 1.
+  defconLevel: DefconLevel;
+  // DEFCON 2 merge reading (Gary, 2026-11-09): which reading of
+  // "terminal merged with splashback" Gary picked — (a) terminal
+  // over mist (already true in devmode), (b) mist as the
+  // terminal's direct background, or (c) one surface. null =
+  // not picked yet (set with `/defcon merge a|b|c`). Picking a
+  // reading does NOT perform the merge — that is a separate
+  // build step Gary calls.
+  defconMergeReading: DefconMergeReading | null;
   // Full Glass unlock state (Gary, 2026-11-07) — the referral +
   // active purchase tier reward theme. `referralCount` is how many
   // successful referrals this user has; `purchaseTierActive` is

@@ -16,18 +16,27 @@ function cleanSpawnError(error: unknown): string {
     .trim();
 }
 
-interface TerminalState {
+export interface TerminalState {
   tabs: TerminalTab[];
   activeTabId: string | null;
   // Synchronous spawn failures (bad cwd): spawn() throws before any
   // terminal exists, so there is no onData/onExit event to surface. The
   // message is recorded here so the Terminal can show it.
   createErrors: Record<string, string>;
+  // Shells that have died (tab id -> exit code), fed by the main
+  // process's real `terminal:exit` event via App's onExit listener
+  // (Gary, 2026-11-09: the online indicator reads this). A tab stays
+  // in `tabs` after its shell exits — the Terminal shows a "Shell
+  // exited" banner with a restart — so this record is what tells a
+  // live-looking dead terminal apart from a live one. It is NOT a
+  // timer and NOT a guess: the PTY really exited.
+  exitedTabs: Record<string, number>;
 
   // Actions
   createTab: (cwd?: string) => Promise<string>;
   closeTab: (id: string) => void;
   clearCreateError: (id: string) => void;
+  markTabExited: (id: string, code: number) => void;
   setActiveTab: (id: string) => void;
   updateTabTitle: (id: string, title: string) => void;
   updateTabCwd: (id: string, cwd: string) => void;
@@ -75,6 +84,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   tabs: [],
   activeTabId: null,
   createErrors: {},
+  exitedTabs: {},
 
   createTab: async (cwd?: string) => {
     // Reserve the lowest free number synchronously, before any await:
@@ -111,10 +121,19 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       useToastStore.getState().error(`Terminal failed to start: ${message}`);
     }
 
-    set((state) => ({
-      tabs: [...state.tabs.map(t => ({ ...t, isActive: false })), newTab],
-      activeTabId: id,
-    }));
+    set((state) => {
+      // Tab numbers are reused (lowest free number), so a fresh tab
+      // can inherit the id of a tab whose shell died — drop any stale
+      // exited entry for this id, or the new live shell would read
+      // as dead.
+      const exitedTabs = { ...state.exitedTabs };
+      delete exitedTabs[id];
+      return {
+        tabs: [...state.tabs.map(t => ({ ...t, isActive: false })), newTab],
+        activeTabId: id,
+        exitedTabs,
+      };
+    });
 
     return id;
   },
@@ -155,8 +174,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
       const createErrors = { ...state.createErrors };
       delete createErrors[id];
-      return { tabs: newTabs, activeTabId: newActiveId, createErrors };
+      const exitedTabs = { ...state.exitedTabs };
+      delete exitedTabs[id];
+      return { tabs: newTabs, activeTabId: newActiveId, createErrors, exitedTabs };
     });
+  },
+
+  markTabExited: (id, code) => {
+    set((state) => ({ exitedTabs: { ...state.exitedTabs, [id]: code } }));
   },
 
   setActiveTab: (id) => {
@@ -182,3 +207,28 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     cachedHomeDir = null;
   },
 }));
+
+/**
+ * Is the terminal active within the system to the computer? (Gary,
+ * 2026-11-09: the online indicator reads this.) The ACTIVE tab's
+ * shell must be alive: a tab exists and is active, its PTY never
+ * exited (see exitedTabs, fed by the real `terminal:exit` event),
+ * and its spawn never failed (see createErrors). No tabs at all —
+ * the empty state — is offline, and so is an active tab whose
+ * shell died while another tab is still alive: the indicator shows
+ * the terminal in front of you, not some other tab.
+ *
+ * A zustand selector as well as a plain function: use it as
+ * `useTerminalStore(isActiveTerminalOnline)` so the indicator only
+ * re-renders when the boolean itself flips.
+ */
+export function isActiveTerminalOnline(
+  state: Pick<TerminalState, 'tabs' | 'activeTabId' | 'exitedTabs' | 'createErrors'>,
+): boolean {
+  const { tabs, activeTabId, exitedTabs, createErrors } = state;
+  if (!activeTabId) return false;
+  if (!tabs.some((t) => t.id === activeTabId)) return false;
+  if (exitedTabs[activeTabId] !== undefined) return false;
+  if (createErrors[activeTabId]) return false;
+  return true;
+}

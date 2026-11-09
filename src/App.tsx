@@ -246,6 +246,12 @@ function App() {
 
     window.lucidAPI.terminal.onExit((id, code) => {
       console.log(`Terminal ${id} exited with code ${code}`);
+      // The online indicator reads this (Gary, 2026-11-09): the
+      // PTY for this tab really exited, so the terminal is no longer
+      // active within the system to the computer. The tab itself
+      // stays (the Terminal shows its "Shell exited" banner), so
+      // the store needs this record to tell dead from live.
+      useTerminalStore.getState().markTabExited(id, code);
     });
   }, []);
 

@@ -125,17 +125,34 @@ export const BLOCK_QUIET_CLOSE_MS = 500;
  * which also makes it correct across chunk boundaries (an
  * escape or a `e\x08` pair split across two PTY chunks still
  * sanitizes as one stream).
+ *
+ * LIVE BUG, found in the first live verification (Gary,
+ * 2026-11-09, pid 26799): the peel in step 0 ate the next
+ * capture's first character. A slash block (`/devmode on`)
+ * read "… % ev mode ON" — the "D" of "Dev" gone. What
+ * happened: termWriteLines waits for the next PTY chunk
+ * before writing slash output, so the shell's prompt redraw
+ * (from the resize the slash itself caused) landed in the
+ * block FIRST, its last PTY chunk ending mid-escape
+ * (`…\x1b[`), and the peeled partial sat at the end of the
+ * stored output; the slash message appended next, so the
+ * sanitizer saw `\x1b[Dev…` and stripped `\x1b[D` (CSI,
+ * final byte D) as an escape. The fix: a peeled partial is
+ * NEVER stored in the block text. It is held per-block,
+ * outside the output, and offered only to the next chunk of
+ * the SAME stream (the PTY). A termWriteLines capture is a
+ * different stream — already-clean text — and never sees the
+ * pending partial, so its first character cannot be eaten.
+ * See appendBlockOutput.
  */
-export function sanitizeBlockTranscript(text: string): string {
-  if (!text) return text;
+function sanitizeWithPending(text: string): { text: string; pending: string } {
+  if (!text) return { text, pending: '' };
   // 0. A sequence split across PTY chunks: a trailing
   // INCOMPLETE escape (CSI with no final byte, OSC with no
-  // terminator, a bare ESC) is peeled off and re-appended
-  // verbatim, so the next chunk's continuation completes it
-  // instead of the strip below mangling it. The stream
-  // essentially never ends mid-escape (a command's output
-  // completes), so a peeled partial is completed by the
-  // next append, not left dangling.
+  // terminator, a bare ESC) is peeled off and returned
+  // separately, so the next chunk's continuation completes
+  // it instead of the strip below mangling it. It is NOT
+  // re-appended to the text — see the LIVE BUG note above.
   const partialMatch = /(?:\x1b\[[0-?]*[ -/]*|\x1b\][^\x07\x1b]*|\x1b[()]|\x1b)$/.exec(text);
   const partial = partialMatch ? partialMatch[0] : '';
   const body = partial ? text.slice(0, -partial.length) : text;
@@ -186,7 +203,12 @@ export function sanitizeBlockTranscript(text: string): string {
     }
   }
   lines.push(cur.join('').replace(/[ \t]+$/, ''));
-  return lines.join('\n') + partial;
+  return { text: lines.join('\n'), pending: partial };
+}
+
+export function sanitizeBlockTranscript(text: string): string {
+  const { text: clean, pending } = sanitizeWithPending(text);
+  return clean + pending;
 }
 
 /** A stable block id: submit timestamp + a per-process counter,
@@ -211,6 +233,23 @@ export function newBlock(command: string, cwd: string | undefined, now: number):
   };
 }
 
+/** A trailing partial escape, held per block OUTSIDE the
+ * stored output (see the LIVE BUG note on the sanitizer):
+ * it belongs to the PTY byte stream, and only the next PTY
+ * chunk may complete it. Entries are dropped when the block
+ * stops being current (openBlock in Terminal.tsx) or its
+ * tab's blocks are cleared (historyStore) — never on close,
+ * because a closed block still takes late PTY output until
+ * the next submit, and a late remainder must still complete
+ * the escape instead of landing as literal text. */
+const pendingEscapeByBlock = new Map<string, string>();
+
+/** Drop a block's held partial escape. Safe to call for an
+ * id with no entry. */
+export function dropPendingEscape(blockId: string): void {
+  pendingEscapeByBlock.delete(blockId);
+}
+
 /** Append transcript text to a block, capped at
  *  BLOCK_OUTPUT_CAP (oldest text is dropped past the cap —
  *  the tail, the part the user is reading, is what survives).
@@ -218,10 +257,33 @@ export function newBlock(command: string, cwd: string | undefined, now: number):
  *  sanitizeBlockTranscript): the block keeps the text the
  *  terminal showed, not the raw PTY bytes. Sanitizing the
  *  concatenation (not each chunk alone) keeps escapes and
- *  backspace pairs correct across chunk boundaries. */
-export function appendBlockOutput(block: TerminalBlock, text: string): TerminalBlock {
+ *  backspace pairs correct across chunk boundaries.
+ *
+ * `source` is which stream the text came from, and it
+ * matters for a split escape: a PTY chunk may complete the
+ * block's held partial (it is offered the pending bytes,
+ * between the stored output and the new chunk), while a
+ * `write` capture (termWriteLines — Lucid's own output,
+ * already-clean text) never sees the pending partial, so
+ * its first character cannot be glued onto it and eaten
+ * (the live "ev mode ON" bug). A `write` append leaves the
+ * held partial in place for the next PTY chunk. */
+export function appendBlockOutput(
+  block: TerminalBlock,
+  text: string,
+  opts?: { source?: 'pty' | 'write' },
+): TerminalBlock {
   if (!text) return block;
-  const next = sanitizeBlockTranscript(block.output + text).slice(-BLOCK_OUTPUT_CAP);
+  const source = opts?.source ?? 'pty';
+  const pending = source === 'pty' ? pendingEscapeByBlock.get(block.id) ?? '' : '';
+  const { text: clean, pending: nextPending } = sanitizeWithPending(
+    block.output + pending + text,
+  );
+  if (source === 'pty') {
+    if (nextPending) pendingEscapeByBlock.set(block.id, nextPending);
+    else pendingEscapeByBlock.delete(block.id);
+  }
+  const next = clean.slice(-BLOCK_OUTPUT_CAP);
   if (next === block.output) return block;
   return { ...block, output: next };
 }

@@ -27,6 +27,17 @@
  * keeps both copies. The fix sanitizes at the capture
  * funnel (`appendBlockOutput`), never at the write path.
  *
+ * LIVE BUG in that fix, found in the first live verify
+ * (pid 26799): a slash block read "… % ev mode ON" — the
+ * "D" of "Dev" gone. The peeled trailing partial escape
+ * sat at the end of the stored output and glued onto the
+ * next capture's first character (`\x1b[` + "Dev" → CSI
+ * `\x1b[D` stripped). The fix holds the partial per-block,
+ * outside the stored text, and offers it only to the next
+ * chunk of the SAME stream (the PTY); termWriteLines
+ * captures never see it. Tests below pin all three shapes
+ * (CSI, OSC, drop).
+ *
  * Harness: same as tests/defcon3Phase2.test.tsx — jsdom has
  * no canvas, so XtermSurface renders its plain-text fallback
  * and InputArea falls back to a plain textarea (Monaco mocked
@@ -45,6 +56,7 @@ import { useSettingsStore } from '../src/stores/settingsStore';
 import { useTerminalStore } from '../src/stores/terminalStore';
 import {
   appendBlockOutput,
+  dropPendingEscape,
   newBlock,
   sanitizeBlockTranscript,
 } from '../src/lib/terminalBlocks';
@@ -243,6 +255,61 @@ describe('DEFCON 3 fix — appendBlockOutput sanitizes the transcript', () => {
     const afterFirst = appendBlockOutput(block, '\x1b[3');
     const afterSecond = appendBlockOutput(afterFirst, '2mgreen\x1b[0m\n');
     expect(afterSecond.output).toBe('green\n');
+  });
+});
+
+describe("DEFCON 3 fix — a split escape never eats the next capture's first character", () => {
+  test('LIVE BUG (pid 26799): PTY redraw ending mid-escape + slash write keeps the D', () => {
+    const block = newBlock('/devmode on', TAB_CWD, 1000);
+    // The prompt redraw from the resize the slash itself
+    // caused (termWriteLines waits for the next PTY chunk
+    // before writing, so the redraw lands first), its last
+    // PTY chunk ending mid-escape — bracketed-paste enable
+    // split after the CSI introducer.
+    const redraw =
+      '\x1b[?2004l\r\x1b[32mgary@mac\x1b[0m \x1b[34m~\x1b[0m $ \x1b[K\x1b[';
+    const afterRedraw = appendBlockOutput(block, redraw);
+    expect(afterRedraw.output).toBe('gary@mac ~ $');
+    // The slash message, captured via termWriteLines — a
+    // DIFFERENT stream from the PTY. Its first character
+    // must survive: the old code read "ev mode ON" here.
+    const afterWrite = appendBlockOutput(afterRedraw, 'Dev mode ON — prompt bar delinked', {
+      source: 'write',
+    });
+    expect(afterWrite.output).toBe('gary@mac ~ $Dev mode ON — prompt bar delinked');
+    expect(afterWrite.output).toContain('Dev mode ON');
+  });
+
+  test('a PTY chunk completing the split escape strips it, no residue', () => {
+    const block = newBlock('/devmode on', TAB_CWD, 1000);
+    const afterFirst = appendBlockOutput(block, '\x1b[32mgary@mac\x1b[0m $ \x1b[');
+    expect(afterFirst.output).toBe('gary@mac $');
+    const afterSecond = appendBlockOutput(afterFirst, '?2004h');
+    expect(afterSecond.output).toBe('gary@mac $');
+    const afterThird = appendBlockOutput(afterSecond, 'echo hi\n');
+    expect(afterThird.output).toBe('gary@mac $echo hi\n');
+  });
+
+  test('a mid-OSC split + slash write: the write is not swallowed by the OSC', () => {
+    const block = newBlock('/devmode on', TAB_CWD, 1000);
+    const afterFirst = appendBlockOutput(block, '\x1b]7;file://mac/Users/gary');
+    expect(afterFirst.output).toBe('');
+    const afterWrite = appendBlockOutput(afterFirst, 'Dev mode ON', { source: 'write' });
+    expect(afterWrite.output).toBe('Dev mode ON');
+    // The PTY remainder (BEL terminator) completes the OSC —
+    // no residue, and the write text is untouched.
+    const afterSecond = appendBlockOutput(afterWrite, '\x07');
+    expect(afterSecond.output).toBe('Dev mode ON');
+  });
+
+  test('dropping the pending abandons the escape', () => {
+    const block = newBlock('echo hi', TAB_CWD, 1000);
+    const afterFirst = appendBlockOutput(block, 'prompt \x1b[');
+    expect(afterFirst.output).toBe('prompt');
+    dropPendingEscape(block.id);
+    const afterSecond = appendBlockOutput(afterFirst, '?2004h');
+    // The escape was abandoned: the remainder is literal text.
+    expect(afterSecond.output).toBe('prompt?2004h');
   });
 });
 

@@ -11,7 +11,7 @@ import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
 import { InputArea } from './InputArea';
 import { BlockList } from './BlockList';
-import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, newBlock } from '../../lib/terminalBlocks';
+import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, dropPendingEscape, newBlock } from '../../lib/terminalBlocks';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
 import type { TerminalBlock } from '../../types';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
@@ -221,9 +221,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     }, BLOCK_QUIET_CLOSE_MS);
   };
   /** Append transcript text to the current block (capped —
-   *  see appendBlockOutput). */
-  const appendToCurrentBlock = (text: string) => {
-    updateCurrentBlock((b) => appendBlockOutput(b, text));
+   *  see appendBlockOutput). `source` is which stream the
+   *  text came from: PTY chunks may complete the block's
+   *  held partial escape, termWriteLines captures never do
+   *  (see the LIVE BUG note on the sanitizer). */
+  const appendToCurrentBlock = (text: string, source: 'pty' | 'write' = 'pty') => {
+    updateCurrentBlock((b) => appendBlockOutput(b, text, { source }));
   };
   /** Open a block for a composer submit: the previous block
    *  closes first (a new submit proves a fresh prompt had
@@ -233,7 +236,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
    *  is a no-op and the old paths create no blocks. */
   const openBlock = (command: string) => {
     if (!prompterActiveRef.current) return;
+    const prevBlockId = currentBlockIdRef.current;
     closeCurrentBlock();
+    // The previous block never takes output again — its held
+    // partial escape (if any) dies with it, so it can never
+    // glue onto the new block's first capture.
+    if (prevBlockId !== null) dropPendingEscape(prevBlockId);
     const cwd = useTerminalStore.getState().tabs.find((t) => t.id === tabId)?.cwd;
     const block = newBlock(command, cwd, Date.now());
     currentBlockIdRef.current = block.id;
@@ -458,7 +466,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       // stream goes quiet the prompt is taken to have returned
       // and the block closes (see terminalBlocks.ts).
       if (prompterActiveRef.current && currentBlockIdRef.current !== null) {
-        appendToCurrentBlock(cleaned);
+        appendToCurrentBlock(cleaned, 'pty');
         armBlockQuietClose();
       }
     };
@@ -536,7 +544,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // caller (captureToBlock: false) — the command is already
     // the block header.
     if (opts?.captureToBlock !== false && prompterActiveRef.current && currentBlockIdRef.current !== null) {
-      appendToCurrentBlock(text.replace(/\r\n/g, '\n'));
+      appendToCurrentBlock(text.replace(/\r\n/g, '\n'), 'write');
     }
   }, [waitForPromptEcho]);
 

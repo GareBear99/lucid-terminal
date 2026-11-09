@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { TerminalBlock } from '../types';
+import { dropPendingEscape } from '../lib/terminalBlocks';
 
 /**
  * Command blocks per terminal tab — the single source of truth for the
@@ -55,13 +56,17 @@ export const useHistoryStore = create<HistoryState>((set) => ({
     }),
 
   clearBlocks: (tabId) =>
-    set((state) => ({
-      blocksByTab: { ...state.blocksByTab, [tabId]: [] },
-    })),
+    set((state) => {
+      // The blocks are gone for good — their held partial
+      // escapes (if any) die with them.
+      for (const b of state.blocksByTab[tabId] ?? EMPTY_BLOCKS) dropPendingEscape(b.id);
+      return { blocksByTab: { ...state.blocksByTab, [tabId]: [] } };
+    }),
 
   removeTab: (tabId) =>
     set((state) => {
       if (!(tabId in state.blocksByTab)) return state;
+      for (const b of state.blocksByTab[tabId]) dropPendingEscape(b.id);
       const blocksByTab = { ...state.blocksByTab };
       delete blocksByTab[tabId];
       return { blocksByTab };

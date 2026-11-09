@@ -22,7 +22,7 @@ import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled, isLuciferAiSilenced, LUCIFER_AI_SILENCED_NOTE } from '../../lib/luciferAi';
-import { DEFCON_DEFAULT, DEFCON2_MERGE_IMPLEMENTED, defconCriteria, defconMergeActive, defconMergeReadingText, defconPrompterActive, defconTagline, describeDefcon, isDefconLevel } from '../../lib/defcon';
+import { DEFCON_DEFAULT, DEFCON2_MERGE_IMPLEMENTED, DEFCON3_PROMPTER_IMPLEMENTED, defconCriteria, defconMergeActive, defconMergeReadingText, defconPrompterActive, defconTagline, describeDefcon, isDefconLevel } from '../../lib/defcon';
 import { checkPromptFocus, ptyWriteFailureReason, TOPOLOGY_FALLBACK_NOTICE, TOPOLOGY_FALLBACK_TITLE } from '../../lib/topologySync';
 import { useDraggableInputHeight } from '../../lib/inputHeight';
 import { processTerminalBell } from '../../lib/terminalBell';
@@ -762,7 +762,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       }
       if (arg === '') {
         await write(
-          `${describeDefcon(level, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED })}\n\nUsage: /defcon 1|2|3 — set the level (your order only, nothing auto-escalates). /defcon merge a|b|c — pick the DEFCON 2 merge reading.`,
+          `${describeDefcon(level, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED, currentLevel: level, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED })}\n\nUsage: /defcon 1|2|3 — set the level (your order only, nothing auto-escalates). /defcon merge a|b|c — pick the DEFCON 2 merge reading.`,
         );
         return;
       }
@@ -774,7 +774,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         return;
       }
       if (next === level) {
-        await write(`Already at ${describeDefcon(level, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED })}`);
+        await write(`Already at ${describeDefcon(level, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED, currentLevel: level, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED })}`);
         return;
       }
       await useSettingsStore.getState().updateSetting('defconLevel', next);
@@ -786,7 +786,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         outcome: 'completed',
         detail: null,
       });
-      const unmet = defconCriteria(next, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED }).filter((c) => !c.met);
+      // DEFCON 3 Phase 4 — the criteria are real now (see
+      // src/lib/defcon.ts): the unmet list is assessed at the
+      // level in force BEFORE this order lands, so the
+      // confirmation reports what was still open going into
+      // the order — from level 2 that is exactly "Everything
+      // sorted out". A bare /defcon read afterwards, at the
+      // new level, shows the settled state (all met at 3).
+      const unmet = defconCriteria(next, { mergeReading, mergeImplemented: DEFCON2_MERGE_IMPLEMENTED, currentLevel: level, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED }).filter((c) => !c.met);
       await write(
         `DEFCON ${next} — ${defconTagline(next)}${unmet.length > 0 ? `\n\nStill open:\n${unmet.map((c) => `  [ ] ${c.text}`).join('\n')}` : ''}\n\nLevels gate nothing — they are readiness milestones, not locks.`,
       );

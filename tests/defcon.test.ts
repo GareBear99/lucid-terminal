@@ -15,10 +15,12 @@ import {
   DEFCON_DEFAULT,
   DEFCON_LEVELS,
   DEFCON2_MERGE_IMPLEMENTED,
+  DEFCON3_PROMPTER_IMPLEMENTED,
   defconCriteria,
   defconMergeActive,
   defconMergeReadingText,
   defconName,
+  defconPrompterActive,
   defconTagline,
   defconTerminalForeground,
   describeDefcon,
@@ -71,11 +73,60 @@ describe('DEFCON levels (Gary, 2026-11-09)', () => {
     expect(merged.every((c) => c.met)).toBe(true);
   });
 
-  test('DEFCON 3 criteria are all open — the prompter is not built yet', () => {
-    const criteria = defconCriteria(3);
-    expect(criteria.length).toBe(3);
-    expect(criteria.every((c) => !c.met)).toBe(true);
-    expect(criteria[1].text).toContain('prompter');
+  test('DEFCON 3 criteria are COMPUTED from real state (Phase 4, Gary 2026-11-09)', () => {
+    // "DEFCON 2 complete" = current level >= 2 (the level only
+    // ever changes on Gary's explicit order, after the DEFCON 2
+    // live proof); "The prompter built" = the prompter ships in
+    // this build; "Everything sorted out" = current level >= 3
+    // (Gary orders /defcon 3 himself, after live verification).
+    // At level 2 the first two are met and the third is open —
+    // real [x]/[ ], not "Still open:" for everything.
+    const atLevel2 = defconCriteria(3, { currentLevel: 2, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED });
+    expect(atLevel2.length).toBe(3);
+    expect(atLevel2.map((c) => c.met)).toEqual([true, true, false]);
+    expect(atLevel2[0].text).toContain('DEFCON 2 complete');
+    expect(atLevel2[1].text).toContain('prompter built');
+    expect(atLevel2[2].text).toContain('Everything sorted out');
+
+    // At level 3 all three are met.
+    const atLevel3 = defconCriteria(3, { currentLevel: 3, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED });
+    expect(atLevel3.every((c) => c.met)).toBe(true);
+
+    // At level 1 only the prompter-built criterion is met —
+    // DEFCON 2 is not complete and nothing is sorted out.
+    const atLevel1 = defconCriteria(3, { currentLevel: 1, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED });
+    expect(atLevel1.map((c) => c.met)).toEqual([false, true, false]);
+  });
+
+  test('DEFCON 3 criteria stay honest if the prompter is ever removed', () => {
+    // The implemented flag defaults to false — the criterion is
+    // met only when the caller says the build ships it, so a
+    // future removal honestly shows OPEN again.
+    const notBuilt = defconCriteria(3, { currentLevel: 3 });
+    expect(notBuilt.map((c) => c.met)).toEqual([true, false, true]);
+    expect(notBuilt[1].text).toContain('prompter built');
+  });
+
+  test('describeDefcon(3) at level 2 shows [x] [x] [ ] — the brief’s exact reading', () => {
+    const text = describeDefcon(3, { currentLevel: 2, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED });
+    expect(text).toContain('DEFCON 3 — PROMPTER');
+    expect(text).toContain('[x] DEFCON 2 complete');
+    expect(text).toContain('[x] The prompter built');
+    expect(text).toContain('[ ] Everything sorted out');
+    expect(text).toContain('Levels gate nothing');
+  });
+
+  test('the prompter build has landed — the shipped build carries it', () => {
+    // The shipped build carries the linked composer + blocks,
+    // so with the flag on every level-3 criterion is met at
+    // level 3 — the level is genuinely reached, not declared.
+    expect(DEFCON3_PROMPTER_IMPLEMENTED).toBe(true);
+    expect(defconPrompterActive(1)).toBe(false);
+    expect(defconPrompterActive(2)).toBe(false);
+    expect(defconPrompterActive(3)).toBe(true);
+    const text = describeDefcon(3, { currentLevel: 3, prompterImplemented: DEFCON3_PROMPTER_IMPLEMENTED });
+    expect(text).toContain('[x] The prompter built');
+    expect(text).toContain('[x] Everything sorted out');
   });
 
   test('merge readings are the three from the dissection', () => {

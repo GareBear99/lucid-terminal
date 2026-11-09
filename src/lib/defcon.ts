@@ -95,6 +95,17 @@ export const DEFCON_LEVELS: readonly DefconLevel[] = [1, 2, 3];
  * the level-2 criterion honestly shows OPEN again. */
 export const DEFCON2_MERGE_IMPLEMENTED = true;
 
+/** The DEFCON 3 prompter build has landed (Gary, 2026-11-09
+ * ~08:10 PST — "proceed until complete", same composer in
+ * both modes): the linked composer (Phase 1), blocks with
+ * faint dividers (Phase 2), ghost / Ctrl+C / Ctrl+D / cwd
+ * chip (Phase 3), and the non-devmode landing (Phase 5) all
+ * ship in this build. The level-3 criterion below takes this
+ * as the prompter's implemented state — if the prompter is
+ * ever removed, this goes false and the criterion honestly
+ * shows OPEN again. */
+export const DEFCON3_PROMPTER_IMPLEMENTED = true;
+
 /** Whether the DEFCON 2 merge is in effect at a level: it
  * takes effect at DEFCON 2 and above. At DEFCON 1 the
  * terminal is exactly as it stands — the level is the switch,
@@ -177,13 +188,47 @@ export interface DefconCriterion {
  * 2026-11-09 — pass DEFCON2_MERGE_IMPLEMENTED).
  * Level 1's criteria are the baseline itself, so they are met
  * by definition: DEFCON 1 IS the terminal as it stands.
+ *
+ * Level 3's criteria are COMPUTED from real state (Gary,
+ * 2026-11-09 — Phase 4, "criteria become real"), not
+ * hardcoded `met: false`. `currentLevel` is the level in
+ * force when the criteria are assessed (defaults to the level
+ * being described); `prompterImplemented` is whether the
+ * prompter build step has landed (true since Phases 1–5 —
+ * pass DEFCON3_PROMPTER_IMPLEMENTED):
+ * - "DEFCON 2 complete" = current level >= 2. The level only
+ *   ever changes on Gary's explicit order, and he ordered
+ *   level 2 after the DEFCON 2 live proof — so the level
+ *   number itself is the evidence. (It is NOT the merge
+ *   criteria re-derived: entering level 2 is the statement
+ *   that DEFCON 2 is complete.)
+ * - "The prompter built" = the prompter ships in this build
+ *   (composer + blocks present in code).
+ * - "Everything sorted out" = current level >= 3. Gary orders
+ *   /defcon 3 himself, after live verification — the order is
+ *   the evidence that it is sorted out. So at level 2 the
+ *   level-3 criteria read [x] [x] [ ] (the first two met, the
+ *   third open), and at level 3 all three are [x].
+ * The /defcon 3 set output assesses the criteria at the level
+ * in force BEFORE the order lands (the pre-update level): the
+ * confirmation reports what was still open going into the
+ * order — from level 2 that is exactly "Everything sorted
+ * out". A bare /defcon read afterwards, at level 3, shows
+ * all three met.
  */
 export function defconCriteria(
   level: DefconLevel,
-  opts?: { mergeReading?: DefconMergeReading | null; mergeImplemented?: boolean },
+  opts?: {
+    mergeReading?: DefconMergeReading | null;
+    mergeImplemented?: boolean;
+    currentLevel?: DefconLevel;
+    prompterImplemented?: boolean;
+  },
 ): DefconCriterion[] {
   const mergeReading = opts?.mergeReading ?? null;
   const mergeImplemented = opts?.mergeImplemented ?? false;
+  const currentLevel = opts?.currentLevel ?? level;
+  const prompterImplemented = opts?.prompterImplemented ?? false;
   switch (level) {
     case 1:
       return [
@@ -200,9 +245,9 @@ export function defconCriteria(
       ];
     case 3:
       return [
-        { text: 'DEFCON 2 complete', met: false },
-        { text: 'The prompter built', met: false },
-        { text: 'Everything sorted out', met: false },
+        { text: 'DEFCON 2 complete', met: currentLevel >= 2 },
+        { text: 'The prompter built', met: prompterImplemented },
+        { text: 'Everything sorted out', met: currentLevel >= 3 },
       ];
   }
 }
@@ -228,7 +273,12 @@ export function defconMergeReadingText(reading: DefconMergeReading): string {
  */
 export function describeDefcon(
   level: DefconLevel,
-  opts?: { mergeReading?: DefconMergeReading | null; mergeImplemented?: boolean },
+  opts?: {
+    mergeReading?: DefconMergeReading | null;
+    mergeImplemented?: boolean;
+    currentLevel?: DefconLevel;
+    prompterImplemented?: boolean;
+  },
 ): string {
   const lines: string[] = [defconName(level), defconTagline(level), '', 'Criteria:'];
   for (const c of defconCriteria(level, opts)) {

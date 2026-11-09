@@ -50,33 +50,62 @@ Baselines (2026-11-08 ~16:55 PST, before any new code):
   value reads as null, refresh-token-null round-trips. (Mock electron +
   electron-store, same pattern as `tests/browserActionsMain.test.ts`.)
 
-## Phase 3 — IPC + preload + types (TODO)
+## Phase 3 — IPC + preload + types (DONE 2026-11-08 ~17:20 PST)
 - New: `electron/ipc/googleDrive.ts` — `google-drive:startListener`,
   `google-drive:stopListener`, `google-drive:exchangeCode`,
   `google-drive:hasTokens`, `google-drive:disconnect`,
   `google-drive:verifyConnection`; sends `google-drive:auth-redirect`
   to the renderer that started the listener.
-- Register in `electron/main.ts`; expose in `electron/preload.ts`
-  (`window.lucidAPI.googleDrive`); add types in `electron/preload.ts`
-  LucidAPI interface + `src/types/index.ts`.
+- Registered in `electron/main.ts`; exposed in `electron/preload.ts`
+  (`window.lucidAPI.googleDrive`); types in the preload LucidAPI
+  interface + `src/types/index.ts`. The redirect/IPC result types
+  are also in `src/lib/googleDriveAuth.ts` (renderer side).
+- Gotcha fixed in this phase: the electron project must not import
+  from src/ (TS6307) — importing googleDriveAuth.ts from preload
+  or src/types pulled it into tsconfig.node.json (+1 TS6307, +2
+  TS2802 for its Uint8Array spread under the node's ES5 target).
+  Fix: the three copies of the types (src/lib, src/types,
+  electron/preload) are defined locally and kept identical by hand.
+  Also fixed a real TS2322 in the IPC file: getUsableAccessToken's
+  error union was missing 'empty' (refresh can return it).
+- Verified at commit: src tsc 0 errors, node tsc 72 (baseline),
+  0 googleDrive errors; existing tests 25 passed (20 OAuth + 5
+  storage). Commit: **406f271**.
 
-## Phase 4 — renderer wiring (TODO)
-- Extend `src/lib/googleDriveAuth.ts` (redirect-result type shared with
-  main; keep the "what it does NOT do yet" header honest).
-- `src/components/Modules/GoogleDriveSegment.tsx`: Connect → start listener
-  → open auth URL → wait for redirect event → verify state against the
-  saved PKCE attempt → exchange → verify with a real Drive call →
-  Connected; Disconnect button when connected; plain-language failure
-  notes (no client ID / listener failed / denied / exchange failed).
-- Extend `tests/googleDriveAuth.test.ts` for the new renderer pieces.
+## Phase 4 — renderer wiring (DONE 2026-11-08 ~17:28 PST)
+- `src/lib/googleDriveAuth.ts`: shared `GoogleDriveAuthRedirect` /
+  `GoogleDriveIpcResult` types; `checkGoogleDriveRedirect` (state
+  must match the saved PKCE attempt before any exchange — a
+  mismatch is never exchanged); `googleDriveFailureNote` (plain-
+  language note for every error the flow can produce); header
+  rewritten — the "does NOT do yet" now honestly says only Drive
+  file operations + the live sign-in (needs Gary's client ID).
+- `src/components/Modules/GoogleDriveSegment.tsx`: Connect →
+  start listener → open auth URL → wait for redirect → verify
+  state → exchange → verify with a real Drive call → Connected;
+  Disconnect button when connected (deletes stored tokens);
+  connected state read from main via hasTokens on mount; plain-
+  language failure notes; Connect disabled while a sign-in is in
+  flight; listener stopped if the sign-in page never opens.
+- Tests: `tests/googleDriveAuth.test.ts` extended — **14 passed,
+  0 failed** (was 7; +4 redirect check, +3 failure notes).
+  Commit: **7e992fa**.
 
-## Phase 5 — verify + push (TODO)
-- `npx tsc --noEmit -p tsconfig.json` → 0 errors.
-- `npx tsc --noEmit -p tsconfig.node.json` → still 72 errors, 0 new.
-- `npx vitest run tests/googleDriveOAuth.test.ts tests/googleDriveAuth.test.ts`
-  → record exact pass/fail counts.
-- Commit incrementally per phase; push to master; verify with
-  `git ls-remote` HEAD showing the commit.
+## Phase 5 — verify + push (DONE 2026-11-08 ~17:30 PST)
+- `npx tsc --noEmit -p tsconfig.json` → **0 errors**.
+- `npx tsc --noEmit -p tsconfig.node.json` → **72 errors
+  (baseline), 0 in googleDrive files, 0 new**.
+- `npx vitest run tests/googleDriveOAuth.test.ts
+  tests/googleDriveAuth.test.ts tests/googleDriveTokenStorage.test.ts`
+  → **39 passed, 0 failed** (20 OAuth + 14 renderer + 5 storage).
+- Pushed to GitHub master; `git ls-remote` HEAD verified (see below).
+
+## DONE — all five phases complete (2026-11-08 ~17:30 PST)
+- Commits on master: 8ab8059 (Phase 1), 53a8a93 (Phase 2),
+  406f271 (Phase 3), 7e992fa (Phase 4). OAUTH_PROGRESS.md itself
+  committed with the final numbers.
+- dist-electron/ is untracked build output — NOT committed, and
+  NOT in .gitignore (only `dist/` is). Left untracked per plan.
 
 ## Still missing (blocked on Gary, NOT this task)
 - The Desktop-app OAuth client ID from Gary (stored in Settings as

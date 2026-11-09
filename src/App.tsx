@@ -27,8 +27,7 @@ import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
-import { applyTheme } from './themes/themes';
-import { themeForView, showSplashMistForView } from './lib/filesScreen';
+import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
@@ -36,7 +35,7 @@ import { FixNetStatus } from './components/FixNet/FixNetStatus';
 import { View } from './types';
 
 function App() {
-  const { loadSettings, isLoading, storageDegraded, settings, updateSetting, currentTheme } = useSettingsStore();
+  const { loadSettings, isLoading, storageDegraded, settings, updateSetting } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone - its surfaces, its Help,
   // its commands. Every gate in this file reads this value. This
@@ -56,16 +55,13 @@ function App() {
   const { currentDir, setCurrentDir } = useFileStore();
 
   const [currentView, setCurrentView] = useState<View>('terminal');
-  // The Files screen (Editor view) is Full Glass, no splash back
-  // (Gary, 2026-11-08 — see src/lib/filesScreen.ts): it shows just
-  // the theme, the full glass theme, not the splashscreen misty
-  // black. The applied theme follows the view (Full Glass on the
-  // Files screen, the user's theme everywhere else); the mist is
-  // hidden on the same condition below, so the translucent Full
-  // Glass surfaces composite over plain black, not over the smoke.
-  useEffect(() => {
-    applyTheme(themeForView(currentView, currentTheme));
-  }, [currentView, currentTheme]);
+  // The theme is the stored theme everywhere (Gary, 2026-11-09:
+  // solid theme like before). It is applied by loadSettings at
+  // startup and by setTheme / setCustomTheme on change — there is
+  // no per-view override any more (the Full Glass-on-Editor rule
+  // is deleted; Full Glass stays a locked reward, seen only when
+  // unlocked and selected). The mist rule for a view is
+  // showSplashMistForView (src/lib/mist.ts).
   // The Synth button toggles: first press opens the Synth view, a
   // second press exits back to the terminal.
   const toggleSynth = () =>
@@ -304,15 +300,15 @@ function App() {
     // accents and borders; the screen itself is mist in both
     // LuciferAI states. The boot splash overlays this until it fades;
     // what it fades into is the same mist, so the screen never stops
-    // being the splashscreen. EXCEPTION (Gary, 2026-11-08): the
-    // Files screen (Editor view) has no splash back — just the
-    // theme, the full glass theme — so the mist is hidden while the
-    // Editor is the current view (and the Full Glass theme is
-    // applied by the effect above).
+    // being the splashscreen. EXCEPTION (Gary, 2026-11-09): the
+    // Files screen (Editor view) shows the solid stored theme with
+    // no mist by default — the mist there is behind the Files mist
+    // toggle in the Mist section of Settings (default off), so it
+    // appears only when the user switches it on.
     <div className="relative isolate h-screen flex flex-col bg-black overflow-hidden">
       {/* Boot splash - overlays the dashboard until it fades out. */}
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
-      {showSplashMistForView(currentView) && <SplashMist />}
+      {showSplashMistForView(currentView, settings.filesMist ?? false) && <SplashMist />}
 
       {/* Title Bar */}
       <TitleBar />

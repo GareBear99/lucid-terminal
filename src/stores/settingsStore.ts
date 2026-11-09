@@ -72,6 +72,11 @@ const defaultSettings: Settings = {
   cursorBlink: true,
   scrollback: 10000,
   bellSound: false,
+  // Files mist (Gary, 2026-11-09) — OFF by default: the Files screen
+  // shows the solid theme, no mist, unless the Files mist toggle in
+  // the Mist section of Settings is flipped on. First toggle in the
+  // Mist section; one toggle per surface (see src/types/index.ts).
+  filesMist: false,
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
   pingServerEnabled: false,

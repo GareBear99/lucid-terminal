@@ -786,6 +786,34 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                 </div>
               </section>
 
+              {/* Mist — its own section for toggles (Gary, 2026-11-09
+                  ~08:15 PST): one toggle per surface, each its own
+                  settings key, default off. The Files toggle is the
+                  first; the section is built so an AI Chat mist
+                  toggle slots straight in next to it (same pattern:
+                  key + toggle + conditional render — see
+                  src/lib/mist.ts). No AI Chat toggle is built yet. */}
+              <section data-testid="mist-section">
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Mist</h3>
+                  <span className="text-xs text-[var(--text-muted)]">Splash mist, per surface</span>
+                </div>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
+                  The splashscreen mist, surface by surface. Each toggle is off by default — the surface shows its solid theme until its mist is switched on.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Tooltip content="Show the splash mist on the Files screen">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Toggle
+                        checked={settings.filesMist ?? false}
+                        onChange={(checked) => updateSetting('filesMist', checked)}
+                      />
+                      <span className="text-sm">Files mist</span>
+                    </label>
+                  </Tooltip>
+                </div>
+              </section>
+
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Font</h3>
                 <div className="grid grid-cols-2 gap-4">

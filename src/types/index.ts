@@ -248,6 +248,15 @@ export interface Settings {
   cursorBlink: boolean;
   scrollback: number;
   bellSound: boolean;
+  // Mist toggles (Gary, 2026-11-09 ~08:15 PST) — the Mist section in
+  // Settings holds one toggle per surface. Each toggle is its own
+  // settings key, default off, and that surface renders its mist
+  // only when its toggle is on. `filesMist` is the first (the Files
+  // screen); the pattern is one key + one toggle + one conditional
+  // render per surface, so an AI Chat mist toggle slots straight in
+  // next to it. Missing keys in older persisted settings count as
+  // OFF (loadSettings merges defaults over persisted).
+  filesMist: boolean;
   aiModel: string;
   aiTemperature: number;
   terminalPolicy: 'ask' | 'auto' | 'deny';

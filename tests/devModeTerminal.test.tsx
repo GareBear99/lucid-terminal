@@ -281,46 +281,56 @@ describe('dev mode ON (delinked)', () => {
     // The blood drop is still there (LuciferAI surface, untouched
     // by dev mode) — and the bar is still detached.
     expect(screen.getByRole('button', { name: 'Toggle LuciferAI' })).not.toBeNull();
+    // And the drop itself renders while on (the main-prompt
+    // LuciferStatusIndicator) — present while on, gone while off
+    // (Gary, 2026-11-09 ~02:17 PST).
+    expect(screen.getByTestId('blood-drop-svg')).not.toBeNull();
     submitToDevBar('echo hello-dev');
     await waitFor(() => {
       expect(executeCommandMock).toHaveBeenCalledWith('echo hello-dev');
     });
   });
 
-  test('the dev bar prompt is the ORIGINAL prompt when LuciferAI is off (Gary, 2026-11-08) — blood drop + gold arrow + ~ tilde + extending input, half-way rounded edges, inside the original BUBBLE', async () => {
+  test('the dev bar prompt has NO blood drop when LuciferAI is off (Gary, 2026-11-09) — gold arrow + ~ tilde + extending input, half-way rounded edges, inside the original BUBBLE', async () => {
     // LuciferAI OFF (the default here): the ORIGINAL Lucid terminal
-    // prompt (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's photo:
-    // the BLOOD DROP (as set up) + the GOLD ARROW (the ➜ send
-    // arrow, gold, immediately after the blood drop, before the ~;
-    // Gary, 2026-11-08 ~11:46 PST: "you took mine out and never
-    // put it back" — it is his arrow, in the photo, and it goes
-    // back in) + the ~ tilde (the squiggly line, as in the photo;
-    // Gary, 2026-11-08 ~11:44 PST: "no arrow prompt either" —
-    // there is NO prompt arrow in the original; the ❯ was a
-    // misstep and is removed, the ~ is back) + an input that
-    // EXTENDS (flex-1) with HALF-WAY ROUNDED edges (rounded-lg)
-    // inside the ORIGINAL prompt BUBBLE (Gary, 2026-11-08 ~11:40
-    // PST: the bubble is back — the distinct rounded input field,
-    // dark background + subtle border, as in the photo, from
-    // before the terminal and glass work; the wrapper carries the
-    // bubble, the InputArea inside stays flat).
-    // No prompt arrow, no Sentinel face, no "Idle • Awaiting
-    // Commands..." line.
+    // prompt (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's photo,
+    // MINUS the blood drop. Gary, 2026-11-09 ~02:17 PST: when
+    // LuciferAI is OFF the blood drop must be GONE — including
+    // this dev bar OFF branch. Its presence while off breaks the
+    // system (off = plain terminal, zero residue). This OVERRIDES
+    // the b82010d photo design that kept the drop here as the
+    // silencer/toggle. What stays: the GOLD ARROW (the ➜ send
+    // arrow, gold, first in the row, before the ~; Gary,
+    // 2026-11-08 ~11:46 PST: "you took mine out and never put it
+    // back" — it is his arrow, in the photo, and it goes back in)
+    // + the ~ tilde (the squiggly line, as in the photo; Gary,
+    // 2026-11-08 ~11:44 PST: "no arrow prompt either" — there is
+    // NO prompt arrow in the original; the ❯ was a misstep and is
+    // removed, the ~ is back) + an input that EXTENDS (flex-1)
+    // with HALF-WAY ROUNDED edges (rounded-lg) inside the ORIGINAL
+    // prompt BUBBLE (Gary, 2026-11-08 ~11:40 PST: the bubble is
+    // back — the distinct rounded input field, dark background +
+    // subtle border, as in the photo, from before the terminal
+    // and glass work; the wrapper carries the bubble, the InputArea
+    // inside stays flat).
+    // No blood drop, no prompt arrow, no Sentinel face, no
+    // "Idle • Awaiting Commands..." line.
     setDevMode(true);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
     const bar = screen.getByTestId('dev-command-bar');
-    // The blood drop is there, as set up (the silencer) — the SVG
-    // droplet, red while speaking.
-    const drop = within(bar).getByTestId('blood-drop-svg');
-    expect(drop).not.toBeNull();
-    expect(drop.getAttribute('fill')).toBe('#ef4444');
-    // The GOLD ARROW is back in — the ➜ send arrow, gold,
-    // immediately after the blood drop, before the ~. (getByText
-    // throws if it is missing, so reaching here proves it is
-    // rendered.) It is GOLD (text-[var(--warning)]) and it sits
-    // before the ~ tilde in the row order.
+    // NO blood drop while LuciferAI is off — neither the droplet
+    // SVG nor the toggle button renders in the bar. (The main
+    // prompt's LuciferStatusIndicator is gated on luciferAiEnabled
+    // too, so no blood-drop-svg exists anywhere on screen.)
+    expect(within(bar).queryByTestId('blood-drop-svg')).toBeNull();
+    expect(within(bar).queryByRole('button', { name: 'Toggle LuciferAI' })).toBeNull();
+    // The GOLD ARROW is back in — the ➜ send arrow, gold, first
+    // in the row, before the ~. (getByText throws if it is missing,
+    // so reaching here proves it is rendered.) It is GOLD
+    // (text-[var(--warning)]) and it sits before the ~ tilde in
+    // the row order.
     const sendArrow = within(bar).getByTestId('dev-send-arrow');
     expect(sendArrow.textContent).toBe('➜');
     expect(sendArrow.className).toContain('text-[var(--warning)]');

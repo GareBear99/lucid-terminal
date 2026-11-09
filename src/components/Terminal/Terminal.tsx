@@ -15,7 +15,7 @@ import { PlanningPanel } from '../Planning/PlanningPanel';
 import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
-import { LuciferStatusIndicator, BloodDropIcon, BLOOD_DROP_RED, BLOOD_DROP_GREY } from './LuciferStatusIndicator';
+import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled, isLuciferAiSilenced, LUCIFER_AI_SILENCED_NOTE } from '../../lib/luciferAi';
 import { checkPromptFocus, ptyWriteFailureReason, TOPOLOGY_FALLBACK_NOTICE, TOPOLOGY_FALLBACK_TITLE } from '../../lib/topologySync';
 import { processTerminalBell } from '../../lib/terminalBell';
@@ -1214,8 +1214,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 {/* Prompt when LuciferAI is disabled (Gary,
                     2026-11-08): the ORIGINAL Lucid terminal prompt
                     (pre-ec33aa9, 4d8ef4e) — exactly as in Gary's
-                    photo: the BLOOD DROP (as set up — the silencer,
-                    red while speaking, grey while silenced) + the
+                    photo, MINUS the blood drop: NO blood drop here
+                    while LuciferAI is off (Gary, 2026-11-09 ~02:17
+                    PST — the drop is GONE, including this dev bar
+                    OFF branch; its presence while off breaks the
+                    system: off = plain terminal, zero residue.
+                    This OVERRIDES the b82010d photo design that
+                    kept the drop here as the silencer/toggle) + the
                     ~ tilde (the squiggly line, as in the photo;
                     Gary, 2026-11-08 ~11:44 PST: "no arrow prompt
                     either" — there is NO prompt arrow in the
@@ -1229,10 +1234,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     subtle border, as in the photo, from BEFORE the
                     terminal and glass work; the wrapper carries the
                     bubble, the InputArea inside stays flat). The
-                    GOLD ARROW (the ➜ send arrow, gold, immediately
-                    after the blood drop, before the ~) is back in
+                    GOLD ARROW (the ➜ send arrow, gold, first in the
+                    row, before the ~) is back in
                     (Gary, 2026-11-08 ~11:46 PST — it is his arrow,
-                    in the photo). No prompt arrow, no Sentinel face,
+                    in the photo). No blood drop, no prompt arrow,
+                    no Sentinel face,
                     no "Idle • Awaiting Commands..." line. When
                     LuciferAI is on, the squared bottom-drop
                     section. The rainbow glow still shows either way
@@ -1251,32 +1257,29 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {/* Blood drop — as in Gary's photo (Gary,
-                        2026-11-08): the drop stays in the devmode
-                        LuciferAI-disabled prompt, exactly as set up
-                        (the silencer). Red while speaking, grey
-                        while silenced. Clicking it toggles
-                        LuciferAI (the silencer). */}
-                    {onToggleLuciferAi ? (
-                      <button
-                        type="button"
-                        onClick={onToggleLuciferAi}
-                        aria-label="Toggle LuciferAI"
-                        className="select-none opacity-100 hover:opacity-100 transition-opacity"
-                      >
-                        <BloodDropIcon fill={luciferAiSilenced ? BLOOD_DROP_GREY : BLOOD_DROP_RED} />
-                      </button>
-                    ) : (
-                      <BloodDropIcon fill={luciferAiSilenced ? BLOOD_DROP_GREY : BLOOD_DROP_RED} />
-                    )}
+                    {/* NO blood drop here while LuciferAI is off
+                        (Gary, 2026-11-09 ~02:17 PST): the drop is
+                        GONE from the devmode LuciferAI-disabled
+                        prompt — including this dev bar OFF branch.
+                        Its presence while off breaks the system:
+                        off = plain terminal, zero residue. This
+                        OVERRIDES the b82010d photo design that kept
+                        the drop here as the silencer/toggle. The
+                        drop lives only while LuciferAI is on (the
+                        main-prompt LuciferStatusIndicator, gated on
+                        luciferAiEnabled). Re-enable from Settings →
+                        Plugins. The blood-drop TERMINAL gateway in
+                        EmptyTerminalState is a separate feature and
+                        is untouched. */}
                     {/* GOLD ARROW — the SEND arrow (Gary, 2026-11-08
                         ~11:46 PST: "you took mine out and never put
                         it back" — it is Gary's arrow, in the photo,
                         and it goes back in). Restored from the
                         4d8ef4e original: the ➜ send arrow, gold
                         (text-[var(--warning)] — #fbbf24 amber/gold
-                        in the LuciferAI theme), immediately after
-                        the blood drop, before the ~. It submits
+                        in the LuciferAI theme), first in the row,
+                        before the ~ (the blood drop is gone while
+                        LuciferAI is off — Gary, 2026-11-09). It submits
                         exactly like Enter: the current dev input,
                         read from the same devInput state. Disabled
                         while the dev input is empty. This OVERRIDES

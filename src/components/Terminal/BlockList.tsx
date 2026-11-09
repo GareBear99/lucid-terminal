@@ -85,7 +85,30 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
   const blocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS);
   const [copied, setCopied] = useState<string | null>(null);
 
-  if (blocks.length === 0) return null;
+  if (blocks.length === 0) {
+    // Empty feed in `fill` mode — the non-devmode DEFCON 3
+    // landing (Gary, 2026-11-09 ~11:41 PST — "see how its at
+    // the top" / "After something is input it sets right" /
+    // "thats the issue"): at level 3+ in NON-devmode the xterm
+    // surface is unmounted, so this list is the SOLE feed — and
+    // returning null here left nothing above the prompt section
+    // to fill the terminal column, so the prompt sat at the TOP
+    // on launch (empty feed, 0 commands) and only dropped to
+    // the bottom once the first block existed. The empty
+    // fill-mode list still occupies the column (the same
+    // flex-1 container), so the prompt is bottom-pinned from
+    // launch. Devmode (fill=false) still returns null — the
+    // live xterm below is the filler there.
+    if (fill) {
+      return (
+        <div
+          data-testid="terminal-blocks"
+          className="mx-4 mb-4 mt-4 min-h-0 flex-1 overflow-y-auto rounded-none border-0 bg-transparent"
+        />
+      );
+    }
+    return null;
+  }
 
   const handleCopy = async (key: string, text: string) => {
     if (await copyText(text)) {

@@ -145,6 +145,13 @@ const defaultSettings: Settings = {
   // src/types/index.ts).
   summonVariant: null,
   summonVariantDontAsk: false,
+  // Snapshot update alert dismissals (Gary, 2026-11-09 ~14:51 PST)
+  // — no version dismissed yet, so alerts show.
+  snapshotAlertDismissedVersions: [],
+  // Installed snapshot identity — none installed (no model
+  // trained yet).
+  installedSnapshotVersion: null,
+  installedSnapshotHash: null,
   // LuciferAI silenced (Gary, 2026-11-08 ~02:28 PST): the blood
   // drop toggle is JUST a silencer — it greys the drop, it never
   // turns the plugin off. Default false (speaking).

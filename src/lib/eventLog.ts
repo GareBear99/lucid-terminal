@@ -88,6 +88,35 @@ export type EventType =
   | 'browser.auth-prompt'
   /** During the session: the DEFCON level changed (Gary's order). */
   | 'defcon.level-change'
+  /** During the session: a new snapshot version was detected
+   *  on manifest check (the next pull is different — the
+   *  update is required). */
+  | 'snapshot.update-detected'
+  /** During the session: a snapshot download started (R2). */
+  | 'snapshot.download-started'
+  /** During the session: a packet could not hit the snapshot
+   *  (mismatch) and fell back to the ping server — the single
+   *  Connection call for that packet, while the update stream
+   *  is in progress. */
+  | 'snapshot.ping-fallback'
+  /** During the session: a downloaded snapshot passed SHA-256
+   *  verification against the manifest hash (before the swap). */
+  | 'snapshot.hash-verified'
+  /** During the session: a snapshot was swapped in via the
+   *  SPSC triple-buffer atomic flip. */
+  | 'snapshot.flipped'
+  /** During the session: the first packet after the flip hit
+   *  the new snapshot — the update stream is complete and
+   *  local replies resume. */
+  | 'snapshot.packet-hits'
+  /** During the session: the snapshot update alert was shown. */
+  | 'snapshot.alert-shown'
+  /** During the session: the snapshot update alert was
+   *  dismissed with "do not show again" for that version. */
+  | 'snapshot.alert-dismissed'
+  /** During the session: a snapshot update failed (the
+   *  installed snapshot stays current). */
+  | 'snapshot.update-failed'
   /** During the session: an ask with no attributable trigger. */
   | 'unexpected-ask';
 
@@ -124,6 +153,14 @@ export const EVENT_RING_CAPACITY = 512;
 
 /** localStorage key the store persists the log under. */
 export const EVENT_LOG_STORAGE_KEY = 'lucid.eventLog.v1';
+
+/** Persisted key for the last snapshot update stream's time +
+ *  strain summary (Gary, 2026-11-09 ~15:00 PST) — the Security
+ *  tab shows the LAST stream even after a reload, so the stream
+ *  summary persists next to the log. Same best-effort rule as
+ *  the log itself: a full or unavailable storage never breaks
+ *  logging. */
+export const SNAPSHOT_STREAM_STORAGE_KEY = 'lucid.eventLog.snapshotStream.v1';
 
 let eventCounter = 0;
 
@@ -188,6 +225,24 @@ export function eventTypeLabel(type: EventType): string {
       return 'Page asked for sign-in';
     case 'defcon.level-change':
       return 'DEFCON level changed';
+    case 'snapshot.update-detected':
+      return 'New snapshot detected';
+    case 'snapshot.download-started':
+      return 'Snapshot download started';
+    case 'snapshot.ping-fallback':
+      return 'Ping fallback';
+    case 'snapshot.hash-verified':
+      return 'Snapshot hash verified';
+    case 'snapshot.flipped':
+      return 'Snapshot swapped in';
+    case 'snapshot.packet-hits':
+      return 'Packet hits snapshot';
+    case 'snapshot.alert-shown':
+      return 'Snapshot alert shown';
+    case 'snapshot.alert-dismissed':
+      return 'Snapshot alert dismissed';
+    case 'snapshot.update-failed':
+      return 'Snapshot update failed';
     case 'unexpected-ask':
       return 'Unexpected ask';
   }

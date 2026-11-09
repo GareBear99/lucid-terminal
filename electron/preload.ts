@@ -6,7 +6,7 @@ import type {
   StreamMetricsSnapshot,
   TouchMessage,
 } from '../src/phone/streaming';
-import type { PingQuota } from '../src/types';
+import type { PingQuota, PingServerStatus } from '../src/types';
 import type { BrowserAgentStateSnapshot } from '../src/lib/browserAgent';
 
 /** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
@@ -140,6 +140,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     hasApiKey: () => ipcRenderer.invoke('ai:hasApiKey'),
     checkLocalBackend: () => ipcRenderer.invoke('ai:checkLocalBackend'),
     pingServerHealth: () => ipcRenderer.invoke('ai:pingServerHealth'),
+    pingServerStatus: () => ipcRenderer.invoke('ai:pingServerStatus'),
     getSessions: () => ipcRenderer.invoke('ai:getSessions'),
     saveSession: (session: ChatSession) =>
       ipcRenderer.invoke('ai:saveSession', session),
@@ -636,6 +637,7 @@ export interface LucidAPI {
     hasApiKey: () => Promise<boolean>;
     checkLocalBackend: () => Promise<boolean>;
     pingServerHealth: () => Promise<{ ok: boolean; service?: string; model?: string; mode?: string; quota: PingQuota | null }>;
+    pingServerStatus: () => Promise<PingServerStatus>;
     getSessions: () => Promise<ChatSession[]>;
     saveSession: (session: ChatSession) => Promise<void>;
     deleteSession: (id: string) => Promise<void>;

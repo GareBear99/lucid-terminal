@@ -53,6 +53,7 @@ import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PermissionsTab } from './PermissionsTab';
+import { SecurityTab } from './SecurityTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
 import { PluginsVoiceButton } from './PluginsVoiceButton';
 import { AppearanceVoiceButton } from './AppearanceVoiceButton';
@@ -68,7 +69,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions';
+type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'security';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
@@ -409,6 +410,8 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
+    { id: 'security', label: 'Security', icon: <Lock size={18} /> },
+    { id: 'permissions', label: 'Permissions', icon: <Shield size={18} /> },
     { id: 'customization', label: 'Customization', icon: <Sliders size={18} /> },
     { id: 'plugins', label: 'Plugins', icon: <Puzzle size={18} /> },
     { id: 'devices', label: 'Devices', icon: <Usb size={18} /> },
@@ -419,7 +422,6 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} /> },
     { id: 'daemon', label: 'Daemon', icon: <Eye size={18} /> },
     { id: 'general', label: 'General', icon: <Settings size={18} /> },
-    { id: 'permissions', label: 'Permissions', icon: <Shield size={18} /> },
   ];
 
   // --- Settings tab order + drag-reorder (Gary, 2026-11-06) --------
@@ -1775,6 +1777,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
             </div>
           )}
           {activeTab === 'permissions' && (<PermissionsTab />)}
+          {activeTab === 'security' && (<SecurityTab />)}
         </div>
       </div>
 

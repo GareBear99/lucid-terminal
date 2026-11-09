@@ -56,11 +56,30 @@ import {
   EVENT_LOG_LIMIT,
   EVENT_LOG_STORAGE_KEY,
   EVENT_RING_CAPACITY,
+  SNAPSHOT_STREAM_STORAGE_KEY,
   type EventOutcome,
   type PermissionProbeOrigin,
   type TrackedEvent,
 } from '../lib/eventLog';
 import { SpscRing } from '../lib/spscRing';
+import {
+  AI_CHAT_TICK_RING_CAPACITY,
+  aiChatTickRefusedCount,
+  aiChatTickRing,
+} from '../lib/aiChatTicks';
+import {
+  failSnapshotStream,
+  recordSnapshotStreamSample,
+  recordSnapshotStreamTickWait,
+  type SnapshotStream,
+  type SnapshotStreamPhase,
+  type SnapshotStreamSample,
+} from '../lib/snapshotStream';
+import {
+  diagnoseSnapshotUpdate,
+  snapshotUpdateStageLabel,
+  type SnapshotUpdateStage,
+} from '../lib/snapshotUpdate';
 import type { PermissionId, PermissionStatus } from '../lib/permissions';
 
 /**
@@ -71,6 +90,24 @@ import type { PermissionId, PermissionStatus } from '../lib/permissions';
  * tests; production code goes through the store actions.
  */
 export const eventRing = new SpscRing<TrackedEvent>(EVENT_RING_CAPACITY);
+
+/** Which snapshot update stages are phases of the update
+ *  stream (Gary, 2026-11-09 ~15:00 PST): mismatch detected →
+ *  ping fallback → download → hash verify → flip → packet
+ *  hits again. The alert stages are NOT here — the alert is
+ *  a notice, not a step of the update — and 'failed' is not
+ *  a phase either (it ends the stream, it is not one of its
+ *  steps). */
+const SNAPSHOT_STREAM_PHASE: Partial<
+  Record<SnapshotUpdateStage, SnapshotStreamPhase>
+> = {
+  detected: 'mismatch-detected',
+  'ping-fallback': 'ping-fallback',
+  downloading: 'downloading',
+  'hash-verified': 'hash-verified',
+  flipped: 'flipped',
+  'packet-hits': 'packet-hits',
+};
 
 /** Read the persisted log, or [] when there is none / it is
  *  corrupt / storage is unavailable. Never throws. */
@@ -106,6 +143,40 @@ function persist(events: TrackedEvent[]): void {
   }
 }
 
+/** Read the persisted last snapshot update stream, or null
+ *  when there is none / it is corrupt / storage is
+ *  unavailable. Never throws. */
+function readPersistedSnapshotStream(): SnapshotStream | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(SNAPSHOT_STREAM_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const s = parsed as SnapshotStream;
+    if (typeof s.version !== 'string' || !Array.isArray(s.samples)) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the last snapshot update stream (or clear it when
+ *  null). Best-effort: never throws, so a full or unavailable
+ *  storage never breaks logging. */
+function persistSnapshotStream(stream: SnapshotStream | null): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (stream === null) {
+      localStorage.removeItem(SNAPSHOT_STREAM_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(SNAPSHOT_STREAM_STORAGE_KEY, JSON.stringify(stream));
+  } catch {
+    // Storage full or unavailable — the in-memory stream still works.
+  }
+}
+
 export interface EventLogInput {
   phase: TrackedEvent['phase'];
   type: TrackedEvent['type'];
@@ -122,6 +193,15 @@ interface EventLogState {
   /** Events refused by ring backpressure (ring full). Counted
    *  and shown in the UI — a refusal is visible, never silent. */
   refusedCount: number;
+  /** The last snapshot update stream's time + strain
+   *  (Gary, 2026-11-09 ~15:00 PST): one sample per phase
+   *  (mismatch → ping fallback → download → hash verify →
+   *  flip → packet hits again) with the ring's load at each
+   *  phase, plus the worst tick wait seen while it ran.
+   *  Persisted, so the Security tab shows the LAST stream
+   *  even after a reload. Null when no update has streamed
+   *  yet (no snapshot exists to update). */
+  snapshotStream: SnapshotStream | null;
 
   /**
    * Record an event: build it, offer it to the ring, and
@@ -187,6 +267,22 @@ interface EventLogState {
   ) => TrackedEvent | null;
   /** An ask with no attributable trigger — cause 'unknown'. */
   logUnexpectedAsk: (what: string, detail?: string | null) => TrackedEvent | null;
+  /** A snapshot update step (Gary, 2026-11-09 ~14:51–14:52 PST,
+   *  stream phases ~15:00 PST): detected, ping fallback,
+   *  download started, hash verified, flipped, packet hits
+   *  again, alert shown/dismissed, failed. Each step is a tick
+   *  in the event ring (cap 512), in causal order, 0 neurons,
+   *  0 SP. The update itself is required when the manifest
+   *  differs; the alert is the notice, not the update. A
+   *  stream phase ALSO samples the rings' load for the update
+   *  stream (time + strain — see snapshotStream); the alert
+   *  stages record no sample. */
+  logSnapshotUpdate: (
+    stage: SnapshotUpdateStage,
+    version: string,
+    outcome: EventOutcome,
+    detail?: string | null,
+  ) => TrackedEvent | null;
   /** Empty the log (and its persisted copy) and discard any
    *  events still in flight in the ring. An explicit user
    *  action — the discard is the clear itself, not silent. */
@@ -227,6 +323,7 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
   return {
     events: readPersisted(),
     refusedCount: 0,
+    snapshotStream: readPersistedSnapshotStream(),
 
     log: (input) => enqueueEvent(createEvent(input)),
 
@@ -241,7 +338,25 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
         events = appendEvent(events, drained[i]);
       }
       persist(events);
-      set({ events });
+      // Tick latency during a snapshot update stream (Gary,
+      // 2026-11-09 ~15:00 PST): how long each drained tick
+      // waited in the ring (enqueue → drain, from the event's
+      // `at` to now). Only tracked while a stream is in
+      // progress — the stream is the measurement window. The
+      // worst wait is kept on the stream, not per event.
+      const stream = get().snapshotStream;
+      let nextStream = stream;
+      if (stream !== null && stream.status === 'in-progress') {
+        const now = Date.now();
+        let worst = stream.maxTickWaitMs;
+        for (const e of drained) {
+          const wait = now - e.at;
+          if (wait > worst) worst = wait;
+        }
+        nextStream = recordSnapshotStreamTickWait(stream, worst);
+        if (nextStream !== stream) persistSnapshotStream(nextStream);
+      }
+      set({ events, snapshotStream: nextStream });
     },
 
     logStartupFileExplorerWalk: (dir, outcome, detail) =>
@@ -372,12 +487,79 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
         }),
       ),
 
+    logSnapshotUpdate: (stage, version, outcome, detail) => {
+      const typeMap: Record<SnapshotUpdateStage, TrackedEvent['type']> = {
+        detected: 'snapshot.update-detected',
+        'ping-fallback': 'snapshot.ping-fallback',
+        downloading: 'snapshot.download-started',
+        'hash-verified': 'snapshot.hash-verified',
+        flipped: 'snapshot.flipped',
+        'packet-hits': 'snapshot.packet-hits',
+        'alert-shown': 'snapshot.alert-shown',
+        'alert-dismissed': 'snapshot.alert-dismissed',
+        failed: 'snapshot.update-failed',
+      };
+      const event = enqueueEvent(
+        createEvent({
+          phase: 'throughout',
+          type: typeMap[stage],
+          what: `${snapshotUpdateStageLabel(stage)} — snapshot ${version}`,
+          why: diagnoseSnapshotUpdate(stage, version),
+          outcome,
+          detail: detail ?? null,
+        }),
+      );
+      // Stream time + strain (Gary, 2026-11-09 ~15:00 PST): a
+      // stream phase ALSO samples the rings' load at this
+      // moment, so the whole stream — not one point — is
+      // measured. The sample is recorded even when the phase
+      // tick itself was refused (ring full): the refusal IS
+      // the strain, and it shows in the sample's refused
+      // count. The alert stages record no sample — the alert
+      // is a notice, not a step of the update. Reading the
+      // tick ring's depth/refused count here does NOT put a
+      // tick in the event log or an event in the tick ring —
+      // it is a read-only depth probe, and the channels stay
+      // separate (pinned by tests/aiChatTickChannel.test.ts).
+      const phase = SNAPSHOT_STREAM_PHASE[stage];
+      if (phase !== undefined) {
+        const sample: SnapshotStreamSample = {
+          phase,
+          at: Date.now(),
+          eventRingDepth: eventRing.length,
+          eventRingCapacity: EVENT_RING_CAPACITY,
+          eventRingRefused: get().refusedCount,
+          aiChatTickRingDepth: aiChatTickRing.length,
+          aiChatTickRingCapacity: AI_CHAT_TICK_RING_CAPACITY,
+          aiChatTickRingRefused: aiChatTickRefusedCount(),
+        };
+        const next = recordSnapshotStreamSample(
+          get().snapshotStream,
+          version,
+          sample,
+        );
+        persistSnapshotStream(next);
+        set({ snapshotStream: next });
+      } else if (stage === 'failed') {
+        const stream = get().snapshotStream;
+        if (stream !== null && stream.status === 'in-progress') {
+          const next = failSnapshotStream(stream);
+          if (next !== null) {
+            persistSnapshotStream(next);
+            set({ snapshotStream: next });
+          }
+        }
+      }
+      return event;
+    },
+
     clear: () => {
       // Discard anything still in flight in the ring — the
       // user cleared the log, so the in-flight events go too.
       eventRing.drain();
       persist([]);
-      set({ events: [], refusedCount: 0 });
+      persistSnapshotStream(null);
+      set({ events: [], refusedCount: 0, snapshotStream: null });
     },
   };
 });

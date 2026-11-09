@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 
 // ... imports
 import { chat, cancelStream, hasApiKey, ChatMessage } from '../services/openai';
-import { chatPing, cancelPingStream, pingServerHealth, isPingServerEnabled, PingRateLimitError } from '../services/pingServer';
+import { chatPing, cancelPingStream, pingServerHealth, pingServerStatus, isPingServerEnabled, PingRateLimitError } from '../services/pingServer';
 import { chatLocal, checkLocalBackendHealth, cancelLocalChat, chatLocalWithBrowserTools } from '../services/local_ai'; // Import local service
 import { historyManager } from '../services/historyManager';
 import { isAnyModelAvailable } from './lucidWorkflow';
@@ -349,6 +349,15 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
   // unmetered, and the reply carries the remaining SP balance.
   ipcMain.handle('ai:pingServerHealth', async () => {
     return pingServerHealth();
+  });
+
+  // Ping server status — GET / through the client. The public
+  // root: service, model, mode, the maintenance view, the
+  // server caps. Unmetered (no SP, no neurons). The Security
+  // tab pulls it when it opens and on refresh (one call per
+  // pull) — the admin pull for server-side tracking.
+  ipcMain.handle('ai:pingServerStatus', async () => {
+    return pingServerStatus();
   });
 
   // Check if local backend is available

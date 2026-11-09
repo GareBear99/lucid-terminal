@@ -34,9 +34,29 @@
  * nothing.
  */
 
-/** The default tab order — the layout as it was before reordering. */
+/** The default tab order — the layout as it was before reordering.
+ *
+ * The proper order (Gary, 2026-11-09 ~15:02 PST: "ok and order
+ * the setting tabs properly now"):
+ * 1. Appearance first — the most-visited, theme/mist settings.
+ * 2. Security second — the new platform-wide tab (snapshot,
+ *    Living Golem, starship, ping key, SP, allowances,
+ *    permissions/denials, ring time + strain).
+ * 3. Permissions third — the device permissions (Accessibility,
+ *    Screen Recording, Full Disk Access, Microphone, Camera).
+ * 4. Everything else keeps its relative order after those three.
+ */
 export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   'appearance',
+  // Security (Gary, 2026-11-09 ~14:51–14:52 PST) — the general,
+  // platform-wide Security tab in Settings: the snapshot, the
+  // Living Golem, starship detection, the ping key, SP, the
+  // allowances, and the permissions/denials, all in one place.
+  // Second in the default order (Gary, 2026-11-09 ~15:02 PST).
+  // A stored order that predates it gains it at this position
+  // (see resolveSettingsTabOrder), not appended at the end.
+  'security',
+  'permissions',
   'customization',
   'plugins',
   'devices',
@@ -47,7 +67,6 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   'ai',
   'daemon',
   'general',
-  'permissions',
 ];
 
 /**
@@ -58,7 +77,14 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
  * - A stored order is respected as-is, except: unknown/stale ids are
  *   dropped, duplicates keep only their first occurrence, and any
  *   default tab missing from the stored order (a tab added after
- *   the order was saved) is appended at the end.
+ *   the order was saved) lands at its DEFAULT position — right
+ *   after the nearest preceding default tab already in the order
+ *   (or at the start when none precedes it) — instead of being
+ *   appended at the end. The user's stored relative order is
+ *   untouched; only the new tab takes its proper place. (Gary,
+ *   2026-11-09 ~15:02 PST: the tabs are ordered properly now —
+ *   a stored order from before Security existed gains it second,
+ *   after Appearance, not last.)
  */
 export function resolveSettingsTabOrder(
   stored: readonly string[] | null | undefined,
@@ -74,12 +100,25 @@ export function resolveSettingsTabOrder(
     seen.add(id);
     resolved.push(id);
   }
-  // Append any default tab missing from the stored order.
+  // A default tab missing from the stored order lands at its
+  // DEFAULT position — right after the nearest preceding
+  // default tab already in the order (or at the start when
+  // none precedes it). Missing tabs are processed in default
+  // order, so an earlier missing tab is already placed when a
+  // later one looks for its predecessor.
   for (const id of defaults) {
-    if (!seen.has(id)) {
-      seen.add(id);
-      resolved.push(id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const defaultIdx = defaults.indexOf(id);
+    let insertAt = 0;
+    for (let j = defaultIdx - 1; j >= 0; j--) {
+      const prevIdx = resolved.indexOf(defaults[j]);
+      if (prevIdx >= 0) {
+        insertAt = prevIdx + 1;
+        break;
+      }
     }
+    resolved.splice(insertAt, 0, id);
   }
   return resolved;
 }

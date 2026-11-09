@@ -1,5 +1,5 @@
 import { settings, pingKeyStorage } from './secureStorage';
-import type { PingQuota } from '../../src/types';
+import type { PingQuota, PingServerStatus } from '../../src/types';
 
 // Lucid ping server client — the remote-model test path.
 //
@@ -310,5 +310,26 @@ export async function pingServerHealth(): Promise<PingHealth> {
   }
   const body = (await response.json()) as PingHealth;
   if (body.quota) lastQuota = body.quota;
+  return body;
+}
+
+/** Admin pull: GET / on the ping server — the public root the
+ *  Worker publishes (Gary, 2026-11-09 ~15:04 PST: the
+ *  server-side tracking for admin pulls). A plain GET, not
+ *  metered: it spends no SP and no neurons, and it carries no
+ *  key (the root is public info). The Security tab pulls it
+ *  when it opens and on refresh — one call per pull, never
+ *  per event. Throws when the server cannot be reached — the
+ *  caller shows "not available", never a made-up status.
+ *  What it does NOT return: today's neuron/request usage.
+ *  That lives in the Worker's usage DO, which has no public
+ *  route — the tab says so instead of inventing it. */
+export async function pingServerStatus(): Promise<PingServerStatus> {
+  const endpoint = getPingServerEndpoint().replace(/\/$/, '');
+  const response = await fetch(`${endpoint}/`, { method: 'GET' });
+  if (!response.ok) {
+    throw new Error(`Ping server error (${response.status})`);
+  }
+  const body = (await response.json()) as PingServerStatus;
   return body;
 }

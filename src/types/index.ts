@@ -341,6 +341,27 @@ export interface Settings {
   // older persisted settings count as no choice / ask every time.
   summonVariant: SummonVariant | null;
   summonVariantDontAsk: boolean;
+  // Snapshot update alert dismissals (Gary, 2026-11-09 ~14:51 PST):
+  // when training is done and a new snapshot is published,
+  // everyone's next pull is different and the new snapshot is
+  // required — an alert shows, with a "do not show again" box.
+  // Checking it records THAT version here, so the alert fires
+  // once per new version and never nags about a version the user
+  // already dismissed; the NEXT version still alerts. The update
+  // itself still proceeds (it is required) — this list only
+  // silences the notice, never the update. Empty = no version
+  // dismissed yet. Missing keys in older persisted settings
+  // count as empty (alerts show).
+  snapshotAlertDismissedVersions: string[];
+  // Installed snapshot identity (Gary, 2026-11-09 ~14:51 PST):
+  // the version + SHA-256 of the snapshot on this machine.
+  // null = no snapshot installed (no model trained yet — the
+  // honest state today). Written by the snapshot install path
+  // when it lands; read by the Security tab and by the update
+  // check (src/lib/snapshotUpdate.ts). The hash IS the identity:
+  // the manifest check compares version AND hash.
+  installedSnapshotVersion: string | null;
+  installedSnapshotHash: string | null;
   // LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST): the
   // blood drop toggle is JUST a silencer — it silences LuciferAI's
   // own voices but does NOT stop the runtime. LuciferAI's OWN
@@ -533,6 +554,42 @@ export interface PingQuota {
   remaining: number;
   reset: number;
   reset_in_seconds: number;
+}
+
+/** What the ping server's public root (GET /) reports — the
+ *  server-side tracking data the Security tab pulls for Gary
+ *  (admin) (Gary, 2026-11-09 ~15:04 PST). The Worker publishes
+ *  this on GET / (ARC-Neuron-LLMBuilder/cloudflare/ping-server/
+ *  worker.js): service identity, the model, the mode, the
+ *  maintenance view (or null when the server is up), and the
+ *  server caps (neurons 10,000/day, requests 100,000/day,
+ *  24h maintenance). What GET / does NOT report — today's
+ *  neuron/request usage — lives in the Worker's usage DO,
+ *  which has NO public route ("The Worker is the only caller
+ *  ... there is no public route to this DO"), so the tab shows
+ *  usage as not yet available, never an invented number.
+ *  Defined once here; the main-process client, preload, and
+ *  renderer all import this type. */
+export interface PingServerStatus {
+  ok: boolean;
+  service?: string;
+  version?: string;
+  model?: string;
+  mode?: string;
+  /** The public maintenance view, or null when the server is
+   *  up (or the usage DO is unreachable). `reason` is the
+   *  server's where + why (e.g. neurons_exhausted);
+   *  `back_in_seconds` is how long until it is back. */
+  maintenance?: {
+    reason?: string;
+    detail?: string;
+    back_in_seconds?: number;
+  } | null;
+  server_caps?: {
+    neurons_per_day?: number;
+    requests_per_day?: number;
+    maintenance_hours?: number;
+  };
 }
 
 export interface DaemonLogEntry {
@@ -899,6 +956,7 @@ declare global {
         hasApiKey: () => Promise<boolean>;
         checkLocalBackend: () => Promise<boolean>;
         pingServerHealth: () => Promise<{ ok: boolean; service?: string; model?: string; mode?: string; quota: PingQuota | null }>;
+        pingServerStatus: () => Promise<PingServerStatus>;
         getSessions: () => Promise<ChatSession[]>;
         saveSession: (session: ChatSession) => Promise<void>;
         deleteSession: (id: string) => Promise<void>;

@@ -39,7 +39,16 @@ category `info` text in `src/lib/segmentCategories.ts`.
   7-sentence script's internal pauses. Same transcription caveat as
   ai-chat (no local whisper model; verified via tts ok + exact stdin
   text + duration + full-span speech). Committed below.
-- [ ] Bundle `~/workspace/lucid-segments-voice.bundle` verified (HEAD = final commit).
+- [x] Bundle `~/workspace/lucid-segments-voice.bundle` verified
+  (`git bundle verify`: "is okay", "records a complete history",
+  HEAD = final commit below).
+- Push: BLOCKED from this VM 2026-11-08 ~17:46 PST (same as OAuth:
+  `fatal: could not read Username for 'https://github.com'`, one attempt
+  only, no retry). Mac pushes the bundle in the morning: copy bundle
+  over, `git fetch <bundle> HEAD`, `git push origin HEAD:master`, verify
+  with `git ls-remote origin HEAD` — must show the final commit below.
+  Remote master is still at 97fc20c, so the push is a clean fast-forward.
+- Final HEAD: (see commit below).
 
 ## Scripts (verbatim from src/lib/segmentCategories.ts, verified 2026-11-08 ~17:40 PST)
 

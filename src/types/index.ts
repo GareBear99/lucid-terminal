@@ -6,6 +6,7 @@ import type {
   TouchMessage,
 } from '../phone/streaming';
 import type { HomunculusColor } from '../lib/homunculusColor';
+import type { SummonVariant } from '../lib/summons';
 import type { DefconLevel, DefconMergeReading } from '../lib/defcon';
 import type { StopColorDuration } from '../lib/dualUnison';
 import type {
@@ -329,6 +330,17 @@ export interface Settings {
   // disabling LuciferAI does NOT remove the AI panel.) Missing
   // keys in older persisted settings count as OFF.
   luciferAiEnabled: boolean;
+  // Summon variant choice (Gary, 2026-11-09 ~11:01 PST): on EVERY
+  // summon activation, ask clothed vs 18+ variant — ask every time
+  // until the user checks "don't ask again" after selecting one,
+  // then the choice is remembered and the prompt stops. null = no
+  // choice remembered yet (the dialog pre-selects the last chosen
+  // variant when there is one). summonVariantDontAsk = the "don't
+  // ask again" box was checked with that choice: activations then
+  // use the remembered variant with no prompt. Missing keys in
+  // older persisted settings count as no choice / ask every time.
+  summonVariant: SummonVariant | null;
+  summonVariantDontAsk: boolean;
   // LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST): the
   // blood drop toggle is JUST a silencer — it silences LuciferAI's
   // own voices but does NOT stop the runtime. LuciferAI's OWN

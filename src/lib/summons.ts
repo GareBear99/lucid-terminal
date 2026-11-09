@@ -32,6 +32,21 @@
  * Pure model only — no window, no IPC, no store access.
  */
 
+/**
+ * A summon's variant (Gary, 2026-11-09 ~11:01 PST): on EVERY summon
+ * activation, ask clothed vs 18+ variant — ask every time until the
+ * user checks "don't ask again" after selecting one, then the choice
+ * is remembered and the prompt stops. The words are Gary's: the
+ * options are "Clothed" and "18+".
+ */
+export type SummonVariant = 'clothed' | 'adult';
+
+/** Display labels for the variant options — Gary's words. */
+export const SUMMON_VARIANT_LABELS: Record<SummonVariant, string> = {
+  clothed: 'Clothed',
+  adult: '18+',
+};
+
 /** One summon in the Summons section. */
 export interface Summon {
   /** Stable id, e.g. 'lilly'. */

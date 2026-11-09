@@ -139,6 +139,12 @@ const defaultSettings: Settings = {
   speakActorVoice: null,
   customPlugins: {},
   luciferAiEnabled: false,
+  // Summon variant (Gary, 2026-11-09 ~11:01 PST): no variant
+  // remembered yet — the ask runs on every activation until the
+  // user checks "don't ask again" with a choice (see
+  // src/types/index.ts).
+  summonVariant: null,
+  summonVariantDontAsk: false,
   // LuciferAI silenced (Gary, 2026-11-08 ~02:28 PST): the blood
   // drop toggle is JUST a silencer — it greys the drop, it never
   // turns the plugin off. Default false (speaking).

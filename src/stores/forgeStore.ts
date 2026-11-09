@@ -58,6 +58,7 @@ import {
   oppositeHomunculusColor,
 } from '../lib/homunculusColor';
 import { SUMMONS, isSummonUnlocked } from '../lib/summons';
+import type { SummonVariant } from '../lib/summons';
 import {
   appendTailEntry,
   canDetectStopAction,
@@ -202,6 +203,12 @@ interface ForgeState {
   selectedSummonId: string | null;
   /** The active summon — swapped into the summon slot — or null. */
   activeSummonId: string | null;
+  /** The active summon's variant (clothed vs 18+ — Gary, 2026-11-09
+   *  ~11:01 PST), or null when no variant was recorded for this
+   *  activation. The 18+ art does not exist yet, so the variant is
+   *  recorded here and selects its art when it does — no art is
+   *  invented for a variant that has none. */
+  activeSummonVariant: SummonVariant | null;
   /** Bumped by requestSummonsScroll; the Forge view scrolls to the
    * Summons section when it changes (the top-bar Summons entry). */
   summonsScrollRequest: number;
@@ -215,8 +222,14 @@ interface ForgeState {
    * summon is locked (nobody owns a Living Golem yet; detection is
    * open — see isSummonUnlocked), so activation always rejects
    * until detection lands.
+   *
+   * `variant` is the clothed vs 18+ choice from the variant ask
+   * (Gary, 2026-11-09 ~11:01 PST) — the Summons section asks on
+   * every activation until the user checks "don't ask again", then
+   * passes the remembered variant. It is recorded as
+   * activeSummonVariant; null when the caller passed none.
    */
-  activateSummon: (id: string) => void;
+  activateSummon: (id: string, variant?: SummonVariant) => void;
   /** Ask the Forge view to scroll to the Summons section. */
   requestSummonsScroll: () => void;
   /**
@@ -387,6 +400,7 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
   lastError: null,
   selectedSummonId: null,
   activeSummonId: null,
+  activeSummonVariant: null,
   summonsScrollRequest: 0,
   unison: freshDualUnisonState(),
 
@@ -473,7 +487,7 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
 
   selectSummon: (id) => set({ selectedSummonId: id }),
 
-  activateSummon: (id) => {
+  activateSummon: (id, variant) => {
     const summon = SUMMONS.find((s) => s.id === id);
     if (!summon) {
       set({ lastError: 'No such summon to activate.' });
@@ -487,7 +501,7 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
       set({ lastError: `${summon.name} is locked: ${summon.lockedText}` });
       return;
     }
-    set({ activeSummonId: id, selectedSummonId: id, lastError: null });
+    set({ activeSummonId: id, activeSummonVariant: variant ?? null, selectedSummonId: id, lastError: null });
   },
 
   requestSummonsScroll: () =>
@@ -1156,6 +1170,7 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
       lastError: null,
       selectedSummonId: null,
       activeSummonId: null,
+      activeSummonVariant: null,
       summonsScrollRequest: 0,
       unison: freshDualUnisonState(),
     });

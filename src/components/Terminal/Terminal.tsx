@@ -1293,8 +1293,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // Rendered in the dev-command-bar (devmode) and in the
   // prompt section itself (non-devmode, Phase 5 landing) —
   // the same function, the same component, both modes.
+  // Non-devmode DEFCON 3 (Gary, 2026-11-09 ~10:58 PST —
+  // "get rid of the box outline on the prompt on non dev
+  // mode"): in non-devmode the prompt section is a solid
+  // black bar and the border reads as a box outline around
+  // the prompt, so the composer drops the border there —
+  // background untouched. Devmode keeps the border
+  // exactly as-is.
   const renderPrompterComposer = () => (
-    <div data-testid="prompter-composer" className={luciferAiEnabled ? 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50' : 'flex items-center gap-2'}>
+    <div data-testid="prompter-composer" className={luciferAiEnabled ? (!devMode && prompterActive ? 'rounded-none bg-[var(--bg-tertiary)]/50' : 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50') : 'flex items-center gap-2'}>
       {!luciferAiEnabled && (
         <>
           <Tooltip content="Send" shortcut="Enter">

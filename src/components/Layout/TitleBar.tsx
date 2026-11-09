@@ -4,7 +4,12 @@ import { AccountButton } from '../Account/AccountButton';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { Tooltip } from '../Tooltip/Tooltip';
 
-function TitleBar() {
+interface TitleBarProps {
+  /** Opens the Forge view at the Summons section (the top-bar Summons entry). */
+  onOpenSummons?: () => void;
+}
+
+function TitleBar({ onOpenSummons }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   // True while any background work is in progress (a command running,
   // a model installing, the LuciferAI status being probed) — the dot
@@ -68,6 +73,21 @@ function TitleBar() {
         <span className="text-sm font-semibold text-[var(--text-primary)]">
           Lucid Terminal
         </span>
+        {/* Summons (Gary, 2026-11-09): FIRST in the top bar,
+            right after the title text, before the account
+            button. Opens the Forge at the Summons section.
+            The bar is a drag region, so the button opts out
+            of dragging to stay clickable. */}
+        <button
+          type="button"
+          onClick={onOpenSummons}
+          aria-label="Summons — open the Forge Summons section"
+          title="Summons — open the Forge Summons section"
+          className="rounded-md px-2 py-1 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          Summons
+        </button>
       </div>
 
       {/* Account Button (Warp-style) */}

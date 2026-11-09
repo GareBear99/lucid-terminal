@@ -57,6 +57,7 @@ import {
   allowedNewHomunculusColors,
   oppositeHomunculusColor,
 } from '../lib/homunculusColor';
+import { SUMMONS, isSummonUnlocked } from '../lib/summons';
 import {
   appendTailEntry,
   canDetectStopAction,
@@ -189,6 +190,35 @@ interface ForgeState {
    * display messages exist, activation only swaps the face.
    */
   activateHomunculus: (id: string) => void;
+  /**
+   * Summons (Gary, 2026-11-09) — the Summons section of the Forge,
+   * SEPARATE from the Homunculi roster. Summons state lives here,
+   * in the Forge store — never in the roster file (the roster is
+   * Homunculi only, via llmbuilder:getRoster / saveRoster).
+   * Selection mirrors the roster pattern: single click selects,
+   * double-click activates (see selectSummon / activateSummon).
+   */
+  /** The selected summon (single click), or null when none is selected. */
+  selectedSummonId: string | null;
+  /** The active summon — swapped into the summon slot — or null. */
+  activeSummonId: string | null;
+  /** Bumped by requestSummonsScroll; the Forge view scrolls to the
+   * Summons section when it changes (the top-bar Summons entry). */
+  summonsScrollRequest: number;
+  /** Select a summon (single click). Selection is allowed while
+   * locked — selection is not activation. */
+  selectSummon: (id: string | null) => void;
+  /**
+   * Activate a summon (double-click): swap it into the summon slot
+   * as the active summon. A LOCKED summon is rejected — lastError
+   * says why and the active summon does not change. Today every
+   * summon is locked (nobody owns a Living Golem yet; detection is
+   * open — see isSummonUnlocked), so activation always rejects
+   * until detection lands.
+   */
+  activateSummon: (id: string) => void;
+  /** Ask the Forge view to scroll to the Summons section. */
+  requestSummonsScroll: () => void;
   /**
    * Dual unison (binary 2 / the third type), the stop, the tail, and
    * tri unison — Gary's design, 2026-11-06 (see
@@ -355,6 +385,9 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
   askResult: null,
   askError: null,
   lastError: null,
+  selectedSummonId: null,
+  activeSummonId: null,
+  summonsScrollRequest: 0,
   unison: freshDualUnisonState(),
 
   loadRoster: async () => {
@@ -437,6 +470,28 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
       .getState()
       .updateSetting('homunculusColor', homunculus.color);
   },
+
+  selectSummon: (id) => set({ selectedSummonId: id }),
+
+  activateSummon: (id) => {
+    const summon = SUMMONS.find((s) => s.id === id);
+    if (!summon) {
+      set({ lastError: 'No such summon to activate.' });
+      return;
+    }
+    // Locked summons cannot be swapped in — the lock is the rule,
+    // not a missing asset. Today every summon is locked (see
+    // isSummonUnlocked); the rejection is the honest state, and the
+    // active summon does not change.
+    if (!isSummonUnlocked(summon)) {
+      set({ lastError: `${summon.name} is locked: ${summon.lockedText}` });
+      return;
+    }
+    set({ activeSummonId: id, selectedSummonId: id, lastError: null });
+  },
+
+  requestSummonsScroll: () =>
+    set((s) => ({ summonsScrollRequest: s.summonsScrollRequest + 1 })),
 
   inputStopAction: (color, duration) => {
     const detection = detectDualUnison(get().roster);
@@ -1099,6 +1154,9 @@ export const useForgeStore = create<ForgeState>()((set, get) => ({
       askResult: null,
       askError: null,
       lastError: null,
+      selectedSummonId: null,
+      activeSummonId: null,
+      summonsScrollRequest: 0,
       unison: freshDualUnisonState(),
     });
   },

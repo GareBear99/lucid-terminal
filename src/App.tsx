@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
+import { useForgeStore } from './stores/forgeStore';
 import { isLuciferAiEnabled, isLuciferAiSilenced } from './lib/luciferAi';
 import { useToastStore, visibleToastNotifications } from './stores/toastStore';
 import { ErrorNotification } from './components/Terminal/ErrorNotification';
@@ -70,6 +71,14 @@ function App() {
   // Forge view, a second press exits back to the terminal.
   const toggleForge = () =>
     setCurrentView((view) => toggleForgeView(view));
+  // Summons (Gary, 2026-11-09): the top-bar Summons entry opens the
+  // Forge view at the Summons section — the view scrolls to it on
+  // the store's scroll request (see ForgeView). Unlike the toggle,
+  // it always lands on the Forge (never toggles back to terminal).
+  const openSummons = () => {
+    setCurrentView('forge');
+    useForgeStore.getState().requestSummonsScroll();
+  };
   // The Persona Plex button toggles the same way: first press opens
   // the Plex setup page, a second press exits back to the terminal.
   const togglePersonaPlex = () =>
@@ -311,7 +320,7 @@ function App() {
       {showSplashMistForView(currentView, settings.filesMist ?? false) && <SplashMist />}
 
       {/* Title Bar */}
-      <TitleBar />
+      <TitleBar onOpenSummons={openSummons} />
 
       {/* No local model installed — command passes and AI chat need one.
           Session-only dismiss: it comes back on the next launch while no

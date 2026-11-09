@@ -20,10 +20,13 @@ import {
   allowedNewHomunculusColorsFor,
   useForgeStore,
 } from '../../stores/forgeStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { getLlmbuilderApi } from '../../lib/llmbuilderApi';
 import type { HomunculusColor } from '../../lib/homunculi';
 import { detectDualUnison } from '../../lib/dualUnison';
 import { RosterCard } from './RosterCard';
+import { SummonsSection } from './SummonsSection';
 import { PipelinePanel } from './PipelinePanel';
 import { ScoreboardPanel } from './ScoreboardPanel';
 import { BiographyEditor } from './BiographyEditor';
@@ -51,6 +54,14 @@ export function ForgeView() {
   const updateBiography = useForgeStore((s) => s.updateBiography);
   const subscribeProgress = useForgeStore((s) => s.subscribeProgress);
   const askBrain = useForgeStore((s) => s.askBrain);
+  // Summons section gate (Gary, 2026-11-09): the section shows when
+  // LuciferAI is enabled and is ABSENT when it is off — the same
+  // zero-residue rule as the other LuciferAI surfaces. Silenced does
+  // NOT hide it (silenced is dormant, not off).
+  const luciferAiEnabled = useSettingsStore((s) =>
+    isLuciferAiEnabled(s.settings),
+  );
+  const summonsScrollRequest = useForgeStore((s) => s.summonsScrollRequest);
 
   const [creating, setCreating] = useState(false);
   const [newColor, setNewColor] = useState<HomunculusColor>('purple');
@@ -73,6 +84,18 @@ export function ForgeView() {
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Top-bar Summons entry (Gary, 2026-11-09): when the entry is
+  // clicked the store's scroll request bumps and the Forge view
+  // scrolls to the Summons section — whether the Forge was already
+  // open or just mounted. No section exists when LuciferAI is off,
+  // so the lookup is a no-op there and the Forge simply opens.
+  useEffect(() => {
+    if (summonsScrollRequest === 0) return;
+    document
+      .getElementById('summons-section')
+      ?.scrollIntoView?.({ block: 'start' });
+  }, [summonsScrollRequest]);
 
   const selected = roster.find((h) => h.id === selectedId) ?? null;
   const editing = editingId
@@ -373,6 +396,10 @@ export function ForgeView() {
         {/* Registry / scoreboard (right) */}
         <ScoreboardPanel />
       </div>
+
+      {/* Summons (Gary, 2026-11-09): its own section, separate from
+          the roster — shown only while LuciferAI is enabled. */}
+      {luciferAiEnabled && <SummonsSection />}
 
       {/* Ask the brain — verification only, NOT a chat surface. */}
       <footer className="mt-3 shrink-0 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-3">

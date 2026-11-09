@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -12,6 +12,7 @@ import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
 import { InputArea } from './InputArea';
 import { BlockList } from './BlockList';
 import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, newBlock } from '../../lib/terminalBlocks';
+import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
 import type { TerminalBlock } from '../../types';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
 import { HelpPanel } from '../Help/HelpPanel';
@@ -1095,6 +1096,36 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     }
   };
 
+  // DEFCON 3 Phase 3 — the rest of the prompter: ghost
+  // suggestion, Ctrl+C / Ctrl+D forwarding.
+  // The ghost comes from the composer's own submitted history
+  // (devHistory prefix match) and from known slash-command
+  // names — see src/lib/prompterSuggestions.ts. Computed only
+  // while the prompter is active: the delinked bar below level
+  // 3 gets no ghost. Accepting it sets the input to the full
+  // suggestion; the InputArea sync moves the cursor to the end.
+  const ghostSuggestion = useMemo(
+    () => (prompterActive ? computeGhostSuggestion(devInput, devHistory) : null),
+    [prompterActive, devInput, devHistory],
+  );
+  const acceptGhostSuggestion = useCallback(() => {
+    if (ghostSuggestion) setDevInput(ghostSuggestion);
+  }, [ghostSuggestion]);
+  // Ctrl+C / Ctrl+D from the composer (Phase 1 flag): the
+  // xterm-input gate drops ALL xterm input including these, so
+  // the composer forwards them to the PTY via ptyWrite —
+  // '\x03' interrupts the running shell command, '\x04' is
+  // EOF. The composer text itself is NOT cleared: \x03's job
+  // is interrupting the shell, and the draft is the user's to
+  // keep or discard. Passed only to the linked composer, so
+  // the delinked bar never writes to the PTY.
+  const handleComposerInterrupt = useCallback(() => {
+    ptyWrite('\x03');
+  }, [ptyWrite]);
+  const handleComposerEof = useCallback(() => {
+    ptyWrite('\x04');
+  }, [ptyWrite]);
+
   // Dev-bar history: Up/Down walk submitted lines, like the shell.
   const devHistoryUp = () => {
     if (devHistory.length === 0) return;
@@ -1411,7 +1442,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   )}
                   {prompterActive ? (
                     tabCwd ? (
-                      <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title={tabCwd}>
+                      <span data-testid="cwd-chip" className="ml-auto shrink-0 truncate rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)]/50 px-2 py-px font-mono text-[11px] text-[var(--text-secondary)]" title={tabCwd}>
                         {tabCwd}
                       </span>
                     ) : null
@@ -1640,6 +1671,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                         isProcessing={devRunning}
                         flat={!luciferAiEnabled}
                         dragState={composerDrag}
+                        ghostSuggestion={ghostSuggestion}
+                        onAcceptSuggestion={acceptGhostSuggestion}
+                        onInterrupt={handleComposerInterrupt}
+                        onEof={handleComposerEof}
                       />
                     </div>
                   </div>

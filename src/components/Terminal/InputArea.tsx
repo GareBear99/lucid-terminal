@@ -66,10 +66,51 @@ interface InputAreaProps {
      *  parent (Terminal) owns the hook and passes it down;
      *  when absent the input keeps its own, as before. */
     dragState?: ReturnType<typeof useDraggableInputHeight>;
+    /** DEFCON 3 Phase 3 ghost suggestion — the full suggested
+     *  text (composer history or a slash-command name, computed
+     *  by the parent from `computeGhostSuggestion`), or null.
+     *  Rendered as faded ghost text after the input; accepted
+     *  with Right-arrow (cursor at end) or Tab. Passed ONLY
+     *  by the linked composer (prompterActive) — the delinked
+     *  bar below level 3 gets no ghost. */
+    ghostSuggestion?: string | null;
+    /** Accept the ghost suggestion (parent sets the input to
+     *  it). Called by Right-arrow / Tab when a ghost is shown. */
+    onAcceptSuggestion?: () => void;
+    /** DEFCON 3 Phase 3 — control keys the xterm-input gate
+     *  drops (Phase 1 flag). The composer has focus, so the
+     *  composer forwards them: Ctrl+C interrupts the running
+     *  shell command, Ctrl+D sends EOF. Passed ONLY by the
+     *  linked composer — the delinked bar never writes to the
+     *  PTY. SELECTION RULE (decided): Ctrl+C copies when text
+     *  is selected, interrupts only when nothing is selected —
+     *  the smallest rule that does not break copy. */
+    onInterrupt?: () => void;
+    /** Ctrl+D (EOF) — same forwarding as onInterrupt. */
+    onEof?: () => void;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, ghostSuggestion = null, onAcceptSuggestion, onInterrupt, onEof }: InputAreaProps) {
   const editorRef = useRef<any>(null);
+  // The ghost remainder (the part after what is typed) — the
+  // overlay renders this faded after the input text. Null when
+  // there is no ghost, or the ghost is not a completion of the
+  // current input (defensive: the parent computes it, but the
+  // prop must never render stale text).
+  const ghostRemainder =
+    ghostSuggestion && ghostSuggestion !== input && ghostSuggestion.startsWith(input)
+      ? ghostSuggestion.slice(input.length)
+      : null;
+  // Monaco registers its keybindings once, at mount — but the
+  // ghost and the handlers change every keystroke. The ref
+  // keeps the mounted handlers reading the latest values.
+  const latestRef = useRef({ ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof });
+  latestRef.current = { ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof };
+  // The ghost overlay hides while the editor is scrolled —
+  // the mirror can only align with unscrolled text (the
+  // textarea path syncs its scroll instead; see onScroll).
+  const [ghostHiddenByScroll, setGhostHiddenByScroll] = useState(false);
+  const ghostRef = useRef<HTMLDivElement>(null);
   // Content height from the editor (Monaco) or the fallback textarea;
   // the input height derives from it plus the dragged cap (below).
   const [contentHeightPx, setContentHeightPx] = useState(INPUT_MIN_HEIGHT_PX);
@@ -231,6 +272,97 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             }
         );
         
+        // DEFCON 3 Phase 3 — the rest of the prompter (Gary,
+        // 2026-11-09). Registered only when the linked composer
+        // passed the handlers at mount (the prompter branch
+        // remounts this input when the level changes, so the
+        // mount-time props are the branch's props): the delinked
+        // bar keeps Monaco's defaults untouched.
+        //   Tab — accepts the ghost suggestion when one is
+        // shown; otherwise SWALLOWED. Tab never goes to the
+        // shell (the shell is not the input here) and never
+        // inserts a tab character into the command.
+        if (onAcceptSuggestion) {
+            editor.addCommand(
+                monaco.KeyCode.Tab,
+                () => {
+                    if (latestRef.current.ghostSuggestion) {
+                        latestRef.current.onAcceptSuggestion?.();
+                    }
+                }
+            );
+        }
+        //   Ctrl+C — the Phase 1 flag: the xterm-input gate
+        // drops ALL xterm input including Ctrl+C, so the
+        // composer forwards it. WinCtrl is the physical
+        // Control key on every platform (CtrlCmd would be
+        // Cmd on macOS — the copy chord, not interrupt).
+        // Selection rule: text selected → copy wins (the
+        // keybinding is ours now, so copy is re-triggered
+        // explicitly); nothing selected → interrupt.
+        if (onInterrupt) {
+            editor.addCommand(
+                monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyC,
+                () => {
+                    const selection = editor.getSelection();
+                    if (selection && !selection.isEmpty()) {
+                        editor.trigger('keyboard', 'editor.action.clipboardCopyAction', null);
+                        return;
+                    }
+                    latestRef.current.onInterrupt?.();
+                }
+            );
+        }
+        //   Ctrl+D — EOF to the PTY. Monaco's default here is
+        // "add selection to next find match"; the composer
+        // replaces it — there is no find in the prompt.
+        if (onEof) {
+            editor.addCommand(
+                monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyD,
+                () => {
+                    latestRef.current.onEof?.();
+                }
+            );
+        }
+        //   Right-arrow — accepts the ghost ONLY when the
+        // cursor is at the end of the input. onKeyDown, not
+        // addCommand: when there is no ghost (or the cursor
+        // is mid-line) the key must fall through to Monaco's
+        // normal cursor movement, and swallowing it would
+        // break that. If preventDefault ever failed to stop
+        // the movement it would still be harmless — the
+        // cursor is already at the end after an accept.
+        // Guarded: the real editor always has these, but a
+        // stubbed editor (tests) may not — the ghost accept
+        // is an enhancement, never a mount failure.
+        if (typeof editor.onKeyDown === 'function') {
+            const keyDownDisposable = editor.onKeyDown((e: any) => {
+                if (e.keyCode !== monaco.KeyCode.RightArrow) return;
+                const suggestion = latestRef.current.ghostSuggestion;
+                if (!suggestion) return;
+                const model = editor.getModel();
+                const pos = editor.getPosition();
+                if (!model || !pos) return;
+                const atEnd =
+                    pos.lineNumber === model.getLineCount() &&
+                    pos.column === model.getLineMaxColumn(pos.lineNumber);
+                if (atEnd) {
+                    e.preventDefault();
+                    latestRef.current.onAcceptSuggestion?.();
+                }
+            });
+            editorDisposers.current.push(() => keyDownDisposable.dispose());
+        }
+        // The ghost overlay mirrors unscrolled text only — hide
+        // it while the editor is scrolled (the fallback
+        // textarea syncs its scroll instead).
+        if (typeof editor.onDidScrollChange === 'function') {
+            const scrollDisposable = editor.onDidScrollChange((e: any) => {
+                setGhostHiddenByScroll(e.scrollLeft > 0 || e.scrollTop > 0);
+            });
+            editorDisposers.current.push(() => scrollDisposable.dispose());
+        }
+        
         // Focus editor
         editor.focus();
         
@@ -248,6 +380,44 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
     // Plain-textarea fallback: same behaviour as the editor — Enter submits,
     // Up/Down walk command history.
     const handleFallbackKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        const el = e.currentTarget;
+        const hasSelection = el.selectionStart !== el.selectionEnd;
+        // DEFCON 3 Phase 3 — the rest of the prompter.
+        // Ctrl+C: copy wins when text is selected (the browser
+        // copies — we do nothing); with nothing selected it
+        // interrupts the running shell command via onInterrupt.
+        // Cmd+C is the platform copy chord and never interrupts.
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+            if (e.ctrlKey && !e.metaKey && !hasSelection && onInterrupt) {
+                e.preventDefault();
+                onInterrupt();
+            }
+            return;
+        }
+        // Ctrl+D: EOF to the PTY via onEof.
+        if (e.ctrlKey && !e.metaKey && (e.key === 'd' || e.key === 'D')) {
+            e.preventDefault();
+            onEof?.();
+            return;
+        }
+        // Tab: accepts the ghost suggestion when one is shown;
+        // otherwise SWALLOWED — never the shell, never a tab
+        // character in the command.
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            if (ghostRemainder !== null) onAcceptSuggestion?.();
+            return;
+        }
+        // Right-arrow: accepts the ghost only with the cursor
+        // at the end of the input; anywhere else it is normal
+        // cursor movement (no preventDefault).
+        if (e.key === 'ArrowRight') {
+            if (ghostRemainder !== null && !hasSelection && el.selectionStart === input.length) {
+                e.preventDefault();
+                onAcceptSuggestion?.();
+            }
+            return;
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             const value = input.trim();
@@ -289,12 +459,27 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                 onDragHandlePointerDown={onDragHandlePointerDown}
             />
             
+            {/* Ghost suggestion (DEFCON 3 Phase 3): a faded
+                mirror of the input text with the suggestion's
+                remainder after it — same font, size, line
+                height and top padding as the editor/textarea,
+                so the remainder sits exactly where the typed
+                text would continue. pointer-events-none: it
+                never blocks typing or clicks. Theme vars only
+                (text-muted at 60% opacity). Single-line only
+                — the suggestion is null for multi-line input,
+                and the overlay hides while Monaco is scrolled
+                (the textarea syncs its scroll instead). */}
             {monacoFailed ? (
                 <textarea
                     ref={fallbackRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleFallbackKeyDown}
+                    onScroll={(e) => {
+                        const g = ghostRef.current;
+                        if (g) g.scrollLeft = e.currentTarget.scrollLeft;
+                    }}
                     rows={1}
                     wrap="off"
                     autoFocus
@@ -354,6 +539,18 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     fontLigatures: false,
                 }}
             />
+            )}
+            {ghostRemainder !== null && !ghostHiddenByScroll && (
+                <div
+                    ref={ghostRef}
+                    data-testid="composer-ghost-suggestion"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-pre py-[10px] font-mono text-[13px] leading-5"
+                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace" }}
+                >
+                    <span style={{ visibility: 'hidden' }}>{input}</span>
+                    <span className="text-[var(--text-muted)] opacity-60">{ghostRemainder}</span>
+                </div>
             )}
         </div>
     );

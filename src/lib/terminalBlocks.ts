@@ -50,6 +50,23 @@
  * only. This is a deferred gap for the final report, not a
  * silent omission.
  *
+ * RE-EXAMINED in Phase 3 (Gary, 2026-11-09) — ONE clean
+ * mechanism was looked for, and none exists. Candidates
+ * rejected: (a) OSC 133 / shell-integration sequences — they
+ * need the shell to emit them, which means touching shell
+ * config (precmd / PROMPT_COMMAND / PS1), forbidden; (b)
+ * reading `$?` after the block closes — reading it IS a shell
+ * command, so it would land in the user's history and stream
+ * and change `$?` itself; (c) wrapping the submitted command
+ * in a subshell that reports its status on a side channel —
+ * that wraps/alters the user's command, forbidden; (d)
+ * inferring the code from the output text — output carries no
+ * exit status. The per-command code lives only inside the
+ * shell; only the whole-tab exit ever reaches the UI
+ * (shellManager → App → terminalStore → banner). Deferral
+ * CONFIRMED: `exitCode?` stays unwritten until a mechanism
+ * appears that needs none of the above.
+ *
  * SCOPE: composer submits only, at DEFCON 3+ in devmode
  * (`prompterActive`). Xterm-typed submits and the delinked
  * dev bar below level 3 create NO blocks — the old paths are

@@ -73,6 +73,33 @@ export const LUCIFERAI_COMMANDS = new Set([
 ]);
 
 /**
+ * Every word the slash parser can dispatch — the catalogue for
+ * Tab / ghost completion of `/`-lines (DEFCON 3 Phase 3, Gary,
+ * 2026-11-09) and the typo-suggestion surface for
+ * `findClosestCommand` (which draws from this list plus the
+ * shell set and the multi-word phrases below). `defcon` and
+ * `devmode` are Lucid-local commands handled in Terminal.tsx —
+ * they were missing from every suggestion surface (dissection
+ * gap #16: a typo'd `/defconn` got no suggestion); `browser`,
+ * `install`, `github`, `env` and `daemon` are likewise
+ * dispatchable slash words. Single words only: multi-word
+ * phrases (`fixnet stats`, …) are not Tab-completed — the ghost
+ * completes the command word, never its arguments.
+ */
+export const SLASH_COMMAND_NAMES: string[] = [
+  ...new Set([
+    ...LUCIFERAI_COMMANDS,
+    'defcon',
+    'devmode',
+    'browser',
+    'install',
+    'github',
+    'env',
+    'daemon',
+  ]),
+].sort();
+
+/**
  * Multi-word slash commands, matched as a phrase BEFORE the
  * single-word dispatch: the old code checked the single first word
  * first, so 'fixnet stats' returned command='fixnet' (the first
@@ -550,9 +577,9 @@ function levenshteinDistance(a: string, b: string): number {
 export function findClosestCommand(input: string): string | null {
   const allCommands = [
     ...Array.from(SHELL_COMMANDS),
-    ...Array.from(LUCIFERAI_COMMANDS),
+    ...SLASH_COMMAND_NAMES,
     'fixnet stats', 'fixnet search', 'llm list', 'llm enable', 'llm disable',
-    'workflow status', 'clear history', 'install', 'github', 'env', 'daemon'
+    'workflow status', 'clear history'
   ];
 
   const firstWord = input.trim().split(/\s+/)[0].toLowerCase();

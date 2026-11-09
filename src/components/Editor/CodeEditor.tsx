@@ -125,9 +125,13 @@ function CodeEditor() {
     }
   };
 
+  // Empty state - solid stored theme, not black (Gary, 2026-11-09):
+  // the centre used to be transparent over the app root's bg-black,
+  // so the Files page read as a black hole between themed panels.
+  // bg-primary is the theme token - never a hardcoded colour here.
   if (openFiles.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-[var(--text-muted)]">
+      <div className="h-full flex items-center justify-center bg-[var(--bg-primary)] text-[var(--text-muted)]">
         <p>No files open. Select a file from the explorer.</p>
       </div>
     );

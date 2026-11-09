@@ -704,49 +704,6 @@ export function setupBrowserHandlers(
       } catch {
         // A failed write must not break the page load.
       }
-      // Paint nudge (Gary, 2026-11-09 — LIVE diagnose, not a guess):
-      // example.com loaded (title + URL correct, loading false,
-      // attachedToMain true, sane bounds) and capturePage HAS the
-      // rendered page, but the on-screen view stays blank white —
-      // and detach + re-attach with the same bounds does not fix
-      // it, so an identical-bounds re-set is a no-op to the
-      // compositor. The first paint works (loadURL before attach);
-      // later navigations while attached never get a present. After
-      // a load finishes on an attached tab, jiggle the bounds by
-      // 1px and restore them on the next tick: the changed bounds
-      // force the compositor to present the new frame. One targeted
-      // nudge, no reimagining, no cross-origin special-casing.
-      try {
-        if (activeTabId !== tabId || wc.isDestroyed()) return;
-        const win = getMainWindow();
-        const mini = options?.mini?.get() ?? null;
-        const attached =
-          (win &&
-            !win.isDestroyed() &&
-            getAttachedBrowserView(win) === view) ||
-          (mini &&
-            !mini.isDestroyed() &&
-            getAttachedBrowserView(mini) === view);
-        if (!attached) return;
-        const cur = view.getBounds();
-        setBrowserViewBounds(view, { ...cur, height: cur.height + 1 });
-        // The restore must dwell at least a few frames: restoring on
-        // the next tick (setTimeout 0) coalesces with the jiggle
-        // before the compositor presents anything — verified live
-        // 2026-11-09, the 0ms version left example.com blank white
-        // even though this handler ran (visit log recorded the load).
-        // 100ms holds the changed bounds across ~6 frames so the
-        // compositor presents the new frame, then restores exactly.
-        setTimeout(() => {
-          try {
-            if (!wc.isDestroyed()) setBrowserViewBounds(view, cur);
-          } catch {
-            // The tab is gone; nothing to restore.
-          }
-        }, 100);
-      } catch {
-        // A failed nudge must not break the page load.
-      }
     });
     wc.on('will-navigate', () => captureAndOffer(wc));
     wc.on('did-navigate-in-page', () => captureAndOffer(wc));

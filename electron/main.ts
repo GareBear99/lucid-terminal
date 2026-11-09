@@ -23,6 +23,24 @@ import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
 import { setupGoogleDriveHandlers } from './ipc/googleDrive';
 
+// Browser paint fix (Gary, 2026-11-09 — LIVE evidence, not a guess):
+// the in-app BrowserView presents only frames from the renderer
+// process that owned it at first attach. Same-site navigations
+// while attached paint (phone page -> phone page ?fresh=1 paints);
+// cross-site navigations stay blank white (phone -> example.com,
+// about:blank -> example.com), even though capturePage HAS the
+// rendered page, detach + re-attach does not fix it, and a bounds
+// jiggle (0ms and 100ms dwell) does not fix it either. A cross-site
+// navigation swaps the renderer process (site isolation), and the
+// new process's frames never present in the view. Disabling site
+// isolation keeps every browser page in one renderer process, so
+// no swap ever happens and the view keeps presenting. Trade-off:
+// site isolation is a Spectre mitigation; Lucid's browser is a
+// local-first feature panel, not a general-purpose browser, and a
+// browser that paints nothing is worse. The main window loads only
+// local content, so it is unaffected in practice.
+app.commandLine.appendSwitch('disable-site-isolation-trials');
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.lucid.terminal');

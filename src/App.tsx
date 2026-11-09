@@ -354,6 +354,7 @@ function App() {
               onViewChange={setCurrentView}
               showAI={showAI}
               onToggleAI={handleToggleAI}
+              bloodDropDisabled={luciferAiSilenced}
               onOpenBloodDrop={() => {
                 // SILENCED (Gary, 2026-11-08 ~06:41 PST — potential
                 // daemon only): the terminal link is disabled while

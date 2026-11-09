@@ -38,6 +38,8 @@ interface SidebarProps {
   onToggleAI: () => void;
   /** Open the blood drop terminal (the blood-drop toolbar button's action, Gary 2026-11-07 ~09:18 PST — both blood drops go to the same creation place). */
   onOpenBloodDrop?: () => void;
+  /** Whether the blood drop is disabled (silenced): while silenced the toolbar blood drop button disappears entirely (Gary, 2026-11-09 ~10:26 PST) — silently, no toast, no error, just absent. The Synth button stays (the homunculi are still active while silenced). */
+  bloodDropDisabled?: boolean;
   /** Toggle the Synth view (the Synth toolbar button's action). */
   onToggleSynth?: () => void;
   /** Toggle the Forge view (the Forge toolbar button's action). */
@@ -48,7 +50,7 @@ interface SidebarProps {
   onToggleSettings?: () => void;
 }
 
-function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenBloodDrop, onToggleSynth, onToggleForge, onTogglePersonaPlex, onToggleSettings }: SidebarProps) {
+function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenBloodDrop, bloodDropDisabled, onToggleSynth, onToggleForge, onTogglePersonaPlex, onToggleSettings }: SidebarProps) {
   const {
     currentDir,
     entries,
@@ -96,8 +98,16 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // plugin (LLMBuilder) and stays — and so does AI Chat, which is
   // Lucid AI, its own plugin now (Gary, 2026-11-07), not a
   // LuciferAI surface.
+  // Silenced (Gary, 2026-11-09 ~10:26 PST): while the blood drop is
+  // disabled (silenced), the toolbar blood drop button disappears
+  // too — silently, no toast, no error, just absent (the same
+  // silent-filter pattern as the plugin-off case above). The Synth
+  // button STAYS while silenced: the homunculi still show and are
+  // active while silenced (Gary, 2026-11-09 ~02:30 PST).
   const enabledPlugins = enabledToolbarPlugins(toolbarPlugins).filter(
-    (plugin) => luciferAiEnabled || (plugin.action !== 'synth' && plugin.action !== 'help'),
+    (plugin) =>
+      (luciferAiEnabled || (plugin.action !== 'synth' && plugin.action !== 'help')) &&
+      (plugin.action !== 'help' || !bloodDropDisabled),
   );
 
   // --- Toolbar icon order + drag-reorder (Gary, 2026-11-06) --------

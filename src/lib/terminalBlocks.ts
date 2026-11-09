@@ -80,11 +80,114 @@ import type { TerminalBlock } from '../types';
  *  FALLBACK_OUTPUT_CAP) so a flooding command cannot grow the
  *  store without bound. */
 export const BLOCK_OUTPUT_CAP = 100_000;
-
 /** How long the PTY stream must stay quiet after a submit's
  *  output before the prompt is taken to have returned and the
  *  block closes (see the header comment). */
 export const BLOCK_QUIET_CLOSE_MS = 500;
+
+/**
+ * DEFCON 3 fix — block transcript fidelity (Gary, 2026-11-09).
+ * A block's output is a TEXT transcript of what the terminal
+ * showed, but the PTY stream is not text: it is the raw byte
+ * stream, and two of its artifacts read as corruption in a
+ * `<pre>`:
+ *
+ *   (a) ANSI prompt codes — the shell's prompt redraw (colour
+ *       CSI, bracketed-paste `CSI ? 2004 h/l`, erase-to-EOL
+ *       `CSI K`, keypad `ESC =`/`ESC >`, …) arrives verbatim
+ *       in the captured chunks. The live xterm interprets
+ *       them; the DOM `<pre>` prints them raw.
+ *
+ *   (b) The doubled first character (`eecho`, `ssleep`) — NOT
+ *       a double write. Verified against a real interactive
+ *       zsh on a PTY: every submit echoes as
+ *       `<first-char> BS <full line>` — e.g. `e\x08echo hi`
+ *       — zsh echoes the first keystroke, then backs up and
+ *       reprints the whole line. The live xterm reads the
+ *       backspace as "cursor left", so the screen is correct;
+ *       the raw-text transcript keeps both copies of the
+ *       first character (the `<pre>` renders `\x08` as
+ *       nothing). bash does not do this; zsh does, on every
+ *       submit, one-shot or typed.
+ *
+ * The fix is at the capture funnel, not the write path: the
+ * shell echo is correct (the xterm proves it) and the
+ * composer write must not change. This function turns the
+ * raw stream into the text the terminal showed — strip the
+ * escape sequences, then replay the cursor-affecting controls
+ * the way a terminal would: backspace / DEL move the cursor
+ * left (the next char overwrites), a lone carriage return
+ * returns to column 0 (the next chars overwrite), `CRLF` is
+ * a newline. Trailing spaces are trimmed per line (the
+ * prompt redraw pads with them). It is idempotent: running
+ * it over already-clean text changes nothing, so it is safe
+ * to apply to the concatenated output on every append —
+ * which also makes it correct across chunk boundaries (an
+ * escape or a `e\x08` pair split across two PTY chunks still
+ * sanitizes as one stream).
+ */
+export function sanitizeBlockTranscript(text: string): string {
+  if (!text) return text;
+  // 0. A sequence split across PTY chunks: a trailing
+  // INCOMPLETE escape (CSI with no final byte, OSC with no
+  // terminator, a bare ESC) is peeled off and re-appended
+  // verbatim, so the next chunk's continuation completes it
+  // instead of the strip below mangling it. The stream
+  // essentially never ends mid-escape (a command's output
+  // completes), so a peeled partial is completed by the
+  // next append, not left dangling.
+  const partialMatch = /(?:\x1b\[[0-?]*[ -/]*|\x1b\][^\x07\x1b]*|\x1b[()]|\x1b)$/.exec(text);
+  const partial = partialMatch ? partialMatch[0] : '';
+  const body = partial ? text.slice(0, -partial.length) : text;
+  // 1. Strip escape sequences: OSC (… BEL or ST), CSI
+  // (params 0x30–0x3F, intermediates 0x20–0x2F, final
+  // 0x40–0x7E), charset designations, keypad modes.
+  const stripped = body
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[()][0-9A-B]/g, '')
+    .replace(/\x1b[=>]/g, '');
+  // 2. Replay BS / DEL / CR / LF over the visible text,
+  // column-aware: overwriting, not deleting, so a lone CR
+  // before a newline keeps the line it returns over (the
+  // `echo hi\r\r\n` the shell emits after a submit).
+  const lines: string[] = [];
+  let cur: string[] = [];
+  let col = 0;
+  const put = (ch: string) => {
+    if (col < cur.length) cur[col] = ch;
+    else cur.push(ch);
+    col++;
+  };
+  for (let i = 0; i < stripped.length; i++) {
+    const ch = stripped[i];
+    if (ch === '\n') {
+      lines.push(cur.join('').replace(/[ \t]+$/, ''));
+      cur = [];
+      col = 0;
+    } else if (ch === '\r') {
+      if (stripped[i + 1] === '\n') {
+        i++;
+        lines.push(cur.join('').replace(/[ \t]+$/, ''));
+        cur = [];
+        col = 0;
+      } else {
+        col = 0;
+      }
+    } else if (ch === '\x08' || ch === '\x7f') {
+      col = Math.max(0, col - 1);
+    } else if (ch === '\t') {
+      put(ch);
+    } else if (ch < ' ') {
+      // Any other C0 control (BEL included — the bell
+      // already rang upstream) is noise in a transcript.
+    } else {
+      put(ch);
+    }
+  }
+  lines.push(cur.join('').replace(/[ \t]+$/, ''));
+  return lines.join('\n') + partial;
+}
 
 /** A stable block id: submit timestamp + a per-process counter,
  *  so two submits in the same millisecond still differ. */
@@ -110,10 +213,15 @@ export function newBlock(command: string, cwd: string | undefined, now: number):
 
 /** Append transcript text to a block, capped at
  *  BLOCK_OUTPUT_CAP (oldest text is dropped past the cap —
- *  the tail, the part the user is reading, is what survives). */
+ *  the tail, the part the user is reading, is what survives).
+ *  The text is sanitized first (see
+ *  sanitizeBlockTranscript): the block keeps the text the
+ *  terminal showed, not the raw PTY bytes. Sanitizing the
+ *  concatenation (not each chunk alone) keeps escapes and
+ *  backspace pairs correct across chunk boundaries. */
 export function appendBlockOutput(block: TerminalBlock, text: string): TerminalBlock {
   if (!text) return block;
-  const next = (block.output + text).slice(-BLOCK_OUTPUT_CAP);
+  const next = sanitizeBlockTranscript(block.output + text).slice(-BLOCK_OUTPUT_CAP);
   if (next === block.output) return block;
   return { ...block, output: next };
 }

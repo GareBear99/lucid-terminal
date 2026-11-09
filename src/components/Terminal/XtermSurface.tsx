@@ -61,7 +61,10 @@ interface XtermSurfaceProps {
    *  flashing at end of line". xterm.js 5.5.0 has no cursorStyle
    *  'none' (only block/underline/bar), so the glyph is hidden
    *  by a transparent theme cursor colour plus no blink; the
-   *  standing colour returns when the prompter is off. */
+   *  standing colour returns when the prompter is off. The
+   *  transparent colour is the 8-digit hex form from
+   *  defconCursorThemeColors — the literal 'transparent'
+   *  falls back to white in xterm.js (see there). */
   cursorHidden?: boolean;
 }
 
@@ -72,6 +75,39 @@ function canvasSupported(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * DEFCON 3 cursor colours (Gary, 2026-11-09) — the hidden
+ * cursor is a fully-transparent theme colour, and the exact
+ * spelling matters. The Phase 1 spelling, the literal
+ * `'transparent'`, DOES NOT WORK live: xterm.js 5.5.0 parses
+ * every theme colour through `css.toColor`, which throws on
+ * ANY colour whose alpha is not 0xFF — including
+ * `'transparent'` (and `rgba(…, 0)`) — and `parseColor`
+ * then falls back to `DEFAULT_CURSOR`, `#ffffff`. That is
+ * exactly what live showed: a solid WHITE block while
+ * focused, a hollow WHITE outline while unfocused. The
+ * 8-digit hex form `#rrggbbaa` takes `css.toColor`'s fast
+ * path, which does NOT validate alpha, so `#58a6ff00` /
+ * `#0d111700` parse to a genuinely transparent cursor
+ * (background) and accent (the glyph under the cursor) —
+ * and the DOM renderer's injected CSS then reads
+ * `background-color: #58a6ff00` / `outline: 1px solid
+ * #58a6ff00`, invisible in every state (block, outline,
+ * bar, underline, blink keyframes). The standing colours
+ * return below level 3. Verified against the installed
+ * xterm.js 5.5.0 sources (`src/common/Color.ts`,
+ * `src/browser/services/ThemeService.ts`,
+ * `src/browser/renderer/dom/DomRenderer.ts`).
+ */
+export function defconCursorThemeColors(cursorHidden: boolean): {
+  cursor: string;
+  cursorAccent: string;
+} {
+  return cursorHidden
+    ? { cursor: '#58a6ff00', cursorAccent: '#0d111700' }
+    : { cursor: '#58a6ff', cursorAccent: '#0d1117' };
 }
 
 /** Strip ANSI/OSC sequences for the plain-text fallback pane. */
@@ -249,13 +285,21 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     // no cursorStyle 'none' — only block/underline/bar — so the
     // glyph is hidden by a transparent theme cursor colour plus
     // no blink; the standing '#58a6ff' returns below level 3.
+    // The transparent colour MUST be the 8-digit hex form
+    // (see defconCursorThemeColors): the literal 'transparent'
+    // throws in xterm's css.toColor and falls back to WHITE
+    // #ffffff — the solid white block / hollow white outline
+    // seen live. Both cursor and cursorAccent go transparent
+    // (background + the glyph under the cursor).
     useEffect(() => {
       const term = termRef.current;
       if (term) {
+        const colors = defconCursorThemeColors(cursorHidden);
         term.options.cursorBlink = !cursorHidden;
         term.options.theme = {
           ...(term.options.theme ?? {}),
-          cursor: cursorHidden ? 'transparent' : '#58a6ff',
+          cursor: colors.cursor,
+          cursorAccent: colors.cursorAccent,
         };
       }
     }, [cursorHidden]);

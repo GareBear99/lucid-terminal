@@ -40,6 +40,13 @@ export const GOOGLE_DRIVE_API_BASE = 'https://www.googleapis.com';
  *  (see GOOGLE_DRIVE_REDIRECT_URI in src/lib/googleDriveAuth.ts). */
 export const GOOGLE_DRIVE_LOOPBACK_PORT = 8765;
 
+/** The loopback redirect URI — the same value as
+ *  GOOGLE_DRIVE_REDIRECT_URI in src/lib/googleDriveAuth.ts,
+ *  duplicated here because the electron project must not import
+ *  from src/ (see the TS6307 note in electron/main.ts). */
+export const GOOGLE_DRIVE_REDIRECT_URI =
+  `http://127.0.0.1:${GOOGLE_DRIVE_LOOPBACK_PORT}`;
+
 /** How long the listener waits for Google's redirect before giving
  *  up (the user may take a while to sign in; 10 minutes). */
 export const GOOGLE_DRIVE_LISTENER_TIMEOUT_MS = 10 * 60 * 1000;
@@ -61,6 +68,13 @@ export interface GoogleDriveTokens {
 export type GoogleDriveRedirectResult =
   | { ok: true; code: string; state: string }
   | { ok: false; error: 'denied' | 'missing-code' | 'missing-state' | 'bad-url' };
+
+/** What the main process reports to the renderer for one sign-in
+ *  attempt: Google's redirect, or the listener failing / timing
+ *  out before Google answered. */
+export type GoogleDriveAuthRedirect =
+  | GoogleDriveRedirectResult
+  | { ok: false; error: 'timeout' | 'listener-failed' };
 
 /**
  * Parse Google's redirect URL (the path + query Google lands on
@@ -325,6 +339,10 @@ export function startGoogleDriveLoopbackListener(options: {
   onRedirect: (result: GoogleDriveRedirectResult) => void;
   onTimeout?: () => void;
   onListenError?: (error: Error) => void;
+  /** Fires once the server is actually bound — the caller must not
+   *  open the auth URL until this fires, or Google's redirect can
+   *  land on a port nobody is listening on. */
+  onListening?: () => void;
 }): GoogleDriveLoopbackListener {
   const port = options.port ?? GOOGLE_DRIVE_LOOPBACK_PORT;
   const timeoutMs = options.timeoutMs ?? GOOGLE_DRIVE_LISTENER_TIMEOUT_MS;
@@ -361,6 +379,10 @@ export function startGoogleDriveLoopbackListener(options: {
     stopped = true;
     if (timer) clearTimeout(timer);
     options.onListenError?.(error);
+  });
+
+  server.on('listening', () => {
+    options.onListening?.();
   });
 
   timer = setTimeout(() => {

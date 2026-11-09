@@ -21,6 +21,7 @@ import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, stripeApiKeySto
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
+import { setupGoogleDriveHandlers } from './ipc/googleDrive';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (process.platform === 'win32') {
@@ -98,6 +99,7 @@ app.whenReady().then(() => {
   setupTerminalHandlers(ipcMain);
   setupAIHandlers(ipcMain);
   setupSettingsHandlers(ipcMain);
+  setupGoogleDriveHandlers(ipcMain);
   setupLucidWorkflowHandlers(ipcMain);
   setupSystemHandlers(ipcMain);
   setupComputerControlHandlers(ipcMain);

@@ -743,6 +743,46 @@ export interface PersonaConfig {
 
 export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge' | 'persona-plex';
 
+/** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
+ *  / GoogleDriveAuthRedirect in src/lib/googleDriveAuth.ts. Defined
+ *  here, not imported from there, because the electron project must
+ *  not import from src/ (TS6307) and this file is pulled into the
+ *  electron build via preload — an import would drag
+ *  googleDriveAuth.ts into tsconfig.node.json and add errors there.
+ *  Keep the two identical by hand. */
+export type GoogleDriveIpcError =
+  | 'already-running'
+  | 'listener-failed'
+  | 'no-client-id'
+  | 'empty'
+  | 'network'
+  | 'bad-response'
+  | 'invalid-grant'
+  | 'invalid-client'
+  | 'invalid-request'
+  | 'server'
+  | 'not-connected'
+  | 'token-expired'
+  | 'unauthorized'
+  | 'forbidden';
+
+export type GoogleDriveIpcResult =
+  | { ok: true }
+  | { ok: false; error: GoogleDriveIpcError };
+
+export type GoogleDriveAuthRedirect =
+  | { ok: true; code: string; state: string }
+  | {
+      ok: false;
+      error:
+        | 'denied'
+        | 'missing-code'
+        | 'missing-state'
+        | 'bad-url'
+        | 'timeout'
+        | 'listener-failed';
+    };
+
 // Extend Window interface for Electron API
 declare global {
   interface Window {
@@ -904,6 +944,15 @@ declare global {
       };
       devices: {
         list: () => Promise<DevicesListResult>;
+      };
+      googleDrive: {
+        startListener: () => Promise<GoogleDriveIpcResult>;
+        stopListener: () => Promise<{ ok: true }>;
+        exchangeCode: (code: string, codeVerifier: string) => Promise<GoogleDriveIpcResult>;
+        hasTokens: () => Promise<boolean>;
+        disconnect: () => Promise<{ ok: true }>;
+        verifyConnection: () => Promise<GoogleDriveIpcResult>;
+        onAuthRedirect: (callback: (result: GoogleDriveAuthRedirect) => void) => () => void;
       };
       cursor: {
         onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;

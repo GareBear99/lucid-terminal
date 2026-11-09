@@ -9,6 +9,45 @@ import type {
 import type { PingQuota } from '../src/types';
 import type { BrowserAgentStateSnapshot } from '../src/lib/browserAgent';
 
+/** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
+ *  / GoogleDriveAuthRedirect in src/lib/googleDriveAuth.ts. Defined
+ *  here, not imported from there: the electron project must not
+ *  import from src/ (TS6307), and importing would drag
+ *  googleDriveAuth.ts into tsconfig.node.json. Keep the two
+ *  identical by hand. */
+export type GoogleDriveIpcError =
+  | 'already-running'
+  | 'listener-failed'
+  | 'no-client-id'
+  | 'empty'
+  | 'network'
+  | 'bad-response'
+  | 'invalid-grant'
+  | 'invalid-client'
+  | 'invalid-request'
+  | 'server'
+  | 'not-connected'
+  | 'token-expired'
+  | 'unauthorized'
+  | 'forbidden';
+
+export type GoogleDriveIpcResult =
+  | { ok: true }
+  | { ok: false; error: GoogleDriveIpcError };
+
+export type GoogleDriveAuthRedirect =
+  | { ok: true; code: string; state: string }
+  | {
+      ok: false;
+      error:
+        | 'denied'
+        | 'missing-code'
+        | 'missing-state'
+        | 'bad-url'
+        | 'timeout'
+        | 'listener-failed';
+    };
+
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('lucidAPI', {
   // Window controls
@@ -411,6 +450,30 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     list: () => ipcRenderer.invoke('devices:list'),
   },
 
+  // Google Drive OAuth (Gary, 2026-11-08) — the bridge for the
+  // Drive segment's Connect button. The tokens never cross this
+  // bridge: startListener only binds the loopback listener, the
+  // redirect arrives as an event, and exchangeCode stores the
+  // tokens encrypted in main.
+  googleDrive: {
+    startListener: (): Promise<GoogleDriveIpcResult> =>
+      ipcRenderer.invoke('google-drive:startListener'),
+    stopListener: (): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('google-drive:stopListener'),
+    exchangeCode: (code: string, codeVerifier: string): Promise<GoogleDriveIpcResult> =>
+      ipcRenderer.invoke('google-drive:exchangeCode', code, codeVerifier),
+    hasTokens: (): Promise<boolean> => ipcRenderer.invoke('google-drive:hasTokens'),
+    disconnect: (): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('google-drive:disconnect'),
+    verifyConnection: (): Promise<GoogleDriveIpcResult> =>
+      ipcRenderer.invoke('google-drive:verifyConnection'),
+    onAuthRedirect: (callback: (result: GoogleDriveAuthRedirect) => void) => {
+      const listener = (_: any, result: GoogleDriveAuthRedirect) => callback(result);
+      ipcRenderer.on('google-drive:auth-redirect', listener);
+      return () => ipcRenderer.removeListener('google-drive:auth-redirect', listener);
+    },
+  },
+
   // Global cursor (off-window gaze) — the main process polls
   // screen.getCursorScreenPoint() and pushes points here; the
   // Sentinel face converts them to client coordinates.
@@ -665,6 +728,15 @@ export interface LucidAPI {
   };
   devices: {
     list: () => Promise<DevicesListResult>;
+  };
+  googleDrive: {
+    startListener: () => Promise<GoogleDriveIpcResult>;
+    stopListener: () => Promise<{ ok: true }>;
+    exchangeCode: (code: string, codeVerifier: string) => Promise<GoogleDriveIpcResult>;
+    hasTokens: () => Promise<boolean>;
+    disconnect: () => Promise<{ ok: true }>;
+    verifyConnection: () => Promise<GoogleDriveIpcResult>;
+    onAuthRedirect: (callback: (result: GoogleDriveAuthRedirect) => void) => () => void;
   };
   cursor: {
     onGlobalPoint: (callback: (x: number, y: number) => void) => () => void;

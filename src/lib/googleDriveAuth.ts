@@ -114,6 +114,49 @@ export interface PkceAttempt {
   state: string;
 }
 
+/** What the main process reports to the renderer for one sign-in
+ *  attempt: Google's redirect, or the listener failing / timing
+ *  out before Google answered. Mirrors GoogleDriveAuthRedirect in
+ *  electron/services/googleDriveOAuth.ts — the electron project
+ *  must not import from src/ (see the TS6307 note in
+ *  electron/main.ts), so the two are kept identical by hand. */
+export type GoogleDriveAuthRedirect =
+  | { ok: true; code: string; state: string }
+  | {
+      ok: false;
+      error:
+        | 'denied'
+        | 'missing-code'
+        | 'missing-state'
+        | 'bad-url'
+        | 'timeout'
+        | 'listener-failed';
+    };
+
+/** Error codes the google-drive IPC calls can return. Mirrors
+ *  GoogleDriveIpcResult in electron/ipc/googleDrive.ts (same
+ *  no-import-from-src reason — keep the two identical). */
+export type GoogleDriveIpcError =
+  | 'already-running'
+  | 'listener-failed'
+  | 'no-client-id'
+  | 'empty'
+  | 'network'
+  | 'bad-response'
+  | 'invalid-grant'
+  | 'invalid-client'
+  | 'invalid-request'
+  | 'server'
+  | 'not-connected'
+  | 'token-expired'
+  | 'unauthorized'
+  | 'forbidden';
+
+/** The result of a google-drive IPC call. */
+export type GoogleDriveIpcResult =
+  | { ok: true }
+  | { ok: false; error: GoogleDriveIpcError };
+
 /** Save the in-flight attempt for the redirect listener (next step). */
 export function savePkceAttempt(attempt: PkceAttempt): void {
   try {

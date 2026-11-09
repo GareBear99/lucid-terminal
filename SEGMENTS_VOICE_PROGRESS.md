@@ -31,8 +31,14 @@ category `info` text in `src/lib/segmentCategories.ts`.
   model on the VM, faster-whisper not installed, venv install failed
   (filled /tmp tmpfs — cleaned up); verification rests on the tts tool's
   ok + exact stdin text + duration + full-span speech. Committed below.
-- [ ] `public/segments/google-drive.mp3` — script = google-drive `info`
-  verbatim (81 words). NOT STARTED.
+- [x] `public/segments/google-drive.mp3` — DONE 2026-11-08 ~17:44 PST.
+  Lily (`avocado_v2:Lily`, confirmed in tts output, no substitution).
+  224,293 bytes, 28.03 s, 24 kHz mono 64 kb/s (raw tts output already
+  matched sibling format — no re-encode needed). Non-silent: mean −28.0 dB,
+  max −11.3 dB. Speech spans full duration: 6 silence gaps matching the
+  7-sentence script's internal pauses. Same transcription caveat as
+  ai-chat (no local whisper model; verified via tts ok + exact stdin
+  text + duration + full-span speech). Committed below.
 - [ ] Bundle `~/workspace/lucid-segments-voice.bundle` verified (HEAD = final commit).
 
 ## Scripts (verbatim from src/lib/segmentCategories.ts, verified 2026-11-08 ~17:40 PST)

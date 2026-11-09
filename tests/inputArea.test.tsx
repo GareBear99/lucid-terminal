@@ -320,6 +320,67 @@ describe('prompt input has a drag handle (Gary, 2026-11-08 — recovered)', () =
     expect(editorHeight()).toBe('100');
   });
 
+  test('grabbing the handle again does NOT flash to the old dragged cap (Gary, 2026-11-09)', async () => {
+    // Gary, by hand: after dragging the prompt tall once, grabbing
+    // the handle again FLASHED the bubble to full extend (the old
+    // dragged cap) before the pointer even moved. Root cause: the
+    // while-dragging height was the persisted dragged cap, so the
+    // pointerdown re-render (isDragging=true, no move yet) jumped
+    // straight to it. The drag must start from the on-screen height.
+    mockState.initImpl = () => Promise.resolve();
+    render(<Harness />);
+    await screen.findByTestId('monaco-editor');
+    setContentHeight(2000);
+    dragHandleUp(300);
+    expect(editorHeight()).toBe('384');
+    // Short content: the bubble regresses to fit it (cap, not floor).
+    setContentHeight(100);
+    expect(editorHeight()).toBe('100');
+    // Grab the handle again but do NOT move yet: the bubble must stay
+    // at the content height — no flash to the old 384px cap.
+    const handle = screen.getByTestId('input-drag-handle');
+    fireEvent.pointerDown(handle, { clientY: 400, pointerId: 1 });
+    expect(editorHeight()).toBe('100');
+    // Release without moving: nothing changes either.
+    act(() => {
+      window.dispatchEvent(
+        new window.MouseEvent('pointerup', { clientY: 400 }),
+      );
+    });
+    expect(editorHeight()).toBe('100');
+  });
+
+  test('a second drag starts from the on-screen height and follows the pointer', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    render(<Harness />);
+    await screen.findByTestId('monaco-editor');
+    setContentHeight(2000);
+    dragHandleUp(300);
+    expect(editorHeight()).toBe('384');
+    setContentHeight(100);
+    expect(editorHeight()).toBe('100');
+    // Grab + drag up 50px: 100 + 50 = 150, not 384 + 50.
+    const handle = screen.getByTestId('input-drag-handle');
+    fireEvent.pointerDown(handle, { clientY: 400, pointerId: 1 });
+    expect(editorHeight()).toBe('100');
+    act(() => {
+      window.dispatchEvent(
+        new window.MouseEvent('pointermove', { clientY: 350 }),
+      );
+    });
+    expect(editorHeight()).toBe('150');
+    act(() => {
+      window.dispatchEvent(
+        new window.MouseEvent('pointerup', { clientY: 350 }),
+      );
+    });
+    // After release the new cap is 150; short content still regresses.
+    expect(editorHeight()).toBe('100');
+    // And the new cap holds: long content caps at 150 now.
+    setContentHeight(2000);
+    expect(editorHeight()).toBe('150');
+  });
+
   test('content still grows to the default cap and scrolls past it — no drag needed', async () => {
     mockState.initImpl = () => Promise.resolve();
     render(<Harness />);

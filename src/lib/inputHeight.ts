@@ -86,13 +86,33 @@ export function resolveInputHeightPx(
  * as a cap after the drag ends. Pointer events cover mouse and
  * touch; the handle sets touch-action: none so the browser does not
  * scroll while dragging.
+ *
+ * No flash to the old cap (Gary, 2026-11-09 — "the drag to extend
+ * also flashes full extend"): the height WHILE dragging is a
+ * separate in-drag value, seeded from the CURRENT on-screen height
+ * at pointerdown — never the persisted dragged cap. The old code
+ * exposed the persisted cap during the drag, so the pointerdown
+ * re-render (isDragging=true, no move yet) jumped the bubble
+ * straight to the old cap — up to the 50vh max — for a frame (or
+ * until the first pointermove). The in-drag height is committed as
+ * the new cap on pointerup ONLY if the pointer actually moved, so
+ * a grab-and-release without moving changes nothing.
  */
 export function useDraggableInputHeight() {
   const [draggedHeightPx, setDraggedHeightPx] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  // Height the bubble is at WHILE dragging — seeded from the current
+  // on-screen height at drag start, then following the pointer.
+  const [activeDragHeightPx, setActiveDragHeightPx] = useState<
+    number | null
+  >(null);
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(
     null,
   );
+  // Ref mirror of the in-drag height (state may not have flushed by
+  // pointerup) + whether the pointer moved at all this drag.
+  const activeDragHeightRef = useRef<number | null>(null);
+  const dragMovedRef = useRef(false);
   const heightRef = useRef(INPUT_MIN_HEIGHT_PX);
 
   // Keep the current on-screen height so a drag starts from it.
@@ -104,6 +124,16 @@ export function useDraggableInputHeight() {
     (e: ReactPointerEvent<HTMLElement>) => {
       e.preventDefault();
       dragRef.current = { startY: e.clientY, startHeight: heightRef.current };
+      // Seed the in-drag height from the CURRENT on-screen height, so
+      // the first dragged frame shows where the bubble already is —
+      // never a jump to the old dragged cap.
+      const startHeight = clampDraggedHeightPx(
+        heightRef.current,
+        window.innerHeight,
+      );
+      activeDragHeightRef.current = startHeight;
+      setActiveDragHeightPx(startHeight);
+      dragMovedRef.current = false;
       setIsDragging(true);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -114,15 +144,24 @@ export function useDraggableInputHeight() {
       const onMove = (ev: PointerEvent) => {
         const st = dragRef.current;
         if (!st) return;
-        setDraggedHeightPx(
-          clampDraggedHeightPx(
-            st.startHeight + (st.startY - ev.clientY),
-            window.innerHeight,
-          ),
+        dragMovedRef.current = true;
+        const next = clampDraggedHeightPx(
+          st.startHeight + (st.startY - ev.clientY),
+          window.innerHeight,
         );
+        activeDragHeightRef.current = next;
+        setActiveDragHeightPx(next);
       };
       const onUp = () => {
+        // Commit the dragged height as the new cap ONLY if the
+        // pointer actually moved — a grab-and-release without moving
+        // leaves the old cap untouched.
+        if (dragMovedRef.current && activeDragHeightRef.current !== null) {
+          setDraggedHeightPx(activeDragHeightRef.current);
+        }
         dragRef.current = null;
+        activeDragHeightRef.current = null;
+        setActiveDragHeightPx(null);
         setIsDragging(false);
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
@@ -135,5 +174,13 @@ export function useDraggableInputHeight() {
     [],
   );
 
-  return { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight };
+  return {
+    // While dragging, the exposed height is the in-drag height
+    // (seeded from the on-screen height); at rest it is the
+    // persisted dragged cap.
+    draggedHeightPx: isDragging ? activeDragHeightPx : draggedHeightPx,
+    isDragging,
+    onDragHandlePointerDown,
+    noteHeight,
+  };
 }

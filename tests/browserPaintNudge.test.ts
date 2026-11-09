@@ -1,8 +1,9 @@
 /**
  * Browser paint nudge (Area 1) main-process tests: after a load
  * finishes on an attached tab, the view's bounds are jiggled by 1px
- * and restored on the next tick so the compositor presents the new
- * frame. Live diagnose (Gary, 2026-11-09): example.com loaded
+ * and restored after a 100ms dwell (long enough for the compositor
+ * to present the new frame — a 0ms restore coalesces with the
+ * jiggle before any present, verified live 2026-11-09).
  * (title + URL correct, loading false, attachedToMain true, sane
  * bounds) and capturePage HAS the rendered page, but the on-screen
  * view stays blank white — and detach + re-attach with the SAME
@@ -160,7 +161,7 @@ const fireLoad = (tabIndex = 0) => {
   (handler as () => void)();
 };
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+const tick = () => new Promise((resolve) => setTimeout(resolve, 150));
 
 beforeEach(() => {
   views().length = 0;

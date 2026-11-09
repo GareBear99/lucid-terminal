@@ -730,13 +730,20 @@ export function setupBrowserHandlers(
         if (!attached) return;
         const cur = view.getBounds();
         setBrowserViewBounds(view, { ...cur, height: cur.height + 1 });
+        // The restore must dwell at least a few frames: restoring on
+        // the next tick (setTimeout 0) coalesces with the jiggle
+        // before the compositor presents anything — verified live
+        // 2026-11-09, the 0ms version left example.com blank white
+        // even though this handler ran (visit log recorded the load).
+        // 100ms holds the changed bounds across ~6 frames so the
+        // compositor presents the new frame, then restores exactly.
         setTimeout(() => {
           try {
             if (!wc.isDestroyed()) setBrowserViewBounds(view, cur);
           } catch {
             // The tab is gone; nothing to restore.
           }
-        }, 0);
+        }, 100);
       } catch {
         // A failed nudge must not break the page load.
       }

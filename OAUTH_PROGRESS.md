@@ -91,19 +91,34 @@ Baselines (2026-11-08 ~16:55 PST, before any new code):
   0 failed** (was 7; +4 redirect check, +3 failure notes).
   Commit: **7e992fa**.
 
-## Phase 5 — verify + push (DONE 2026-11-08 ~17:30 PST)
+## Phase 5 — verify + push (VERIFY DONE, PUSH BLOCKED 2026-11-08 ~17:31 PST)
 - `npx tsc --noEmit -p tsconfig.json` → **0 errors**.
 - `npx tsc --noEmit -p tsconfig.node.json` → **72 errors
   (baseline), 0 in googleDrive files, 0 new**.
 - `npx vitest run tests/googleDriveOAuth.test.ts
   tests/googleDriveAuth.test.ts tests/googleDriveTokenStorage.test.ts`
   → **39 passed, 0 failed** (20 OAuth + 14 renderer + 5 storage).
-- Pushed to GitHub master; `git ls-remote` HEAD verified (see below).
+- **PUSH DID NOT LAND — blocked, not failed code:** this VM has
+  no GitHub credentials (no credential helper, `gh` not logged
+  in) and SSH is reset by the proxy, so `git push origin
+  HEAD:master` fails with `fatal: could not read Username for
+  'https://github.com'`. `git ls-remote` HEAD still shows
+  97fc20c23526a0f35d05e233ab19ee6a0b61357a. NOTHING is live yet.
+- **Resume for the push:** complete-history bundle verified at
+  `~/workspace/lucid-gdrive-oauth.bundle` (HEAD 59b06e4, "The
+  bundle records a complete history"). On the Mac (which holds
+  the token): copy the bundle over, `git fetch <bundle> HEAD`,
+  then `git push origin HEAD:master`, then verify with
+  `git ls-remote origin HEAD` — it must show 59b06e4 (or the
+  later head if the progress log was re-committed after the
+  bundle). Remote master is still at 97fc20c, so the push is a
+  clean fast-forward; no rebase needed unless master moves first.
 
-## DONE — all five phases complete (2026-11-08 ~17:30 PST)
-- Commits on master: 8ab8059 (Phase 1), 53a8a93 (Phase 2),
-  406f271 (Phase 3), 7e992fa (Phase 4). OAUTH_PROGRESS.md itself
-  committed with the final numbers.
+## DONE — all five phases complete except the push (2026-11-08 ~17:31 PST)
+- Commits (local, in the worktree + bundle): 8ab8059 (Phase 1),
+  53a8a93 (Phase 2), 406f271 (Phase 3), 7e992fa (Phase 4),
+  59b06e4 (progress log). OAUTH_PROGRESS.md committed with the
+  final numbers.
 - dist-electron/ is untracked build output — NOT committed, and
   NOT in .gitignore (only `dist/` is). Left untracked per plan.
 

@@ -58,9 +58,17 @@ interface InputAreaProps {
      *  the prompt panel itself (Terminal.tsx), not bubble
      *  chrome, so it shows in both states. */
     flat?: boolean;
+    /** Dragged-height state lifted out of the input (DEFCON 3,
+     *  Gary, 2026-11-09 — dissection gap #19): when the
+     *  composer is ONE component across LuciferAI on/off, the
+     *  drag state must live above it — inside InputArea it
+     *  resets every time the on/off branch remounts it. The
+     *  parent (Terminal) owns the hook and passes it down;
+     *  when absent the input keeps its own, as before. */
+    dragState?: ReturnType<typeof useDraggableInputHeight>;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // Content height from the editor (Monaco) or the fallback textarea;
   // the input height derives from it plus the dragged cap (below).
@@ -68,8 +76,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
   const [viewportHeightPx, setViewportHeightPx] = useState(
     () => window.innerHeight,
   );
+  // The drag state: the parent's when lifted (DEFCON 3 — one
+  // composer across LuciferAI on/off), else this input's own.
+  // The hook below always runs (rules of hooks); the lifted
+  // state simply wins when provided.
+  const internalDrag = useDraggableInputHeight();
   const { draggedHeightPx, isDragging, onDragHandlePointerDown, noteHeight } =
-    useDraggableInputHeight();
+    dragState ?? internalDrag;
   // The input height: default cap 33.33vh; the dragged height is a
   // cap — the input regresses to fit the content and is never stuck
   // tall — direct pointer follow while dragging.

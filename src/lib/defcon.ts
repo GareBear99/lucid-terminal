@@ -103,6 +103,19 @@ export function defconMergeActive(level: DefconLevel): boolean {
   return level >= 2;
 }
 
+/** Whether the DEFCON 3 prompter is in effect at a level: it
+ * takes effect at DEFCON 3 and above (Gary, 2026-11-09 ~08:10
+ * PST — "proceed until complete", same composer in both
+ * modes). Follows the DEFCON 2 precedent (`defconMergeActive`
+ * gates the merge rendering on level >= 2): the level is the
+ * switch for the prompter behavior, nothing else flips it. At
+ * level < 3 today's behavior is unchanged (typing at the
+ * xterm cursor; dev bar delinked in devmode). No code moves
+ * the level — it stays whatever Gary set (currently 2). */
+export function defconPrompterActive(level: DefconLevel): boolean {
+  return level >= 3;
+}
+
 /** DEFCON 2 whiter text (Gary, 2026-11-09 ~05:21 PST — "the
  * darken blur and whiter text"). At DEFCON 2+ the terminal
  * foreground is the active theme's own `terminal.brightWhite`

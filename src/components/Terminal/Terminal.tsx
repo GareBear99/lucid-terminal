@@ -18,8 +18,9 @@ import { shouldDrip } from '../Synth/blood';
 import { Heartbeat } from './Heartbeat';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled, isLuciferAiSilenced, LUCIFER_AI_SILENCED_NOTE } from '../../lib/luciferAi';
-import { DEFCON_DEFAULT, DEFCON2_MERGE_IMPLEMENTED, defconCriteria, defconMergeActive, defconMergeReadingText, defconTagline, describeDefcon, isDefconLevel } from '../../lib/defcon';
+import { DEFCON_DEFAULT, DEFCON2_MERGE_IMPLEMENTED, defconCriteria, defconMergeActive, defconMergeReadingText, defconPrompterActive, defconTagline, describeDefcon, isDefconLevel } from '../../lib/defcon';
 import { checkPromptFocus, ptyWriteFailureReason, TOPOLOGY_FALLBACK_NOTICE, TOPOLOGY_FALLBACK_TITLE } from '../../lib/topologySync';
+import { useDraggableInputHeight } from '../../lib/inputHeight';
 import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
 
@@ -132,6 +133,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // the terminal is exactly as it stands; the level is the
   // only switch, nothing else flips the merge.
   const defconMerge = defconMergeActive(settings.defconLevel ?? DEFCON_DEFAULT);
+  // DEFCON 3 prompter switch (Gary, 2026-11-09 ~08:10 PST —
+  // "proceed until complete", same composer in both modes):
+  // at DEFCON 3+ in devmode the prompt-section composer is
+  // LINKED to the terminal it sits under (the prompter). Below
+  // 3 today's behavior is unchanged (typing at the xterm
+  // cursor; dev bar delinked in devmode). Non-devmode landing
+  // is a later phase — the switch is devmode-only for now. No
+  // code moves the level; it stays whatever Gary set.
+  const prompterActive = devMode && defconPrompterActive(settings.defconLevel ?? DEFCON_DEFAULT);
+  // Dragged-height state for the ONE composer (dissection gap
+  // #19): lifted out of InputArea so toggling LuciferAI on/off
+  // does not remount the height state away. Terminal stays
+  // mounted across the toggle, so the dragged cap survives it.
+  const composerDrag = useDraggableInputHeight();
   // Detached dev-bar input + its own submitted-line history
   // (Up/Down), separate from the shell's history.
   const [devInput, setDevInput] = useState('');
@@ -908,6 +923,56 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     }
   };
 
+  // Submit from the LINKED composer — DEFCON 3 prompter
+  // (Gary, 2026-11-09 ~08:10 PST). Devmode + DEFCON 3+ only;
+  // below 3 the delinked handleDevSubmit above still runs.
+  // Slash lines route EXPLICITLY to runSlashCommand — a
+  // composed line was never echoed by the shell, so there is
+  // no line to wipe (`\x15\r` would erase an unrelated shell
+  // line) and it must never reach the shell. It is echoed into
+  // the terminal feed first (`$ <line>`) so the command is
+  // visible above its output. Bare lines go composed
+  // `text + '\r'` via ptyWrite — the same call typed input
+  // makes — so the shell owns echo, history and execution.
+  // Output sinks to the terminal feed (termWriteLines, the
+  // runSlashCommand default) in ALL THREE LuciferAI states —
+  // on, off, silenced — closing the OFF-case gap: no composer
+  // output may go to devWrite/devLines, which is invisible
+  // when off. The dev console is retired as a composer sink.
+  const composerRunningRef = useRef(false);
+  const handleComposerSubmit = async (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    // Submit guard (dissection gap #18): one composer submit
+    // in flight at a time — a second Enter / arrow tap while a
+    // slash command runs is dropped, not interleaved. The ref
+    // (not just the state) guards the window before React
+    // re-renders; devRunning below drives the glow.
+    if (composerRunningRef.current) return;
+    composerRunningRef.current = true;
+    setDevHistory((prev) => [...prev, trimmed].slice(-100));
+    devHistoryIdx.current = null;
+    setDevInput('');
+    setDevRunning(true);
+    try {
+      if (trimmed.startsWith('/')) {
+        // No wipe: record the PTY sequence so the feed echo
+        // waits for genuinely-new PTY data (80 ms cap), the
+        // same ordering termWriteLines gives slash output.
+        slashPromptSeqRef.current = ptyDataSeqRef.current;
+        await termWriteLines(`$ ${trimmed}`);
+        await runSlashCommand(trimmed);
+        return;
+      }
+      if (!ptyWrite(`${trimmed}\r`)) {
+        await termWriteLines('❌ Could not write to the terminal — the input path is down.');
+      }
+    } finally {
+      composerRunningRef.current = false;
+      setDevRunning(false);
+    }
+  };
+
   // Dev-bar history: Up/Down walk submitted lines, like the shell.
   const devHistoryUp = () => {
     if (devHistory.length === 0) return;
@@ -940,6 +1005,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // line in ways this tracker cannot follow — after any of those
   // the line is unknown (null) and left to the shell.
   const handleXtermInput = (data: string) => {
+    // DEFCON 3 input ownership (Gary, 2026-11-09): while the
+    // prompter owns typing, xterm keystrokes must not also reach
+    // the PTY — the two inputs must not fight. Same shape of
+    // gate as handlePromptSectionClick's devmode early return.
+    if (prompterActive) return;
     if (shellExitedRef.current) return;
     lastKeystrokeAt.current = Date.now();
     let pending = '';
@@ -1143,6 +1213,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 onInput={handleXtermInput}
                 onResize={handleResize}
                 disabled={shellExited !== null}
+                cursorHidden={prompterActive}
               />
             </div>
           </div>
@@ -1191,15 +1262,29 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
             {/* Section header — identity + context, Warp-style.
                 Dev mode ON: the header shows the delinked badge and
                 a static note instead of the live cwd — the detached
-                bar never reads the terminal's cwd. */}
+                bar never reads the terminal's cwd. DEFCON 3: the
+                bar is LINKED (the prompter), so the badge says so
+                and the live cwd shows again. */}
             <div className="flex items-center gap-2 px-5 pt-3" data-testid="prompt-section-header">
               {devMode ? (
                 <>
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Terminal</span>
-                  <span className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-amber-300">DEV — prompt bar delinked</span>
-                  <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title="The detached prompt bar has no live working directory — it never reads the terminal's cwd.">
-                    delinked — no live cwd
-                  </span>
+                  {prompterActive ? (
+                    <span className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-amber-300">DEFCON 3 — prompt linked</span>
+                  ) : (
+                    <span className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-amber-300">DEV — prompt bar delinked</span>
+                  )}
+                  {prompterActive ? (
+                    tabCwd ? (
+                      <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title={tabCwd}>
+                        {tabCwd}
+                      </span>
+                    ) : null
+                  ) : (
+                    <span className="ml-auto truncate font-mono text-[11px] text-[var(--text-secondary)] opacity-80" title="The detached prompt bar has no live working directory — it never reads the terminal's cwd.">
+                      delinked — no live cwd
+                    </span>
+                  )}
                 </>
               ) : (
                 <>
@@ -1332,7 +1417,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 or reads its cwd, and the terminal keeps running
                 independently. No blood drop, no heartbeat, no
                 Sentinel face is added here — the plain-terminal
-                rule still holds with LuciferAI off. */}
+                rule still holds with LuciferAI off. DEFCON 3
+                (Gary, 2026-11-09 ~08:10 PST): at DEFCON 3+ this
+                bar BECOMES the linked composer (the prompter) —
+                one InputArea, slash lines to runSlashCommand,
+                bare lines composed into the PTY, output to the
+                terminal feed in all three LuciferAI states, dev
+                console retired. Below 3 the delinked bar above
+                is exactly as it was. */}
             {devMode && (
               <div data-testid="dev-command-bar" className="px-5 pb-4">
                 {/* Prompt when LuciferAI is disabled (Gary,
@@ -1367,7 +1459,56 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     LuciferAI is on, the squared bottom-drop
                     section. The rainbow glow still shows either way
                     (platform trait). */}
-                {luciferAiEnabled ? (
+                {prompterActive ? (
+                  // DEFCON 3 linked composer (Gary, 2026-11-09
+                  // ~08:10 PST — "proceed until complete", same
+                  // composer in both modes): ONE InputArea in the
+                  // prompt section, shared across LuciferAI on/off
+                  // — the dragged height lives in Terminal
+                  // (composerDrag), so toggling never resets it
+                  // (gap #19). Submit is linked: slash lines route
+                  // explicitly to runSlashCommand (never the shell,
+                  // no wipe — the line was never echoed); bare lines
+                  // go composed `text + '\r'` via ptyWrite into the
+                  // real shell. Output sinks to the terminal feed in
+                  // ALL three LuciferAI states (on / off /
+                  // silenced) — the dev console is retired as a
+                  // composer sink. Visuals stay settled per state
+                  // via props: squared wrapper when on; gold arrow
+                  // + `~` + bubble, no blood drop, when off.
+                  <div data-testid="prompter-composer" className={luciferAiEnabled ? 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50' : 'flex items-center gap-2'}>
+                    {!luciferAiEnabled && (
+                      <>
+                        <Tooltip content="Send" shortcut="Enter">
+                          <button
+                            type="button"
+                            data-testid="dev-send-arrow"
+                            onClick={() => void handleComposerSubmit(devInput)}
+                            disabled={!devInput.trim()}
+                            aria-label="Send command"
+                            className="shrink-0 rounded px-1 text-[var(--warning)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                            style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.5)' }}
+                          >
+                            ➜
+                          </button>
+                        </Tooltip>
+                        <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
+                      </>
+                    )}
+                    <div className={luciferAiEnabled ? '' : 'flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
+                      <InputArea
+                        input={devInput}
+                        setInput={setDevInput}
+                        onSubmit={(value) => void handleComposerSubmit(value)}
+                        onHistoryUp={devHistoryUp}
+                        onHistoryDown={devHistoryDown}
+                        isProcessing={devRunning}
+                        flat={!luciferAiEnabled}
+                        dragState={composerDrag}
+                      />
+                    </div>
+                  </div>
+                ) : luciferAiEnabled ? (
                   <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
                     <InputArea
                       input={devInput}
@@ -1450,10 +1591,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     the dev console disappears. NOTE: dev-bar output
                     (devWrite) still lands in the dev sink state,
                     but with the console hidden it has nowhere
-                    visible to go until the top-feed routing lands
-                    (prompts go to the terminal screen) — a separate
-                    follow-up. */}
-                {luciferAiEnabled && (
+                    visible to go — the OFF-case gap. DEFCON 3
+                    RETIRES the console as a composer sink (Gary,
+                    2026-11-09 ~08:10 PST): the linked composer
+                    sinks to the terminal feed in ALL three
+                    LuciferAI states, so at DEFCON 3+ the console
+                    does not render at all. Below 3 it stays
+                    exactly as it was — the delinked bar's own
+                    output, ON only. */}
+                {luciferAiEnabled && !prompterActive && (
                   <div data-testid="dev-console" className="mt-2 rounded-none border border-[var(--border)] bg-black/30">
                     <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5">
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Dev console — detached output</span>

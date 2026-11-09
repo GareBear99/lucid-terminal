@@ -56,6 +56,13 @@ interface XtermSurfaceProps {
   onResize?: (cols: number, rows: number) => void;
   /** The shell has exited: stop accepting input. */
   disabled?: boolean;
+  /** DEFCON 3 prompter (Gary, 2026-11-09): the xterm cursor is
+   *  HIDDEN always while the prompter owns typing — "not cursor
+   *  flashing at end of line". xterm.js 5.5.0 has no cursorStyle
+   *  'none' (only block/underline/bar), so the glyph is hidden
+   *  by a transparent theme cursor colour plus no blink; the
+   *  standing colour returns when the prompter is off. */
+  cursorHidden?: boolean;
 }
 
 /** xterm.js cannot open without a canvas 2d context (jsdom). */
@@ -79,7 +86,7 @@ function stripAnsi(data: string): string {
 const FALLBACK_OUTPUT_CAP = 100_000;
 
 export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
-  function XtermSurface({ onInput, onResize, disabled = false }, ref) {
+  function XtermSurface({ onInput, onResize, disabled = false, cursorHidden = false }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
@@ -237,6 +244,22 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       }
     }, [foreground]);
 
+    // DEFCON 3 cursor (Gary, 2026-11-09 ~08:10 PST): hidden
+    // always while the prompter owns typing. xterm.js 5.5.0 has
+    // no cursorStyle 'none' — only block/underline/bar — so the
+    // glyph is hidden by a transparent theme cursor colour plus
+    // no blink; the standing '#58a6ff' returns below level 3.
+    useEffect(() => {
+      const term = termRef.current;
+      if (term) {
+        term.options.cursorBlink = !cursorHidden;
+        term.options.theme = {
+          ...(term.options.theme ?? {}),
+          cursor: cursorHidden ? 'transparent' : '#58a6ff',
+        };
+      }
+    }, [cursorHidden]);
+
     if (fallback) {
       // Per-keystroke forwarding, same contract as xterm onData:
       // printable chars as they arrive (diffed out of the change
@@ -313,6 +336,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
         <div
           ref={containerRef}
           data-testid="xterm-surface"
+          data-cursor-hidden={cursorHidden}
           className="flex h-full w-full flex-col overflow-hidden"
         >
           <pre
@@ -341,6 +365,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       <div
         ref={containerRef}
         data-testid="xterm-surface"
+        data-cursor-hidden={cursorHidden}
         className="h-full w-full overflow-hidden"
         onClick={() => termRef.current?.focus()}
       />

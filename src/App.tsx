@@ -209,6 +209,25 @@ function App() {
       console.log('[INIT] Loading settings...');
       await loadSettings();
       void checkModels();
+
+      // Initialize the LucidCore workflow (FixNet stats, etc.) at
+      // startup, independent of the LuciferAI plugin toggle (Gary,
+      // 2026-11-09 — online indicator: the FixNet line must render
+      // even when LuciferAI is off/silenced, or the indicator has
+      // nowhere to live). The core is pure construction (FixNet
+      // router, intent parser, tool registry) and needs no model
+      // server. Best-effort: a failed init must never block
+      // startup; the FixNet line simply stays hidden. This does
+      // NOT enable LuciferAI and does NOT touch the toggle — the
+      // plugin probe in Terminal.tsx still owns that.
+      try {
+        const coreResult = await window.lucidAPI.lucid.init();
+        if (!coreResult.success) {
+          console.log('[INIT] LucidCore init unavailable:', coreResult.error);
+        }
+      } catch (error) {
+        console.log('[INIT] LucidCore init unavailable:', error);
+      }
       
       // Create terminal immediately (doesn't need currentDir)
       if (tabs.length === 0) {

@@ -207,10 +207,16 @@ export function setupLucidWorkflowHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('lucid:init', async () => {
     console.log('[Main] lucid:init called');
     try {
-      console.log('[Main] Initializing LucidCore...');
-      lucidCore = await LucidCore.initialize({
-        workingDirectory: process.cwd()
-      });
+      // Idempotent (Gary, 2026-11-09 — online indicator): App
+      // startup now initializes the core so FixNet stats work
+      // with LuciferAI off, and the plugin probe still calls init
+      // too — a second call must not re-create the core.
+      if (!lucidCore) {
+        console.log('[Main] Initializing LucidCore...');
+        lucidCore = await LucidCore.initialize({
+          workingDirectory: process.cwd()
+        });
+      }
       console.log('[Main] ✅ LucidCore initialized successfully');
       return { success: true };
     } catch (error: any) {

@@ -217,6 +217,24 @@ button {
   letter-spacing: 0;
 }
 
+/* DEFCON 2 merge (Gary, 2026-11-09): the xterm surface itself is
+   transparent (allowTransparency + transparent theme) but xterm.js's
+   own CSS forces `.xterm-viewport { background-color: #000 }` -- the
+   scroll container behind the canvas -- so the viewport painted an
+   opaque black slab over the mist at EVERY level and the DEFCON 2
+   merge (mist as direct background, reading (b)) could never read:
+   the terminal measured flat black at bg-black/50 AND bg-black/25,
+   and the veil change moved the empty-area mean only 0.03 -> 0.68.
+   This override lets the mist read through at DEFCON 2+. At
+   DEFCON 1 the opaque `bg-black` terminal page sits behind the
+   viewport, so the look is identical -- no theme change. The
+   `!important` is load-order-proof: xterm.css is imported by
+   XtermSurface.tsx and lands after this file in the bundle, so an
+   equal-specificity rule would lose to it. */
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+}
+
 .xterm-viewport::-webkit-scrollbar {
   width: 8px;
 }

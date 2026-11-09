@@ -34,6 +34,11 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import { useSettingsStore } from '../../stores/settingsStore';
+import {
+  DEFCON_DEFAULT,
+  defconTerminalForeground,
+} from '../../lib/defcon';
 
 export interface XtermSurfaceHandle {
   /** Append PTY (or Lucid) output to the terminal. */
@@ -78,6 +83,22 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
+    // DEFCON 2 whiter text (Gary, 2026-11-09 ~05:21 PST): the
+    // foreground follows the level — the active theme's own
+    // `terminal.brightWhite` at DEFCON 2+, the standing
+    // foreground at DEFCON 1. The value comes from the theme
+    // system, never a hardcoded off-palette white.
+    const defconLevel = useSettingsStore(
+      (s) => s.settings.defconLevel ?? DEFCON_DEFAULT,
+    );
+    const themeBrightWhite = useSettingsStore(
+      (s) => s.currentTheme.colors.terminal.brightWhite,
+    );
+    const foreground = defconTerminalForeground(
+      defconLevel,
+      themeBrightWhite,
+      '#e6edf3',
+    );
     const onInputRef = useRef(onInput);
     onInputRef.current = onInput;
     const onResizeRef = useRef(onResize);
@@ -127,7 +148,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
         allowTransparency: true,
         theme: {
           background: 'transparent',
-          foreground: '#e6edf3',
+          foreground,
           cursor: '#58a6ff',
           cursorAccent: '#0d1117',
           selectionBackground: 'rgba(88, 166, 255, 0.3)',
@@ -203,6 +224,18 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     useEffect(() => {
       if (termRef.current) termRef.current.options.disableStdin = disabled;
     }, [disabled]);
+
+    // DEFCON 2 whiter text (Gary, 2026-11-09 ~05:21 PST): the
+    // mount effect above runs once, so re-apply the theme when
+    // the foreground follows a level or theme change. At
+    // DEFCON 1 the foreground is exactly the standing one, so
+    // this is a no-op there.
+    useEffect(() => {
+      const term = termRef.current;
+      if (term) {
+        term.options.theme = { ...(term.options.theme ?? {}), foreground };
+      }
+    }, [foreground]);
 
     if (fallback) {
       // Per-keystroke forwarding, same contract as xterm onData:

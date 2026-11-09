@@ -20,6 +20,7 @@ import {
   defconMergeReadingText,
   defconName,
   defconTagline,
+  defconTerminalForeground,
   describeDefcon,
   isDefconLevel,
 } from '../src/lib/defcon';
@@ -97,6 +98,17 @@ describe('DEFCON levels (Gary, 2026-11-09)', () => {
     expect(defconMergeActive(1)).toBe(false);
     expect(defconMergeActive(2)).toBe(true);
     expect(defconMergeActive(3)).toBe(true);
+  });
+
+  test('DEFCON 2 whiter text (Gary, 2026-11-09 ~05:21 PST): theme brightWhite at 2+, base at 1', () => {
+    // The whiter value comes from the theme's own brightWhite
+    // token — never a hardcoded off-palette white.
+    expect(defconTerminalForeground(1, '#ffffff', '#e6edf3')).toBe('#e6edf3');
+    expect(defconTerminalForeground(2, '#ffffff', '#e6edf3')).toBe('#ffffff');
+    expect(defconTerminalForeground(3, '#ffffff', '#e6edf3')).toBe('#ffffff');
+    // A theme whose brightWhite differs still wins at 2+ — the
+    // token, not a literal, is the source of the whiter text.
+    expect(defconTerminalForeground(2, '#fafafa', '#e6edf3')).toBe('#fafafa');
   });
 
   test('the DEFCON 2 merge build has landed — reading (b), directly in the terminal', () => {

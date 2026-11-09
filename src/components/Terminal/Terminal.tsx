@@ -607,7 +607,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         const reading = (parsed.args[1] ?? '').toLowerCase();
         if (reading !== 'a' && reading !== 'b' && reading !== 'c') {
           await write(
-            `DEFCON 2 merge reading — ${mergeReading === null ? 'not picked yet' : `picked: ${defconMergeReadingText(mergeReading)}`}\n\n${defconMergeReadingText('a')}\n${defconMergeReadingText('b')}\n${defconMergeReadingText('c')}\n\nUsage: /defcon merge a|b|c — pick the DEFCON 2 merge reading. The merge (reading (b)) is built: at DEFCON 2+ the mist shows directly behind the text with a darkening blur.`,
+            `DEFCON 2 merge reading — ${mergeReading === null ? 'not picked yet' : `picked: ${defconMergeReadingText(mergeReading)}`}\n\n${defconMergeReadingText('a')}\n${defconMergeReadingText('b')}\n${defconMergeReadingText('c')}\n\nUsage: /defcon merge a|b|c — pick the DEFCON 2 merge reading. The merge (reading (b)) is built: at DEFCON 2+ the mist is the back layer, the terminal box is gone, and the text is whiter.`,
           );
           return;
         }
@@ -1022,14 +1022,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           glass panels): the glass is the troubleshooting mode's
           look now, not the default's. Coherence (Gary, 2026-11-08
           ~07:08 PST): one unison black page, no mismatched panels.
-          EXCEPTION — DEFCON 2 merge (Gary, 2026-11-09 ~04:29–
-          04:30 PST, reading (b)): at DEFCON 2+ the opaque black
-          lifts off this root (in non-devmode too — that is where
-          the DEFCONs take effect) so the mist shows directly
-          behind the text, with the darkening blur on the wrap
-          below keeping the text readable. At DEFCON 1 the black
-          stays exactly as it was. */}
-      <div data-testid="terminal-page" className={`h-full w-full flex overflow-hidden${devMode || defconMerge ? '' : ' bg-black'}`}>
+          EXCEPTION — DEFCON 2 merge, INVERTED (Gary, 2026-11-09
+          ~04:29–04:30 PST, reading (b); ~05:15 PST "inverted to
+          the back not the terminal box"): at DEFCON 2+ the opaque
+          black lifts off this root (in non-devmode too — that is
+          where the DEFCONs take effect) so the mist is the BACK
+          layer — the darkening blur sits on this root, edge to
+          edge, and the terminal box below is gone entirely. At
+          DEFCON 1 the black stays exactly as it was. */}
+      <div data-testid="terminal-page" className={`h-full w-full flex overflow-hidden${defconMerge ? ' bg-black/25 backdrop-blur-sm' : devMode ? '' : ' bg-black'}`}>
         {/* Terminal Content (the chats live in the main Sidebar now).
             Non-devmode: the page root above is opaque black, so this
             stays transparent — the black is the page, not a panel. */}
@@ -1089,28 +1090,33 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               marking where the output ends and the prompt begins.
               Dev mode keeps the squared glass backwall (frosted
               translucent, backdrop blur) over the mist.
-              DEFCON 2 MERGE (Gary, 2026-11-09 ~04:27–04:30 PST —
-              his pick, reading (b), built directly in the
-              terminal): at DEFCON 2+ the wrap drops BOTH the
-              solid black (non-devmode) and the frosted tertiary
-              glass (devmode) for the mist as the direct
-              background — `bg-black/25 backdrop-blur-sm`, a
-              darkening blur directly behind the text, so the
-              drifting puffs show through but never eat the
-              text. CALIBRATION (live read, 2026-11-09 ~05:50 PST):
-              the first build used bg-black/50 — too strong. The
-              mist's own peak is only 0.17 opacity (SplashScreen
-              .splash-puff), so halving it left the mist invisible
-              in non-devmode (empty-area mean 0.68 vs 0.03 at
-              DEFCON 1 — a real signal, but nothing the eye
-              reads). /25 keeps the mist reading directly behind
-              the text while the bright text stays crisp. The
-              prompt section below is NOT part of the
-              merge — its solid black bar (non-devmode) stays. */}
+              DEFCON 2 MERGE — INVERTED (Gary, 2026-11-09 ~04:27–
+              04:30 PST his pick, reading (b); ~05:15 PST "inverted
+              to the back not the terminal box"; ~05:21 PST "the
+              darken blur and whiter text"): at DEFCON 2+ the mist
+              is the BACK layer — the darkening blur moves to the
+              terminal page root (`bg-black/25 backdrop-blur-sm`,
+              edge to edge), and the terminal box is GONE: this
+              wrap drops its border, its 2px top edge and its
+              background entirely (`border-0 bg-transparent`), so
+              the text floats clear over the mist with nothing
+              framing it. The text goes whiter at DEFCON 2 (the
+              active theme's `terminal.brightWhite` — see
+              `defconTerminalForeground`). CALIBRATION (live read,
+              2026-11-09 ~05:50 PST): the first build used
+              bg-black/50 — too strong. The mist's own peak is
+              only 0.17 opacity (SplashScreen .splash-puff), so
+              halving it left the mist invisible in non-devmode
+              (empty-area mean 0.68 vs 0.03 at DEFCON 1 — a real
+              signal, but nothing the eye reads). /25 keeps the
+              mist reading directly behind the text while the
+              bright text stays crisp. The prompt section below is
+              NOT part of the merge — its solid black bar
+              (non-devmode) stays. */}
           <div className="flex-1 overflow-hidden p-4">
             <div data-testid="prompt-input-wrap"
                  className={defconMerge
-                   ? 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-black/25 backdrop-blur-sm'
+                   ? 'h-full w-full overflow-hidden rounded-none border-0 bg-transparent'
                    : devMode
                    ? 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-[var(--bg-tertiary)]/50 backdrop-blur-md'
                    : 'h-full w-full overflow-hidden rounded-none border border-[var(--border)] border-t-2 border-t-[var(--text-muted)] bg-black'}>

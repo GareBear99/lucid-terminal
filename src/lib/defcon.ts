@@ -46,13 +46,20 @@
  * `defconMergeReading` (null until picked with
  * `/defcon merge a|b|c`).
  *
- * THE MERGE IS BUILT (Gary, 2026-11-09 ~04:29–04:30 PST —
+ * THE MERGE IS BUILT — INVERTED (Gary, 2026-11-09 ~04:29–04:30 PST
  * "build it directly in the terminal and see how it lands in
- * non dev mode"): reading (b), directly in the terminal — the
- * opaque black lifts off the terminal page and the wrap drops
- * its glass/black for a darkening blur (`bg-black/25
- * backdrop-blur-sm`), so the mist shows directly behind the
- * text, darkened where the text sits so it stays readable.
+ * non dev mode"; ~05:15 PST "inverted to the back not the
+ * terminal box"; ~05:21 PST "the darken blur and whiter text"):
+ * reading (b), directly in the terminal — the opaque black lifts
+ * off the terminal page and the DARKENING BLUR moves to the BACK
+ * of the page (`bg-black/25 backdrop-blur-sm` on the terminal
+ * page, edge to edge), so the mist is the back layer. The
+ * terminal box is GONE at DEFCON 2: the surface wrap drops its
+ * border, its 2px top edge and its background entirely
+ * (`border-0 bg-transparent`) — no panel, no frame, the text
+ * floats clear over the mist. The text goes WHITER at DEFCON 2
+ * (the active theme's own `terminal.brightWhite` token, never a
+ * hardcoded off-palette white — see `defconTerminalForeground`).
  * Calibration (live read 2026-11-09 ~05:50 PST): the first
  * build used bg-black/50, which halved an already-faint mist
  * (peak 0.17 opacity) into invisibility; /25 is the veil
@@ -94,6 +101,21 @@ export const DEFCON2_MERGE_IMPLEMENTED = true;
  * nothing else flips the merge. */
 export function defconMergeActive(level: DefconLevel): boolean {
   return level >= 2;
+}
+
+/** DEFCON 2 whiter text (Gary, 2026-11-09 ~05:21 PST — "the
+ * darken blur and whiter text"). At DEFCON 2+ the terminal
+ * foreground is the active theme's own `terminal.brightWhite`
+ * token (the theme system's whitest text — '#ffffff' in every
+ * theme); at DEFCON 1 it is exactly the base foreground, as it
+ * stands. The whiter value must come from the theme — never a
+ * hardcoded off-palette white. */
+export function defconTerminalForeground(
+  level: DefconLevel,
+  brightWhite: string,
+  baseForeground: string,
+): string {
+  return defconMergeActive(level) ? brightWhite : baseForeground;
 }
 
 /** True only for 1, 2, or 3 — anything else is not a level. */

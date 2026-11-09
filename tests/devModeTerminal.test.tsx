@@ -576,7 +576,7 @@ describe('/defcon slash command (Gary, 2026-11-09)', () => {
   });
 });
 
-describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-11-09 ~04:27–04:30 PST)', () => {
+describe('DEFCON 2 merge, reading (b) — INVERTED: mist to the back, box gone (Gary, 2026-11-09 ~04:27–04:30 PST; inversion ~05:15 PST; whiter text ~05:21 PST)', () => {
   // No jest-dom in this repo — assert on DOM properties, not
   // matchers. Class tokens, split exactly: 'bg-black' must not
   // false-match 'bg-black/25'.
@@ -598,22 +598,32 @@ describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-
     expect(classesOf(wrap)).not.toContain('bg-black/25');
   });
 
-  test('DEFCON 2, non-devmode: the black lifts — mist directly behind the text, darkening blur, bar untouched', async () => {
+  test('DEFCON 2, non-devmode, INVERTED (Gary, 2026-11-09 ~05:15 PST): mist to the back, box gone, text whiter', async () => {
     setDevMode(false);
     setDefconLevel(2);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('xterm-surface');
 
-    // The opaque black is gone from the page root, so the mist
-    // behind shows through — that is where the DEFCONs take effect.
+    // The darkening blur moved to the BACK: the terminal page
+    // itself carries the veil, edge to edge — the mist is the
+    // back layer, and there is no inset rectangle for it to end
+    // at, so no box edge can show.
     const page = screen.getByTestId('terminal-page');
     expect(classesOf(page)).not.toContain('bg-black');
-    // The wrap drops the solid black for the darkening blur:
-    // mist directly behind the text, darkened where the text sits.
+    expect(classesOf(page)).toContain('bg-black/25');
+    expect(classesOf(page)).toContain('backdrop-blur-sm');
+    // The terminal box is GONE: the wrap drops its border, its
+    // 2px top edge and its background entirely — the text floats
+    // clear over the mist.
     const wrap = screen.getByTestId('prompt-input-wrap');
-    expect(classesOf(wrap)).toContain('bg-black/25');
-    expect(classesOf(wrap)).toContain('backdrop-blur-sm');
+    expect(classesOf(wrap)).toContain('border-0');
+    expect(classesOf(wrap)).toContain('bg-transparent');
+    expect(classesOf(wrap)).not.toContain('border');
+    expect(classesOf(wrap)).not.toContain('border-t-2');
+    expect(classesOf(wrap)).not.toContain('border-[var(--border)]');
     expect(classesOf(wrap)).not.toContain('bg-black');
+    expect(classesOf(wrap)).not.toContain('bg-black/25');
+    expect(classesOf(wrap)).not.toContain('backdrop-blur-sm');
     expect(classesOf(wrap)).not.toContain('bg-[var(--bg-tertiary)]/50');
     // The prompt section is NOT part of the merge — the solid
     // black Warp bar stays exactly as it is.
@@ -621,15 +631,22 @@ describe('DEFCON 2 merge, reading (b) — mist as direct background (Gary, 2026-
     expect(section.style.background).toBe('rgb(0, 0, 0)');
   });
 
-  test('DEFCON 2, devmode: the frosted glass drops for the same darkening blur', async () => {
+  test('DEFCON 2, devmode: same inversion — box gone, veil on the page back', async () => {
     setDevMode(true);
     setDefconLevel(2);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('xterm-surface');
 
+    const page = screen.getByTestId('terminal-page');
+    expect(classesOf(page)).toContain('bg-black/25');
+    expect(classesOf(page)).toContain('backdrop-blur-sm');
     const wrap = screen.getByTestId('prompt-input-wrap');
-    expect(classesOf(wrap)).toContain('bg-black/25');
-    expect(classesOf(wrap)).toContain('backdrop-blur-sm');
+    expect(classesOf(wrap)).toContain('border-0');
+    expect(classesOf(wrap)).toContain('bg-transparent');
+    expect(classesOf(wrap)).not.toContain('border');
+    expect(classesOf(wrap)).not.toContain('border-t-2');
+    expect(classesOf(wrap)).not.toContain('bg-black/25');
+    expect(classesOf(wrap)).not.toContain('backdrop-blur-sm');
     expect(classesOf(wrap)).not.toContain('bg-[var(--bg-tertiary)]/50');
     expect(classesOf(wrap)).not.toContain('backdrop-blur-md');
   });

@@ -1,6 +1,6 @@
 {
   "name": "lucid-terminal",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AI-Powered Terminal Application",
   "main": "dist-electron/main.js",
   "author": "Lucid Terminal",
@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "build:win": "tsc && vite build && electron-builder --win",
+    "build:linux": "tsc && vite build && electron-builder --linux",
     "postinstall": "node scripts/fix-node-pty-helper.mjs",
     "preview": "vite preview",
     "electron:dev": "vite",
@@ -147,6 +148,24 @@
         }
       ],
       "icon": "resources/icon.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.png",
+      "maintainer": "Gary Richard Doman <gdoman99@gmail.com>"
     },
     "nsis": {
       "oneClick": false,

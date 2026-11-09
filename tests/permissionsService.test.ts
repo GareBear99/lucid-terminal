@@ -35,26 +35,39 @@ describe('probePermissions off macOS', () => {
     vi.clearAllMocks();
   });
 
-  it('reports every permission as not-applicable on Linux', async () => {
-    const snapshots = await probePermissions(true);
-    expect(snapshots).toHaveLength(5);
-    expect(snapshots.map((s) => s.id)).toEqual([
-      'accessibility',
-      'screen-recording',
-      'full-disk-access',
-      'microphone',
-      'camera',
-    ]);
-    for (const s of snapshots) {
-      expect(s.status).toBe('not-applicable');
-      expect(s.detail).toContain('do not apply on this platform');
-    }
-  });
+  // These two assert the off-macOS branch: on macOS the service
+  // probes the real TCC state instead (the macOS probe paths are
+  // exercised live on the Mac — Settings → Permissions shows the
+  // probed states there — per the header above), so they only run
+  // where the platform is not darwin. The workflow runs them on
+  // ubuntu-latest; the macOS build job skips them, it does not
+  // weaken the gate — the assertions still run on every Linux run.
+  it.skipIf(process.platform === 'darwin')(
+    'reports every permission as not-applicable on Linux',
+    async () => {
+      const snapshots = await probePermissions(true);
+      expect(snapshots).toHaveLength(5);
+      expect(snapshots.map((s) => s.id)).toEqual([
+        'accessibility',
+        'screen-recording',
+        'full-disk-access',
+        'microphone',
+        'camera',
+      ]);
+      for (const s of snapshots) {
+        expect(s.status).toBe('not-applicable');
+        expect(s.detail).toContain('do not apply on this platform');
+      }
+    },
+  );
 
-  it('requestPermission refuses off macOS without prompting', async () => {
-    expect(await requestPermission('screen-recording')).toBe(false);
-    expect(mockAskForMediaAccess).not.toHaveBeenCalled();
-  });
+  it.skipIf(process.platform === 'darwin')(
+    'requestPermission refuses off macOS without prompting',
+    async () => {
+      expect(await requestPermission('screen-recording')).toBe(false);
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled();
+    },
+  );
 
   it('openPermissionSettings opens the Screen Recording pane URL', async () => {
     expect(await openPermissionSettings('screen-recording')).toBe(true);

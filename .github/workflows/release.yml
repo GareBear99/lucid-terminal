@@ -1,0 +1,159 @@
+# Build & Release — one tag → one workflow → all platform assets → one release.
+#
+# Mirrors the FreeEQ8 release pattern (Gary, 2026-11-09): the same source
+# builds the macOS dmg and the Linux AppImage + deb, and the fan-in
+# `release` job attaches them all to the same tag's GitHub release.
+# No signing anywhere (FreeEQ8 signs nothing, Lucid likewise) — see the
+# Gatekeeper note in the release report: the unsigned macOS dmg will
+# Gatekeeper-block on other people's machines. Do not add signing
+# without Gary's call.
+#
+# Trigger: push a tag `v*` (e.g. v1.1.0), or manual dispatch with a tag.
+# Windows is intentionally NOT built here (Gary: Linux + macOS only);
+# the nsis x64 config stays in package.json for local Windows builds.
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Run unit tests (vitest)
+        run: npm test
+
+      # vite build is REQUIRED before electron-builder: dist/ and
+      # dist-electron/ are gitignored build outputs (a fresh runner
+      # has no dist), and electron-builder fails without the entry
+      # file — verified on the VM 2026-11-09: `Application entry file
+      # "dist-electron/main.js" ... does not exist` when dist/ is
+      # absent. This step is the `vite build` half of
+      # `npm run build:linux` / `npm run build`.
+      - name: Build app (vite)
+        run: npx vite build
+
+      - name: Build macOS dmg
+        run: npx electron-builder --mac
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: release/*.dmg
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # --ignore-scripts: node-pty's native build has no Linux prebuild
+      # and fails in CI (same reason test.yml and local installs use
+      # it). electron-builder downloads the Electron dist itself when
+      # packaging, so the skipped electron postinstall does not break
+      # the Linux build — verified by the manual Linux build on the
+      # VM (Gary, 2026-11-09).
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # node-pty ships NO linux-x64 prebuild (only darwin + win32),
+      # so the --ignore-scripts install leaves the Linux package
+      # with no pty.node at all — and the app then dies at startup
+      # with `Failed to load native module: pty.node` (verified live
+      # on the VM: the AppImage's main process throws the uncaught
+      # exception before the window opens). Rebuild the native deps
+      # against the Electron headers here, before packaging, so the
+      # shipped app can actually spawn a terminal. The macOS job
+      # needs no such step: its darwin prebuilds ship in the package.
+      # (electron-builder would normally rebuild native deps during
+      # packaging, but the repo sets npmRebuild: false — so the
+      # rebuild is done explicitly, for Linux only, in this step.)
+      - name: Rebuild native dependencies for Linux (node-pty)
+        run: npx electron-builder install-app-deps
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Run unit tests (vitest)
+        run: npm test
+
+      # vite build is REQUIRED before electron-builder — see the
+      # build-macos job: dist/ and dist-electron/ are gitignored, so
+      # a fresh runner has no dist until this step builds it.
+      - name: Build app (vite)
+        run: npx vite build
+
+      - name: Build Linux packages
+        run: npx electron-builder --linux
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: [build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: dist
+
+      # tag_name is wired EXPLICITLY (FreeEQ8 left it implicit): on
+      # dispatch the release goes to the dispatched tag, on a tag
+      # push it goes to the pushed tag.
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true

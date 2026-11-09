@@ -111,7 +111,11 @@ describe('Segments categories', () => {
     // the segment's action, for now.
     const connectButton = html.match(/<button[^>]*aria-label="Connect Google Drive"[^>]*>/);
     expect(connectButton).not.toBeNull();
-    expect(connectButton![0]).not.toContain('disabled');
+    // Not a substring check: the class list carries the Tailwind
+    // `disabled:opacity-50` variant (styling for the disabled state),
+    // which contains "disabled" as a substring even though the button
+    // is enabled. Assert on the real `disabled` attribute instead.
+    expect(connectButton![0]).not.toMatch(/\sdisabled(?:\s|=|>)/);
   });
 
   it('places Telegram between Google Drive and Starship, as a pre-installed connectable segment', () => {
@@ -154,7 +158,10 @@ describe('Segments categories', () => {
     // the segment's action, for now.
     const connectButton = html.match(/<button[^>]*aria-label="Connect Telegram"[^>]*>/);
     expect(connectButton).not.toBeNull();
-    expect(connectButton![0]).not.toContain('disabled');
+    // Same as the Google Drive button above: assert on the real
+    // `disabled` attribute, not the "disabled" substring — the class
+    // list may carry the Tailwind `disabled:` variant.
+    expect(connectButton![0]).not.toMatch(/\sdisabled(?:\s|=|>)/);
   });
 
   it('places Stripe between Telegram and Starship, as a pre-installed connectable segment', () => {
@@ -193,7 +200,10 @@ describe('Segments categories', () => {
     // the segment's action, for now.
     const connectButton = html.match(/<button[^>]*aria-label="Connect Stripe"[^>]*>/);
     expect(connectButton).not.toBeNull();
-    expect(connectButton![0]).not.toContain('disabled');
+    // Same as the Google Drive button above: assert on the real
+    // `disabled` attribute, not the "disabled" substring — the class
+    // list may carry the Tailwind `disabled:` variant.
+    expect(connectButton![0]).not.toMatch(/\sdisabled(?:\s|=|>)/);
   });
 
   it('does not render the Forge category until Persona Plex is installed', () => {

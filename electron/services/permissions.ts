@@ -15,14 +15,15 @@
  *   'not-determined' — the honest states.
  * - FUNCTIONAL probe: does the capability actually work right
  *   now? Accessibility (System Events must answer) is probed by
- *   doing the thing; Screen Recording is probed by doing the
- *   thing ONLY when the TCC record does not already say granted
- *   — when it says granted, the record is trusted and no capture
- *   is attempted, because spawning screencapture on an unsigned,
- *   rebuilt Lucid prompts the user again even though the grant is
- *   listed (Gary, 2026-11-07 ~08:30 PST). A feature that actually
- *   needs a capture discovers a broken capture at action time,
- *   with its own reason — the probe never prompts on view open.
+ *   doing the thing. Screen Recording is NEVER probed by doing
+ *   the thing — the probe reads the TCC record only, because
+ *   spawning screencapture on an unsigned, rebuilt Lucid prompts
+ *   the user again on every view open even though the grant is
+ *   listed, and the Modules and Permissions tabs re-asked for
+ *   Screen Recording every time they opened (Gary, 2026-11-10
+ *   ~02:02 PST). A feature that actually needs a capture
+ *   discovers a broken capture at action time, with its own
+ *   reason — the probe never prompts on view open.
  *
  * What is NOT probed, and why (honest limits):
  * - Accessibility has no TCC-read API: a failed probe means "not
@@ -132,12 +133,15 @@ async function probeOne(id: PermissionId, now: number): Promise<PermissionSnapsh
       };
     }
     case 'screen-recording': {
-      // TCC record first (it knows denied vs never-asked), then
-      // the functional probe — which trusts a 'granted' record
-      // and never spawns a capture for it (spawning one prompts
-      // the user again for an unsigned, rebuilt binary — Gary,
-      // 2026-11-07 ~08:30 PST). A feature that actually needs a
-      // capture discovers a broken capture at action time.
+      // TCC record only (Gary, 2026-11-10 ~02:02 PST): the probe
+      // never spawns a capture — spawning one prompts the user
+      // on every view open for an unsigned, rebuilt binary, and
+      // the Modules and Permissions tabs re-asked for Screen
+      // Recording every time they opened. The TCC record is the
+      // answer; a feature that actually needs a capture discovers
+      // a broken capture at action time. verified is false here
+      // because no functional probe ran — only the TCC record
+      // was read, same as microphone and camera below.
       let tcc: MediaAccessStatus = 'unknown';
       try {
         tcc = systemPreferences.getMediaAccessStatus('screen') as MediaAccessStatus;
@@ -146,13 +150,13 @@ async function probeOne(id: PermissionId, now: number): Promise<PermissionSnapsh
       }
       const probe = await probeScreenRecording();
       if (probe.granted) {
-        return { id, status: 'granted', detail: null, verified: true, checkedAt: now };
+        return { id, status: 'granted', detail: null, verified: false, checkedAt: now };
       }
       return {
         id,
         status: mapMediaStatus(tcc),
         detail: probe.reason,
-        verified: true,
+        verified: false,
         checkedAt: now,
       };
     }

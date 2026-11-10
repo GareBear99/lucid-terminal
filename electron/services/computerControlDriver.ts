@@ -145,28 +145,34 @@ export async function probeAccessibility(): Promise<{ granted: boolean; reason: 
 }
 
 /**
- * Screen Recording probe — screencapture must produce a file.
+ * Screen Recording probe — TCC record only, never a capture.
  *
- * The TCC record is read FIRST (Gary, 2026-11-07 ~08:30 PST):
- * opening the Permissions or Modules page prompted for Screen
- * Recording even though it was already granted. The prompt came
- * from this probe — spawning `screencapture` on an unsigned,
- * rebuilt Lucid makes macOS ask again, because the rebuilt binary
- * is not recognised for capture even though the grant is listed.
- * So when the TCC record says 'granted', the record IS the
- * answer and no capture is attempted — no prompt, ever, for a
- * granted permission. The capture probe only runs when the
- * record says the permission is not granted, where a prompt is
- * the legitimate first request. A failed capture still does NOT
- * prove the permission is missing (see the reason below).
+ * (Gary, 2026-11-10 ~02:02 PST): opening Settings → Modules or
+ * Permissions re-asked for Screen Recording every time. The ask
+ * came from this probe — spawning `screencapture` on an unsigned,
+ * rebuilt Lucid makes macOS ask again on every view open, even
+ * though the grant is listed. The 2026-11-07 fix only helped
+ * when the TCC record already said 'granted' — for this build
+ * the runtime TCC check does not say 'granted', so every probe
+ * fell through to the spawn and prompted. The probe must never
+ * spawn a capture: a probe that prompts is not a probe, it is
+ * a request. The TCC record is the answer. Granted shows granted
+ * and is never re-asked; not granted shows how to grant it and
+ * never nags (Gary, 2026-11-07: most users will not have Screen
+ * Recording — Lucid must handle that gracefully). A feature that
+ * actually needs a capture discovers a broken one at action
+ * time, with its own reason — the action-time fingerprint
+ * capture (below) is still the real functional test, and it
+ * runs when the feature acts, not when a tab opens.
  */
 export async function probeScreenRecording(): Promise<{ granted: boolean; reason: string | null }> {
   if (process.platform !== 'darwin') {
     return { granted: false, reason: 'Screen Recording is macOS-only' };
   }
-  // TCC record first: when macOS says the permission is granted,
-  // trust the record and do NOT spawn screencapture — spawning it
-  // prompts the user again for an unsigned, rebuilt binary.
+  // TCC record only: when macOS says the permission is granted,
+  // trust the record; when it does not, report that honestly
+  // with the grant path — and never spawn screencapture, which
+  // is what prompted the user on every view open.
   let tcc = 'unknown';
   try {
     tcc = systemPreferences.getMediaAccessStatus('screen');
@@ -176,28 +182,10 @@ export async function probeScreenRecording(): Promise<{ granted: boolean; reason
   if (tcc === 'granted') {
     return { granted: true, reason: null };
   }
-  const probeFile = join(tmpdir(), `lucid-cc-probe-${process.pid}.png`);
-  try {
-    await runWithTimeout('screencapture', ['-x', '-t', 'png', probeFile], SPAWN_TIMEOUT_MS);
-    return { granted: true, reason: null };
-  } catch {
-    // A failed capture does NOT prove the permission is missing —
-    // it can also fail right after granting (Lucid needs a restart
-    // to pick the grant up) or after Lucid is rebuilt (an unsigned,
-    // rebuilt binary is not recognised for capture even though the
-    // grant is listed). So the reason says what was observed and
-    // what to do, never that the permission is definitely absent —
-    // the permissions service (which reads the TCC record) is the
-    // one that knows whether it is granted. (Gary, 2026-11-07
-    // ~06:22 PST: the old wording sent him to Settings for a
-    // permission he had already granted.)
-    return {
-      granted: false,
-      reason: 'A test screen capture failed — Screen Recording may not be granted, or Lucid may need a restart after granting. Grant Lucid access in System Settings → Privacy & Security → Screen Recording if it is not listed there, then restart Lucid.',
-    };
-  } finally {
-    await unlink(probeFile).catch(() => undefined);
-  }
+  return {
+    granted: false,
+    reason: 'Screen Recording is not recorded as granted for this Lucid build. Grant Lucid access in System Settings → Privacy & Security → Screen Recording. If it is already listed there as granted, restart Lucid and check again — an unsigned, rebuilt build is not always recognised for capture even though the grant is listed.',
+  };
 }
 
 export function createMacComputerControlDriver(): ComputerControlDriver {
@@ -217,7 +205,11 @@ export function createMacComputerControlDriver(): ComputerControlDriver {
       availabilityCache = { at: Date.now(), ...result };
       return result;
     }
-    // Screen Recording probe — screencapture must produce a file.
+    // Screen Recording probe — TCC record only (Gary, 2026-11-10
+    // ~02:02 PST): the probe never spawns a capture, so opening
+    // Settings → Modules or Permissions never prompts. A feature
+    // that actually needs a capture discovers a broken one at
+    // action time, with its own reason.
     const screenRecording = await probeScreenRecording();
     if (!screenRecording.granted) {
       const result = { available: false, reason: screenRecording.reason };

@@ -1,25 +1,33 @@
 // @vitest-environment node
 /**
- * Screen Recording probe — no prompt when already granted (Gary, 2026-11-07 ~08:30 PST).
+ * Screen Recording probe — TCC record only, never a capture
+ * (Gary, 2026-11-10 ~02:02 PST).
  *
- * Gary: opening the Permissions or Modules page prompted for Screen
- * Recording even though it was already granted. The prompt came from
- * the probe itself: it spawned `screencapture` on every view open,
- * and on an unsigned, rebuilt Lucid macOS asks again even though the
- * grant is listed. The fix: the TCC record is read first, and when
- * it says 'granted' no capture is attempted — no prompt, ever, for
- * a granted permission. The capture probe only runs when the record
- * says the permission is not granted.
+ * Gary: opening Settings → Modules or Permissions re-asked for
+ * Screen Recording every time. The ask came from the probe
+ * itself: it spawned `screencapture` on every view open, and on
+ * an unsigned, rebuilt Lucid macOS asks again even though the
+ * grant is listed. The 2026-11-07 fix only helped when the TCC
+ * record already said 'granted' — for this build the runtime
+ * TCC check does not say 'granted', so every probe fell through
+ * to the spawn and prompted. The fix: the probe reads the TCC
+ * record only and never spawns a capture, in ANY state.
  *
- * These tests mock the TCC record and the spawned processes (no Mac,
- * no real screencapture) and assert the capture is never spawned
- * when the record says granted — at the probe level and at the
- * Permissions-page probePermissions level.
+ * For users (Gary, 2026-11-07 + 2026-11-10): granted shows
+ * granted and is never re-asked; not granted shows how to grant
+ * it and never nags — the prompt happens only when the user
+ * clicks Request, or when a feature acts. Revoked: the live
+ * probe wins over the recorded grant.
+ *
+ * These tests mock the TCC record and the spawned processes (no
+ * Mac, no real screencapture) and assert the capture is never
+ * spawned — at the probe level and at the Permissions-page
+ * probePermissions level — and that every TCC state is reported
+ * honestly.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let tccScreen = 'granted';
-let screencaptureShouldFail = false;
 const spawnCalls: string[] = [];
 
 const mockGetMediaAccessStatus = vi.fn(
@@ -46,11 +54,7 @@ vi.mock('child_process', () => ({
       cb: (err: Error | null, stdout: string, stderr: string) => void,
     ) => {
       spawnCalls.push(file);
-      if (file === 'screencapture' && screencaptureShouldFail) {
-        cb(new Error('screencapture failed'), '', '');
-      } else {
-        cb(null, '', '');
-      }
+      cb(null, '', '');
       return { kill: vi.fn() };
     },
   ),
@@ -61,11 +65,12 @@ import { probePermissions } from '../electron/services/permissions';
 
 const realPlatform = process.platform;
 
-describe('probeScreenRecording — granted TCC never spawns a capture', () => {
+const ALL_TCC_STATES = ['granted', 'denied', 'not-determined', 'unknown', 'restricted'] as const;
+
+describe('probeScreenRecording — TCC record only, never spawns a capture', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     spawnCalls.length = 0;
-    screencaptureShouldFail = false;
     Object.defineProperty(process, 'platform', { value: 'darwin' });
   });
 
@@ -81,20 +86,29 @@ describe('probeScreenRecording — granted TCC never spawns a capture', () => {
     expect(spawnCalls).not.toContain('screencapture');
   });
 
-  it('TCC not-determined + capture succeeds: returns granted and spawns screencapture once', async () => {
+  it('TCC not-determined: returns not-granted WITHOUT spawning screencapture, with the grant path', async () => {
     tccScreen = 'not-determined';
-    const result = await probeScreenRecording();
-    expect(result.granted).toBe(true);
-    expect(spawnCalls.filter((f) => f === 'screencapture')).toHaveLength(1);
-  });
-
-  it('TCC not-determined + capture fails: returns not-granted with a reason', async () => {
-    tccScreen = 'not-determined';
-    screencaptureShouldFail = true;
     const result = await probeScreenRecording();
     expect(result.granted).toBe(false);
-    expect(result.reason).toContain('test screen capture failed');
-    expect(spawnCalls.filter((f) => f === 'screencapture')).toHaveLength(1);
+    expect(result.reason).toContain('Privacy & Security → Screen Recording');
+    expect(spawnCalls).not.toContain('screencapture');
+  });
+
+  it('TCC denied: returns not-granted WITHOUT spawning screencapture', async () => {
+    tccScreen = 'denied';
+    const result = await probeScreenRecording();
+    expect(result.granted).toBe(false);
+    expect(result.reason).toContain('Privacy & Security → Screen Recording');
+    expect(spawnCalls).not.toContain('screencapture');
+  });
+
+  it('never spawns screencapture in ANY TCC state', async () => {
+    for (const state of ALL_TCC_STATES) {
+      tccScreen = state;
+      spawnCalls.length = 0;
+      await probeScreenRecording();
+      expect(spawnCalls).not.toContain('screencapture');
+    }
   });
 
   it('probePermissions: TCC granted reports screen-recording granted without spawning screencapture', async () => {
@@ -102,6 +116,23 @@ describe('probeScreenRecording — granted TCC never spawns a capture', () => {
     const snapshots = await probePermissions(true);
     const screen = snapshots.find((s) => s.id === 'screen-recording');
     expect(screen?.status).toBe('granted');
+    expect(spawnCalls).not.toContain('screencapture');
+  });
+
+  it('probePermissions: TCC not-determined reports not-determined with the grant path, no spawn', async () => {
+    tccScreen = 'not-determined';
+    const snapshots = await probePermissions(true);
+    const screen = snapshots.find((s) => s.id === 'screen-recording');
+    expect(screen?.status).toBe('not-determined');
+    expect(screen?.detail).toContain('Privacy & Security → Screen Recording');
+    expect(spawnCalls).not.toContain('screencapture');
+  });
+
+  it('probePermissions: TCC denied reports denied, no spawn — the live probe wins over the recorded grant', async () => {
+    tccScreen = 'denied';
+    const snapshots = await probePermissions(true);
+    const screen = snapshots.find((s) => s.id === 'screen-recording');
+    expect(screen?.status).toBe('denied');
     expect(spawnCalls).not.toContain('screencapture');
   });
 });

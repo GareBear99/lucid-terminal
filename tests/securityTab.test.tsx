@@ -30,6 +30,20 @@ import { useSettingsStore } from '../src/stores/settingsStore';
 import { useAIStore } from '../src/stores/aiStore';
 import { useEventLogStore } from '../src/stores/eventLogStore';
 import { usePermissionsStore } from '../src/stores/permissionsStore';
+import { totpCode } from '../src/lib/totpAuth';
+
+/** The Google sign-in the tab reads (Drive segment's OAuth —
+ *  hasTokens in the main process). Not signed in by default;
+ *  individual tests resolve it true. */
+const googleDriveHasTokensMock = vi.fn(async () => false);
+
+/** The stored-secret code check (main process). Not matching by
+ *  default; individual tests answer it per code. */
+const verifyTotpCodeMock = vi.fn(async (_code: string) => ({
+  ok: false,
+  locked: false,
+  retryAfterMs: 0,
+}));
 
 function installLucidApiMock() {
   const win = window as unknown as Record<string, unknown>;
@@ -38,6 +52,16 @@ function installLucidApiMock() {
     settings: {
       set: vi.fn(async () => undefined),
       getAll: async () => ({}),
+      setStripeApiKey: vi.fn(async () => undefined),
+      hasStripeApiKey: vi.fn(async () => false),
+      deleteStripeApiKey: vi.fn(async () => undefined),
+      setTotpSecret: vi.fn(async () => undefined),
+      hasTotpSecret: vi.fn(async () => false),
+      deleteTotpSecret: vi.fn(async () => undefined),
+      verifyTotpCode: verifyTotpCodeMock,
+    },
+    googleDrive: {
+      hasTokens: googleDriveHasTokensMock,
     },
     ai: {
       pingServerStatus: pingServerStatusMock,
@@ -67,6 +91,14 @@ describe('SecurityTab', () => {
   beforeEach(() => {
     restoreLucidApi = installLucidApiMock();
     pingServerStatusMock.mockClear();
+    googleDriveHasTokensMock.mockClear();
+    googleDriveHasTokensMock.mockResolvedValue(false);
+    verifyTotpCodeMock.mockClear();
+    verifyTotpCodeMock.mockImplementation(async () => ({
+      ok: false,
+      locked: false,
+      retryAfterMs: 0,
+    }));
     initialSettings = useSettingsStore.getState().settings;
     useEventLogStore.getState().clear();
     useAIStore.setState({ pingQuota: null, pingQuotaSource: null });
@@ -75,7 +107,11 @@ describe('SecurityTab', () => {
 
   afterEach(() => {
     restoreLucidApi();
-    useSettingsStore.setState({ settings: initialSettings });
+    useSettingsStore.setState({
+      settings: initialSettings,
+      hasStripeApiKey: false,
+      hasTotpSecret: false,
+    });
     useEventLogStore.getState().clear();
     useAIStore.setState({ pingQuota: null, pingQuotaSource: null });
     usePermissionsStore.setState({ snapshot: null, lastCheckedAt: null });
@@ -305,5 +341,218 @@ describe('SecurityTab', () => {
     pingServerStatusMock.mockRejectedValueOnce(new Error('fetch failed'));
     render(<SecurityTab />);
     expect(await screen.findByText(/Server status not available — fetch failed/)).toBeTruthy();
+  });
+
+  // ---- Stripe connect (moved here from the Segments panel,
+  // Gary 2026-11-10 ~05:36 PST). ----
+
+  test('Stripe section: not connected until a key verifies — never faked', () => {
+    render(<SecurityTab />);
+    expect(screen.getByText('Stripe')).toBeTruthy();
+    expect(
+      screen.getByText(/Not connected. A key from the Stripe Dashboard is needed/),
+    ).toBeTruthy();
+    expect(screen.getByLabelText('Connect Stripe')).toBeTruthy();
+    // The key input is a password field — the key is a secret,
+    // stored encrypted, never shown in plain text.
+    expect(screen.getByLabelText('Stripe API key').getAttribute('type')).toBe('password');
+  });
+
+  test('Stripe section: a key that verifies connects, and the input is cleared', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'acct_test123',
+        business_profile: { name: 'Test Business' },
+        email: 'test@example.com',
+        charges_enabled: true,
+        payouts_enabled: true,
+        livemode: false,
+      }),
+    }));
+    const prevFetch = globalThis.fetch;
+    (globalThis as unknown as Record<string, unknown>).fetch = fetchMock;
+    try {
+      render(<SecurityTab />);
+      fireEvent.change(screen.getByLabelText('Stripe API key'), {
+        target: { value: 'rk_test_fakekey' },
+      });
+      fireEvent.click(screen.getByLabelText('Connect Stripe'));
+      expect(await screen.findByText(/Connected as Test Business/)).toBeTruthy();
+      expect(
+        screen.getByText(/Charges and payouts are enabled on this account/),
+      ).toBeTruthy();
+      // The key never lingers in the input after Connect.
+      expect((screen.getByLabelText('Stripe API key') as HTMLInputElement).value).toBe('');
+      expect(useSettingsStore.getState().hasStripeApiKey).toBe(true);
+      expect(useSettingsStore.getState().settings.stripeAccountId).toBe('acct_test123');
+    } finally {
+      (globalThis as unknown as Record<string, unknown>).fetch = prevFetch;
+    }
+  });
+
+  test('Stripe section: a key that does not verify is refused', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({}),
+    }));
+    const prevFetch = globalThis.fetch;
+    (globalThis as unknown as Record<string, unknown>).fetch = fetchMock;
+    try {
+      render(<SecurityTab />);
+      fireEvent.change(screen.getByLabelText('Stripe API key'), {
+        target: { value: 'rk_test_badkey' },
+      });
+      fireEvent.click(screen.getByLabelText('Connect Stripe'));
+      expect(await screen.findByText(/That key did not verify with Stripe/)).toBeTruthy();
+      expect(useSettingsStore.getState().hasStripeApiKey).toBe(false);
+    } finally {
+      (globalThis as unknown as Record<string, unknown>).fetch = prevFetch;
+    }
+  });
+
+  test('Stripe section: Disconnect removes the key and the account', async () => {
+    useSettingsStore.setState({
+      hasStripeApiKey: true,
+      settings: {
+        ...initialSettings,
+        stripeAccountId: 'acct_test123',
+        stripeAccountName: 'Test Business',
+      },
+    });
+    render(<SecurityTab />);
+    expect(screen.getByText(/Connected as Test Business/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Disconnect Stripe'));
+    expect(await screen.findByText(/Disconnected. The key was removed/)).toBeTruthy();
+    expect(useSettingsStore.getState().hasStripeApiKey).toBe(false);
+    expect(useSettingsStore.getState().settings.stripeAccountId).toBe('');
+  });
+
+  // ---- Google sign-in + Google Authenticator (Gary 2026-11-10
+  // ~05:37 PST). ----
+
+  test('Authenticator: enrollment is gated on Google sign-in', () => {
+    render(<SecurityTab />);
+    expect(screen.getByText('Google sign-in and Authenticator')).toBeTruthy();
+    expect(
+      screen.getByText(/Not signed in — Lucid needs a Google OAuth client ID/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Off — no Authenticator secret stored/)).toBeTruthy();
+    expect(screen.getByLabelText('Set up Google Authenticator').getAttribute('disabled')).not.toBeNull();
+  });
+
+  test('Authenticator: a signed-in user enrolls, and the setup key is shown once only', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    useSettingsStore.setState({
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    render(<SecurityTab />);
+    expect(await screen.findByText(/Signed in with Google/)).toBeTruthy();
+    const enrollButton = screen.getByLabelText('Set up Google Authenticator');
+    expect(enrollButton.getAttribute('disabled')).toBeNull();
+    fireEvent.click(enrollButton);
+    const setupKey = screen.getByTestId('security-totp-setup-key');
+    expect(setupKey.textContent).toMatch(/^[A-Z2-7]{32}$/);
+    // The real code for the displayed secret, right now.
+    const code = (await totpCode(setupKey.textContent ?? '', Date.now())) ?? '';
+    expect(code).toMatch(/^\d{6}$/);
+    fireEvent.change(screen.getByLabelText('Authenticator code to enroll'), {
+      target: { value: code },
+    });
+    fireEvent.click(screen.getByLabelText('Verify Authenticator code'));
+    expect(await screen.findByText(/Authenticator is on/)).toBeTruthy();
+    expect(useSettingsStore.getState().hasTotpSecret).toBe(true);
+    // The setup key is gone after enrollment — never shown again.
+    expect(screen.queryByTestId('security-totp-setup-key')).toBeNull();
+  });
+
+  test('Authenticator: a wrong enrollment code stores nothing', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    useSettingsStore.setState({
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    render(<SecurityTab />);
+    expect(await screen.findByText(/Signed in with Google/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Set up Google Authenticator'));
+    const setupKey = screen.getByTestId('security-totp-setup-key');
+    const realCode = (await totpCode(setupKey.textContent ?? '', Date.now())) ?? '';
+    const wrongCode = realCode === '000000' ? '000001' : '000000';
+    fireEvent.change(screen.getByLabelText('Authenticator code to enroll'), {
+      target: { value: wrongCode },
+    });
+    fireEvent.click(screen.getByLabelText('Verify Authenticator code'));
+    expect(await screen.findByText(/That code did not match/)).toBeTruthy();
+    expect(useSettingsStore.getState().hasTotpSecret).toBe(false);
+    // Still enrolling — the setup key is still there to retry.
+    expect(screen.getByTestId('security-totp-setup-key')).toBeTruthy();
+  });
+
+  test('Authenticator: cancelling enrollment throws the secret away', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    useSettingsStore.setState({
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    render(<SecurityTab />);
+    expect(await screen.findByText(/Signed in with Google/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Set up Google Authenticator'));
+    expect(screen.getByTestId('security-totp-setup-key')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Cancel Authenticator enrollment'));
+    expect(screen.queryByTestId('security-totp-setup-key')).toBeNull();
+    expect(useSettingsStore.getState().hasTotpSecret).toBe(false);
+  });
+
+  test('Authenticator: a stored secret can be checked, and removed', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    useSettingsStore.setState({
+      hasTotpSecret: true,
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    verifyTotpCodeMock.mockImplementation(async (code: string) => ({
+      ok: code === '123456',
+      locked: false,
+      retryAfterMs: 0,
+    }));
+    render(<SecurityTab />);
+    expect(await screen.findByText(/Signed in with Google/)).toBeTruthy();
+    expect(screen.getByText(/On — a secret is stored securely/)).toBeTruthy();
+    // The secret itself is never rendered.
+    expect(screen.queryByTestId('security-totp-setup-key')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Authenticator code to check'), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(screen.getByLabelText('Check Authenticator code'));
+    expect(await screen.findByText(/That code matches — Authenticator is working/)).toBeTruthy();
+    // The code is cleared after the check — it never lingers.
+    expect((screen.getByLabelText('Authenticator code to check') as HTMLInputElement).value).toBe('');
+    fireEvent.change(screen.getByLabelText('Authenticator code to check'), {
+      target: { value: '000000' },
+    });
+    fireEvent.click(screen.getByLabelText('Check Authenticator code'));
+    expect(await screen.findByText(/That code did not match/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Remove Google Authenticator'));
+    expect(await screen.findByText(/Authenticator removed/)).toBeTruthy();
+    expect(useSettingsStore.getState().hasTotpSecret).toBe(false);
+  });
+
+  test('Authenticator: a locked check says so, with the wait', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    useSettingsStore.setState({
+      hasTotpSecret: true,
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    verifyTotpCodeMock.mockResolvedValue({
+      ok: false,
+      locked: true,
+      retryAfterMs: 10 * 60 * 1000,
+    });
+    render(<SecurityTab />);
+    expect(await screen.findByText(/Signed in with Google/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Authenticator code to check'), {
+      target: { value: '000000' },
+    });
+    fireEvent.click(screen.getByLabelText('Check Authenticator code'));
+    expect(await screen.findByText(/Too many wrong codes — the check is locked for 10 minutes/)).toBeTruthy();
   });
 });

@@ -364,6 +364,33 @@ export const stripeApiKeyStorage = {
 
 };
 
+// Google Authenticator TOTP secret — the second factor for the
+// Google sign-in (Settings > Security, Gary 2026-11-10 ~05:37
+// PST), stored encrypted like the API key, the ping key, the
+// Telegram bot token and the Stripe key. The renderer only ever
+// sees whether one is stored (hasTotpSecret); the secret itself
+// never crosses into plain Settings or the renderer after
+// enrollment, and a stored secret is verified in the main
+// process (electron/services/totpAuth.ts).
+export const totpSecretStorage = {
+  setTotpSecret(secret: string): void {
+    secureStorage.setSecret('totp-secret', secret);
+  },
+
+  getTotpSecret(): string | null {
+    return secureStorage.getSecret('totp-secret');
+  },
+
+  hasTotpSecret(): boolean {
+    return secureStorage.hasSecret('totp-secret');
+  },
+
+  deleteTotpSecret(): void {
+    secureStorage.deleteSecret('totp-secret');
+  },
+
+};
+
 // Google Drive tokens - the access + refresh tokens for the user's
 // own Google account (from the OAuth code exchange), stored
 // encrypted like the API key, the ping key, the Telegram bot token

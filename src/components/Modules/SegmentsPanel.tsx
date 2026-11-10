@@ -43,7 +43,6 @@ import { ForgePersonaPlexSegment } from './ForgePersonaPlexSegment';
 import { GoogleDriveSegment } from './GoogleDriveSegment';
 import { MouseSegment } from './MouseSegment';
 import { SegmentCategorySection } from './SegmentCategorySection';
-import { StripeSegment } from './StripeSegment';
 import { TelegramSegment } from './TelegramSegment';
 
 export function SegmentsPanel() {
@@ -63,7 +62,6 @@ export function SegmentsPanel() {
   const aiChat = segmentCategory('ai-chat');
   const googleDrive = segmentCategory('google-drive');
   const telegram = segmentCategory('telegram');
-  const stripe = segmentCategory('stripe');
   const starship = segmentCategory('starship');
   const forge = segmentCategory('forge-persona-plex');
 
@@ -155,20 +153,11 @@ export function SegmentsPanel() {
         </SegmentCategorySection>
       )}
 
-      {/* Stripe — the pre-installed, connectable segment
-          (Gary, 2026-11-08). A place to connect your Stripe to
-          Lucid through your own key: a restricted key is best, a
-          full secret key also works, verified with a real
-          GET /v1/account call, stored encrypted. It stays when
-          LuciferAI is off, and it is a place other things can
-          connect to. It is the wallet for receiving money —
-          payment links and taking payments are the next step, and
-          the segment says so. */}
-      {stripe && (
-        <SegmentCategorySection category={stripe}>
-          <StripeSegment />
-        </SegmentCategorySection>
-      )}
+      {/* Stripe — the connect moved to Settings > Security
+          (Gary, 2026-11-10 ~05:36 PST). The segment is gone; the
+          connection (src/lib/stripeAuth.ts + secureStorage) is
+          unchanged, and a starship or anything else still
+          connects to Stripe the same way. */}
 
       {starship && (
         <SegmentCategorySection category={starship}>

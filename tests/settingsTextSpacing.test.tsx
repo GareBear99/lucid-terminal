@@ -6,9 +6,11 @@
  * consistently across the Settings surfaces. This pass adds
  * `leading-[1.5]` to description / status-note text in SettingsPanel,
  * PermissionsTab, ModelInstaller, ModulesTab, SegmentsPanel,
- * SegmentCategorySection, and the six segment components, plus the two
+ * SegmentCategorySection, and the five segment components, plus the two
  * 8px gaps (event-log card `space-y-1` -> `space-y-2`, model
- * size/status line `mt-1` -> `mt-2`).
+ * size/status line `mt-1` -> `mt-2`). The Stripe connect moved to
+ * Settings > Security (Gary, 2026-11-10 ~05:36 PST), so its spacing
+ * is pinned through the Security tab, not a segment component.
  *
  * These tests render with react-dom/server's renderToStaticMarkup
  * (effects never run under SSR) and count `leading-[1.5]` occurrences
@@ -28,9 +30,9 @@ import { SegmentsPanel } from '../src/components/Modules/SegmentsPanel';
 import { AIChatSegment } from '../src/components/Modules/AIChatSegment';
 import { GoogleDriveSegment } from '../src/components/Modules/GoogleDriveSegment';
 import { TelegramSegment } from '../src/components/Modules/TelegramSegment';
-import { StripeSegment } from '../src/components/Modules/StripeSegment';
 import { ComputerControlSegment } from '../src/components/Modules/ComputerControlSegment';
 import { ForgePersonaPlexSegment } from '../src/components/Modules/ForgePersonaPlexSegment';
+import { SecurityTab } from '../src/components/Settings/SecurityTab';
 
 type SettingsTab =
   | 'appearance'
@@ -155,7 +157,6 @@ describe('Segment components text spacing', () => {
     ['AIChatSegment', AIChatSegment, 4],
     ['GoogleDriveSegment', GoogleDriveSegment, 4],
     ['TelegramSegment', TelegramSegment, 5],
-    ['StripeSegment', StripeSegment, 5],
     ['ComputerControlSegment', ComputerControlSegment, 5],
     ['ForgePersonaPlexSegment', ForgePersonaPlexSegment, 2],
   ];
@@ -174,5 +175,16 @@ describe('Segment components text spacing', () => {
     expect(segmentsHtml).toContain('An extension of the Modules plugin');
     expect(segmentsHtml).toContain('No starship detected.');
     expect(countLeading(segmentsHtml)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('SecurityTab (Stripe, moved from the Segments panel): description + status-note text breathes at 1.5', () => {
+    // The Stripe connect moved to Settings > Security (Gary,
+    // 2026-11-10 ~05:36 PST) — its description / status-note
+    // spacing is pinned here, not in a segment component.
+    const html = renderToStaticMarkup(React.createElement(SecurityTab));
+    expect(html).toContain('Connects your Stripe to Lucid so Lucid can show the account');
+    expect(html).toContain('Stripe is the wallet for receiving money');
+    expect(html).toContain('No connections yet');
+    expect(countLeading(html)).toBeGreaterThanOrEqual(5);
   });
 });

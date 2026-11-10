@@ -1109,6 +1109,10 @@ declare global {
         setStripeApiKey: (key: string) => Promise<void>;
         hasStripeApiKey: () => Promise<boolean>;
         deleteStripeApiKey: () => Promise<void>;
+        setTotpSecret: (secret: string) => Promise<void>;
+        hasTotpSecret: () => Promise<boolean>;
+        deleteTotpSecret: () => Promise<void>;
+        verifyTotpCode: (code: string) => Promise<{ ok: boolean; locked: boolean; retryAfterMs: number }>;
         getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;

@@ -52,6 +52,18 @@ interface SettingsState {
   deleteStripeApiKey: () => Promise<void>;
   checkStripeApiKey: () => Promise<void>;
   hasStripeApiKey: boolean;
+
+  // Google Authenticator TOTP secret actions - the second factor
+  // for the Google sign-in (Settings > Security, Gary 2026-11-10
+  // ~05:37 PST), stored encrypted in secureStorage. The store only
+  // ever holds whether one is stored; the secret itself never lives
+  // here. verifyTotpCode checks a typed code against the stored
+  // secret in the main process and reports ok / locked / retryAfterMs.
+  setTotpSecret: (secret: string) => Promise<void>;
+  deleteTotpSecret: () => Promise<void>;
+  checkTotpSecret: () => Promise<void>;
+  verifyTotpCode: (code: string) => Promise<{ ok: boolean; locked: boolean; retryAfterMs: number }>;
+  hasTotpSecret: boolean;
   checkBackendStatus: () => Promise<void>;
 
   exportSettings: () => Promise<string>;
@@ -183,6 +195,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hasPingKey: false,
   hasTelegramBotToken: false,
   hasStripeApiKey: false,
+  hasTotpSecret: false,
   isLocalBackendAvailable: false,
   isLocalModelAvailable: false,
   storageDegraded: false,
@@ -196,6 +209,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const hasPingKey = await window.lucidAPI.settings.hasPingKey();
       const hasTelegramBotToken = await window.lucidAPI.settings.hasTelegramBotToken();
       const hasStripeApiKey = await window.lucidAPI.settings.hasStripeApiKey();
+      // Preload without the TOTP call (an older build) - assume none stored.
+      let hasTotpSecret = false;
+      try {
+        hasTotpSecret = await window.lucidAPI.settings.hasTotpSecret();
+      } catch {
+        hasTotpSecret = false;
+      }
 
       // Check local backend status
       await get().checkBackendStatus();
@@ -249,7 +269,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       document.documentElement.style.setProperty('--font-mono', settings.fontFamily);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
 
-      set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, hasTelegramBotToken, hasStripeApiKey, isLoading: false });
+      set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, hasTelegramBotToken, hasStripeApiKey, hasTotpSecret, isLoading: false });
 
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -378,6 +398,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   checkStripeApiKey: async () => {
     const hasKey = await window.lucidAPI.settings.hasStripeApiKey();
     set({ hasStripeApiKey: hasKey });
+  },
+
+  setTotpSecret: async (secret) => {
+    await window.lucidAPI.settings.setTotpSecret(secret);
+    set({ hasTotpSecret: true });
+  },
+
+  deleteTotpSecret: async () => {
+    await window.lucidAPI.settings.deleteTotpSecret();
+    set({ hasTotpSecret: false });
+  },
+
+  checkTotpSecret: async () => {
+    const hasSecret = await window.lucidAPI.settings.hasTotpSecret();
+    set({ hasTotpSecret: hasSecret });
+  },
+
+  verifyTotpCode: async (code) => {
+    return window.lucidAPI.settings.verifyTotpCode(code);
   },
 
   checkBackendStatus: async () => {

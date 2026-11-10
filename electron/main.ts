@@ -17,7 +17,8 @@ import {
 } from './services/browserMiniWindow';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
-import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, stripeApiKeyStorage, settings } from './services/secureStorage';
+import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, stripeApiKeyStorage, totpSecretStorage, settings } from './services/secureStorage';
+import { verifyTotpCodeAgainstStored } from './services/totpAuth';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
@@ -224,6 +225,26 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:deleteStripeApiKey', () => {
     stripeApiKeyStorage.deleteStripeApiKey();
+  });
+
+  // Google Authenticator TOTP secret handlers — the second factor
+  // for the Google sign-in (Settings > Security, Gary 2026-11-10
+  // ~05:37 PST), stored encrypted like the API key, the ping key,
+  // the Telegram bot token and the Stripe key. The verify handler
+  // checks the typed code against the stored secret HERE, in the
+  // main process — the secret never crosses into the renderer
+  // after enrollment.
+  ipcMain.handle('settings:setTotpSecret', (_, secret) => {
+    totpSecretStorage.setTotpSecret(secret);
+  });
+  ipcMain.handle('settings:hasTotpSecret', () => {
+    return totpSecretStorage.hasTotpSecret();
+  });
+  ipcMain.handle('settings:deleteTotpSecret', () => {
+    totpSecretStorage.deleteTotpSecret();
+  });
+  ipcMain.handle('settings:verifyTotpCode', (_, code) => {
+    return verifyTotpCodeAgainstStored(typeof code === 'string' ? code : '');
   });
 
 

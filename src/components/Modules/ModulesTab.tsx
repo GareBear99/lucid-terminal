@@ -105,6 +105,15 @@ export function ModulesTab() {
           </div>
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1">
+              <span className="block text-sm">Mouse</span>
+              <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
+                The Mouse is a pre-installed segment. It needs no starship and no install step. It holds every pointer Lucid has, mice and finger pointers alike. On the Mac it is the mouse that clicks and types where the agent points. In the browser it is a live pointer locked inside the browser area, never outside it. On Android it is a finger that taps and drags on the phone screen, one finger at a time. A pointer only moves when it is driven, by a trained, user-directed agent or by your own hand, and no pointer ever moves on its own. When it is locked, it does not move at all. The Mac mouse proves every move by reading the screen back afterwards. It needs macOS Accessibility and Screen Recording to work.
+              </span>
+            </span>
+            <span className="text-xs text-[var(--text-muted)] shrink-0">Pre-installed · Live</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">
               <span className="block text-sm">AI Chat</span>
               <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                 Pre-installed, connectable — its own plugin, independent of LuciferAI, and a place things like a starship can connect to.
@@ -177,7 +186,7 @@ export function ModulesTab() {
             <span className="min-w-0 flex-1">
               <span className="block text-sm">Pre-installed</span>
               <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
-                Ships with Lucid — no starship, no install step. Computer control, AI Chat, Google Drive, Telegram and Stripe arrive this way.
+                Ships with Lucid — no starship, no install step. Computer control, Mouse, AI Chat, Google Drive, Telegram and Stripe arrive this way.
               </span>
             </span>
           </div>

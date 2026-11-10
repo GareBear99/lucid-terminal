@@ -480,3 +480,22 @@ describe('DEFCON 3 Phase 4 — criteria through the real /defcon command', () =>
     expect(blocks()[0].output).not.toContain('[ ]');
   });
 });
+
+describe('extend drag tab — gone in non-devmode, kept in devmode (Gary, 2026-11-10 ~03:58 PST)', () => {
+  test('non-devmode at level 3: the shared composer has NO extend drag tab — clean black', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    const wrap = screen.getByTestId('prompter-composer-wrap');
+    // The composer input is there and typeable — only the drag tab is gone.
+    expect(within(wrap).getByPlaceholderText(/Monaco unavailable/)).not.toBeNull();
+    expect(within(wrap).queryByTestId('input-drag-handle')).toBeNull();
+    expect(screen.queryByTestId('input-drag-handle')).toBeNull();
+  });
+
+  test('devmode at level 3: the SAME composer KEEPS the extend drag tab', async () => {
+    renderDevmode(3);
+    await screen.findByTestId('dev-command-bar');
+    const bar = screen.getByTestId('dev-command-bar');
+    expect(within(bar).queryByTestId('input-drag-handle')).not.toBeNull();
+  });
+});

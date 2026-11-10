@@ -66,6 +66,13 @@ interface InputAreaProps {
      *  parent (Terminal) owns the hook and passes it down;
      *  when absent the input keeps its own, as before. */
     dragState?: ReturnType<typeof useDraggableInputHeight>;
+    /** Show the drag-to-extend handle on the input's top edge
+     *  (Gary, 2026-11-10 ~03:58 PST — "when devMode is OFF, get
+     *  rid of the extend drag tab so it's clean black"): the
+     *  shared prompter composer passes devMode here, so the
+     *  handle is gone in non-devmode and stays in devmode.
+     *  Defaults to true — every other caller keeps it. */
+    showDragHandle?: boolean;
     /** DEFCON 3 Phase 3 ghost suggestion — the full suggested
      *  text (composer history or a slash-command name, computed
      *  by the parent from `computeGhostSuggestion`), or null.
@@ -90,7 +97,7 @@ interface InputAreaProps {
     onEof?: () => void;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, ghostSuggestion = null, onAcceptSuggestion, onInterrupt, onEof }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, onAcceptSuggestion, onInterrupt, onEof }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // The ghost remainder (the part after what is typed) — the
   // overlay renders this faded after the input text. Null when
@@ -453,11 +460,15 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             <ProcessingGlow isProcessing={isProcessing} />
             {/* Drag handle on the input's top edge: drag up to grow,
                 down to shrink, up to half the page (Gary, 2026-11-08:
-                "recover it all" — restored from c236ab3). */}
+                "recover it all" — restored from c236ab3). Gone when
+                showDragHandle is false (Gary, 2026-11-10: no extend
+                drag tab in non-devmode — clean black). */}
+            {showDragHandle && (
             <InputDragHandle
                 isDragging={isDragging}
                 onDragHandlePointerDown={onDragHandlePointerDown}
             />
+            )}
             
             {/* Ghost suggestion (DEFCON 3 Phase 3): a faded
                 mirror of the input text with the suggestion's

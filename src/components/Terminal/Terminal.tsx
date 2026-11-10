@@ -1330,6 +1330,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           isProcessing={devRunning}
           flat={!luciferAiEnabled}
           dragState={composerDrag}
+          // Gary, 2026-11-10 ~03:58 PST: no extend drag tab when
+          // devMode is OFF — the non-devmode view is clean black.
+          // Devmode keeps the handle exactly as it was.
+          showDragHandle={devMode}
           ghostSuggestion={ghostSuggestion}
           onAcceptSuggestion={acceptGhostSuggestion}
           onInterrupt={handleComposerInterrupt}

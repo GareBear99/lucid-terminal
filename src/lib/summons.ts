@@ -29,6 +29,12 @@
  * TESTING summons on the desktop only — its license forbids
  * redistribution and AI training, so it must never ship in Lucid.
  *
+ * A summon's art is OPTIONAL (Gary, 2026-11-10 ~03:09 PST: "Take
+ * the lily avatar image out actually i dont want it in lucid") —
+ * Lily's image was removed from Lucid, so a summon with no art
+ * renders text-only: no placeholder art, no fake image, no
+ * broken-image icon. The summon entry itself stays.
+ *
  * Pure model only — no window, no IPC, no store access.
  */
 
@@ -53,10 +59,17 @@ export interface Summon {
   id: string;
   /** Display name, Gary's spelling — e.g. 'Lily'. */
   name: string;
-  /** Animated presentation (GIF). */
-  gifSrc: string;
-  /** Still presentation (PNG) — the fallback / static. */
-  imageSrc: string;
+  /**
+   * Animated presentation (GIF) — OPTIONAL. Absent when the summon
+   * has no art: the slot renders text-only, no placeholder, no fake
+   * image. Lily's image was removed (Gary, 2026-11-10 ~03:09 PST).
+   */
+  gifSrc?: string;
+  /**
+   * Still presentation (PNG) — the fallback / static, OPTIONAL.
+   * Only used when gifSrc is present.
+   */
+  imageSrc?: string;
   /** What unlocks this summon. */
   unlock: 'living-golem' | 'living-golem-and-higher-topology';
   /** Locked-state text, shown on the slot while locked. */
@@ -70,8 +83,10 @@ export interface Summon {
 export const LILY_SUMMON: Summon = {
   id: 'lily',
   name: 'Lily',
-  gifSrc: './summons/lily/slave-boss-heart-playing.gif',
-  imageSrc: './summons/lily/slave-boss-with-heart-clean.png',
+  // No image (Gary, 2026-11-10 ~03:09 PST: "Take the lily avatar
+  // image out actually i dont want it in lucid") — the slot renders
+  // text-only. gifSrc / imageSrc stay optional for a future summon
+  // that does have art.
   unlock: 'living-golem',
   lockedText: 'Requires Living Golem — coming soon',
 };

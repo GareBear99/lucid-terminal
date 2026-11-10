@@ -119,14 +119,14 @@ describe('Summons model (Gary, 2026-11-09)', () => {
     expect(LILY_SUMMON.id).not.toBe('lucifer');
   });
 
-  test('Lily wires the pack art — GIF animated, still as fallback', () => {
-    expect(LILY_SUMMON.gifSrc).toBe(
-      './summons/lily/slave-boss-heart-playing.gif',
-    );
-    expect(LILY_SUMMON.imageSrc).toBe(
-      './summons/lily/slave-boss-with-heart-clean.png',
-    );
-    expect(LILY_SUMMON.gifSrc).not.toBe(LILY_SUMMON.imageSrc);
+  test('Lily has NO image — text-only slot (Gary, 2026-11-10 ~03:09 PST)', () => {
+    // "Take the lily avatar image out actually i dont want it in
+    // lucid" — the image is gone from the model, not just the file.
+    // The summon entry itself stays (name, locked state, text).
+    expect(LILY_SUMMON.gifSrc).toBeUndefined();
+    expect(LILY_SUMMON.imageSrc).toBeUndefined();
+    expect(LILY_SUMMON.id).toBe('lily');
+    expect(LILY_SUMMON.name).toBe('Lily');
   });
 
   test('Lily unlocks with a Living Golem, free of any referral requirement', () => {
@@ -222,7 +222,7 @@ describe('Summons section gating', () => {
   });
 });
 
-describe('Lily slot — art, sizing, select / activate', () => {
+describe('Lily slot — text-only, select / activate', () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -244,38 +244,16 @@ describe('Lily slot — art, sizing, select / activate', () => {
     return screen.getByTestId('summon-slot-lily') as HTMLButtonElement;
   }
 
-  test('slot renders the GIF as the animated presentation', async () => {
+  test('slot renders text-only — no image, no media box, no broken image', async () => {
     const slot = await renderEnabled();
-    const img = slot.querySelector('img') as HTMLImageElement | null;
-    expect(img).not.toBeNull();
-    expect(img?.getAttribute('src')).toContain(
-      'slave-boss-heart-playing.gif',
-    );
-    expect(img?.getAttribute('alt')).toBe('Lily — animated');
-  });
-
-  test('GIF failure falls back to the still image', async () => {
-    const slot = await renderEnabled();
-    const img = slot.querySelector('img') as HTMLImageElement;
-    fireEvent.error(img);
-    expect(img.getAttribute('src')).toContain(
-      'slave-boss-with-heart-clean.png',
-    );
-  });
-
-  test('slot sizing cannot fail — fixed square, no overflow, no distortion', async () => {
-    const slot = await renderEnabled();
-    const media = screen.getByTestId('summon-media-lily');
-    // Fixed aspect: the box is a square whatever the asset is.
-    expect(media.className).toContain('aspect-square');
-    // No overflow: the asset cannot spill out of the box.
-    expect(media.className).toContain('overflow-hidden');
-    const img = slot.querySelector('img') as HTMLImageElement;
-    // No distortion: the image keeps its own aspect inside the box.
-    expect(img.className).toContain('object-contain');
-    // And it fills the box it sits in.
-    expect(img.className).toContain('h-full');
-    expect(img.className).toContain('w-full');
+    // No <img> at all: no GIF loads, no broken-image icon.
+    expect(slot.querySelector('img')).toBeNull();
+    expect(screen.queryByTestId('summon-media-lily')).toBeNull();
+    // The entry itself still exists, text-only.
+    expect(screen.getByText('Lily')).toBeTruthy();
+    expect(
+      screen.getByText('Requires Living Golem — coming soon'),
+    ).toBeTruthy();
   });
 
   test('single click selects Lily (selection works while locked)', async () => {
@@ -305,12 +283,13 @@ describe('Lily slot — art, sizing, select / activate', () => {
     expect(placeholder.textContent).toContain(
       'Requires Living Golem and higher topology — coming soon',
     );
-    // No art invented for it: the section holds exactly one image —
-    // Lily's. The placeholder's media box is empty.
+    // No art invented for it — and Lily has no image either, so the
+    // section holds NO images at all. The placeholder's media box
+    // is empty.
     const images = screen
       .getByTestId('summons-section')
       .querySelectorAll('img');
-    expect(images).toHaveLength(1);
+    expect(images).toHaveLength(0);
     expect(placeholder.querySelector('img')).toBeNull();
   });
 });

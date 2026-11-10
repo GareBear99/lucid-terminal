@@ -11,12 +11,15 @@
  * its locked-state text. Selecting (single click) works while
  * locked; activating (double-click) is rejected by the store.
  *
- * Sizing is tightened so it can't fail: the slot's media box is a
- * fixed square (aspect-square) with overflow hidden, and the image
- * fills it with object-contain — no overflow, no distortion,
- * whether the asset is a still image or an animated GIF. The slot
- * shows the GIF; if the GIF fails to load, the still is the
- * fallback.
+ * Sizing is tightened so it can't fail: when a summon HAS art, the
+ * slot's media box is a fixed square (aspect-square) with overflow
+ * hidden, and the image fills it with object-contain — no overflow,
+ * no distortion, whether the asset is a still image or an animated
+ * GIF. The slot shows the GIF; if the GIF fails to load, the still
+ * is the fallback. A summon with NO art (Lily — Gary, 2026-11-10
+ * ~03:09 PST, "Take the lily avatar image out actually i dont want
+ * it in lucid") renders text-only: no media box, no placeholder art,
+ * no fake image, no broken-image icon.
  *
  * VARIANT ASK (Gary, 2026-11-09 ~11:01 PST): on EVERY summon
  * activation, ask clothed vs 18+ variant — ask every time until the
@@ -150,8 +153,11 @@ function SummonSlot({
   const selected = useForgeStore((s) => s.selectedSummonId === summon.id);
   const active = useForgeStore((s) => s.activeSummonId === summon.id);
   const selectSummon = useForgeStore((s) => s.selectSummon);
-  // The still is the fallback: if the GIF fails to load, swap to it
-  // (and stay there — the guard stops a failed still looping back).
+  // Art is optional: a summon with no gifSrc renders text-only —
+  // no media box at all (Lily, Gary 2026-11-10). The still is the
+  // fallback: if the GIF fails to load, swap to it (and stay there
+  // — the guard stops a failed still looping back).
+  const hasArt = summon.gifSrc !== undefined;
   const [gifFailed, setGifFailed] = useState(false);
   return (
     <button
@@ -167,21 +173,24 @@ function SummonSlot({
           : 'border-[var(--border)] hover:border-[var(--text-muted)]'
       }`}
     >
-      {/* Fixed square media box — the sizing that can't fail. The
-          box never grows with the asset (aspect-square + overflow
-          hidden) and the image never distorts (object-contain keeps
-          its own aspect inside the box). */}
-      <span
-        data-testid={`summon-media-${summon.id}`}
-        className="block aspect-square w-full overflow-hidden rounded-md bg-[var(--bg-primary)]"
-      >
-        <img
-          src={gifFailed ? summon.imageSrc : summon.gifSrc}
-          alt={`${summon.name} — animated`}
-          onError={() => setGifFailed(true)}
-          className="h-full w-full object-contain"
-        />
-      </span>
+      {/* Fixed square media box — only when the summon HAS art.
+          The box never grows with the asset (aspect-square +
+          overflow hidden) and the image never distorts
+          (object-contain keeps its own aspect inside the box).
+          Text-only summons (Lily) get no box at all. */}
+      {hasArt && (
+        <span
+          data-testid={`summon-media-${summon.id}`}
+          className="block aspect-square w-full overflow-hidden rounded-md bg-[var(--bg-primary)]"
+        >
+          <img
+            src={gifFailed ? summon.imageSrc : summon.gifSrc}
+            alt={`${summon.name} — animated`}
+            onError={() => setGifFailed(true)}
+            className="h-full w-full object-contain"
+          />
+        </span>
+      )}
       <span className="mt-2 block truncate text-sm font-semibold text-[var(--text-primary)]">
         {summon.name}
       </span>

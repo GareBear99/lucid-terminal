@@ -34,7 +34,7 @@ describe('TOOLBAR_PLUGINS', () => {
       // plain functions — either way they are a valid React component.
       expect(plugin.icon).toBeTruthy();
       expect(['function', 'object']).toContain(typeof plugin.icon);
-      expect(['synth', 'help', 'ai-chat', 'forge']).toContain(plugin.action);
+      expect(['synth', 'help', 'ai-chat', 'forge', 'mouse']).toContain(plugin.action);
       expect(typeof plugin.defaultOnToolbar).toBe('boolean');
     }
   });
@@ -50,6 +50,16 @@ describe('TOOLBAR_PLUGINS', () => {
 
   it('the AI Chat plugin is off by default — it has no toolbar button today', () => {
     expect(byId('ai-chat').defaultOnToolbar).toBe(false);
+  });
+
+  it('the Mouse plugin is on by default — its segment is pre-installed', () => {
+    // The Mouse segment is pre-installed, so the plugin shows with
+    // it (Gary, 2026-11-09). HONEST LIMIT, stated in the entry:
+    // there is no segment-installed gate in the toolbar code yet,
+    // so this defaults ON with the segment instead of being gated
+    // on it. A real installed-gate is open, not built.
+    expect(byId('mouse').defaultOnToolbar).toBe(true);
+    expect(byId('mouse').action).toBe('mouse');
   });
 });
 
@@ -80,28 +90,31 @@ describe('isPluginOnToolbar', () => {
 
 describe('enabledToolbarPlugins', () => {
   it('returns only the enabled plugins, in list order', () => {
-    // Defaults: Synth and Help on, AI Chat off — the section has two buttons.
-    expect(enabledToolbarPlugins(undefined).map((p) => p.id)).toEqual(['synth', 'help']);
-    expect(enabledToolbarPlugins({}).map((p) => p.id)).toEqual(['synth', 'help']);
-    // Toggling AI Chat on grows the section to three buttons.
+    // Defaults: Synth, Help, and Mouse on, AI Chat off — the section has three buttons.
+    expect(enabledToolbarPlugins(undefined).map((p) => p.id)).toEqual(['synth', 'help', 'mouse']);
+    expect(enabledToolbarPlugins({}).map((p) => p.id)).toEqual(['synth', 'help', 'mouse']);
+    // Toggling AI Chat on grows the section to four buttons.
     expect(enabledToolbarPlugins({ 'ai-chat': true }).map((p) => p.id)).toEqual([
       'synth',
       'help',
       'ai-chat',
+      'mouse',
     ]);
-    // Toggling Synth off leaves Help and AI Chat.
+    // Toggling Synth off leaves Help, AI Chat, and Mouse.
     expect(enabledToolbarPlugins({ synth: false, 'ai-chat': true }).map((p) => p.id)).toEqual([
       'help',
       'ai-chat',
+      'mouse',
     ]);
     // Everything off: the section is empty (no buttons, no divider).
-    expect(enabledToolbarPlugins({ synth: false, help: false, 'ai-chat': false })).toEqual([]);
+    expect(enabledToolbarPlugins({ synth: false, help: false, 'ai-chat': false, mouse: false })).toEqual([]);
   });
 
   it('ignores unknown ids in the Settings map', () => {
     expect(enabledToolbarPlugins({ 'not-a-plugin': true }).map((p) => p.id)).toEqual([
       'synth',
       'help',
+      'mouse',
     ]);
   });
 });

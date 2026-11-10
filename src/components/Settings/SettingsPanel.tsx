@@ -69,7 +69,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'security';
+export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'security';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {

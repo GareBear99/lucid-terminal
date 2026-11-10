@@ -15,7 +15,7 @@ import TerminalTabs from './components/Terminal/TerminalTabs';
 import { EmptyTerminalState } from './components/Terminal/EmptyTerminalState';
 import AIPanel from './components/AI/AIPanel';
 import CodeEditor from './components/Editor/CodeEditor';
-import SettingsPanel from './components/Settings/SettingsPanel';
+import SettingsPanel, { type SettingsTab } from './components/Settings/SettingsPanel';
 import { SynthView } from './components/Synth/SynthView';
 import { toggleSynthView } from './lib/synthToggle';
 import { ForgeView } from './components/Forge/ForgeView';
@@ -85,8 +85,21 @@ function App() {
     setCurrentView((view) => togglePersonaPlexView(view));
   // The Settings button toggles the same way: first press opens
   // the Settings view, a second press exits back to the terminal.
-  const toggleSettings = () =>
+  // Opening Settings from its own icon always lands on the default
+  // tab — a Modules landing from the Mouse button must not leak
+  // into the next plain Settings open.
+  const toggleSettings = () => {
+    setSettingsInitialTab(undefined);
     setCurrentView((view) => toggleSettingsView(view));
+  };
+  // The Mouse toolbar button lands on Settings at the Modules tab,
+  // where the Mouse segment lives (Gary, 2026-11-09). It always
+  // lands (never toggles back), like the Summons entry.
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined);
+  const openMouse = () => {
+    setSettingsInitialTab('modules');
+    setCurrentView('settings');
+  };
   const [showAI, setShowAI] = useState(false); // Hidden by default - use command router instead
   // The AI button always lands on AI Chat: opening the panel from the
   // Browser tab (or with the panel already open on Browser) switches to
@@ -392,6 +405,7 @@ function App() {
               }}
               onToggleSynth={toggleSynth}
               onToggleForge={toggleForge}
+              onToggleMouse={openMouse}
               onTogglePersonaPlex={togglePersonaPlex}
               onToggleSettings={toggleSettings}
             />
@@ -432,7 +446,7 @@ function App() {
                 <PersonaPlexView />
               )}
               {currentView === 'settings' && (
-                <SettingsPanel onClose={() => setCurrentView('terminal')} onOpenPersonaPlex={() => setCurrentView('persona-plex')} />
+                <SettingsPanel initialTab={settingsInitialTab} onClose={() => setCurrentView('terminal')} onOpenPersonaPlex={() => setCurrentView('persona-plex')} />
               )}
               {currentView === 'editor' && (
                 // The editor renders even with no files open yet — its

@@ -44,13 +44,16 @@ interface SidebarProps {
   onToggleSynth?: () => void;
   /** Toggle the Forge view (the Forge toolbar button's action). */
   onToggleForge?: () => void;
+  /** Open the Mouse segment (the Mouse toolbar button's action) —
+      Settings at the Modules tab, where the Mouse segment lives. */
+  onToggleMouse?: () => void;
   /** Toggle the Persona Plex setup page (the Persona Plex toolbar button's action). */
   onTogglePersonaPlex?: () => void;
   /** Toggle the Settings view (the Settings toolbar button's action). */
   onToggleSettings?: () => void;
 }
 
-function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenBloodDrop, bloodDropDisabled, onToggleSynth, onToggleForge, onTogglePersonaPlex, onToggleSettings }: SidebarProps) {
+function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenBloodDrop, bloodDropDisabled, onToggleSynth, onToggleForge, onToggleMouse, onTogglePersonaPlex, onToggleSettings }: SidebarProps) {
   const {
     currentDir,
     entries,
@@ -281,23 +284,31 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         if (!plugin) return null;
         // The blood drop is not a view toggle, so it is never the
         // "active" view button. Forge and Synth toggle views; the
-        // AI Chat button is active while its panel is open.
+        // AI Chat button is active while its panel is open. The
+        // Mouse button is active while the Settings view is open
+        // (it lands on the Modules tab, where the Mouse segment
+        // lives); it is not a LuciferAI surface, so it stays with
+        // the plugin off, like AI Chat and Forge.
         const isActive =
           plugin.action === 'synth'
             ? currentView === 'synth'
             : plugin.action === 'forge'
               ? currentView === 'forge'
-              : plugin.action === 'help'
-                ? false
-                : showAI;
+              : plugin.action === 'mouse'
+                ? currentView === 'settings'
+                : plugin.action === 'help'
+                  ? false
+                  : showAI;
         const onClick =
           plugin.action === 'synth'
             ? (onToggleSynth ?? (() => onViewChange('synth')))
             : plugin.action === 'forge'
               ? (onToggleForge ?? (() => onViewChange('forge')))
-              : plugin.action === 'help'
-                ? (onOpenBloodDrop ?? (() => {}))
-                : onToggleAI;
+              : plugin.action === 'mouse'
+                ? (onToggleMouse ?? (() => onViewChange('settings')))
+                : plugin.action === 'help'
+                  ? (onOpenBloodDrop ?? (() => {}))
+                  : onToggleAI;
         // The icon comes from the plugin entry itself: Orbit for the
         // Synth, the blood drop for the blood drop terminal.
         const Icon = plugin.icon;
@@ -537,7 +548,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           const showDivider =
             entry === 'settings' &&
             entryIdx > 0 &&
-            toolbarOrder.slice(0, entryIdx).some((id) => id === 'synth' || id === 'help' || id === 'ai-chat' || id === 'llmbuilder' || id === 'persona-plex');
+            toolbarOrder.slice(0, entryIdx).some((id) => id === 'synth' || id === 'help' || id === 'ai-chat' || id === 'llmbuilder' || id === 'mouse' || id === 'persona-plex');
           return (
             <Fragment key={entry}>
               {showDivider && <div className="lucid-color-shift my-1 h-px w-8" aria-hidden="true" />}

@@ -12,6 +12,8 @@
  * - plugin icons: the plugin's stable id — 'synth' | 'help' (the
  *   blood drop, which opens the Help modal) | 'ai-chat' |
  *   'llmbuilder' (the Forge plugin's id; its button action is 'forge') |
+ *   'mouse' (the Mouse plugin's id; its button opens Settings at
+ *   the Modules tab, where the Mouse segment lives) |
  *   'persona-plex' (the Persona Plex add-on's id; its button opens the
  *   Plex setup page — it is available only while the add-on is
  *   installed. Install is the only condition: it is an add-on, not
@@ -71,6 +73,7 @@ export type ToolbarIconId =
   | 'help'
   | 'ai-chat'
   | 'llmbuilder'
+  | 'mouse'
   | 'persona-plex'
   | 'settings'
   | 'spacer';
@@ -88,12 +91,13 @@ export const DEFAULT_TOOLBAR_ORDER: ToolbarIconId[] = [
   'synth',
   'ai-chat',
   'llmbuilder',
+  'mouse',
   'persona-plex',
   'settings',
 ];
 
 /** Plugin icon ids (the ones that come and go with their toggle). */
-const PLUGIN_ICON_IDS: readonly string[] = ['synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex'];
+const PLUGIN_ICON_IDS: readonly string[] = ['synth', 'help', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex'];
 
 /**
  * Resolve the order to render, from the stored order and the icons

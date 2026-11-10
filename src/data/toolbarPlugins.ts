@@ -24,7 +24,7 @@
  * PLUGIN_SHELLS). The Sidebar renders one button per entry that is
  * toggled on in Settings; the section grows taller per enabled plugin.
  */
-import { Orbit, Sparkles, Hammer } from 'lucide-react';
+import { MousePointer2, Orbit, Sparkles, Hammer } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { BloodDropIcon } from '../components/Layout/BloodDropIcon';
 
@@ -41,7 +41,7 @@ export interface ToolbarPlugin {
   /** Icon for the toolbar button and the Settings row. */
   icon: ToolbarIcon;
   /** What clicking the toolbar button does. */
-  action: 'synth' | 'ai-chat' | 'forge' | 'help';
+  action: 'synth' | 'ai-chat' | 'forge' | 'help' | 'mouse';
   /** Whether the button shows when Settings has no override for it.
    *  Plugins that already have a toolbar presence default ON; a plugin
    *  with no toolbar presence defaults OFF, so toggling it on is an
@@ -88,6 +88,21 @@ export const TOOLBAR_PLUGINS: ToolbarPlugin[] = [
     action: 'forge',
     // New surface — no toolbar button until Gary turns it on.
     defaultOnToolbar: false,
+  },
+  {
+    id: 'mouse',
+    name: 'Mouse',
+    description: 'The Mouse — every pointer Lucid has, mice and finger pointers alike. Opens the Mouse segment in Settings → Modules.',
+    icon: MousePointer2,
+    action: 'mouse',
+    // Pre-installed segment, so the plugin shows with it (Gary,
+    // 2026-11-09 — the Mouse is a segment AND a plugin, following
+    // the Portal Deck pattern). HONEST LIMIT: there is no
+    // segment-installed gate in the toolbar code yet — no plugin
+    // here checks whether its segment is installed — so this
+    // defaults ON with the segment instead of being gated on it.
+    // A real installed-gate is open, not built.
+    defaultOnToolbar: true,
   },
 ];
 

@@ -34,10 +34,11 @@ const renderModules = () =>
   );
 
 describe('Segments categories', () => {
-  it('has eight categories, in panel order, each with a title and info text', () => {
+  it('has nine categories, in panel order, each with a title and info text', () => {
     expect(SEGMENT_CATEGORIES.map((c) => c.id)).toEqual([
       'about',
       'computer-control',
+      'mouse',
       'ai-chat',
       'google-drive',
       'telegram',
@@ -64,10 +65,11 @@ describe('Segments categories', () => {
     expect(segmentCategory('no-such-category')).toBeUndefined();
   });
 
-  it('renders the About, Computer control, AI Chat, Google Drive, Telegram, Stripe and Starship category headings in the Modules tab', () => {
+  it('renders the About, Computer control, Mouse, AI Chat, Google Drive, Telegram, Stripe and Starship category headings in the Modules tab', () => {
     const html = renderModules();
     expect(html).toContain('About segments');
     expect(html).toContain('Computer control');
+    expect(html).toContain('Mouse');
     expect(html).toContain('AI Chat segment');
     expect(html).toContain('Google Drive segment');
     expect(html).toContain('Telegram segment');
@@ -77,12 +79,37 @@ describe('Segments categories', () => {
 
   it('renders each visible category info page verbatim, with a voice button', () => {
     const html = renderModules();
-    for (const id of ['about', 'computer-control', 'ai-chat', 'google-drive', 'telegram', 'stripe', 'starship'] as const) {
+    for (const id of ['about', 'computer-control', 'mouse', 'ai-chat', 'google-drive', 'telegram', 'stripe', 'starship'] as const) {
       const category = segmentCategory(id)!;
       expect(html).toContain(category.info);
       expect(html).toContain(`data-segment-voice="${id}"`);
       expect(html).toContain(`Play ${category.title} explanation`);
     }
+  });
+
+  it('places Mouse right after Computer control — every pointer Lucid has, mice and finger pointers alike', () => {
+    const mouse = segmentCategory('mouse')!;
+    expect(mouse.title).toBe('Mouse');
+    // The info page is the voice script: it names the mice AND the
+    // finger pointers (Gary, 2026-11-09 ~15:11 PST — all the mouses
+    // and finger pointers like the Android ones go in there).
+    expect(mouse.info).toContain('pre-installed segment');
+    expect(mouse.info).toContain('mice and finger pointers alike');
+    expect(mouse.info).toContain('locked inside the browser area, never outside it');
+    expect(mouse.info).toContain('one finger at a time');
+    expect(mouse.info).toContain('no pointer ever moves on its own');
+    expect(mouse.info).toContain('When it is locked, it does not move at all');
+    // The segment renders in the panel: the three pointer types the
+    // code actually has, each with its live state, and the gaps
+    // stated as not built — never faked.
+    const html = renderModules();
+    expect(html).toContain('Mouse');
+    expect(html).toContain('Mac mouse');
+    expect(html).toContain('Browser mouse');
+    expect(html).toContain('Android finger');
+    expect(html).toContain('No actions yet');
+    expect(html).toContain('Not built yet');
+    expect(html).toContain('Multi-touch');
   });
 
   it('places Google Drive between AI Chat and Telegram, as a pre-installed connectable segment', () => {

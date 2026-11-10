@@ -52,16 +52,17 @@ describe('Plugins tab', () => {
     expect(html).toContain('Plugins');
   });
 
-  it('renders the Core plugins section with the Synth, Blood drop, AI Chat, and Forge toolbar toggles', () => {
+  it('renders the Core plugins section with the Synth, Blood drop, AI Chat, Forge, and Mouse toolbar toggles', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Core plugins');
     expect(html).toContain('Synth');
     expect(html).toContain('Blood drop');
     expect(html).toContain('AI Chat');
     expect(html).toContain('Forge');
-    // Five switches on the tab: the four toolbar toggles plus the
+    expect(html).toContain('Mouse');
+    // Six switches on the tab: the five toolbar toggles plus the
     // LuciferAI disable toggle on its own row.
-    expect(switchCount(html)).toBe(5);
+    expect(switchCount(html)).toBe(6);
     // The toggles keep their descriptions from the toolbar data.
     // (AI Chat is Lucid AI, its own plugin — Gary, 2026-11-07 — not a
     // LuciferAI surface, so its description says so. The blood drop
@@ -70,6 +71,7 @@ describe('Plugins tab', () => {
     expect(html).toContain('Blood drop terminal');
     expect(html).toContain('Lucid AI chat panel');
     expect(html).toContain('Train your Homunculi');
+    expect(html).toContain('every pointer Lucid has');
   });
 
   it('renders the LuciferAI row as built-in with its own disable toggle', () => {
@@ -81,11 +83,13 @@ describe('Plugins tab', () => {
     // backend fetch runs under SSR to reach).
     expect(html).toContain('Built-in · Disabled');
     expect(html).toContain('Disabled — the plugin is completely gone');
-    // The disable toggle is OFF by default; Synth and Blood drop
-    // are the other ON switches (checked but disabled while the
-    // plugin is off); AI Chat and Forge default off.
-    expect(switchCount(html)).toBe(5);
-    expect(switchesOnCount(html)).toBe(2);
+    // The disable toggle is OFF by default; Synth, Blood drop, and
+    // Mouse are the other ON switches (Synth and Blood drop checked
+    // but disabled while the plugin is off; Mouse is not a
+    // LuciferAI surface, so its switch is checked and enabled);
+    // AI Chat and Forge default off.
+    expect(switchCount(html)).toBe(6);
+    expect(switchesOnCount(html)).toBe(3);
   });
 
   it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator and Desktop Commander installable', () => {

@@ -41,6 +41,7 @@ import { AIChatSegment } from './AIChatSegment';
 import { ComputerControlSegment } from './ComputerControlSegment';
 import { ForgePersonaPlexSegment } from './ForgePersonaPlexSegment';
 import { GoogleDriveSegment } from './GoogleDriveSegment';
+import { MouseSegment } from './MouseSegment';
 import { SegmentCategorySection } from './SegmentCategorySection';
 import { StripeSegment } from './StripeSegment';
 import { TelegramSegment } from './TelegramSegment';
@@ -58,6 +59,7 @@ export function SegmentsPanel() {
 
   const about = segmentCategory('about');
   const control = segmentCategory('computer-control');
+  const mouse = segmentCategory('mouse');
   const aiChat = segmentCategory('ai-chat');
   const googleDrive = segmentCategory('google-drive');
   const telegram = segmentCategory('telegram');
@@ -101,6 +103,18 @@ export function SegmentsPanel() {
       {control && (
         <SegmentCategorySection category={control}>
           <ComputerControlSegment />
+        </SegmentCategorySection>
+      )}
+
+      {/* Mouse — every pointer Lucid has, mice and finger pointers
+          alike (Gary, 2026-11-09). Pre-installed, no starship, no
+          install step: the Mac mouse reuses the computer-control
+          driver, the browser mouse is the live pointer locked to
+          the browser area, and the Android finger taps and drags
+          on the phone screen, one finger at a time. */}
+      {mouse && (
+        <SegmentCategorySection category={mouse}>
+          <MouseSegment />
         </SegmentCategorySection>
       )}
 

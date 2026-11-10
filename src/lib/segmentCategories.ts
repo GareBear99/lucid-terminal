@@ -14,7 +14,9 @@
  *
  * Categories reflect what the segments ARE — nothing is invented
  * here. About: the Segments add-on itself. Computer control: the
- * pre-installed, agent-only segment. AI Chat: the pre-installed,
+ * pre-installed, agent-only segment. Mouse: every pointer Lucid
+ * has, mice and finger pointers alike — the Mac mouse, the
+ * browser's locked mouse, and the Android finger. AI Chat: the pre-installed,
  * connectable segment — its own plugin, independent of LuciferAI,
  * a place other things can connect to. Google Drive: the
  * pre-installed, connectable segment — a place to connect your
@@ -52,6 +54,11 @@ export const SEGMENT_CATEGORIES: readonly SegmentCategoryInfo[] = [
     id: 'computer-control',
     title: 'Computer control',
     info: 'Computer control is a pre-installed segment. It needs no starship, no install step, and no server. It is fully local. A trained, user-directed agent drives the Mac one verified action at a time. It is agent-only. Only a fairly advanced, heavily trained, directed agent can use it. The lock is the kill switch. When locked, every action is refused before anything runs. Every action is verified by reading the screen back afterwards. If the screen did not change, the action did not land. A timeout always frees the slot, and a watchdog force-releases a stuck action. It needs macOS Accessibility and Screen Recording to work. How the agent-only gate is enforced in code is Gary\u2019s call, and it is not decided yet.',
+  },
+  {
+    id: 'mouse',
+    title: 'Mouse',
+    info: 'The Mouse is a pre-installed segment. It needs no starship and no install step. It holds every pointer Lucid has, mice and finger pointers alike. On the Mac it is the mouse that clicks and types where the agent points. In the browser it is a live pointer locked inside the browser area, never outside it. On Android it is a finger that taps and drags on the phone screen, one finger at a time. A pointer only moves when it is driven, by a trained, user-directed agent or by your own hand, and no pointer ever moves on its own. When it is locked, it does not move at all. The Mac mouse proves every move by reading the screen back afterwards. It needs macOS Accessibility and Screen Recording to work.',
   },
   {
     id: 'ai-chat',

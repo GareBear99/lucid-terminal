@@ -49,9 +49,9 @@ export const SUMMON_VARIANT_LABELS: Record<SummonVariant, string> = {
 
 /** One summon in the Summons section. */
 export interface Summon {
-  /** Stable id, e.g. 'lilly'. */
+  /** Stable id, e.g. 'lily'. */
   id: string;
-  /** Display name, Gary's spelling — e.g. 'Lilly'. */
+  /** Display name, Gary's spelling — e.g. 'Lily'. */
   name: string;
   /** Animated presentation (GIF). */
   gifSrc: string;
@@ -64,14 +64,14 @@ export interface Summon {
 }
 
 /**
- * Lilly, the LuciferAI siren — the intro summon, FIRST in the
+ * Lily, the LuciferAI siren — the intro summon, FIRST in the
  * Summons section. A NEW summon, not Lucifer renamed.
  */
-export const LILLY_SUMMON: Summon = {
-  id: 'lilly',
-  name: 'Lilly',
-  gifSrc: './summons/lilly/slave-boss-heart-playing.gif',
-  imageSrc: './summons/lilly/slave-boss-with-heart-clean.png',
+export const LILY_SUMMON: Summon = {
+  id: 'lily',
+  name: 'Lily',
+  gifSrc: './summons/lily/slave-boss-heart-playing.gif',
+  imageSrc: './summons/lily/slave-boss-with-heart-clean.png',
   unlock: 'living-golem',
   lockedText: 'Requires Living Golem — coming soon',
 };
@@ -82,8 +82,8 @@ export const LILLY_SUMMON: Summon = {
 export const SECOND_SUMMON_LOCKED_TEXT =
   'Requires Living Golem and higher topology — coming soon';
 
-/** The summons, in section order — Lilly first. */
-export const SUMMONS: Summon[] = [LILLY_SUMMON];
+/** The summons, in section order — Lily first. */
+export const SUMMONS: Summon[] = [LILY_SUMMON];
 
 /**
  * True when this summon is unlocked on this account. Today that is

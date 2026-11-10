@@ -75,7 +75,7 @@ import {
 } from '../../lib/snapshotStream';
 import { AI_CHAT_TICK_RING_CAPACITY } from '../../lib/aiChatTicks';
 import { detectStarship } from '../../lib/starshipDetection';
-import { isSummonUnlocked, LILLY_SUMMON } from '../../lib/summons';
+import { isSummonUnlocked, LILY_SUMMON } from '../../lib/summons';
 import {
   PERMISSION_DEFS,
   permissionStatusLabel,
@@ -189,7 +189,7 @@ export function SecurityTab() {
   const installedHash = settings.installedSnapshotHash ?? null;
   const dismissedVersions = settings.snapshotAlertDismissedVersions ?? [];
   const starship = detectStarship();
-  const lillyUnlocked = isSummonUnlocked(LILLY_SUMMON);
+  const lilyUnlocked = isSummonUnlocked(LILY_SUMMON);
   const securityEvents = events.filter((e) => SECURITY_EVENT_TYPES.has(e.type));
   const streamSummary = summarizeSnapshotStream(snapshotStream);
 
@@ -371,7 +371,7 @@ export function SecurityTab() {
       {/* Living Golem — the summon unlock. */}
       <Section title="Living Golem">
         <Row label="Status">
-          {lillyUnlocked
+          {lilyUnlocked
             ? 'Unlocked on this account.'
             : 'Locked — no Living Golem on this account.'}
         </Row>

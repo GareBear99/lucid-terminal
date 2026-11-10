@@ -67,7 +67,7 @@ describe('Summon variant ask', () => {
     const onCancel = vi.fn();
     render(
       <SummonVariantDialog
-        summonName="Lilly"
+        summonName="Lily"
         initialVariant={null}
         onConfirm={onConfirm}
         onCancel={onCancel}
@@ -91,7 +91,7 @@ describe('Summon variant ask', () => {
     const onCancel = vi.fn();
     render(
       <SummonVariantDialog
-        summonName="Lilly"
+        summonName="Lily"
         initialVariant={null}
         onConfirm={onConfirm}
         onCancel={onCancel}
@@ -105,7 +105,7 @@ describe('Summon variant ask', () => {
   test('dialog: pre-selects the remembered variant', () => {
     render(
       <SummonVariantDialog
-        summonName="Lilly"
+        summonName="Lily"
         initialVariant="clothed"
         onConfirm={() => {}}
         onCancel={() => {}}
@@ -117,16 +117,16 @@ describe('Summon variant ask', () => {
 
   test('store: activateSummon records the chosen variant on the active summon', () => {
     const api = useForgeStore.getState();
-    api.activateSummon('lilly', 'adult');
+    api.activateSummon('lily', 'adult');
     const s = useForgeStore.getState();
-    expect(s.activeSummonId).toBe('lilly');
+    expect(s.activeSummonId).toBe('lily');
     expect(s.activeSummonVariant).toBe('adult');
     expect(s.lastError).toBeNull();
   });
 
   test('section: double-click asks, confirming with "don\'t ask again" remembers it — the next activation goes straight through', async () => {
     render(<SummonsSection />);
-    const slot = screen.getByTestId('summon-slot-lilly');
+    const slot = screen.getByTestId('summon-slot-lily');
     // First activation: the dialog opens (no remembered choice yet).
     fireEvent.doubleClick(slot);
     expect(screen.getByTestId('summon-variant-dialog')).not.toBeNull();
@@ -136,39 +136,39 @@ describe('Summon variant ask', () => {
     fireEvent.click(screen.getByTestId('summon-variant-dont-ask'));
     fireEvent.click(screen.getByTestId('summon-variant-confirm'));
     await waitFor(() => {
-      expect(useForgeStore.getState().activeSummonId).toBe('lilly');
+      expect(useForgeStore.getState().activeSummonId).toBe('lily');
     });
     expect(useForgeStore.getState().activeSummonVariant).toBe('adult');
     expect(useSettingsStore.getState().settings.summonVariant).toBe('adult');
     expect(useSettingsStore.getState().settings.summonVariantDontAsk).toBe(true);
     // Second activation: no dialog — the remembered variant is used.
     useForgeStore.getState().resetForTests();
-    fireEvent.doubleClick(screen.getByTestId('summon-slot-lilly'));
+    fireEvent.doubleClick(screen.getByTestId('summon-slot-lily'));
     expect(screen.queryByTestId('summon-variant-dialog')).toBeNull();
-    expect(useForgeStore.getState().activeSummonId).toBe('lilly');
+    expect(useForgeStore.getState().activeSummonId).toBe('lily');
     expect(useForgeStore.getState().activeSummonVariant).toBe('adult');
   });
 
   test('section: without "don\'t ask again" the dialog asks again next time', async () => {
     render(<SummonsSection />);
-    const slot = screen.getByTestId('summon-slot-lilly');
+    const slot = screen.getByTestId('summon-slot-lily');
     fireEvent.doubleClick(slot);
     fireEvent.click(screen.getByTestId('summon-variant-clothed'));
     fireEvent.click(screen.getByTestId('summon-variant-confirm'));
     await waitFor(() => {
-      expect(useForgeStore.getState().activeSummonId).toBe('lilly');
+      expect(useForgeStore.getState().activeSummonId).toBe('lily');
     });
     expect(useSettingsStore.getState().settings.summonVariantDontAsk).toBe(false);
     // Next activation asks again.
     useForgeStore.getState().resetForTests();
-    fireEvent.doubleClick(screen.getByTestId('summon-slot-lilly'));
+    fireEvent.doubleClick(screen.getByTestId('summon-slot-lily'));
     expect(screen.getByTestId('summon-variant-dialog')).not.toBeNull();
     expect(useForgeStore.getState().activeSummonId).toBeNull();
   });
 
   test('section: cancelling the dialog activates nothing', () => {
     render(<SummonsSection />);
-    fireEvent.doubleClick(screen.getByTestId('summon-slot-lilly'));
+    fireEvent.doubleClick(screen.getByTestId('summon-slot-lily'));
     expect(screen.getByTestId('summon-variant-dialog')).not.toBeNull();
     fireEvent.click(screen.getByTestId('summon-variant-cancel'));
     expect(screen.queryByTestId('summon-variant-dialog')).toBeNull();

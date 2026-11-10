@@ -5,7 +5,7 @@
  * Covers: the Summons section shows in the Forge when LuciferAI is
  * enabled and is ABSENT when it is off (same zero-residue rule as
  * the other LuciferAI surfaces; silenced does NOT hide it — silenced
- * is dormant, not off); Lilly, the LuciferAI siren, is the first
+ * is dormant, not off); Lily, the LuciferAI siren, is the first
  * summon, locked with "Requires Living Golem — coming soon"; the
  * slot renders the GIF and falls back to the still on error, with
  * fixed-aspect sizing that can't fail (aspect-square, no overflow,
@@ -26,7 +26,7 @@ import { ForgeView } from '../src/components/Forge/ForgeView';
 import { useForgeStore } from '../src/stores/forgeStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import {
-  LILLY_SUMMON,
+  LILY_SUMMON,
   SECOND_SUMMON_LOCKED_TEXT,
   SUMMONS,
   isSummonUnlocked,
@@ -112,26 +112,26 @@ function setLuciferAi(enabled: boolean, silenced = false) {
 }
 
 describe('Summons model (Gary, 2026-11-09)', () => {
-  test('Lilly is the first summon — new, not Lucifer renamed', () => {
-    expect(SUMMONS[0]).toBe(LILLY_SUMMON);
-    expect(LILLY_SUMMON.id).toBe('lilly');
-    expect(LILLY_SUMMON.name).toBe('Lilly');
-    expect(LILLY_SUMMON.id).not.toBe('lucifer');
+  test('Lily is the first summon — new, not Lucifer renamed', () => {
+    expect(SUMMONS[0]).toBe(LILY_SUMMON);
+    expect(LILY_SUMMON.id).toBe('lily');
+    expect(LILY_SUMMON.name).toBe('Lily');
+    expect(LILY_SUMMON.id).not.toBe('lucifer');
   });
 
-  test('Lilly wires the pack art — GIF animated, still as fallback', () => {
-    expect(LILLY_SUMMON.gifSrc).toBe(
-      './summons/lilly/slave-boss-heart-playing.gif',
+  test('Lily wires the pack art — GIF animated, still as fallback', () => {
+    expect(LILY_SUMMON.gifSrc).toBe(
+      './summons/lily/slave-boss-heart-playing.gif',
     );
-    expect(LILLY_SUMMON.imageSrc).toBe(
-      './summons/lilly/slave-boss-with-heart-clean.png',
+    expect(LILY_SUMMON.imageSrc).toBe(
+      './summons/lily/slave-boss-with-heart-clean.png',
     );
-    expect(LILLY_SUMMON.gifSrc).not.toBe(LILLY_SUMMON.imageSrc);
+    expect(LILY_SUMMON.gifSrc).not.toBe(LILY_SUMMON.imageSrc);
   });
 
-  test('Lilly unlocks with a Living Golem, free of any referral requirement', () => {
-    expect(LILLY_SUMMON.unlock).toBe('living-golem');
-    expect(LILLY_SUMMON.lockedText).toBe(
+  test('Lily unlocks with a Living Golem, free of any referral requirement', () => {
+    expect(LILY_SUMMON.unlock).toBe('living-golem');
+    expect(LILY_SUMMON.lockedText).toBe(
       'Requires Living Golem — coming soon',
     );
   });
@@ -139,7 +139,7 @@ describe('Summons model (Gary, 2026-11-09)', () => {
   test('no summon is unlocked today — nobody owns a Living Golem yet', () => {
     // Detection is open (Gary's call); until it lands, every summon
     // reads locked. The second slot's rule is stated, not detected.
-    expect(isSummonUnlocked(LILLY_SUMMON)).toBe(false);
+    expect(isSummonUnlocked(LILY_SUMMON)).toBe(false);
     expect(SECOND_SUMMON_LOCKED_TEXT).toBe(
       'Requires Living Golem and higher topology — coming soon',
     );
@@ -164,18 +164,18 @@ describe('Summons section gating', () => {
     render(<ForgeView />);
     await waitFor(() => expect(screen.getByText('Lucifer')).toBeTruthy());
     expect(screen.queryByTestId('summons-section')).toBeNull();
-    expect(screen.queryByText('Lilly')).toBeNull();
+    expect(screen.queryByText('Lily')).toBeNull();
     expect(screen.queryByText('Summons')).toBeNull();
   });
 
-  test('section SHOWS when LuciferAI is enabled, Lilly first and locked', async () => {
+  test('section SHOWS when LuciferAI is enabled, Lily first and locked', async () => {
     setLuciferAi(true);
     restore = installMock([LUCIFER]);
     render(<ForgeView />);
     await waitFor(() =>
       expect(screen.getByTestId('summons-section')).toBeTruthy(),
     );
-    expect(screen.getByText('Lilly')).toBeTruthy();
+    expect(screen.getByText('Lily')).toBeTruthy();
     expect(
       screen.getByText('Requires Living Golem — coming soon'),
     ).toBeTruthy();
@@ -193,7 +193,7 @@ describe('Summons section gating', () => {
     await waitFor(() =>
       expect(screen.getByTestId('summons-section')).toBeTruthy(),
     );
-    expect(screen.getByText('Lilly')).toBeTruthy();
+    expect(screen.getByText('Lily')).toBeTruthy();
   });
 
   test('section sits after the columns and before Ask the brain', async () => {
@@ -222,7 +222,7 @@ describe('Summons section gating', () => {
   });
 });
 
-describe('Lilly slot — art, sizing, select / activate', () => {
+describe('Lily slot — art, sizing, select / activate', () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -241,7 +241,7 @@ describe('Lilly slot — art, sizing, select / activate', () => {
     await waitFor(() =>
       expect(screen.getByTestId('summons-section')).toBeTruthy(),
     );
-    return screen.getByTestId('summon-slot-lilly') as HTMLButtonElement;
+    return screen.getByTestId('summon-slot-lily') as HTMLButtonElement;
   }
 
   test('slot renders the GIF as the animated presentation', async () => {
@@ -251,7 +251,7 @@ describe('Lilly slot — art, sizing, select / activate', () => {
     expect(img?.getAttribute('src')).toContain(
       'slave-boss-heart-playing.gif',
     );
-    expect(img?.getAttribute('alt')).toBe('Lilly — animated');
+    expect(img?.getAttribute('alt')).toBe('Lily — animated');
   });
 
   test('GIF failure falls back to the still image', async () => {
@@ -265,7 +265,7 @@ describe('Lilly slot — art, sizing, select / activate', () => {
 
   test('slot sizing cannot fail — fixed square, no overflow, no distortion', async () => {
     const slot = await renderEnabled();
-    const media = screen.getByTestId('summon-media-lilly');
+    const media = screen.getByTestId('summon-media-lily');
     // Fixed aspect: the box is a square whatever the asset is.
     expect(media.className).toContain('aspect-square');
     // No overflow: the asset cannot spill out of the box.
@@ -278,10 +278,10 @@ describe('Lilly slot — art, sizing, select / activate', () => {
     expect(img.className).toContain('w-full');
   });
 
-  test('single click selects Lilly (selection works while locked)', async () => {
+  test('single click selects Lily (selection works while locked)', async () => {
     const slot = await renderEnabled();
     fireEvent.click(slot);
-    expect(useForgeStore.getState().selectedSummonId).toBe('lilly');
+    expect(useForgeStore.getState().selectedSummonId).toBe('lily');
     expect(slot.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -291,7 +291,7 @@ describe('Lilly slot — art, sizing, select / activate', () => {
     fireEvent.doubleClick(slot);
     expect(useForgeStore.getState().activeSummonId).toBeNull();
     expect(useForgeStore.getState().lastError).toMatch(/locked/);
-    expect(useForgeStore.getState().lastError).toContain('Lilly');
+    expect(useForgeStore.getState().lastError).toContain('Lily');
     // The slot still shows Offline — locked summons are never active.
     expect(slot.textContent).toContain('Offline');
   });
@@ -306,7 +306,7 @@ describe('Lilly slot — art, sizing, select / activate', () => {
       'Requires Living Golem and higher topology — coming soon',
     );
     // No art invented for it: the section holds exactly one image —
-    // Lilly's. The placeholder's media box is empty.
+    // Lily's. The placeholder's media box is empty.
     const images = screen
       .getByTestId('summons-section')
       .querySelectorAll('img');
@@ -330,11 +330,11 @@ describe('Summons store', () => {
     expect(useForgeStore.getState().lastError).toMatch(/No such summon/);
   });
 
-  test('activateSummon rejects Lilly while locked', () => {
-    useForgeStore.getState().activateSummon('lilly');
+  test('activateSummon rejects Lily while locked', () => {
+    useForgeStore.getState().activateSummon('lily');
     expect(useForgeStore.getState().activeSummonId).toBeNull();
     expect(useForgeStore.getState().lastError).toBe(
-      'Lilly is locked: Requires Living Golem — coming soon',
+      'Lily is locked: Requires Living Golem — coming soon',
     );
   });
 
@@ -348,7 +348,7 @@ describe('Summons store', () => {
   });
 
   test('resetForTests clears the summons state', () => {
-    useForgeStore.getState().selectSummon('lilly');
+    useForgeStore.getState().selectSummon('lily');
     useForgeStore.getState().requestSummonsScroll();
     useForgeStore.getState().resetForTests();
     const state = useForgeStore.getState();

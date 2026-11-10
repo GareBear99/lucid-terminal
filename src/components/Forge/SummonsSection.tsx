@@ -2,7 +2,7 @@
  * SummonsSection — the Summons section of the Forge (Gary, 2026-11-09).
  *
  * SEPARATE from the Homunculi roster: the roster is Lucifer + EVE,
- * summons are their own section. Lilly, the LuciferAI siren, is the
+ * summons are their own section. Lily, the LuciferAI siren, is the
  * intro summon — the FIRST slot. A second locked slot placeholder
  * follows (no named second summon yet — no name or art invented).
  *
@@ -35,7 +35,7 @@ import { useState } from 'react';
 import { useForgeStore } from '../../stores/forgeStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
-  LILLY_SUMMON,
+  LILY_SUMMON,
   SECOND_SUMMON_LOCKED_TEXT,
   SUMMON_VARIANT_LABELS,
   isSummonUnlocked,
@@ -290,11 +290,11 @@ export function SummonsSection() {
         Summons
       </h2>
       <p className="mt-1 text-xs text-[var(--text-muted)]">
-        Lilly, the LuciferAI siren, is the first summon. Summons are
+        Lily, the LuciferAI siren, is the first summon. Summons are
         separate from the Homunculi roster.
       </p>
       <div className="mt-3 flex flex-wrap gap-3">
-        <SummonSlot summon={LILLY_SUMMON} onActivateRequest={handleActivateRequest} />
+        <SummonSlot summon={LILY_SUMMON} onActivateRequest={handleActivateRequest} />
         <SecondSummonPlaceholder />
       </div>
       {variantAsk !== null && (

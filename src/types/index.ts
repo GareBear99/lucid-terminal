@@ -524,6 +524,16 @@ export interface Settings {
   // one: create a Google Cloud project, create an OAuth client ID
   // of type Desktop app, and store the client ID here.
   googleDriveClientId: string;
+  // Google Drive segment (Gary, 2026-11-10 ~06:10 PST): the email
+  // of the Google account signed in, captured with a userinfo call
+  // when the Security tab opens while signed in. A public
+  // identifier, not a secret — it is shown in Security > Google
+  // sign-in and is the account label Google Authenticator enrols
+  // under (the label syncs with the Google account signed in).
+  // Empty until a sign-in with the openid + email scopes has been
+  // captured; a sign-in granted before those scopes were added
+  // cannot supply it until it is done again.
+  googleAccountEmail: string;
   // Telegram segment (Gary, 2026-11-08): the username of the
   // user's Telegram bot (created in BotFather), captured when the
   // bot token is verified with a real getMe call. A public
@@ -908,6 +918,31 @@ export type GoogleDriveAuthRedirect =
         | 'listener-failed';
     };
 
+/** The Google account email (GET userinfo) — mirrors
+ *  GoogleDriveAccountEmailResult in electron/ipc/googleDrive.ts.
+ *  'needs-reauth' means the stored sign-in was granted before
+ *  the openid + email scopes were added, so it has to be done
+ *  again before the account can be shown. Keep identical by
+ *  hand, like the types above. */
+export type GoogleDriveAccountEmailResult =
+  | { ok: true; email: string }
+  | {
+      ok: false;
+      error:
+        | 'empty'
+        | 'network'
+        | 'bad-response'
+        | 'unauthorized'
+        | 'forbidden'
+        | 'server'
+        | 'not-connected'
+        | 'token-expired'
+        | 'invalid-grant'
+        | 'invalid-client'
+        | 'invalid-request'
+        | 'needs-reauth';
+    };
+
 // Extend Window interface for Electron API
 declare global {
   interface Window {
@@ -1078,6 +1113,7 @@ declare global {
         hasTokens: () => Promise<boolean>;
         disconnect: () => Promise<{ ok: true }>;
         verifyConnection: () => Promise<GoogleDriveIpcResult>;
+        getAccountEmail: () => Promise<GoogleDriveAccountEmailResult>;
         onAuthRedirect: (callback: (result: GoogleDriveAuthRedirect) => void) => () => void;
       };
       cursor: {

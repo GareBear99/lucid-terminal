@@ -25,6 +25,12 @@
  *    calls will be made (tokens stay in the main process).
  * 5. `google-drive:hasTokens` / `google-drive:disconnect` — the
  *    segment's connected state and sign-out.
+ * 6. `google-drive:getAccountEmail` — the Google account email
+ *    (GET userinfo, main process only) for the Security tab and
+ *    the Authenticator account label. The stored tokens must
+ *    carry the openid scope — a sign-in granted before the
+ *    openid + email scopes were added answers 'needs-reauth',
+ *    and the tab says to sign in with Google again.
  *
  * The client ID is never invented here: it comes from Settings
  * (googleDriveClientId, stored by the renderer settings store).
@@ -38,6 +44,7 @@ import {
   GoogleDriveLoopbackListener,
   GoogleDriveTokens,
   exchangeGoogleDriveCode,
+  fetchGoogleAccountEmail,
   googleDriveApiGet,
   refreshGoogleDriveAccessToken,
   startGoogleDriveLoopbackListener,
@@ -63,6 +70,30 @@ export type GoogleDriveIpcResult =
         | 'token-expired'
         | 'unauthorized'
         | 'forbidden';
+    };
+
+/** The result of reading the Google account email. 'needs-reauth'
+ *  means the stored sign-in was granted before the openid + email
+ *  scopes were added (drive.file only) — Google does not widen
+ *  granted scopes, so the user has to sign in with Google again
+ *  before the account can be shown. */
+export type GoogleDriveAccountEmailResult =
+  | { ok: true; email: string }
+  | {
+      ok: false;
+      error:
+        | 'empty'
+        | 'network'
+        | 'bad-response'
+        | 'unauthorized'
+        | 'forbidden'
+        | 'server'
+        | 'not-connected'
+        | 'token-expired'
+        | 'invalid-grant'
+        | 'invalid-client'
+        | 'invalid-request'
+        | 'needs-reauth';
     };
 
 /** The listener + the renderer that started it, if a sign-in is in flight. */
@@ -220,6 +251,31 @@ export function setupGoogleDriveHandlers(ipcMain: IpcMain): void {
       });
       if (!res.ok) return { ok: false, error: res.error };
       return { ok: true };
+    },
+  );
+
+  // Read the Google account email (GET userinfo) for the Security
+  // tab and the Authenticator account label. The stored sign-in
+  // must carry the openid scope: a token granted before the
+  // openid + email scopes were added answers 'needs-reauth' and
+  // no userinfo call is made with it (it would only answer 403).
+  // A 403 from userinfo itself is also reported as 'forbidden'
+  // (the token lost the scope); either way the tab never invents
+  // an email — no email is shown until a call succeeds.
+  ipcMain.handle(
+    'google-drive:getAccountEmail',
+    async (): Promise<GoogleDriveAccountEmailResult> => {
+      const stored = googleDriveTokenStorage.getGoogleDriveTokens();
+      if (!stored) return { ok: false, error: 'not-connected' };
+      const grantedScopes = stored.scope.split(/\s+/).filter((s) => s !== '');
+      if (!grantedScopes.includes('openid')) {
+        return { ok: false, error: 'needs-reauth' };
+      }
+      const token = await getUsableAccessToken();
+      if (!token.ok) return { ok: false, error: token.error };
+      const res = await fetchGoogleAccountEmail({ accessToken: token.accessToken });
+      if (!res.ok) return { ok: false, error: res.error };
+      return { ok: true, email: res.email };
     },
   );
 }

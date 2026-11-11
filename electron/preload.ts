@@ -48,6 +48,31 @@ export type GoogleDriveAuthRedirect =
         | 'listener-failed';
     };
 
+/** The Google account email (GET userinfo) — mirrors
+ *  GoogleDriveAccountEmailResult in electron/ipc/googleDrive.ts.
+ *  'needs-reauth' means the stored sign-in was granted before
+ *  the openid + email scopes were added, so it has to be done
+ *  again before the account can be shown. Keep identical by
+ *  hand, like the types above. */
+export type GoogleDriveAccountEmailResult =
+  | { ok: true; email: string }
+  | {
+      ok: false;
+      error:
+        | 'empty'
+        | 'network'
+        | 'bad-response'
+        | 'unauthorized'
+        | 'forbidden'
+        | 'server'
+        | 'not-connected'
+        | 'token-expired'
+        | 'invalid-grant'
+        | 'invalid-client'
+        | 'invalid-request'
+        | 'needs-reauth';
+    };
+
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('lucidAPI', {
   // Window controls
@@ -472,6 +497,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('google-drive:disconnect'),
     verifyConnection: (): Promise<GoogleDriveIpcResult> =>
       ipcRenderer.invoke('google-drive:verifyConnection'),
+    getAccountEmail: (): Promise<GoogleDriveAccountEmailResult> =>
+      ipcRenderer.invoke('google-drive:getAccountEmail'),
     onAuthRedirect: (callback: (result: GoogleDriveAuthRedirect) => void) => {
       const listener = (_: any, result: GoogleDriveAuthRedirect) => callback(result);
       ipcRenderer.on('google-drive:auth-redirect', listener);
@@ -742,6 +769,7 @@ export interface LucidAPI {
     hasTokens: () => Promise<boolean>;
     disconnect: () => Promise<{ ok: true }>;
     verifyConnection: () => Promise<GoogleDriveIpcResult>;
+    getAccountEmail: () => Promise<GoogleDriveAccountEmailResult>;
     onAuthRedirect: (callback: (result: GoogleDriveAuthRedirect) => void) => () => void;
   };
   cursor: {

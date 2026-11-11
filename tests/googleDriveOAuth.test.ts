@@ -17,10 +17,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   GOOGLE_DRIVE_LOOPBACK_PORT,
+  GOOGLE_USERINFO_URL,
   exchangeGoogleDriveCode,
+  fetchGoogleAccountEmail,
   googleDriveApiGet,
   parseGoogleDriveRedirectUrl,
   parseGoogleDriveTokenResponse,
+  parseGoogleUserinfoResponse,
   refreshGoogleDriveAccessToken,
   startGoogleDriveLoopbackListener,
 } from '../electron/services/googleDriveOAuth';
@@ -238,6 +241,62 @@ describe('googleDriveApiGet', () => {
     expect(
       await googleDriveApiGet({ accessToken: 'ya29.access', path: '/drive/v3/files' }, mockFetch({}, 403)),
     ).toEqual({ ok: false, error: 'forbidden' });
+  });
+});
+
+describe('parseGoogleUserinfoResponse', () => {
+  it('reads the email from a userinfo body', () => {
+    expect(
+      parseGoogleUserinfoResponse({ sub: '123', email: 'gary@example.com', email_verified: true }),
+    ).toEqual({ ok: true, email: 'gary@example.com' });
+  });
+
+  it('refuses a body with no email, or an email with no @', () => {
+    expect(parseGoogleUserinfoResponse({ sub: '123' })).toEqual({
+      ok: false,
+      error: 'bad-response',
+    });
+    expect(parseGoogleUserinfoResponse({ email: 'not-an-email' })).toEqual({
+      ok: false,
+      error: 'bad-response',
+    });
+    expect(parseGoogleUserinfoResponse(null)).toEqual({ ok: false, error: 'bad-response' });
+  });
+});
+
+describe('fetchGoogleAccountEmail', () => {
+  it('sends the access token as a Bearer token to userinfo and returns the email', async () => {
+    let url = '';
+    let auth = '';
+    const fetchFn = (async (_url: string, init?: RequestInit) => {
+      url = String(_url);
+      auth = String((init?.headers as Record<string, string> | undefined)?.Authorization ?? '');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ sub: '123', email: 'gary@example.com' }),
+      } as Response;
+    }) as unknown as typeof fetch;
+    const result = await fetchGoogleAccountEmail({ accessToken: 'ya29.access' }, fetchFn);
+    expect(url).toBe(GOOGLE_USERINFO_URL);
+    expect(auth).toBe('Bearer ya29.access');
+    expect(result).toEqual({ ok: true, email: 'gary@example.com' });
+  });
+
+  it('maps 401/403 distinctly (403 is the old-token, drive.file-only case)', async () => {
+    expect(
+      await fetchGoogleAccountEmail({ accessToken: 'ya29.bad' }, mockFetch({}, 401)),
+    ).toEqual({ ok: false, error: 'unauthorized' });
+    expect(
+      await fetchGoogleAccountEmail({ accessToken: 'ya29.old' }, mockFetch({}, 403)),
+    ).toEqual({ ok: false, error: 'forbidden' });
+  });
+
+  it('refuses an empty token without a network call', async () => {
+    expect(await fetchGoogleAccountEmail({ accessToken: '  ' })).toEqual({
+      ok: false,
+      error: 'empty',
+    });
   });
 });
 

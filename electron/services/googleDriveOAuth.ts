@@ -25,8 +25,11 @@
  * Nothing here invents a client ID, a secret, or a token. The
  * client ID comes from Settings (googleDriveClientId) via the IPC
  * layer; without it the exchange is refused before any network call.
- * Google's token endpoint is the only network destination, plus
- * www.googleapis.com for the Drive call.
+ * Google's token endpoint is the only network destination for
+ * the sign-in itself, plus www.googleapis.com for the Drive call
+ * and openidconnect.googleapis.com for the userinfo call (the
+ * Google account email — Security shows it, and it is the
+ * account label Authenticator enrols under).
  */
 import http from 'node:http';
 
@@ -35,6 +38,15 @@ export const GOOGLE_DRIVE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 /** Google's Drive API base. */
 export const GOOGLE_DRIVE_API_BASE = 'https://www.googleapis.com';
+
+/** Google's OpenID Connect userinfo endpoint — the Google
+ *  account email, for the Security tab + the Authenticator
+ *  account label (Gary, 2026-11-10 ~06:10 PST: the label syncs
+ *  with the Google account signed in). Needs the openid scope
+ *  (the endpoint itself) and the email scope (the email claim):
+ *  a token granted for drive.file only answers 403 here. */
+export const GOOGLE_USERINFO_URL =
+  'https://openidconnect.googleapis.com/v1/userinfo';
 
 /** The loopback port — the redirect URI is http://127.0.0.1:8765
  *  (see GOOGLE_DRIVE_REDIRECT_URI in src/lib/googleDriveAuth.ts). */
@@ -300,6 +312,85 @@ export async function googleDriveApiGet(
   } catch {
     return { ok: false, error: 'bad-response' };
   }
+}
+
+/** The result of a userinfo call: the Google account email, or
+ *  why it could not be read. 'forbidden' is the honest answer
+ *  for a token granted before the openid + email scopes were
+ *  added (drive.file only) — Google does not widen granted
+ *  scopes, so that sign-in has to be done again. */
+export type GoogleAccountEmailResult =
+  | { ok: true; email: string }
+  | {
+      ok: false;
+      error:
+        | 'empty'
+        | 'network'
+        | 'bad-response'
+        | 'unauthorized'
+        | 'forbidden'
+        | 'server';
+    };
+
+/**
+ * Parse a userinfo response body into the Google account email.
+ * Google answers { sub, email, email_verified, ... } when the
+ * token carries the openid + email scopes. The email must be a
+ * non-empty string with an '@' — anything else is refused
+ * rather than displayed as an account.
+ */
+export function parseGoogleUserinfoResponse(
+  body: unknown,
+): GoogleAccountEmailResult {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, error: 'bad-response' };
+  }
+  const raw = body as Record<string, unknown>;
+  const email = raw.email;
+  if (
+    typeof email !== 'string' ||
+    email.trim() === '' ||
+    !email.includes('@')
+  ) {
+    return { ok: false, error: 'bad-response' };
+  }
+  return { ok: true, email: email.trim() };
+}
+
+/**
+ * Read the Google account email for an access token (GET
+ * userinfo, Bearer). `fetchFn` is injectable so tests never
+ * touch the network and never need a real token. The token
+ * never leaves the main process — this is how the renderer
+ * learns the account, the same as the Drive call above.
+ */
+export async function fetchGoogleAccountEmail(
+  input: { accessToken: string },
+  fetchFn: typeof fetch = globalThis.fetch,
+): Promise<GoogleAccountEmailResult> {
+  const token = input.accessToken.trim();
+  if (!token) return { ok: false, error: 'empty' };
+  let res: Response;
+  try {
+    res = await fetchFn(GOOGLE_USERINFO_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    return { ok: false, error: 'network' };
+  }
+  if (!res.ok) {
+    if (res.status === 401) return { ok: false, error: 'unauthorized' };
+    if (res.status === 403) return { ok: false, error: 'forbidden' };
+    if (res.status >= 500) return { ok: false, error: 'server' };
+    return { ok: false, error: 'bad-response' };
+  }
+  let parsed: unknown;
+  try {
+    parsed = await res.json();
+  } catch {
+    return { ok: false, error: 'bad-response' };
+  }
+  return parseGoogleUserinfoResponse(parsed);
 }
 
 /** The loopback listener — started on demand, one redirect, then it stops. */

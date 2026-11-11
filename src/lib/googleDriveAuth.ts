@@ -36,10 +36,19 @@
  * token the segment reports not connected. Nothing here fakes a
  * connection.
  *
- * Scope: drive.file — the least-privilege scope for the segment's
- * job (find, upload, download, organise and share the Drive files
- * it works with). Gary can widen it if the segment needs to see
- * files it did not create.
+ * Scope: drive.file + openid + email. drive.file is the
+ * least-privilege scope for the segment's job (find, upload,
+ * download, organise and share the Drive files it works with).
+ * openid + email are for the userinfo call that captures the
+ * Google account email (Security > Google sign-in shows it, and
+ * it is the account label Google Authenticator enrols under —
+ * Gary, 2026-11-10 ~06:10 PST: the label syncs with the Google
+ * account signed in). Google's userinfo endpoint needs the
+ * openid scope, and the email claim needs the email scope —
+ * drive.file alone answers a userinfo call with 403. A token
+ * granted before this scope change carries drive.file only and
+ * does NOT gain the new scopes: a userinfo call with it fails,
+ * and the Security tab says to sign in with Google again.
  *
  * Gmail is NOT in this segment (Gary, 2026-11-08 ~02:34 PST): Gmail
  * is a separate future segment, "Gmail Connect", gated on a temp
@@ -54,8 +63,13 @@ export const GOOGLE_OAUTH_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/au
  *  catches this redirect is the approved next step, not this file. */
 export const GOOGLE_DRIVE_REDIRECT_URI = 'http://127.0.0.1:8765';
 
-/** Least-privilege Drive scope for the segment's job. */
-export const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+/** Least-privilege Drive scope for the segment's job, plus the
+ *  openid + email scopes the userinfo call needs to capture the
+ *  Google account email (Security > Google sign-in + the
+ *  Authenticator account label — Gary, 2026-11-10 ~06:10 PST).
+ *  Space-separated, as Google's authorisation endpoint wants. */
+export const GOOGLE_DRIVE_SCOPE =
+  'openid email https://www.googleapis.com/auth/drive.file';
 
 /** The connection state the segment reports. */
 export type GoogleDriveConnectionState =

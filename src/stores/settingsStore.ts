@@ -95,6 +95,7 @@ const defaultSettings: Settings = {
   pingServerEndpoint: 'http://127.0.0.1:8787',
   pingServerUserId: '',
   googleDriveClientId: '',
+  googleAccountEmail: '',
   telegramBotUsername: '',
   stripeAccountId: '',
   stripeAccountName: '',

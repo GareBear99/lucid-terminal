@@ -37,6 +37,13 @@ import { totpCode } from '../src/lib/totpAuth';
  *  individual tests resolve it true. */
 const googleDriveHasTokensMock = vi.fn(async () => false);
 
+/** The Google account email the tab captures (userinfo, main
+ *  process). No email by default; individual tests resolve it. */
+const googleDriveGetAccountEmailMock = vi.fn(async (): Promise<
+  | { ok: true; email: string }
+  | { ok: false; error: string }
+> => ({ ok: false, error: 'not-connected' }));
+
 /** The stored-secret code check (main process). Not matching by
  *  default; individual tests answer it per code. */
 const verifyTotpCodeMock = vi.fn(async (_code: string) => ({
@@ -62,6 +69,7 @@ function installLucidApiMock() {
     },
     googleDrive: {
       hasTokens: googleDriveHasTokensMock,
+      getAccountEmail: googleDriveGetAccountEmailMock,
     },
     ai: {
       pingServerStatus: pingServerStatusMock,
@@ -93,6 +101,8 @@ describe('SecurityTab', () => {
     pingServerStatusMock.mockClear();
     googleDriveHasTokensMock.mockClear();
     googleDriveHasTokensMock.mockResolvedValue(false);
+    googleDriveGetAccountEmailMock.mockClear();
+    googleDriveGetAccountEmailMock.mockResolvedValue({ ok: false, error: 'not-connected' });
     verifyTotpCodeMock.mockClear();
     verifyTotpCodeMock.mockImplementation(async () => ({
       ok: false,
@@ -554,5 +564,63 @@ describe('SecurityTab', () => {
     });
     fireEvent.click(screen.getByLabelText('Check Authenticator code'));
     expect(await screen.findByText(/Too many wrong codes — the check is locked for 10 minutes/)).toBeTruthy();
+  });
+
+  test('Authenticator is optional, not required — the tab says so (Gary, 2026-11-10)', () => {
+    render(<SecurityTab />);
+    expect(screen.getByText(/Authenticator is optional, not required/)).toBeTruthy();
+    expect(screen.queryByText(/Whether it becomes required/)).toBeNull();
+  });
+
+  test('Google sign-in shows the account email once captured, and the tab stores it', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    googleDriveGetAccountEmailMock.mockResolvedValue({ ok: true, email: 'gary@example.com' });
+    useSettingsStore.setState({
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    render(<SecurityTab />);
+    expect(await screen.findByText(/Signed in with Google as gary@example.com/)).toBeTruthy();
+    expect(useSettingsStore.getState().settings.googleAccountEmail).toBe('gary@example.com');
+  });
+
+  test('a sign-in made before the email scopes says to sign in again, and invents no email', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    googleDriveGetAccountEmailMock.mockResolvedValue({ ok: false, error: 'needs-reauth' });
+    useSettingsStore.setState({
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    render(<SecurityTab />);
+    expect(
+      await screen.findByText(/This sign-in was made before Lucid asked for your account email/),
+    ).toBeTruthy();
+    expect(screen.getByText('Signed in with Google.')).toBeTruthy();
+    expect(useSettingsStore.getState().settings.googleAccountEmail).toBe('');
+  });
+
+  test('enrollment names the Google account the Authenticator entry is for', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    googleDriveGetAccountEmailMock.mockResolvedValue({ ok: true, email: 'gary@example.com' });
+    useSettingsStore.setState({
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    render(<SecurityTab />);
+    expect(await screen.findByText(/Signed in with Google as gary@example.com/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Set up Google Authenticator'));
+    expect(
+      screen.getByText(/This Authenticator entry is for gary@example.com/),
+    ).toBeTruthy();
+  });
+
+  test('a stored secret shows the account it is for, when the email is known', async () => {
+    googleDriveHasTokensMock.mockResolvedValue(true);
+    googleDriveGetAccountEmailMock.mockResolvedValue({ ok: true, email: 'gary@example.com' });
+    useSettingsStore.setState({
+      hasTotpSecret: true,
+      settings: { ...initialSettings, googleDriveClientId: 'test-client-id' },
+    });
+    render(<SecurityTab />);
+    expect(
+      await screen.findByText(/On — a secret is stored securely for gary@example.com/),
+    ).toBeTruthy();
   });
 });

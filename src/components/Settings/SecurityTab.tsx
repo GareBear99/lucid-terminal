@@ -90,9 +90,17 @@
  *   There is no Lucid user account yet (temp → verified →
  *   Telegram → full user, account system NOT built), so there
  *   is no sign-in gate to require 2FA at — enrollment here
- *   secures the Google sign-in on this install, and
- *   platform-wide enforcement waits on that system + Gary's
- *   call. Nothing here fakes a gate.
+ *   secures the Google sign-in on this install. Authenticator
+ *   is OPTIONAL, not required — Gary decided that (2026-11-10
+ *   ~06:10 PST: "not required just lose and there if you
+ *   need"). It is here if you need it, as a second factor on
+ *   your Google sign-in; it is never required to sign in. The
+ *   account label syncs with the Google account signed in: the
+ *   tab captures the account email with a userinfo call (main
+ *   process, openid + email scopes) and shows it on the
+ *   sign-in row and the enrollment step, so the Authenticator
+ *   entry is labelled with that account. Nothing here fakes a
+ *   gate.
  *
  * SAFETY (Gary, 2026-11-10 ~05:40 PST: "make sure it's all
  * super safe"): no secret is ever displayed, logged, or copied
@@ -413,12 +421,24 @@ export function SecurityTab() {
   // logged. There is no copy button for the setup key or a code,
   // and the secret is never rendered after enrollment. ----
   const googleDriveClientId = settings.googleDriveClientId ?? '';
+  const googleAccountEmail = settings.googleAccountEmail ?? '';
   const hasTotpSecret = useSettingsStore((s) => s.hasTotpSecret);
   const setTotpSecret = useSettingsStore((s) => s.setTotpSecret);
   const deleteTotpSecret = useSettingsStore((s) => s.deleteTotpSecret);
   const verifyStoredTotpCode = useSettingsStore((s) => s.verifyTotpCode);
   // null until the main process has answered hasTokens.
   const [googleSignedIn, setGoogleSignedIn] = useState<boolean | null>(null);
+  // The Google account email (the Authenticator account label):
+  // captured with a userinfo call when the tab opens while signed
+  // in, and stored as the googleAccountEmail setting (a public
+  // identifier, like the Stripe account name). Shown on the
+  // sign-in row and the enrollment step — never invented: no
+  // email is shown until a call succeeds. A sign-in granted
+  // before the openid + email scopes were added answers
+  // 'needs-reauth' — the tab says to sign in again; any other
+  // failure leaves the stored email as it was (a transient
+  // failure must not erase a good captured email).
+  const [googleEmailNote, setGoogleEmailNote] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     const gd = window.lucidAPI?.googleDrive;
@@ -428,7 +448,29 @@ export function SecurityTab() {
     }
     gd.hasTokens()
       .then((has) => {
-        if (!cancelled) setGoogleSignedIn(has);
+        if (cancelled) return;
+        setGoogleSignedIn(has);
+        if (!has) return;
+        if (typeof gd.getAccountEmail !== 'function') return;
+        // The email fetch has its own catch: a failed userinfo
+        // call says nothing about the sign-in, so it must never
+        // flip the sign-in state.
+        gd.getAccountEmail()
+          .then((result) => {
+            if (cancelled) return;
+            if (result.ok) {
+              setGoogleEmailNote(null);
+              void updateSetting('googleAccountEmail', result.email);
+            } else if (result.error === 'needs-reauth') {
+              setGoogleEmailNote(
+                'This sign-in was made before Lucid asked for your account email — sign in with Google again (Segments > Google Drive) to show the account here and label Authenticator with it.',
+              );
+            }
+            // Any other failure: leave the stored email as it was.
+          })
+          .catch(() => {
+            // No email captured; the stored email (if any) stays.
+          });
       })
       .catch(() => {
         if (!cancelled) setGoogleSignedIn(false);
@@ -815,7 +857,9 @@ export function SecurityTab() {
       <Section title="Google sign-in and Authenticator">
         <Row label="Google sign-in">
           {googleSignInState === 'signed-in'
-            ? 'Signed in with Google.'
+            ? googleAccountEmail.trim() !== ''
+              ? `Signed in with Google as ${googleAccountEmail.trim()}.`
+              : 'Signed in with Google.'
             : googleSignInState === 'not-signed-in'
               ? 'Not signed in with Google — sign in first (Segments > Google Drive), then enroll Authenticator here.'
               : googleSignInState === 'needs-client-id'
@@ -829,9 +873,14 @@ export function SecurityTab() {
           second factor on that sign-in: it takes a setup key and
           shows a 6-digit code. It is not Google sign-in itself.
         </p>
+        {googleEmailNote !== null && (
+          <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{googleEmailNote}</p>
+        )}
         <Row label="Authenticator">
           {hasTotpSecret
-            ? 'On — a secret is stored securely. The secret itself is never shown here.'
+            ? googleAccountEmail.trim() !== ''
+              ? `On — a secret is stored securely for ${googleAccountEmail.trim()}. The secret itself is never shown here.`
+              : 'On — a secret is stored securely. The secret itself is never shown here.'
             : enrolling
               ? 'Enrolling — finish the step below, or cancel.'
               : 'Off — no Authenticator secret stored.'}
@@ -867,7 +916,9 @@ export function SecurityTab() {
         {!hasTotpSecret && enrolling && enrollSecret !== null && (
           <div className="space-y-2">
             <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
-              In Google Authenticator, add an account and choose to enter a setup key manually.
+              {googleAccountEmail.trim() !== ''
+                ? `This Authenticator entry is for ${googleAccountEmail.trim()} — in Google Authenticator, add an account with that name and choose to enter a setup key manually.`
+                : 'In Google Authenticator, add an account and choose to enter a setup key manually.'}{' '}
               Type this key in — it is shown once, only here, so it can be entered. It is never
               shown again after enrollment, and there is no copy button: type it, do not paste
               it anywhere else.
@@ -967,8 +1018,9 @@ export function SecurityTab() {
           There is no Lucid user account yet — a temp becomes a full user through Telegram once
           verified, and that account system is not built — so there is no sign-in gate that
           requires Authenticator today. Enrollment here secures the Google sign-in on this
-          install. Whether it becomes required for verified users (for example for the 1,000
-          SP a day verified target) is Gary&rsquo;s call, once the account system exists.
+          install. Authenticator is optional, not required — Gary decided that (2026-11-10).
+          It is here if you need it, as a second factor on your Google sign-in; it is never
+          required to sign in.
         </p>
       </Section>
 

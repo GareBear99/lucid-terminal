@@ -77,7 +77,20 @@ describe('buildTotpAuthUri', () => {
   it('builds the otpauth URI Authenticator enrols from', () => {
     const uri = buildTotpAuthUri(RFC_SECRET);
     expect(uri).toBe(
-      'otpauth://totp/Lucid:Lucid?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Lucid&algorithm=SHA1&digits=6&period=30',
+      `otpauth://totp/Lucid:Lucid?secret=${RFC_SECRET}&issuer=Lucid&algorithm=SHA1&digits=6&period=30`,
+    );
+  });
+
+  it('labels the entry with the Google account email when one is given (Gary, 2026-11-10)', () => {
+    const uri = buildTotpAuthUri(RFC_SECRET, 'gary@example.com');
+    expect(uri).toBe(
+      `otpauth://totp/Lucid:gary%40example.com?secret=${RFC_SECRET}&issuer=Lucid&algorithm=SHA1&digits=6&period=30`,
+    );
+  });
+
+  it('falls back to Lucid for an empty account', () => {
+    expect(buildTotpAuthUri(RFC_SECRET, '   ')).toBe(
+      `otpauth://totp/Lucid:Lucid?secret=${RFC_SECRET}&issuer=Lucid&algorithm=SHA1&digits=6&period=30`,
     );
   });
 });

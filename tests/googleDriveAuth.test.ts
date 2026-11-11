@@ -81,8 +81,13 @@ describe('buildGoogleDriveAuthUrl', () => {
     expect(url).not.toContain('secret');
   });
 
-  it('asks for Drive files only, never Gmail', () => {
+  it('asks for Drive files + openid/email for the account, never Gmail', () => {
     expect(GOOGLE_DRIVE_SCOPE).toContain('googleapis.com/auth/drive');
+    // openid + email are for the userinfo call that captures the
+    // Google account email (Security + the Authenticator label —
+    // Gary, 2026-11-10 ~06:10 PST).
+    expect(GOOGLE_DRIVE_SCOPE).toContain('openid');
+    expect(GOOGLE_DRIVE_SCOPE).toContain('email');
     expect(GOOGLE_DRIVE_SCOPE).not.toContain('gmail');
   });
 });

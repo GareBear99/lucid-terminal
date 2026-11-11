@@ -22,8 +22,11 @@
  *   library); never shown again after enrollment completes, and
  *   never logged or copied by a button.
  * - buildTotpAuthUri: the otpauth:// URI the secret encodes
- *   (issuer Lucid, account Lucid — the Drive sign-in captures no
- *   email/identity today, so no account name is invented).
+ *   (issuer Lucid, account = the Google account email when it
+ *   is known — the label syncs with the Google account signed
+ *   in, Gary 2026-11-10 ~06:10 PST — and 'Lucid' when no email
+ *   is known). The Security tab stores the email as
+ *   googleAccountEmail when it captures it via userinfo.
  * - totpCode / verifyTotpCode: the code for a moment, and the
  *   check of a code the user types, ±1 step of clock skew.
  *   `nowMs` is injectable so tests use the RFC 6238 vectors and
@@ -44,9 +47,10 @@
  * Lucid user account yet (temp → verified → Telegram → full
  * user, and the account/temp system is NOT built — see the
  * Telegram segment), so there is no sign-in gate to require 2FA
- * at. Enrollment here secures the Google sign-in on this
- * install; platform-wide enforcement (e.g. requiring it for the
- * 1000 SP/day verified tier) waits on that system + Gary's call.
+ * at. Authenticator is OPTIONAL, not required — Gary decided
+ * that (2026-11-10 ~06:10 PST: "not required just lose and
+ * there if you need"). Enrollment here secures the Google
+ * sign-in on this install; it is never required to sign in.
  * Nothing here fakes a gate.
  */
 
@@ -60,8 +64,10 @@ export const TOTP_DIGITS = 6;
 export const TOTP_ISSUER = 'Lucid';
 
 /** The account shown in Google Authenticator for a Lucid entry.
- *  Just "Lucid" — the Drive sign-in captures no email or other
- *  identity, so no account name is invented. */
+ *  'Lucid' is the fallback — the account is the Google account
+ *  email when it is known (the label syncs with the Google
+ *  account signed in, Gary 2026-11-10 ~06:10 PST; the Security
+ *  tab passes the email it captured via userinfo). */
 export const TOTP_ACCOUNT = 'Lucid';
 
 /** Base32 alphabet (RFC 4648), no padding in the secrets this
@@ -120,8 +126,14 @@ export function generateTotpSecret(): string {
 /** The otpauth:// URI the enrollment encodes: what a QR code
  *  would carry, and what the manual setup-key entry in Google
  *  Authenticator amounts to. No QR library is in Lucid's deps,
- *  so the Security tab shows the setup key as text instead. */
-export function buildTotpAuthUri(secret: string): string {
+ *  so the Security tab shows the setup key as text instead.
+ *  `account` is the label the entry shows under in Authenticator
+ *  — the Google account email when it is known (the label syncs
+ *  with the Google account signed in), 'Lucid' otherwise. An
+ *  empty account falls back to 'Lucid'; no account name is ever
+ *  invented from nothing. */
+export function buildTotpAuthUri(secret: string, account: string = TOTP_ACCOUNT): string {
+  const label = account.trim() === '' ? TOTP_ACCOUNT : account.trim();
   const params = new URLSearchParams({
     secret: secret.trim().toUpperCase(),
     issuer: TOTP_ISSUER,
@@ -129,7 +141,7 @@ export function buildTotpAuthUri(secret: string): string {
     digits: String(TOTP_DIGITS),
     period: '30',
   });
-  return `otpauth://totp/${encodeURIComponent(TOTP_ISSUER)}:${encodeURIComponent(TOTP_ACCOUNT)}?${params.toString()}`;
+  return `otpauth://totp/${encodeURIComponent(TOTP_ISSUER)}:${encodeURIComponent(label)}?${params.toString()}`;
 }
 
 /** The HMAC-SHA1 of one counter, via WebCrypto. */

@@ -20,14 +20,23 @@
  * If the API is unavailable the card says so instead of guessing.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  NEURAL_CATEGORIES,
   PLUGIN_SHELLS,
-  buildNeuralScene,
+  type BootState,
+  type BuildState,
 } from '../../types/synth';
+// The vendored Iteration 8 defaults — bundled into the renderer at
+// build time, so the inspector can load them straight into the shell
+// (one click) instead of making the user hunt the files down with the
+// picker. The shell's own Upload buttons stay for arbitrary files.
+import octagonBlueprint from '../../../public/synth/iteration8/blueprint_octagon.json';
+import shipModule from '../../../public/synth/iteration8/module_ship_default.json';
+import scannerModule from '../../../public/synth/iteration8/module_scanner_default.json';
+import hudModule from '../../../public/synth/iteration8/module_hud_default.json';
 import {
   activeMount,
+  activeVoxelDirectory,
   useSynthStore,
 } from '../../stores/synthStore';
 import { useWindowMaximized } from '../../hooks/useWindowMaximized';
@@ -46,11 +55,25 @@ import {
 } from '../../lib/homunculusColor';
 import {
   SYNTH_VERSION_LABELS,
+  creatorBuildSummary,
+  parseCreatorBuild,
   parseSynthDisclaimerChoice,
   parseSynthVersion,
+  type CreatorBuild,
   type SynthDisclaimerChoice,
   type SynthVersion,
 } from '../../lib/synthDisclaimer';
+import {
+  CreatorBuilder,
+  CreatorBuilderErrorBoundary,
+  BUILDER_STEPS_PER_TICK,
+  BUILDER_TICK_MS,
+} from './CreatorBuilder';
+import { machineIsTerminal } from '../../lib/synthBoot';
+import {
+  VoxelDirectoryPanel,
+  VoxelDirectoryPanelErrorBoundary,
+} from './VoxelDirectoryPanel';
 import {
   HomunculusColorPicker,
   HomunculusPickerErrorBoundary,
@@ -60,21 +83,65 @@ import {
   SynthDemoDisclaimerErrorBoundary,
 } from './SynthDemoDisclaimer';
 
+/**
+ * The boot/build values a shell may report from its iframe. The
+ * listener validates against these before the store records anything
+ * — a stray message never writes garbage into the shell state.
+ */
+const IFRAME_BOOTS: readonly BootState[] = [
+  'COLD',
+  'POST',
+  'PING_TEST',
+  'READY',
+  'SAFE_MODE',
+  'WAIT_BLUEPRINT',
+];
+const IFRAME_BUILDS: readonly BuildState[] = [
+  'IDLE',
+  'PLANNED',
+  'INTEGRITY',
+  'MAPPING',
+  'COMPLETE',
+  'EMPTY_REPO_READY',
+];
+
 export function SynthView() {
   const activePluginId = useSynthStore((s) => s.activePluginId);
   const seedHex = useSynthStore((s) => s.seedHex);
   const selectedTileId = useSynthStore((s) => s.selectedTileId);
   const eyeMode = useSynthStore((s) => s.eyeMode);
-  const shellLoaded = useSynthStore((s) => s.shellLoaded);
-  const bootState = useSynthStore((s) => s.bootState);
+  // The machine is the ONLY boot truth — boot/build come from it,
+  // never from a derivation. machine.shell is null until a blueprint
+  // is loaded; machine.shellReady is true once the iframe loads.
+  const machine = useSynthStore((s) => s.machine);
+  const bootState = machine.boot;
+  const buildState = machine.build;
   const mounted = useSynthStore(activeMount);
+  const directory = useSynthStore(activeVoxelDirectory);
   const mountPlugin = useSynthStore((s) => s.mountPlugin);
   const unmountEmbodiment = useSynthStore((s) => s.unmountEmbodiment);
   const reseed = useSynthStore((s) => s.reseed);
+  const loadDefaultShellBlueprint = useSynthStore(
+    (s) => s.loadDefaultShellBlueprint,
+  );
+  const refreshDirectory = useSynthStore((s) => s.refreshDirectory);
 
   const spec = PLUGIN_SHELLS[activePluginId];
   const embodiment = spec?.embodiment;
-  const scene = useMemo(() => buildNeuralScene(seedHex), [seedHex]);
+  // The iframe shell's own reported state — only a shell that manages
+  // its own state (Iteration 8) posts one.
+  const iframeShellState = useSynthStore((s) => s.iframeShellState);
+  const setActivePlugin = useSynthStore((s) => s.setActivePlugin);
+
+  // What the inspector shows for boot/build: a shell that manages its
+  // own state reports from the iframe — the TS machine is not the
+  // shell and never sees its boot. The demo shell reads the machine.
+  const displayBoot = spec?.managesOwnState
+    ? (iframeShellState?.boot ?? 'WAIT_BLUEPRINT')
+    : bootState;
+  const displayBuild = spec?.managesOwnState
+    ? (iframeShellState?.build ?? 'IDLE')
+    : buildState;
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -103,6 +170,12 @@ export function SynthView() {
   // to the iframe load and posted exactly once, so a wipe can never
   // re-fire on the reload the wipe itself triggers.
   const iframeLoadedRef = useRef(false);
+  // Whether the current shell iframe has loaded (the one-click
+  // default load posts into it — posting before load loses the message).
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+  useEffect(() => {
+    setIframeLoaded(false);
+  }, [activePluginId]);
   const pendingDemoWipeRef = useRef(false);
   const postDemoWipe = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
@@ -118,16 +191,119 @@ export function SynthView() {
   }, [postDemoWipe]);
   const handleIframeLoad = useCallback(() => {
     iframeLoadedRef.current = true;
+    setIframeLoaded(true);
     if (pendingDemoWipeRef.current) {
       pendingDemoWipeRef.current = false;
       postDemoWipe();
     }
+    // The shell iframe loaded — the machine needs this to leave
+    // WAIT_BLUEPRINT (boot is a property of the shell+blueprint).
+    useSynthStore.getState().setShellReady(true);
     postMount();
   }, [postDemoWipe, postMount]);
 
   useEffect(() => {
     postMount();
   }, [postMount]);
+
+  // Iteration 8 reports its own boot/build from the iframe (it
+  // manages its own state). The store ignores reports unless the
+  // active plugin is such a shell.
+  useEffect(() => {
+    const onMessage = (ev: MessageEvent) => {
+      const d = ev.data as {
+        type?: unknown;
+        boot?: unknown;
+        build?: unknown;
+        shellId?: unknown;
+        seed?: unknown;
+        routeTiles?: unknown;
+        mappedCount?: unknown;
+        receipts?: unknown;
+      } | null;
+      if (!d || typeof d !== 'object') return;
+      if (d.type !== 'iteration8-shell-state') return;
+      if (
+        typeof d.boot !== 'string' ||
+        typeof d.build !== 'string' ||
+        !(IFRAME_BOOTS as readonly string[]).includes(d.boot) ||
+        !(IFRAME_BUILDS as readonly string[]).includes(d.build)
+      ) {
+        return;
+      }
+      useSynthStore.getState().setIframeShellState({
+        boot: d.boot as BootState,
+        build: d.build as BuildState,
+        shellId: typeof d.shellId === 'string' ? d.shellId : null,
+        seed: typeof d.seed === 'string' ? d.seed : null,
+        routeTiles: typeof d.routeTiles === 'number' ? d.routeTiles : 0,
+        mappedCount: typeof d.mappedCount === 'number' ? d.mappedCount : 0,
+        receipts: typeof d.receipts === 'number' ? d.receipts : 0,
+      });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  // Post a message into the shell iframe (Iteration 8's Lucid bridge).
+  const postToShell = useCallback((message: unknown) => {
+    iframeRef.current?.contentWindow?.postMessage(message, '*');
+  }, []);
+
+  // Load the vendored defaults straight into the shell — the shell's
+  // own Upload buttons stay for arbitrary files, but the defaults are
+  // one click (they live in the app bundle, not on a path the file
+  // picker can reach).
+  const loadIteration8Defaults = useCallback(() => {
+    postToShell({
+      type: 'iteration8-load-blueprint',
+      blueprint: octagonBlueprint,
+    });
+    postToShell({ type: 'iteration8-load-module', module: shipModule });
+    postToShell({ type: 'iteration8-load-module', module: scannerModule });
+    postToShell({ type: 'iteration8-load-module', module: hudModule });
+  }, [postToShell]);
+
+  // Restore the saved creation on entry — the pickup after the
+  // profile step, on the way into Lucid (the creation is a profile
+  // thing; profiles land later, and until then the implicit
+  // 'default' profile's creation is restored here). Once only: the
+  // restore loads the creation's blueprint + modules + seed into
+  // the machine. When there is nothing to restore (demo still
+  // there, or no creation saved) the builder shows instead.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    useSynthStore.getState().restoreCreation();
+  }, []);
+
+  // Drive the shell machine — ONE driver, for both the builder
+  // path and the demo path (the view owns the shell, so the view
+  // steps its machine). 120 steps per 50 ms tick, whenever a shell
+  // is loaded and the machine is not terminal; otherwise it
+  // no-ops. The builder only loads the blueprint and reads live
+  // progress — it runs no interval of its own.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const state = useSynthStore.getState();
+      if (!state.machine.shell) return;
+      if (machineIsTerminal(state.machine)) return;
+      for (let i = 0; i < BUILDER_STEPS_PER_TICK; i++) {
+        useSynthStore.getState().stepShellMachine();
+      }
+    }, BUILDER_TICK_MS);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // The Voxel Directory session grant lapses when the Synth view
+  // unmounts: the next entry asks again, unless "do not show
+  // again" was checked (the remembered grant survives).
+  useEffect(() => {
+    return () => {
+      useSynthStore.getState().setLocalAccessSessionGranted(false);
+    };
+  }, []);
 
   // Live plugin-backend status (best-effort; the card says so if unavailable).
   const [modelStatuses, setModelStatuses] = useState<Record<
@@ -175,6 +351,13 @@ export function SynthView() {
         : anyBackendUp
           ? 'AWAKE'
           : 'DORMANT';
+  // A shell that manages its own state has no plugin backend to
+  // report — its condition is just mounted or not.
+  const displayCondition = spec?.managesOwnState
+    ? mounted
+      ? 'MOUNTED'
+      : 'UNMOUNTED'
+    : condition;
 
   // While the app is windowed the whole synth plugin renders 25%
   // smaller (75%); maximized it renders at full size. The scaling
@@ -241,8 +424,15 @@ export function SynthView() {
     storedSynthDisclaimerChoice,
   );
   const [synthDisclaimerDone, setSynthDisclaimerDone] = useState(false);
+  // The disclaimer never shows once the demo was permanently
+  // replaced — the creation is the mode now, there is nothing to
+  // choose between.
+  const demoReplaced = useSettingsStore(
+    (s) => s.settings?.synthDemoReplaced,
+  );
   const showSynthDisclaimer =
     !synthDisclaimerDone &&
+    !demoReplaced &&
     chosenHomunculusColor !== null &&
     synthDisclaimerDelayDone;
   const chooseSynthDisclaimer = useCallback(
@@ -296,6 +486,49 @@ export function SynthView() {
       ? SYNTH_VERSION_LABELS[parsedStoredVersion]
       : 'Iteration 8';
 
+  // The saved own build (Iteration 8) — the creation: blueprint +
+  // modules + version + seed + colour + profile, from the creator
+  // builder. Null = no own build created yet, so the builder shows
+  // instead of a summary. Old builds (version+seed+colour only)
+  // do NOT parse — the make-believe configurator's builds are not
+  // carried forward.
+  const storedOwnBuild = useSettingsStore(
+    (s) => s.settings?.synthOwnBuild,
+  );
+  const ownBuild = parseCreatorBuild(storedOwnBuild);
+  // The builder is open when the user is in build mode and has no
+  // own build yet, or when they tap "Edit build" on a saved one.
+  // Creating a build closes it (the summary takes its place).
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const showBuilder =
+    storedSynthDisclaimerChoice === 'build' &&
+    (builderOpen || ownBuild === null);
+  // Phase 3 — builder → mount wiring, Iteration 8 proper: the
+  // builder already ran the machine to EMPTY_REPO_READY and handed
+  // back the finished creation. The parent persists it and flips
+  // the demo PERMANENTLY replaced — synthDemoReplaced FIRST, so
+  // the directory gate is met — then rebuilds the directory and
+  // mounts the embodiment (the mount's ping handshake is the
+  // machine's NOOP grant, already earned by the build). The
+  // builder set the seed when it loaded the blueprint; there is
+  // nothing left to set here.
+  const handleCreateBuild = useCallback(
+    (build: CreatorBuild) => {
+      const store = useSettingsStore.getState();
+      void store.updateSettings({
+        synthDemoReplaced: true,
+        synthOwnBuild: build,
+        synthDisclaimerChoice: 'build',
+        synthVersion: build.version,
+        homunculusColor: build.color,
+      });
+      refreshDirectory();
+      mountPlugin(activePluginId);
+      setBuilderOpen(false);
+    },
+    [activePluginId, mountPlugin, refreshDirectory],
+  );
+
   return (
     // No background here: the main screen is always splashscreen
     // misty black (Gary, 2026-11-07), so the App root's mist shows
@@ -312,13 +545,18 @@ export function SynthView() {
           onLoad={handleIframeLoad}
           className="w-full h-full border-0 bg-black"
         />
-        <div
-          className="absolute top-2 left-2 px-2 py-1 rounded bg-black/60 text-[11px] font-mono pointer-events-none"
-          style={{ color: homunculusTheme.bright }}
-        >
-          boot={bootState} · eye={eyeMode} · tile={selectedTileId}
-          {mounted ? ` · ${mounted.name} mounted` : ' · shell empty'}
-        </div>
+        {/* Lucid's status chip — hidden for a shell that manages its
+            own state: the shell's own HUD + validator strip show its
+            state, and the chip would sit on top of its topbar. */}
+        {!spec?.managesOwnState && (
+          <div
+            className="absolute top-2 left-2 px-2 py-1 rounded bg-black/60 text-[11px] font-mono pointer-events-none"
+            style={{ color: homunculusTheme.bright }}
+          >
+            boot={displayBoot} · build={displayBuild} · eye={eyeMode} · tile={selectedTileId}
+            {mounted ? ` · ${mounted.name} mounted` : ' · shell empty'}
+          </div>
+        )}
       </div>
 
       {/* Inspector */}
@@ -337,28 +575,115 @@ export function SynthView() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
             Shell — {spec?.name ?? activePluginId}
           </h2>
+          {/* Shell picker — one button per registered shell
+              (PLUGIN_SHELLS). The demo (Lucifer) stays the default;
+              Iteration 8 sits alongside it, selectable. */}
+          <div className="flex flex-wrap gap-1 mb-2" role="group" aria-label="Shell">
+            {Object.values(PLUGIN_SHELLS).map((s) => (
+              <button
+                key={s.pluginId}
+                onClick={() => setActivePlugin(s.pluginId)}
+                aria-pressed={s.pluginId === activePluginId}
+                className={`btn text-xs ${s.pluginId === activePluginId ? 'btn-primary' : 'btn-secondary'}`}
+                title={s.name}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
           <div className="font-mono text-xs space-y-1 text-[var(--text-primary)]">
-            <div>boot: <span style={{ color: homunculusTheme.bright }}>{bootState}</span></div>
-            <div>seed: {seedHex}</div>
+            <div>boot: <span style={{ color: homunculusTheme.bright }}>{displayBoot}</span></div>
+            <div>build: {displayBuild}</div>
+            <div>seed: {spec?.managesOwnState ? (iframeShellState?.seed ?? seedHex) : seedHex}</div>
             <div>tile: {selectedTileId} (center)</div>
             <div>eye: {eyeMode}</div>
-            <div>blueprint: {shellLoaded ? 'loaded' : 'none — load one in the shell (Upload Blueprint JSON)'}</div>
-            {/* "Build my own" (Iteration 8, the creator builder) — the
-                choice and the drop-down version are recorded;
-                Iteration 8 itself is not built yet, so this names it
-                rather than faking a builder. */}
-            {storedSynthDisclaimerChoice === 'build' && (
-              <div>build: your own — {buildVersionLabel}, the creator builder (coming soon)</div>
+            <div>
+              blueprint:{' '}
+              {spec?.managesOwnState
+                ? iframeShellState?.shellId
+                  ? `${iframeShellState.shellId} · ${iframeShellState.routeTiles} route tiles · ${iframeShellState.mappedCount} mapped`
+                  : 'none — load one in the shell (Upload Blueprint JSON, or the default octagon below)'
+                : machine.shell
+                  ? `${machine.shell.shellId} · ${machine.shell.pivotDirs.length} pivots · ${machine.shell.routeTiles.length} route tiles`
+                  : 'none — load one in the shell (Upload Blueprint JSON)'}
+            </div>
+            {machine.fallbackUsed && (
+              <div>
+                fallback: default octagon loaded
+                {machine.fallbackReason
+                  ? ` (${machine.fallbackReason})`
+                  : ''}
+              </div>
+            )}
+            {displayBoot === 'SAFE_MODE' && (
+              <div>
+                SAFE_MODE
+                {!spec?.managesOwnState && machine.safeModeReason
+                  ? ` — ${machine.safeModeReason}`
+                  : ''}
+              </div>
+            )}
+            {/* "Build my own" (Iteration 8, the creator builder) —
+                the choice's landing line: the saved own build when
+                one exists, else the version the builder below it
+                starts from. The "(coming soon)" is gone: the builder
+                is real (Phase 2), and creating a build mounts it
+                (Phase 3). */}
+            {storedSynthDisclaimerChoice === 'build' && !spec?.managesOwnState && (
+              <div>
+                {ownBuild ? (
+                  <>
+                    build: your own — {creatorBuildSummary(ownBuild)}
+                    {mounted ? ' · mounted' : ' · not mounted'}
+                  </>
+                ) : (
+                  <>
+                    build: your own — {buildVersionLabel}, the creator
+                    builder
+                  </>
+                )}
+              </div>
             )}
           </div>
-          <Tooltip content="Randomize the Neural Synth seed">
-            <button
-              onClick={reseed}
-              className="btn btn-secondary mt-2 text-xs"
+          {/* The thinker's seed is the demo shell's — a shell that
+              manages its own state has its own seed box in the shell. */}
+          {!spec?.managesOwnState && (
+            <Tooltip content="Randomize the Neural Synth seed">
+              <button
+                onClick={reseed}
+                className="btn btn-secondary mt-2 text-xs"
+              >
+                Reseed thinker
+              </button>
+            </Tooltip>
+          )}
+          {/* Demo users can boot without the builder: load the
+              default octagon and run the machine on it. For a shell
+              that manages its own state (Iteration 8) this loads the
+              vendored defaults straight into the shell instead — the
+              TS machine is not the shell. */}
+          {(spec?.managesOwnState || !machine.shell) && (
+            <Tooltip
+              content={
+                spec?.managesOwnState
+                  ? 'Load the default octagon blueprint + modules into the shell'
+                  : 'Load the default octagon blueprint and boot the shell'
+              }
             >
-              Reseed thinker
-            </button>
-          </Tooltip>
+              <button
+                onClick={
+                  spec?.managesOwnState
+                    ? loadIteration8Defaults
+                    : loadDefaultShellBlueprint
+                }
+                disabled={spec?.managesOwnState ? !iframeLoaded : false}
+                data-testid="load-default-octagon"
+                className="btn btn-secondary mt-2 ml-2 text-xs disabled:opacity-40"
+              >
+                Load the default octagon
+              </button>
+            </Tooltip>
+          )}
         </section>
 
         {/* Embodiment — generic: renders whichever plugin is active */}
@@ -382,18 +707,18 @@ export function SynthView() {
                   condition:{' '}
                   <span
                     style={
-                      condition === 'AWAKE'
+                      displayCondition === 'AWAKE'
                         ? { color: homunculusTheme.bright }
                         : undefined
                     }
                   >
-                    {condition}
+                    {displayCondition}
                   </span>
                 </div>
               </div>
               {mounted ? (
                 <>
-                  {modelStatuses && (
+                  {!spec?.managesOwnState && modelStatuses && (
                     <div className="font-mono text-xs mt-2 space-y-0.5 text-[var(--text-secondary)]">
                       {Object.entries(modelStatuses).map(([model, up]) => (
                         <div key={model}>
@@ -402,12 +727,12 @@ export function SynthView() {
                       ))}
                     </div>
                   )}
-                  {modelStatuses === null && statusAvailable && (
+                  {!spec?.managesOwnState && modelStatuses === null && statusAvailable && (
                     <p className="text-xs text-[var(--text-muted)] mt-1">
                       Checking plugin backend…
                     </p>
                   )}
-                  {!statusAvailable && (
+                  {!spec?.managesOwnState && !statusAvailable && (
                     <p className="text-xs text-[var(--text-muted)] mt-1">
                       Plugin backend status unavailable in this build.
                     </p>
@@ -424,14 +749,35 @@ export function SynthView() {
               ) : (
                 <>
                   <p className="text-xs text-[var(--text-muted)] mt-1">
-                    The shell is empty — no synth mounted. Mount the
-                    embodiment to wake the synth: the thinker appears in the
-                    eye and the Sentinel sits at the heart.
+                    {spec?.managesOwnState ? (
+                      <>
+                        The shell is empty — no blueprint loaded. Load
+                        the default octagon or upload a blueprint in
+                        the shell; mount{' '}
+                        {embodiment?.name ?? 'the embodiment'} once the
+                        shell boots to READY.
+                      </>
+                    ) : (
+                      <>
+                        The shell is empty — the synth&apos;s neural
+                        capabilities are out of action: no thinker in the
+                        eye, no neural action through the synth. Mount the
+                        embodiment to put them back in action. The brain
+                        keeps working headless — inference can still
+                        continue via daemons on the underlying brain.
+                      </>
+                    )}
                   </p>
                   <Tooltip content={`Mount ${embodiment.name}`}>
                     <button
                       onClick={() => mountPlugin(activePluginId)}
-                      className="btn btn-primary mt-2 text-xs"
+                      disabled={displayBoot !== 'READY'}
+                      title={
+                        displayBoot !== 'READY'
+                          ? `The shell must boot to READY first (now ${displayBoot})`
+                          : undefined
+                      }
+                      className="btn btn-primary mt-2 text-xs disabled:opacity-40"
                     >
                       Mount {embodiment.name}
                     </button>
@@ -446,30 +792,88 @@ export function SynthView() {
           )}
         </section>
 
-        {/* Neural Synth categories — seed-bound colours */}
+        {/* Voxel Directory (Iteration 8) — ON THE MAIN PANEL, where
+            mount is (Gary, 2026-11-12 ~12:13 PST): alongside mount,
+            in the main panel, NOT a separate overlay. The panel is
+            clear blurry darkened glass (Gary, 2026-11-12 ~10:20
+            PST). THE DIRECTORY IS GATED (Gary, 2026-11-12 ~12:23
+            PST): it only exists AFTER the demo has been permanently
+            replaced by the creation one. While the demo is still
+            there the section says so instead of showing a directory.
+            Reference: protosynth Iteration11 Voxel_Directory.html —
+            "Voxel Icon view is the directory front". */}
         <section className="border-t border-[var(--border)] pt-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
-            Neural Synth — 8 categories
+            Voxel Directory — {spec?.name ?? activePluginId}
           </h2>
-          <div className="grid grid-cols-2 gap-1">
-            {NEURAL_CATEGORIES.map((cat) => (
-              <div
-                key={cat}
-                className="flex items-center gap-2 font-mono text-xs text-[var(--text-primary)]"
-              >
-                <span
-                  className="inline-block w-3 h-3 rounded-full shrink-0"
-                  style={{ backgroundColor: scene.categoryColors[cat] }}
-                />
-                {cat}
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-[var(--text-muted)] mt-1">
-            Colours are seed-bound. The thinker (22 nodes, 900 voxels, 14
-            rings) renders in the eye once an embodiment is mounted.
-          </p>
+          {directory ? (
+            <VoxelDirectoryPanelErrorBoundary>
+              <VoxelDirectoryPanel
+                directory={directory}
+                pluginName={spec?.name ?? activePluginId}
+              />
+            </VoxelDirectoryPanelErrorBoundary>
+          ) : (
+            <p className="text-xs text-[var(--text-muted)]">
+              {spec?.managesOwnState ? (
+                <>
+                  {spec?.name ?? activePluginId} is a blueprint shell —
+                  it has no Voxel Directory; its build lives in the
+                  shell itself.
+                </>
+              ) : (
+                <>
+                  The Voxel Directory arrives when your creation
+                  permanently replaces the demo — build your own with
+                  Iteration 8.
+                </>
+              )}
+            </p>
+          )}
         </section>
+
+        {/* Creator builder (Iteration 8, Phase 2) — "build my own"
+            opens a REAL builder here, in the inspector. No own build
+            yet: the builder. Own build saved: the summary + Edit. */}
+        {storedSynthDisclaimerChoice === 'build' && !spec?.managesOwnState && (
+          <section className="border-t border-[var(--border)] pt-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
+              Your own build — {buildVersionLabel}
+            </h2>
+            {showBuilder ? (
+              <CreatorBuilderErrorBoundary>
+                <CreatorBuilder
+                  version={
+                    parsedStoredVersion ?? 'iteration-8'
+                  }
+                  initialSeed={ownBuild?.seedHex ?? seedHex}
+                  initialColor={chosenHomunculusColor}
+                  initialBlueprint={ownBuild?.blueprint ?? null}
+                  initialModules={ownBuild?.modules ?? null}
+                  onCreate={handleCreateBuild}
+                  onCancel={
+                    ownBuild ? () => setBuilderOpen(false) : undefined
+                  }
+                />
+              </CreatorBuilderErrorBoundary>
+            ) : (
+              ownBuild && (
+                <>
+                  <p className="text-xs text-[var(--text-primary)]">
+                    {creatorBuildSummary(ownBuild)}
+                    {mounted ? ' · mounted' : ' · not mounted'}
+                  </p>
+                  <button
+                    onClick={() => setBuilderOpen(true)}
+                    className="btn btn-secondary mt-2 text-xs"
+                  >
+                    Edit build
+                  </button>
+                </>
+              )
+            )}
+          </section>
+        )}
 
       </div>
       </div>

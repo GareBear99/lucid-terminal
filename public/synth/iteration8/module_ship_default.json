@@ -1,0 +1,9 @@
+{
+  "moduleType": "ship",
+  "id": "MASTER_CONTROL_SHIP",
+  "style": "iteration4",
+  "config": {
+    "label": "MASTER CONTROL",
+    "glow": 1.0
+  }
+}

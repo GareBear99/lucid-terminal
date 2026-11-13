@@ -1,0 +1,9 @@
+{
+  "moduleType": "scanner",
+  "id": "SYNTHESIS_SCANNER",
+  "style": "iteration4",
+  "config": {
+    "label": "SYNTHESIS SCANNER",
+    "probeGlow": 1.0
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "moduleType": "hud",
+  "id": "SYNTH_HUD",
+  "style": "default",
+  "config": {
+    "showInspector": true
+  },
+  "script": "// Optional hook object you can define:\n// hooks = { onFrame(api, config, state){...}, draw(api, config, state, ctx){...} }\n// For safety and simplicity, the core UI still renders; hooks can add extra lines.\nhooks = {\n  onFrame(api, config, state){\n    // state.custom = ...\n  }\n};"
+}

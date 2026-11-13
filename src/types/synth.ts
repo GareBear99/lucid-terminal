@@ -64,13 +64,78 @@ export const ROLE_LINKS: Record<string, string[]> = {
 
 export const DEFAULT_SYNTH_SEED = 'F1B49B1CB10D6FED';
 
+/**
+ * Iteration 8's default seed — the shell's own seed input default
+ * (iteration8/index.html: the seed input's value="7F021AE4"). The
+ * shell hashes (canonical blueprint + this seed) into its shell seed.
+ */
+export const ITERATION8_DEFAULT_SEED = '7F021AE4';
+
 /** The center tile — the eye's anchor, and where the Sentinel is pinned. */
 export const CENTER_TILE_ID = 'tile_0000';
 
 export type EyeMode = 'AUTO' | 'MANUAL';
 
-/** Shell boot state. The empty shell boots in WAIT_BLUEPRINT. */
-export type BootState = 'WAIT_BLUEPRINT' | 'READY';
+/**
+ * Shell boot state — the repo's 6-state machine (iteration8/index.html:
+ * Boot = {COLD, POST, PING_TEST, READY, SAFE_MODE, WAIT_BLUEPRINT}).
+ * The empty shell boots in WAIT_BLUEPRINT; a loaded blueprint steps
+ * WAIT_BLUEPRINT → COLD → POST → PING_TEST (NOOP ping) → READY, or
+ * SAFE_MODE on any failure. The old 2-state derivation (READY if
+ * mounted OR shellLoaded) is gone: it could read READY while the
+ * shell was still waiting or failed.
+ */
+export type BootState =
+  | 'COLD'
+  | 'POST'
+  | 'PING_TEST'
+  | 'READY'
+  | 'SAFE_MODE'
+  | 'WAIT_BLUEPRINT';
+
+/**
+ * Build state — the repo's machine (iteration8/index.html: Build =
+ * {IDLE, PLANNED, INTEGRITY, MAPPING, COMPLETE, EMPTY_REPO_READY}).
+ * A loaded blueprint plans the build; integrity verifies every pivot
+ * by ping; mapping writes every route tile by ping; complete means
+ * the shell is constructed and the repo is empty and ready.
+ */
+export type BuildState =
+  | 'IDLE'
+  | 'PLANNED'
+  | 'INTEGRITY'
+  | 'MAPPING'
+  | 'COMPLETE'
+  | 'EMPTY_REPO_READY';
+
+/** A 3D vector (unit-sphere geometry for blueprints). */
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * The world origin {x:0, y:0, z:0} — the centre of the unit sphere the
+ * blueprint lives on. It is EMPTY and UNPROJECTABLE: nothing is placed
+ * or drawn there in any file, and projectDir((0,0,0)) returns null
+ * (r.z = 0 hits the `r.z <= 0` guard), so the origin has NO screen
+ * position at all. It is NOT where the Neural Synth lives, and it is
+ * NOT (cx, cy): canvas centre is the projection of the camera-forward
+ * direction, which in the vendored v67 shell is the RETICLE
+ * (cameraStep builds the camera from reticleDir), not the origin.
+ * The eye is norm(blueprint.origin), a unit direction — a point ON
+ * the sphere's surface, the observer/camera the vision goes through.
+ * The thinker/field/ship are drawn at the eye's world-projected
+ * position (ex, ey) = projectDir(eye), gated on eyeVisible — the
+ * blueprint's centre-anchor (Gary, 2026-11-08 ~03:55, af90dd2,
+ * proved by Gary with a scroll). The neural scene cloud is centred
+ * in its OWN local frame only. (CORRECTED 2026-11-12: the Iteration 8
+ * port's "center" doctrine — (cx, cy) = world origin, thinker drawn
+ * there always — was wrong; see the spatial-placements audit,
+ * ~/workspace/iteration8-spatial-placements-2026-11-12.md §7.)
+ */
+export const SHELL_CENTER: Vec3 = { x: 0, y: 0, z: 0 };
 
 // ---------------------------------------------------------------------------
 // Seed / RNG / colour — exact ports of Iteration 11 preview_v0.2.html
@@ -240,6 +305,149 @@ export function buildNeuralScene(seedHex: string): NeuralScene {
 }
 
 // ---------------------------------------------------------------------------
+// Voxel Directory — Iteration 8 (Gary, 2026-11-12): ALL synths get a
+// Voxel directory to start. Reference: protosynth Iteration11
+// Voxel_Directory.html — "Voxel Icon view is the directory front":
+// a directory lists the seed, the categories, and the objects in them.
+// Here the directory is a per-plugin registry entry holding that
+// synth's seed-bound voxel set — the 900 voxels + 22 nodes + 14 rings
+// + 50 links + 8 category colours buildNeuralScene already computes —
+// created when the synth starts, not a render side-effect. The store
+// holds one directory per registered plugin id, so the structure
+// works for the second synth the day it registers.
+//
+// The directory is GATED (Gary, 2026-11-12 ~12:23 PST): it only
+// exists AFTER the demo has been permanently replaced by the
+// creation one (the Iteration 8 creator build). No directory while
+// the demo is still there. The gate is settings.synthDemoReplaced
+// AND a saved creation build — see directoryGateMet in the synth
+// store. This resolves the old scope §5 question: the gate is the
+// permanent replacement, not just the demo existing.
+// ---------------------------------------------------------------------------
+
+/** One category's entry in a synth's Voxel Directory. */
+export interface VoxelCategoryEntry {
+  category: NeuralCategory;
+  /** Seed-bound colour for the category. */
+  color: string;
+  voxelCount: number;
+  nodeCount: number;
+  /** Node ids in this category (e.g. planner_0) — the directory addresses them. */
+  nodeIds: string[];
+  /** Distinct node roles in this category. */
+  roles: string[];
+  /**
+   * The category's objects, in directory order — its voxels first,
+   * then its nodes. This is the directory's object depth (Iteration
+   * 11 Voxel_Directory.html: root → category → object): each object
+   * is addressable by id, with the load / links / receipts the
+   * reference shows per object.
+   */
+  objects: VoxelDirectoryObject[];
+}
+
+/** One voxel row in the directory (a voxel of the seed-bound set). */
+export interface VoxelDirectoryVoxelObject {
+  kind: 'voxel';
+  id: string;
+  category: NeuralCategory;
+  load: number;
+  links: number;
+}
+
+/** One node row in the directory (a thinker node). */
+export interface VoxelDirectoryNodeObject {
+  kind: 'node';
+  id: string;
+  category: NeuralCategory;
+  role: string;
+  load: number;
+  links: number;
+  receipts: number;
+}
+
+export type VoxelDirectoryObject =
+  | VoxelDirectoryVoxelObject
+  | VoxelDirectoryNodeObject;
+
+/** Browsing depth in the directory (reference: root/category/object). */
+export type VoxelDirectoryDepth = 'root' | 'category' | 'object';
+
+/**
+ * A synth's Voxel Directory: the per-plugin registry entry holding
+ * that synth's seed-bound voxel set. Built from the seed only when
+ * the directory gate is met (the demo permanently replaced by the
+ * creation — see above) and rebuilt when the seed changes; the
+ * inspector shows it as the synth's starting structure.
+ */
+export interface VoxelDirectory {
+  pluginId: string;
+  seedHex: string;
+  /** The full seed-bound voxel set — the directory IS this scene, held, not rendered. */
+  scene: NeuralScene;
+  voxelCount: number;
+  nodeCount: number;
+  ringCount: number;
+  linkCount: number;
+  categories: VoxelCategoryEntry[];
+}
+
+/** Build a synth's Voxel Directory from its seed. Pure and deterministic. */
+export function buildVoxelDirectory(
+  pluginId: string,
+  seedHex: string,
+): VoxelDirectory {
+  const scene = buildNeuralScene(seedHex);
+  const categories: VoxelCategoryEntry[] = NEURAL_CATEGORIES.map(
+    (category) => {
+      const nodes = scene.nodes.filter((n) => n.category === category);
+      const voxels = scene.voxels.filter((v) => v.category === category);
+      const objects: VoxelDirectoryObject[] = [
+        ...voxels.map(
+          (v): VoxelDirectoryVoxelObject => ({
+            kind: 'voxel',
+            id: v.id,
+            category,
+            load: v.load,
+            links: v.links,
+          }),
+        ),
+        ...nodes.map(
+          (n): VoxelDirectoryNodeObject => ({
+            kind: 'node',
+            id: n.id,
+            category,
+            role: n.role,
+            load: n.load,
+            links: n.links,
+            receipts: n.receipts,
+          }),
+        ),
+      ];
+      return {
+        category,
+        color: scene.categoryColors[category],
+        voxelCount: voxels.length,
+        nodeCount: nodes.length,
+        nodeIds: nodes.map((n) => n.id),
+        roles: [...new Set(nodes.map((n) => n.role))],
+        objects,
+      };
+    },
+  );
+  return {
+    pluginId,
+    seedHex,
+    scene,
+    voxelCount: scene.voxels.length,
+    nodeCount: scene.nodes.length,
+    ringCount: scene.rings.length,
+    linkCount: scene.links.length,
+    categories,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Mount model — classification-agnostic by design (Gary, 2026-11-04)
 // ---------------------------------------------------------------------------
 
@@ -279,6 +487,22 @@ export const LUCIFER_EMBODIMENT: SynthEmbodiment = {
 };
 
 /**
+ * Iteration 8 — the Dynamic Modules Shell itself, embodied.
+ * Classification: Shell (descriptive only — the mount gate checks
+ * role, never classification). It is a blueprint shell, not a
+ * Sentinel: it mounts as the synth embodiment so the shell is
+ * addressable like any other plugin shell, but it carries no
+ * thinker — the shell's own blueprint-gated build is the capability.
+ */
+export const ITERATION8_EMBODIMENT: SynthEmbodiment = {
+  id: 'iteration8',
+  name: 'Iteration 8',
+  classification: 'Shell',
+  role: 'synth-embodiment',
+  plugin: 'iteration8',
+};
+
+/**
  * The mount gate. Accepts an embodiment iff its ROLE is 'synth-embodiment'.
  * It deliberately does NOT inspect `classification` — a Sentinel mounts as
  * the synth embodiment exactly like a Synth would.
@@ -312,6 +536,31 @@ export interface PluginShellSpec {
   embodiment: SynthEmbodiment;
   /** Default seed for the shell's Neural Synth thinker. */
   defaultSeed: string;
+  /**
+   * True when the shell manages its own boot/build state (it runs its
+   * own machine inside the iframe and reports it to Lucid) instead of
+   * Lucid's TS machine being the boot truth. Iteration 8 is the only
+   * such shell: the Dynamic Modules Shell boots and builds itself;
+   * Lucid reads its state, never simulates it. Absent/false for the
+   * demo shell, whose machine Lucid drives.
+   */
+  managesOwnState?: boolean;
+}
+
+/**
+ * The iframe shell's own reported state (posted by a shell that
+ * manages its own state — see managesOwnState). Lucid reads this,
+ * never writes it: the shell's machine is the truth for its own
+ * boot/build; the store just holds the latest report.
+ */
+export interface ShellIframeState {
+  boot: BootState;
+  build: BuildState;
+  shellId: string | null;
+  seed: string | null;
+  routeTiles: number;
+  mappedCount: number;
+  receipts: number;
 }
 
 /**
@@ -326,6 +575,25 @@ export const PLUGIN_SHELLS: Record<string, PluginShellSpec> = {
     shellSrc: './synth/matrix-synth-v67.html',
     embodiment: LUCIFER_EMBODIMENT,
     defaultSeed: DEFAULT_SYNTH_SEED,
+  },
+  /**
+   * Iteration 8 — the Dynamic Modules Shell (v2), vendored verbatim
+   * from Proto-Synth_Grid_Engine iteration8/index.html (the ONLY
+   * Iteration 8 that exists). Name from the shell's own title,
+   * seed from the shell's own seed-input default (7F021AE4), id
+   * from the folder. The demo stays the default (DEFAULT_PLUGIN_ID
+   * is still 'lucifer') — Iteration 8 sits alongside it, selectable.
+   * managesOwnState: the shell runs its own boot/build machine in
+   * the iframe and posts its state to Lucid; no TS-machine
+   * simulation, no Voxel Directory, no demo-flow mount gating.
+   */
+  iteration8: {
+    pluginId: 'iteration8',
+    name: 'Iteration 8 — Dynamic Modules Shell',
+    shellSrc: './synth/matrix-synth-iteration8.html',
+    embodiment: ITERATION8_EMBODIMENT,
+    defaultSeed: ITERATION8_DEFAULT_SEED,
+    managesOwnState: true,
   },
 };
 

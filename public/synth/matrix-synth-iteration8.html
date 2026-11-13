@@ -1,0 +1,1879 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Synth — Dynamic Modules Shell (v2)</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:#cfe;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;}
+  #topbar{position:fixed;left:12px;top:12px;z-index:10;display:flex;gap:10px;align-items:center;pointer-events:auto;}
+  .btn{background:rgba(0,0,0,.35);border:1px solid rgba(120,255,255,.35);color:#d6f7ff;padding:8px 10px;border-radius:10px;cursor:pointer;box-shadow:0 0 20px rgba(120,255,255,.08);}
+  .btn:hover{box-shadow:0 0 30px rgba(120,255,255,.16);}
+  input[type="file"]{display:none;}
+  /* HUD sits above the validator strip (pinned to the bottom) to prevent overlap. */
+  #hud{position:fixed;left:12px;bottom:44px;z-index:10;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;color:#d6f7ff;pointer-events:none;text-shadow:0 0 12px rgba(0,255,255,.18);max-width:min(900px,92vw);}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(120,255,255,.35);background:rgba(0,0,0,.25);margin-right:6px;}
+  #overlay{position:fixed;right:12px;top:12px;z-index:11;width:min(560px,52vw);max-height:72vh;overflow:auto;background:rgba(0,0,0,.45);border:1px solid rgba(255,60,210,.25);border-radius:14px;padding:10px 12px;display:none;pointer-events:auto;box-shadow:0 0 30px rgba(255,60,210,.10);}
+  #overlay .title{font-weight:700;color:#ff7be5;margin-bottom:6px;}
+  #overlay .row{opacity:.95;margin:2px 0;}
+  #overlay code{color:#bff;}
+  #overlay .log{margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,60,210,.18);font-size:11px;opacity:.95;white-space:pre-wrap;}
+
+  /* INPUT VALIDATOR (Rift-style, trimmed) */
+  /* Validator strip pinned to the bottom; keep layout safe (no overlap with HUD). */
+  #vstrip{position:fixed;left:10px;right:10px;bottom:10px;top:auto;z-index:50;
+    font:12px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    color:#dff;background:rgba(0,0,0,0.55);border:1px solid rgba(160,255,255,0.18);
+    padding:6px 10px;border-radius:10px;display:flex;align-items:center;gap:10px;backdrop-filter: blur(6px);}
+  #vstrip .dot{width:8px;height:8px;border-radius:50%;background:rgba(80,255,180,0.9);box-shadow:0 0 10px rgba(80,255,180,0.35);}
+  #vstrip.bad .dot{background:rgba(255,90,90,0.95);box-shadow:0 0 12px rgba(255,90,90,0.45);}
+  #vstrip .pill{padding:2px 8px;border-radius:999px;border:1px solid rgba(160,255,255,0.18);background:rgba(0,0,0,0.25);}
+  #vstrip .muted{opacity:0.75}
+  #vpanel{position:fixed;left:10px;top:54px;width:min(520px,calc(100vw - 20px));max-height:52vh;overflow:auto;
+    z-index:51;display:none;color:#dff;background:rgba(0,0,0,0.72);border:1px solid rgba(160,255,255,0.18);
+    padding:10px;border-radius:12px;backdrop-filter: blur(8px);}
+  #vpanel.show{display:block;}
+  #vpanel h3{margin:0 0 8px 0;font-size:13px;letter-spacing:0.04em;}
+  #vpanel .row{display:flex;gap:8px;align-items:flex-start;margin:6px 0;}
+  #vpanel .k{min-width:150px;opacity:0.85}
+  #vpanel .v{flex:1;white-space:pre-wrap;word-break:break-word;}
+  #vpanel .log{margin-top:8px;border-top:1px solid rgba(160,255,255,0.14);padding-top:8px;opacity:0.9}
+  #vpanel .entry{margin:4px 0;opacity:0.9}
+</style>
+</head>
+<body>
+<canvas id="sim"></canvas>
+
+<div id="topbar">
+  <button class="btn" id="btnReset">Reset</button>
+  <button class="btn" id="btnLoad">Upload Blueprint JSON</button>
+  
+  <span class="seedWrap">
+    <label class="seedLbl" for="seedInput">Seed</label>
+    <input id="seedInput" class="seedInput" type="text" spellcheck="false" autocomplete="off" value="7F021AE4" maxlength="16" />
+    <button class="btn mini" id="btnSeedNew" title="Generate new seed">↻</button>
+  </span>
+<input id="file" type="file" accept=".json,application/json"/>
+
+  <button class="btn" id="btnLoadShip">Upload Ship Module</button>
+  <input id="fileShip" type="file" accept=".json,application/json"/>
+  <button class="btn" id="btnLoadScanner">Upload Scanner Module</button>
+  <input id="fileScanner" type="file" accept=".json,application/json"/>
+  <button class="btn" id="btnLoadHud">Upload HUD Module</button>
+  <input id="fileHud" type="file" accept=".json,application/json"/>
+
+  <button class="btn" id="btnReticle">Center Reticle (C)</button>
+  <button class="btn" id="btnOverlay">Toggle Debug (`)</button>
+</div>
+
+
+<div id="vstrip" class="">
+  <span class="dot"></span>
+  <span class="pill">VALIDATOR</span>
+  <span id="vsum" class="muted">online</span>
+  <span class="pill muted">H: panel</span>
+  <span class="pill muted">I: strict</span>
+</div>
+<div id="vpanel">
+  <h3>INPUT VALIDATOR</h3>
+  <div class="row"><div class="k">strict</div><div class="v" id="vStrict">false</div></div>
+  <div class="row"><div class="k">autowrap</div><div class="v" id="vAutowrap">0</div></div>
+  <div class="row"><div class="k">violations</div><div class="v" id="vViol">0</div></div>
+  <div class="row"><div class="k">reticle</div><div class="v" id="vRet">off</div></div>
+  <div class="row"><div class="k">last pointer</div><div class="v" id="vPtr">—</div></div>
+  <div class="row"><div class="k">seed</div><div class="v" id="vSeed">—</div></div>
+<div class="row"><div class="k">blueprint</div><div class="v" id="vBp">—</div></div>
+  <div class="row"><div class="k">shell</div><div class="v" id="vShell">—</div></div>
+  <div class="row"><div class="k">modules</div><div class="v" id="vMods">—</div></div>
+  <div class="row"><div class="k">reticle tile</div><div class="v" id="vTile">—</div></div>
+  <div class="row"><div class="k">log</div><div class="v"><button class="btn" id="vDl" style="padding:6px 10px;border-radius:10px;">Download</button></div></div>
+
+  <div class="log" id="vLog"></div>
+</div>
+
+<div id="overlay">
+  <div class="title">SYNTH DEBUG OVERLAY</div>
+  <div id="ov"></div>
+  <div class="log" id="log"></div>
+</div>
+
+<div id="hud">
+  <div><span class="pill">Synth</span><span id="state"></span></div>
+  <div style="opacity:.9">Upload: <code>Blueprint</code>/<code>Modules</code> • Toggle Debug: <code>`</code> • Reset: <code>R</code></div>
+  <div style="opacity:.8">Shell: <span id="shell"></span></div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  // ============================================================
+  // INPUT VALIDATOR (Rift Ascent style: AUTOWRAP + receipts)
+  // - Wraps event listeners to prevent silent crashes
+  // - Tracks bind-sites for unwrapped listeners (best-effort)
+  // - Provides strict mode for "unwrapped listener" violations
+  // - Tracks center-reticle placement contract
+  // ============================================================
+
+  const vstrip = document.getElementById('vstrip');
+  const vpanel = document.getElementById('vpanel');
+  const vsum   = document.getElementById('vsum');
+  const vStrict= document.getElementById('vStrict');
+  const vAutowrap = document.getElementById('vAutowrap');
+  const vViol  = document.getElementById('vViol');
+  const vRet   = document.getElementById('vRet');
+  const vPtr   = document.getElementById('vPtr');
+  const vLog   = document.getElementById('vLog');
+
+  const _now = ()=> (performance && performance.now) ? performance.now() : Date.now();
+
+  const IV = {
+    strict:false,
+    autoWrapped:0,
+    violations:[],
+    autowraps:[],
+    _wrapMap:new WeakMap(),
+    _origAdd:null,
+    _origRm:null,
+    lastPointer:null,
+    reticle:{on:false, x:0, y:0, W:0, H:0},
+    log:(kind,msg)=>{
+      try{
+        const t = (_now()/1000).toFixed(3);
+        const div = document.createElement('div');
+        div.className='entry';
+        div.textContent = `[${t}] ${kind}: ${msg}`;
+        vLog.prepend(div);
+        while(vLog.childNodes.length>32) vLog.removeChild(vLog.lastChild);
+      }catch(e){}
+    },
+    describeTarget:(t)=>{
+      try{
+        if(t===window) return 'window';
+        if(t===document) return 'document';
+        if(t && t.tagName) return t.tagName.toLowerCase() + (t.id?('#'+t.id):'');
+      }catch(e){}
+      return 'target';
+    },
+    wrap:(label, fn)=>{
+      if(typeof fn!=='function') return fn;
+      const existing = IV._wrapMap.get(fn);
+      if(existing) return existing;
+      const wrapped = function(ev){
+        try{ return fn.call(this, ev); }
+        catch(err){
+          const m = (err && err.message) ? err.message : String(err||'error');
+          IV.violations.push({at:_now(), type:'handler_throw', label, msg:m});
+          IV.log('VIOLATION', `${label} threw: ${m}`);
+        }
+      };
+      IV._wrapMap.set(fn, wrapped);
+      return wrapped;
+    },
+    _autoWrap:(target,type,listener)=>{
+      const existing = IV._wrapMap.get(listener);
+      if(existing) return existing;
+
+      const tname = IV.describeTarget(target);
+      const label = `${tname}.${type}`;
+
+      // capture bind-site
+      let stack="";
+      try{ throw new Error("AUTOWRAP_BIND_SITE"); }catch(err){ stack = (err && err.stack) ? String(err.stack) : ""; }
+      const lines = String(stack||"").split("\n").map(s=>String(s||"").trim()).filter(Boolean);
+      const skipRe = /(AUTOWRAP_BIND_SITE|IV\._autoWrap|EventTarget\.prototype\.addEventListener|IV\.wrap|INPUT VALIDATOR)/;
+      let where="";
+      for(const ln of lines){
+        const clean = ln.replace(/^at\s+/,"");
+        if(skipRe.test(clean)) continue;
+        if(/\.(js|html):\d+(:\d+)?/.test(clean) || /file:\/\//.test(clean)) { where = clean; break; }
+      }
+      if(!where){
+        for(const ln of lines){
+          const clean = ln.replace(/^at\s+/,"");
+          if(skipRe.test(clean)) continue;
+          where = clean; break;
+        }
+      }
+
+      const origin = (/\bIV\b|INPUT VALIDATOR|validator/i).test(where);
+
+            IV.autoWrapped++;
+      IV.autowraps.push({at:_now(), target:tname, type, label, where});
+      if(IV.autowraps.length>160) IV.autowraps.shift();
+
+      if(IV.strict && !origin){
+        IV.violations.push({at:_now(), type:'unwrapped_listener', label:`${label}${where?(' @ '+where):''}`});
+        IV.log('VIOLATION', `AUTOWRAP(strict): ${label}${where?(' @ '+where):''}`);
+      }else{
+        if(IV.strict && origin){ IV.log('AUTOWRAP', `AUTOWRAP(validator): ${label}${where?(' @ '+where):''}`); }
+        else IV.log('AUTOWRAP', `${label}${where?(' @ '+where):''}`);
+      }
+      return IV.wrap(label, listener);
+    },
+    installAutowrap:()=>{
+      if(IV._origAdd) return;
+      IV._origAdd = EventTarget.prototype.addEventListener;
+      IV._origRm  = EventTarget.prototype.removeEventListener;
+
+      EventTarget.prototype.addEventListener = function(type, listener, options){
+        // don't wrap non-functions
+        if(typeof listener !== 'function') return IV._origAdd.call(this, type, listener, options);
+        // already wrapped? ok
+        if(IV._wrapMap.get(listener)) return IV._origAdd.call(this, type, listener, options);
+        // auto-wrap
+        const w = IV._autoWrap(this, String(type), listener);
+        return IV._origAdd.call(this, type, w, options);
+      };
+
+      EventTarget.prototype.removeEventListener = function(type, listener, options){
+        const w = IV._wrapMap.get(listener) || listener;
+        return IV._origRm.call(this, type, w, options);
+      };
+
+      // global crash capture
+      try{
+        window.addEventListener('error', (ev)=>{ IV.log('ERROR', String(ev.message||ev.error||'window.error')); }, true);
+        window.addEventListener('unhandledrejection', (ev)=>{ IV.log('REJECT', String(ev.reason||'unhandledrejection')); }, true);
+      }catch(e){}
+    },
+    setStrict:(v)=>{
+      IV.strict = !!v;
+      vStrict.textContent = String(IV.strict);
+      IV.log('MODE', `strict=${IV.strict}`);
+    },
+    togglePanel:()=>{
+      vpanel.classList.toggle('show');
+    },
+    updateUI:()=>{
+      const violCount = IV.violations.length;
+      vViol.textContent = String(violCount);
+      vAutowrap.textContent = String(IV.autoWrapped);
+      const seedTag = (STATE && STATE.seedStr) ? ` • seed=${STATE.seedStr}` : '';
+      vsum.textContent = violCount ? `${violCount} violation(s)${seedTag}` : `OK • autowrap=${IV.autoWrapped}${seedTag}`;
+      vstrip.classList.toggle('bad', !!violCount);
+
+      // reticle contract display
+      if(IV.reticle.on){
+        vRet.textContent = `on @ ${IV.reticle.x.toFixed(1)},${IV.reticle.y.toFixed(1)} (W=${IV.reticle.W} H=${IV.reticle.H})`;
+      }else{
+        vRet.textContent = 'off';
+      }
+      vPtr.textContent = IV.lastPointer ? `${IV.lastPointer.type} ${IV.lastPointer.x.toFixed(1)},${IV.lastPointer.y.toFixed(1)}` : '—';
+      // blueprint/shell/module contracts
+      try{
+        if(typeof vSeed !== 'undefined') vSeed.textContent = (STATE && STATE.seedStr) ? `${STATE.seedStr} (${STATE.seedOk?'OK':'BAD'})` : '—';
+        vBp.textContent = blueprintLoaded ? 'loaded' : '—';
+        vShell.textContent = activeShellId ? activeShellId : '—';
+        const mShip = Modules.ship ? 'ship' : null;
+        const mScn  = Modules.scanner ? 'scanner' : null;
+        const mHud  = Modules.hud ? 'hud' : null;
+        const arr = [mShip,mScn,mHud].filter(Boolean);
+        vMods.textContent = arr.length ? (arr.join(', ')) : '—';
+      }catch(e){}
+
+      // reticle -> tile resolver
+      try{
+        if(IV.reticle.on && blueprintLoaded){
+          const rt = resolveReticleTile();
+          if(rt && rt.idx>=0 && rt.tile){
+            vTile.textContent = `idx=${rt.idx}  f${rt.tile.face} i${rt.tile.i} j${rt.tile.j}  dot=${rt.dot.toFixed(4)}`;
+          }else if(rt){
+            vTile.textContent = `—  dot=${(rt.dot??0).toFixed(4)}`;
+          }else{
+            vTile.textContent = '—';
+          }
+        }else{
+          vTile.textContent = '—';
+        }
+      }catch(e){ vTile.textContent='—'; }
+
+    },
+    validateReticle:()=>{
+      if(!IV.reticle.on) return;
+      const {x,y,W,H} = IV.reticle;
+      const eps = 0.5; // pixels
+      // DARPA contract: reticle must be at true canvas center when enabled
+      const cx = W*0.5, cy = H*0.5;
+      const dx = Math.abs(x - cx), dy = Math.abs(y - cy);
+      if(dx>eps || dy>eps){
+        IV.violations.push({at:_now(), type:'reticle_contract', label:`reticle drift dx=${dx.toFixed(2)} dy=${dy.toFixed(2)}`});
+        IV.log('VIOLATION', `reticle_contract dx=${dx.toFixed(2)} dy=${dy.toFixed(2)} expected ${cx.toFixed(1)},${cy.toFixed(1)} got ${x.toFixed(1)},${y.toFixed(1)}`);
+        // auto-correct by forcing center next frame (engine should comply)
+      }
+    }
+  };
+
+  IV.installAutowrap();
+
+  // panel/strict hotkeys (H/I)
+  addEventListener('keydown', (e)=>{
+    const k = (e.key||'').toLowerCase();
+    if(k==='h'){ IV.togglePanel(); }
+    if(k==='i'){ IV.setStrict(!IV.strict); }
+
+  // ---------- validator log download ----------
+  function _orderedEngineLogs(){
+    const arr=[];
+    for(let k=0;k<LOG_N;k++){
+      const idx = (logHead + k) % LOG_N;
+      const s = logs[idx];
+      if(s) arr.push(s);
+    }
+    return arr;
+  }
+  function validatorDump(){
+    const sh = shells.get(activeShellId);
+    const dump = {
+      at: new Date().toISOString(),
+      strict: IV.strict,
+      autowrapCount: IV.autoWrapped,
+      autowraps: IV.autowraps.slice(-200),
+      violations: IV.violations.slice(-400),
+      lastPointer: IV.lastPointer,
+      reticle: IV.reticle,
+      state: {
+        bootState, buildState,
+        blueprintLoaded,
+        activeShellId,
+        shell: sh ? {shellId: sh.shellId, seed: sh.seed, routeTiles: sh.routeTiles.length, mappedCount: sh.mappedCount, constructed: sh.constructed} : null,
+        modules: {ship: !!Modules.ship, scanner: !!Modules.scanner, hud: !!Modules.hud},
+      },
+      receipts: receipts.slice(-400),
+      engineLogs: _orderedEngineLogs(),
+    };
+    return dump;
+  }
+  function downloadText(filename, text){
+    const blob = new Blob([text], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 250);
+  }
+  if(vDl){
+    vDl.addEventListener('click', ()=>{
+      try{
+        const dump = validatorDump();
+        downloadText(`synth_validator_log_${Date.now()}.json`, JSON.stringify(dump, null, 2));
+        IV.log('LOG', 'validator log downloaded');
+      }catch(e){
+        IV.log('ERROR', 'download failed: ' + (e && e.message ? e.message : e));
+      }
+    });
+  }
+  }, {passive:true});
+
+
+
+  // ============================================================
+  // SYNTH v13 (Ready Spec)
+  // - Index starts EMPTY until blueprint uploaded.
+  // - Uses cube-map quad grid (GW3 style) for tile identity.
+  // - Scanner is a 3D probe (iteration4-style) with a top hover window.
+  // - Scanner follows edge lines and "maps tiles" (writes claims) step-by-step.
+  // - No full "built" perimeter until ALL mapped tiles complete (truth phases).
+  // - Every directive action requires ping GRANT/DENY with receipts.
+  // - Fail-closed SAFE_MODE.
+  // ============================================================
+
+  const canvas = document.getElementById('sim');
+
+  // ---------- Global deterministic state ----------
+  var blueprintLoaded = false;
+  var currentBlueprintRaw = null;
+  var STATE = { seedStr: '7F021AE4', seedOk: true };
+
+  const ctx = canvas.getContext('2d', { alpha:false, desynchronized:true });
+  const hudState = document.getElementById('state');
+  const hudShell = document.getElementById('shell');
+
+  const overlay = document.getElementById('overlay');
+  const ov = document.getElementById('ov');
+  const logEl = document.getElementById('log');
+
+  const btnReset = document.getElementById('btnReset');
+  const btnLoad = document.getElementById('btnLoad');
+  const btnOverlay = document.getElementById('btnOverlay');
+  const fileInput = document.getElementById('file');
+  const seedInput = document.getElementById('seedInput');
+  const btnSeedNew = document.getElementById('btnSeedNew');
+
+  // ---------- Seed Input Validator (Rift-style contract) ----------
+  function _randHex8(){
+    // prefer crypto for better entropy; fallback deterministic-ish Math.random
+    if(window.crypto && crypto.getRandomValues){
+      const a = new Uint32Array(1); crypto.getRandomValues(a);
+      return ('00000000' + (a[0]>>>0).toString(16).toUpperCase()).slice(-8);
+    }
+    return ('00000000' + ((Math.random()*0xFFFFFFFF)>>>0).toString(16).toUpperCase()).slice(-8);
+  }
+  function normalizeSeedStr(s){
+    s = String(s ?? '').trim().toUpperCase();
+    if(!s) return '';
+    // allow hex only; strip 0x if present
+    if(s.startsWith('0X')) s = s.slice(2);
+    // collapse internal spaces
+    s = s.replace(/\s+/g,'');
+    return s;
+  }
+  function validateSeedStr(s){
+    const ss = normalizeSeedStr(s);
+    if(!ss) return {ok:false, code:'SEED_EMPTY', msg:'Seed required'};
+    if(ss.length < 4 || ss.length > 16) return {ok:false, code:'SEED_LEN', msg:'Seed must be 4–16 hex chars'};
+    if(!/^[0-9A-F]+$/.test(ss)) return {ok:false, code:'SEED_HEX', msg:'Seed must be hex (0-9 A-F)'};
+    return {ok:true, seedStr:ss};
+  }
+  function applySeed(seedStr, source='seed'){
+    const v = validateSeedStr(seedStr);
+    if(!v.ok){
+      STATE.seedOk = false;
+      seedInput.classList.add('bad');
+      IV.violations.push({at:_now(), type:'seed_contract', label:`${v.code}: ${v.msg}`, source});
+      IV.log('VIOLATION', `seed_contract ${v.code}: ${v.msg}`);
+      IV.updateUI();
+      return false;
+    }
+    STATE.seedOk = true;
+    seedInput.classList.remove('bad');
+    STATE.seedStr = v.seedStr;
+
+    // keep UI normalized
+    seedInput.value = STATE.seedStr;
+
+    IV.log('SEED', `seed=${STATE.seedStr} source=${source}`);
+
+    // if we already have a blueprint loaded, rebuild deterministically under new seed
+    try{
+      if(blueprintLoaded && currentBlueprintRaw){
+        loadBlueprint(currentBlueprintRaw, false);
+        IV.log('SEED', 'recompiled shell under new seed');
+      }
+    }catch(e){
+      IV.violations.push({at:_now(), type:'seed_recompile', label:`recompile failed: ${e.message||e}`, source});
+      IV.log('VIOLATION', `seed_recompile failed: ${e.message||e}`);
+    }
+
+    IV.updateUI();
+    return true;
+  }
+
+  // init seed from input or default
+  if(seedInput){
+    const initVal = normalizeSeedStr(seedInput.value) || STATE.seedStr;
+    seedInput.value = initVal;
+    applySeed(initVal, 'init');
+
+    seedInput.addEventListener('keydown', IV.wrap('seed_keydown', (ev)=>{
+      if(ev.key === 'Enter'){
+        applySeed(seedInput.value, 'enter');
+        seedInput.blur();
+      }
+    }));
+    seedInput.addEventListener('blur', IV.wrap('seed_blur', ()=>{
+      applySeed(seedInput.value, 'blur');
+    }));
+  }
+  if(btnSeedNew){
+    btnSeedNew.addEventListener('click', IV.wrap('seed_new', ()=>{
+      const s = _randHex8();
+      seedInput.value = s;
+      applySeed(s, 'new');
+    }));
+  }
+
+
+  const btnLoadShip = document.getElementById('btnLoadShip');
+  const btnLoadScanner = document.getElementById('btnLoadScanner');
+  const btnLoadHud = document.getElementById('btnLoadHud');
+  const fileShip = document.getElementById('fileShip');
+  const fileScanner = document.getElementById('fileScanner');
+  const fileHud = document.getElementById('fileHud');
+
+  // ---------- module system ----------
+  // Modules are optional JSON "blueprints" that attach behavior/rendering to the empty shell.
+  // This keeps Synth itself lightweight: shell geometry is data; modules are executors/skins.
+  const Modules = {
+    ship: null,
+    scanner: null,
+    hud: null,
+  };
+
+  function setModule(type, mod){
+    Modules[type] = mod;
+    // (was logPush — never defined, so every module attach threw.)
+    logLine(`MODULE_LOADED ${type} id=${mod.id||'?' } style=${mod.style||'default'}`);
+    // The validator panel only refreshes on seed apply — refresh it
+    // here too, or the modules row stays stale after a load.
+    try{ IV.updateUI(); }catch(e){}
+  }
+
+  function parseModuleJSON(obj){
+    if(!obj || typeof obj!=='object') throw new Error('Invalid module JSON');
+    if(!obj.moduleType) throw new Error('moduleType missing');
+    const t = String(obj.moduleType).toLowerCase();
+    if(!['ship','scanner','hud'].includes(t)) throw new Error('Unknown moduleType '+t);
+    const mod = {
+      moduleType: t,
+      id: obj.id || (t.toUpperCase()+'_MODULE'),
+      style: obj.style || 'iteration4',
+      config: obj.config || {},
+      hooks: null,
+      raw: obj
+    };
+    if(typeof obj.script === 'string' && obj.script.trim()){
+      // Optional user-supplied code. Runs in a minimal sandboxed Function with a constrained API.
+      // NOTE: In a real deployment you'd isolate this further; for local prototypes this is sufficient.
+      const api = {
+        clamp:(x,a,b)=>x<a?a:(x>b?b:x),
+        lerp:(a,b,t)=>a+(b-a)*t,
+        rnd:()=>rng(), // uses Synth deterministic RNG
+        now:()=>tNow,
+      };
+      try{
+        // The documented hook format assigns `hooks = {...}` — declare
+        // it first: under "use strict" an assignment to an undeclared
+        // variable throws, so the default HUD module could never load.
+        const fn = new Function('api','config','state', '"use strict";\nlet hooks;\n'+obj.script+'\n;return (typeof hooks!=="undefined"?hooks:null);');
+        mod.hooks = fn(api, mod.config, { });
+      }catch(e){
+        throw new Error('Module script error: '+e.message);
+      }
+    }
+    return mod;
+  }
+
+  function readJSONFile(file, cb){
+    const r = new FileReader();
+    r.onload = () => {
+      try{
+        const obj = JSON.parse(String(r.result||'{}'));
+        cb(null, obj);
+      }catch(e){ cb(e); }
+    };
+    r.onerror = () => cb(new Error('File read failed'));
+    r.readAsText(file);
+  }
+
+
+  // ---------- deterministic core ----------
+  const HZ = 120;
+  const DT = 1 / HZ;
+  let acc = 0;
+  let last = performance.now();
+  let tick = 0;
+
+  let dpr = 1, W=0, H=0;
+  function resize(){
+    dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    W = Math.floor(innerWidth * dpr);
+    H = Math.floor(innerHeight * dpr);
+    canvas.width = W; canvas.height = H;
+  }
+  addEventListener('resize', resize, {passive:true});
+  resize();
+
+  // ---------- tiny math ----------
+  const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const len=(v)=>Math.hypot(v.x,v.y,v.z);
+  const norm=(v)=>{ const l=len(v)||1; return {x:v.x/l,y:v.y/l,z:v.z/l}; };
+  const dot=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z;
+  const cross=(a,b)=>({x:a.y*b.z-a.z*b.y,y:a.z*b.x-a.x*b.z,z:a.x*b.y-a.y*b.x});
+  const add=(a,b)=>({x:a.x+b.x,y:a.y+b.y,z:a.z+b.z});
+  const mul=(a,s)=>({x:a.x*s,y:a.y*s,z:a.z*s});
+  const slerp=(a,b,t)=>{
+    let cos = clamp(dot(a,b), -1, 1);
+    if(cos>0.9995) return norm({x:lerp(a.x,b.x,t), y:lerp(a.y,b.y,t), z:lerp(a.z,b.z,t)});
+    const th = Math.acos(cos);
+    const s = Math.sin(th);
+    const w1 = Math.sin((1-t)*th)/s;
+    const w2 = Math.sin(t*th)/s;
+    return {x:a.x*w1+b.x*w2, y:a.y*w1+b.y*w2, z:a.z*w1+b.z*w2};
+  };
+
+  // ---------- quaternion ----------
+  const quat = (x=0,y=0,z=0,w=1)=>({x,y,z,w});
+  const qmul=(a,b)=>({
+    w:a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    x:a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+    y:a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+    z:a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w
+  });
+  const qnorm=(q)=>{ const l=Math.hypot(q.x,q.y,q.z,q.w)||1; return {x:q.x/l,y:q.y/l,z:q.z/l,w:q.w/l}; };
+  const qrot=(q,v)=>{
+    const p = {x:v.x,y:v.y,z:v.z,w:0};
+    const qi = {x:-q.x,y:-q.y,z:-q.z,w:q.w};
+    const r = qmul(qmul(q,p),qi);
+    return {x:r.x,y:r.y,z:r.z};
+  };
+  
+  const qinv=(q)=>({x:-q.x,y:-q.y,z:-q.z,w:q.w});
+  const quatAxisAngle=(axis,ang)=>{
+    const h = ang*0.5, s = Math.sin(h);
+    const n = norm(axis);
+    return qnorm({x:n.x*s, y:n.y*s, z:n.z*s, w:Math.cos(h)});
+  };
+  const rotateAroundAxis=(v,axis,ang)=>{
+    // Rodrigues rotation (axis must be nonzero)
+    const n = norm(axis);
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const term1 = mul(v,c);
+    const term2 = mul(cross(n,v), s);
+    const term3 = mul(n, dot(n,v)*(1-c));
+    return add(add(term1, term2), term3);
+  };
+const quatFromTo=(a,b)=>{
+    const v = cross(a,b);
+    const w = 1 + dot(a,b);
+    if(w < 1e-6){
+      const axis = Math.abs(a.x) < 0.9 ? cross(a,{x:1,y:0,z:0}) : cross(a,{x:0,y:1,z:0});
+      const n = norm(axis);
+      return {x:n.x,y:n.y,z:n.z,w:0};
+    }
+    return qnorm({x:v.x,y:v.y,z:v.z,w});
+  };
+  const qslerp=(a,b,t)=>{
+    let cos = a.x*b.x+a.y*b.y+a.z*b.z+a.w*b.w;
+    if(cos < 0){ b = {x:-b.x,y:-b.y,z:-b.z,w:-b.w}; cos = -cos; }
+    if(cos > 0.9995){
+      return qnorm({x:lerp(a.x,b.x,t), y:lerp(a.y,b.y,t), z:lerp(a.z,b.z,t), w:lerp(a.w,b.w,t)});
+    }
+    const th = Math.acos(clamp(cos,-1,1));
+    const s = Math.sin(th);
+    const w1 = Math.sin((1-t)*th)/s;
+    const w2 = Math.sin(t*th)/s;
+    return {x:a.x*w1 + b.x*w2, y:a.y*w1 + b.y*w2, z:a.z*w1 + b.z*w2, w:a.w*w1 + b.w*w2};
+  };
+
+  // ---------- debug + error capture ----------
+  const LOG_N = 90;
+  const logs = new Array(LOG_N);
+  let logHead = 0;
+  function logLine(s){
+    logs[logHead] = `[${tick}] ${s}`;
+    logHead = (logHead + 1) % LOG_N;
+  }
+  let lastError = '';
+  function setError(e){
+    lastError = (e && e.stack) ? String(e.stack) : String(e||'Unknown error');
+    logLine(`ERROR: ${String(e&&e.message?e.message:e)}`);
+  }
+  // Module load failures have no other handler: report them the same
+  // way the engine reports errors (log + validator violation) instead
+  // of throwing a ReferenceError at the call site — safeFail itself
+  // was never defined, so every module read/parse error threw.
+  function safeFail(code, err){
+    const m = (err && err.message) ? err.message : String(err||'error');
+    setError(err);
+    logLine(`MODULE FAIL ${code}: ${m}`);
+    try{
+      IV.violations.push({at:_now(), type:'module_fail', label:`${code}: ${m}`});
+      IV.updateUI();
+    }catch(e){}
+  }
+  window.addEventListener('error', (ev)=>{ setError(ev.error || ev.message || 'window.error'); }, true);
+  window.addEventListener('unhandledrejection', (ev)=>{ setError(ev.reason || 'unhandledrejection'); }, true);
+
+  // ---------- input ----------
+  const keys = new Set();
+  addEventListener('keydown', (e)=>{
+    if(e.key === '`'){ toggleOverlay(); e.preventDefault(); return; }
+    if(e.key === 'r' || e.key === 'R'){ hardReset(); e.preventDefault(); return; }
+    if(e.key === 'c' || e.key === 'C'){ toggleReticle(); e.preventDefault(); return; }
+    keys.add(e.key.toLowerCase());
+  });
+  addEventListener('keyup', (e)=> keys.delete(e.key.toLowerCase()));
+
+  
+  // ---------- center reticle ----------
+  let showReticle = false;
+  const btnReticle = document.getElementById('btnReticle');
+  function toggleReticle(){
+    showReticle = !showReticle;
+    logLine(`[UI] reticle=${showReticle ? 'on' : 'off'}`);
+  }
+  btnReticle.addEventListener('click', toggleReticle);
+
+// ---------- colors ----------
+  const COL_MAG = 'rgba(255,60,210,';
+  const COL_CYN = 'rgba(120,255,255,';
+  const COL_WHT = 'rgba(240,250,255,';
+  const COL_ORG = 'rgba(255,180,60,'; // warm accent for scanner pip
+
+  // ---------- camera + planet ----------
+  const R_FRAC = 0.44;
+  let qCam = quat();               // rotates world so "eye" stays locked
+  let eye = norm({x:0.12,y:0.04,z:0.992}); // Master Controller "eye" direction
+  let lastUpW = {x:0,y:1,z:0}; // roll-stabilized camera up hint (prevents pole flips)
+  const CAM_FOLLOW = 8.0;
+  const REF_DIR = norm({x:0, y:0.05, z:1}); // slight tilt
+
+  // Movement only for eye (debug/inspection). Scanner does construction.
+  
+  // Movement on the sphere surface (GW3-style):
+// - Treat `eye` as a point on the unit sphere (surface anchor).
+// - Convert input (WASD / drag) into a tangent direction in *screen space*.
+// - Advance along a great-circle by rotating `eye` around the appropriate axis.
+//
+// This avoids yaw/pitch singularities and allows full 360° traversal with no pole lock.
+let lookVX = 0, lookVY = 0;  // smoothed input (unitless)
+let drag = false, lastMX = 0, lastMY = 0, mouseDX = 0, mouseDY = 0;
+
+window.addEventListener('mousedown',(e)=>{ if(e.button===0){ drag=true; lastMX=e.clientX; lastMY=e.clientY; }});
+window.addEventListener('mouseup',()=>{ drag=false; });
+window.addEventListener('mouseleave',()=>{ drag=false; });
+window.addEventListener('mousemove',(e)=>{
+  if(!drag) return;
+  const dx = e.clientX-lastMX, dy = e.clientY-lastMY;
+  lastMX=e.clientX; lastMY=e.clientY;
+  mouseDX += dx; mouseDY += dy;
+});
+
+function projectToTangent(v, n){
+  // remove normal component
+  return add(v, mul(n, -dot(v,n)));
+}
+
+
+// ---------- stable camera basis + quaternion from basis ----------
+// Builds an orthonormal basis given forward direction on the sphere.
+// Uses an up-hint for roll continuity; falls back safely near poles.
+function basisFromForward(fwd, upHint){
+  const F = norm(fwd);
+  let U = projectToTangent(upHint, F);
+  if(len(U) < 1e-4){
+    // fallback up hint if too parallel
+    const alt = Math.abs(F.y) < 0.9 ? {x:0,y:1,z:0} : {x:1,y:0,z:0};
+    U = projectToTangent(alt, F);
+  }
+  U = norm(U);
+  let R = cross(U, F);
+  if(len(R) < 1e-4){
+    // last resort
+    const alt = Math.abs(F.x) < 0.9 ? {x:1,y:0,z:0} : {x:0,y:0,z:1};
+    U = norm(projectToTangent(alt, F));
+    R = cross(U, F);
+  }
+  R = norm(R);
+  // re-orthogonalize U to kill drift
+  U = norm(cross(F, R));
+  return {R, U, F};
+}
+
+// Quaternion from a rotation matrix (rows).
+function quatFromMat3Rows(m00,m01,m02, m10,m11,m12, m20,m21,m22){
+  const tr = m00 + m11 + m22;
+  let q;
+  if(tr > 0){
+    const S = Math.sqrt(tr + 1.0) * 2; // 4qw
+    q = {w:0.25*S, x:(m21 - m12)/S, y:(m02 - m20)/S, z:(m10 - m01)/S};
+  }else if((m00 > m11) && (m00 > m22)){
+    const S = Math.sqrt(1.0 + m00 - m11 - m22) * 2; // 4qx
+    q = {w:(m21 - m12)/S, x:0.25*S, y:(m01 + m10)/S, z:(m02 + m20)/S};
+  }else if(m11 > m22){
+    const S = Math.sqrt(1.0 + m11 - m00 - m22) * 2; // 4qy
+    q = {w:(m02 - m20)/S, x:(m01 + m10)/S, y:0.25*S, z:(m12 + m21)/S};
+  }else{
+    const S = Math.sqrt(1.0 + m22 - m00 - m11) * 2; // 4qz
+    q = {w:(m10 - m01)/S, x:(m02 + m20)/S, y:(m12 + m21)/S, z:0.25*S};
+  }
+  return qnorm({x:q.x,y:q.y,z:q.z,w:q.w});
+}
+
+// World->camera quaternion so that:
+// camera x = dot(v, R), camera y = dot(v, U), camera z = dot(v, F)
+function worldToCamQuatFromBasis(b){
+  return quatFromMat3Rows(
+    b.R.x, b.R.y, b.R.z,
+    b.U.x, b.U.y, b.U.z,
+    b.F.x, b.F.y, b.F.z
+  );
+}
+
+function eyeStep(){
+  // Input (keyboard + drag). W/S = forward/back on screen, A/D = left/right.
+  let ix = 0, iy = 0;
+  if(keys.has('a')||keys.has('arrowleft'))  ix -= 1;
+  if(keys.has('d')||keys.has('arrowright')) ix += 1;
+  if(keys.has('w')||keys.has('arrowup'))    iy += 1;
+  if(keys.has('s')||keys.has('arrowdown'))  iy -= 1;
+
+  // Mouse drag adds continuous input (pixels -> unitless impulse)
+  const MOUSE_SENS = 0.010; // feel-good; not radians anymore (we convert later)
+  ix += mouseDX * MOUSE_SENS;
+  iy -= mouseDY * MOUSE_SENS; // drag up = move "up" on screen
+  mouseDX = 0; mouseDY = 0;
+
+  // Invert controls to match "move around object" feel (GW3-style)
+  ix = -ix;
+  iy = -iy;
+
+  // Smooth like GW3 (critical damping-ish)
+  const ACCEL = 10.0;         // 1/s
+  const DAMP  = 14.0;         // 1/s
+  const MAXI  = 2.2;          // clamp input magnitude
+
+  // Normalize keyboard diagonals so WASD isn't faster
+  if(Math.abs(ix) <= 1 && Math.abs(iy) <= 1){
+    const mag = Math.hypot(ix,iy);
+    if(mag > 1 && mag > 1e-6){ ix/=mag; iy/=mag; }
+  }
+
+  lookVX += (ix - lookVX) * (1 - Math.exp(-ACCEL*DT));
+  lookVY += (iy - lookVY) * (1 - Math.exp(-ACCEL*DT));
+
+  const noInput = (Math.abs(ix)<1e-3 && Math.abs(iy)<1e-3);
+  const damp = noInput ? DAMP*1.35 : DAMP;
+  lookVX *= Math.exp(-damp*DT);
+  lookVY *= Math.exp(-damp*DT);
+
+  lookVX = clamp(lookVX, -MAXI, MAXI);
+  lookVY = clamp(lookVY, -MAXI, MAXI);
+
+  // If no movement, keep stable.
+  const inMag = Math.hypot(lookVX, lookVY);
+  if(inMag < 1e-4) return;
+
+  // Derive screen axes in world space from a STABLE basis at the current surface anchor.
+  // This removes pole flips/jitter caused by quaternion roll ambiguity near ±Z.
+  const bNow = basisFromForward(eye, lastUpW);
+  const camRightW = bNow.R;
+  const camUpW    = bNow.U;
+
+  // Build desired tangent direction in world space, aligned to screen axes.
+  let tdir = add(
+    mul(projectToTangent(camRightW, eye), lookVX),
+    mul(projectToTangent(camUpW,    eye), lookVY)
+  );
+  const tl = len(tdir);
+  if(tl < 1e-6) return;
+  tdir = mul(tdir, 1/tl);
+
+  // Move along great circle in direction `tdir`.
+  // Rotate `eye` around axis perpendicular to (eye, tdir).
+  const axis = cross(tdir, eye);
+  const al = len(axis);
+  if(al < 1e-6) return;
+
+  // Speed feels like "walk radius before speeding up" because camera follow is filtered separately.
+  const BASE_SPEED = 1.65; // rad/s along surface (tune here)
+  const ang = clamp(BASE_SPEED * DT * inMag, 0, 0.30); // per-step cap keeps it stable
+
+  eye = norm(rotateAroundAxis(eye, axis, ang));
+}
+
+
+
+  function cameraStep(){
+  // GW3 rule: keep the surface anchor (eye) at screen center with STABLE roll.
+  // Build a world-space camera basis from `eye` and a roll-continuity up-hint.
+  const b = basisFromForward(eye, lastUpW);
+  lastUpW = b.U;
+  const qTarget = worldToCamQuatFromBasis(b);
+
+  const t = 1 - Math.exp(-CAM_FOLLOW * DT);
+  qCam = qslerp(qCam, qTarget, t);
+}
+
+  function tangentBasis(n){
+    const up = Math.abs(n.y) < 0.95 ? {x:0,y:1,z:0} : {x:1,y:0,z:0};
+    const tx = norm(cross(up, n));
+    const ty = norm(cross(n, tx));
+    return {tx, ty};
+  }
+
+  // ---------- cube-map grid (GW3 style tile identity) ----------
+  let N = 28; // grid density
+  let V=null, E=null, sx=null, sy=null, sz=null, builtN=-1;
+
+  function cubePoint(face, s, t){
+    switch(face){
+      case 0: return {x:1,  y:t,  z:-s};
+      case 1: return {x:-1, y:t,  z:s};
+      case 2: return {x:s,  y:1,  z:-t};
+      case 3: return {x:s,  y:-1, z:t};
+      case 4: return {x:s,  y:t,  z:1};
+      case 5: return {x:-s, y:t,  z:-1};
+      default:return {x:0,y:0,z:1};
+    }
+  }
+
+  function rebuildGrid(){
+    builtN = N;
+    const vertsPerFace = (N+1)*(N+1);
+    const vCount = 6*vertsPerFace;
+    V = new Float32Array(vCount*3);
+    sx = new Float32Array(vCount);
+    sy = new Float32Array(vCount);
+    sz = new Float32Array(vCount);
+
+    let vi=0;
+    for(let face=0; face<6; face++){
+      for(let j=0;j<=N;j++){
+        const t = -1 + (2*j)/N;
+        for(let i=0;i<=N;i++){
+          const s = -1 + (2*i)/N;
+          const v = norm(cubePoint(face,s,t));
+          V[vi*3+0]=v.x; V[vi*3+1]=v.y; V[vi*3+2]=v.z;
+          vi++;
+        }
+      }
+    }
+    // edges: connect lattice neighbors within each face
+    const edges = [];
+    const faceBase = (face)=> face*vertsPerFace;
+    for(let face=0; face<6; face++){
+      const base = faceBase(face);
+      for(let j=0;j<=N;j++){
+        for(let i=0;i<=N;i++){
+          const idx = base + j*(N+1)+i;
+          if(i<N) edges.push(idx, idx+1);
+          if(j<N) edges.push(idx, idx+(N+1));
+        }
+      }
+    }
+    E = new Uint32Array(edges);
+  }
+
+  function faceIJFromSphere(dir){
+    // choose face by max abs component
+    const ax = Math.abs(dir.x), ay=Math.abs(dir.y), az=Math.abs(dir.z);
+    let face=4; // +Z default
+    if(ax>=ay && ax>=az) face = dir.x>=0 ? 0 : 1;
+    else if(ay>=ax && ay>=az) face = dir.y>=0 ? 2 : 3;
+    else face = dir.z>=0 ? 4 : 5;
+
+    // compute s,t per face (inverse of cubePoint)
+    let s=0,t=0;
+    switch(face){
+      case 0: s = -dir.z/ax; t = dir.y/ax; break; // +X
+      case 1: s =  dir.z/ax; t = dir.y/ax; break; // -X
+      case 2: s =  dir.x/ay; t = -dir.z/ay; break; // +Y
+      case 3: s =  dir.x/ay; t =  dir.z/ay; break; // -Y
+      case 4: s =  dir.x/az; t =  dir.y/az; break; // +Z
+      case 5: s = -dir.x/az; t =  dir.y/az; break; // -Z
+    }
+    // map [-1,1] -> [0,N]
+    const i = clamp(Math.round((s+1)*0.5*N), 0, N);
+    const j = clamp(Math.round((t+1)*0.5*N), 0, N);
+    return {face,i,j};
+  }
+
+  function tileKey(t){ return `f${t.face}i${t.i}j${t.j}`; }
+
+  if(builtN!==N) rebuildGrid();
+
+  // ---------- projection ----------
+  function projectDir(v){
+    const r = qrot(qCam, v);
+    if(r.z <= 0) return null;
+    const R = Math.min(W,H)*R_FRAC;
+    const cx=W*0.5, cy=H*0.5;
+    return {x:cx + r.x*R, y:cy - r.y*R, z:clamp(r.z,0,1), rv:r};
+  }
+  
+  // ---------- reticle resolver (DARPA contract) ----------
+  // Resolves the tile under the CENTER reticle (screen center) by casting the
+  // forward camera direction back into world space and selecting the nearest
+  // route tile direction (max dot). This is deterministic and lightweight.
+  function reticleWorldDir(){
+    // In camera space, the forward ray is +Z.
+    // projectDir uses r = qrot(qCam, v_world). So inverse is v_world = qrot(qinv(qCam), r_cam).
+    return norm(qrot(qinv(qCam), {x:0,y:0,z:1}));
+  }
+  function resolveReticleTile(){
+    const sh = shells.get(activeShellId);
+    if(!sh || !sh.routeDirs || !sh.routeDirs.length) return null;
+    const d = reticleWorldDir();
+    let bestI = -1, bestDot = -1;
+    // scan: routeDirs is usually small (< a few thousand). Cheap each frame.
+    for(let i=0;i<sh.routeDirs.length;i++){
+      const v = sh.routeDirs[i];
+      const s = dot(d, v);
+      if(s > bestDot){ bestDot=s; bestI=i; }
+    }
+    // require strong alignment so we don't lie
+    if(bestI<0 || bestDot < 0.985) return {idx:-1, dot:bestDot, tile:null};
+    return {idx:bestI, dot:bestDot, tile: sh.routeTiles[bestI] || null};
+  }
+
+  function preprojectGrid(){
+    const vCount = V.length/3;
+    for(let i=0;i<vCount;i++){
+      const v = {x:V[i*3+0], y:V[i*3+1], z:V[i*3+2]};
+      const p = projectDir(v);
+      if(!p){ sz[i]=0; continue; }
+      sx[i]=p.x; sy[i]=p.y; sz[i]=p.z;
+    }
+  }
+
+  // ---------- shell registry ----------
+  const shells = new Map();
+  const shellBySeed = new Map();
+  let activeShellId = '';
+  const FALLBACK_BLUEPRINT = {"shellId":"SHELL_OCTAGON_ALPHA","origin":{"x":0.1,"y":0.02,"z":0.994},"pivots":[{"id":0,"u":0.14,"v":0.0},{"id":1,"u":0.098995,"v":0.098995},{"id":2,"u":0.0,"v":0.14},{"id":3,"u":-0.098995,"v":0.098995},{"id":4,"u":-0.14,"v":0.0},{"id":5,"u":-0.098995,"v":-0.098995},{"id":6,"u":-0.0,"v":-0.14},{"id":7,"u":0.098995,"v":-0.098995}],"edges":[{"a":0,"b":1},{"a":1,"b":2},{"a":2,"b":3},{"a":3,"b":4},{"a":4,"b":5},{"a":5,"b":6},{"a":6,"b":7},{"a":7,"b":0}],"rules":{"perimeterFirst":true,"mustValidateAll":true}};
+
+
+  // ---------- seed hashing (FNV-1a 32-bit) ----------
+  function fnv1a32(str){
+    let h = 0x811c9dc5;
+    for(let i=0;i<str.length;i++){
+      h ^= str.charCodeAt(i);
+      h = (h + ((h<<1) + (h<<4) + (h<<7) + (h<<8) + (h<<24))) >>> 0;
+    }
+    return h >>> 0;
+  }
+  function canonicalizeBlueprint(bp){
+    const piv = (bp.pivots||[]).map(p=>({u:+p.u, v:+p.v, id:p.id??null}));
+    const ed = (bp.edges||[]).map(e=>({a:e.a|0, b:e.b|0}));
+    ed.sort((x,y)=>(x.a-y.a)||(x.b-y.b));
+    return JSON.stringify({shellId:String(bp.shellId||''), origin:bp.origin?{x:+bp.origin.x,y:+bp.origin.y,z:+bp.origin.z}:null, pivots:piv, edges:ed});
+  }
+
+  function setActiveShell(id){
+    activeShellId = id;
+    const sh = shells.get(id);
+    hudShell.textContent = sh ? `${sh.shellId}  seed=${sh.seed.toString(16).padStart(8,'0').toUpperCase()}  tiles=${sh.routeTiles.length}` : '(none)';
+  }
+
+  // ---------- ping protocol ----------
+  const Deny = {OK:0, UNKNOWN_SHELL:1, SHELL_MISMATCH:2, OUTSIDE_SHELL:3, INVALID_TARGET:4, TIMEOUT:5, INTERNAL_ERR:6};
+  const DenyName = Object.fromEntries(Object.entries(Deny).map(([k,v])=>[v,k]));
+  const PING_TTL = 60;
+  let reqSeq = 1;
+  let inflight = null;
+  const receipts = [];
+
+  const SCN = {
+    id: 1,
+    name: 'SYNTH-SCN',
+    pos: norm({x:-0.18,y:0.10,z:0.978}),
+    boundShellId: '',
+    boundSeed: 0,
+    targetDir: norm({x:-0.18,y:0.10,z:0.978}),
+    mode: 'IDLE' // IDLE | MOVING | WRITING
+  };
+
+  function pingRequest(shellId, shellSeed, action, target){
+    return {reqId:reqSeq++, tick, scannerId:SCN.id, shellId, shellSeed, action, target};
+  }
+
+  function scannerHandlePing(req){
+    const sh = shells.get(req.shellId);
+    if(!sh) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.UNKNOWN_SHELL};
+    if(sh.seed !== req.shellSeed) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.SHELL_MISMATCH};
+
+    if(SCN.boundShellId !== req.shellId){
+      SCN.boundShellId = req.shellId;
+      SCN.boundSeed = req.shellSeed;
+      SCN.name = `SYNTH-SCN-${String(SCN.id).padStart(2,'0')}-${req.shellSeed.toString(16).padStart(8,'0').toUpperCase()}`;
+      logLine(`SCANNER BIND ${SCN.name}`);
+    }
+
+    try{
+      if(req.action === 'NOOP'){
+        return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'GRANT', code:Deny.OK, receipt:{tick, action:'NOOP'}};
+      }
+      if(req.action === 'MOVE_TO_TILE'){
+        const idx = req.target|0;
+        if(idx<0 || idx>=sh.routeTiles.length) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.INVALID_TARGET};
+        return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'GRANT', code:Deny.OK, receipt:{tick, action:'MOVE_TO_TILE', tile:idx}};
+      }
+            if(req.action === 'MOVE_TO_PIVOT'){
+        const idx = req.target|0;
+        if(idx<0 || idx>=sh.pivotDirs.length) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.INVALID_TARGET};
+        return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'GRANT', code:Deny.OK, receipt:{tick, action:'MOVE_TO_PIVOT', pivot:idx}};
+      }
+      if(req.action === 'SCAN_PIVOT'){
+        const idx = req.target|0;
+        if(idx<0 || idx>=sh.pivotDirs.length) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.INVALID_TARGET};
+        const td = sh.pivotDirs[idx];
+        if(dot(SCN.pos, td) < 0.99925) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.OUTSIDE_SHELL};
+        return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'GRANT', code:Deny.OK, receipt:{tick, action:'SCAN_PIVOT', pivot:idx}};
+      }
+if(req.action === 'WRITE_TILE'){
+        const idx = req.target|0;
+        if(idx<0 || idx>=sh.routeTiles.length) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.INVALID_TARGET};
+        const td = sh.routeDirs[idx];
+        // only allow write if very close
+        if(dot(SCN.pos, td) < 0.99925) return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.OUTSIDE_SHELL};
+        return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'GRANT', code:Deny.OK, receipt:{tick, action:'WRITE_TILE', tile:idx}};
+      }
+      return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.INVALID_TARGET};
+    }catch(e){
+      setError(e);
+      return {reqId:req.reqId, scannerId:SCN.id, shellId:req.shellId, status:'DENY', code:Deny.INTERNAL_ERR};
+    }
+  }
+
+  // ---------- boot + build states ----------
+  const Boot = {COLD:'COLD', POST:'POST', PING_TEST:'PING_TEST', READY:'READY', SAFE_MODE:'SAFE_MODE', WAIT_BLUEPRINT:'WAIT_BLUEPRINT'};
+  let bootState = Boot.WAIT_BLUEPRINT;
+
+  const Build = {IDLE:'IDLE', PLANNED:'PLANNED', INTEGRITY:'INTEGRITY', MAPPING:'MAPPING', COMPLETE:'COMPLETE', EMPTY_REPO_READY:'EMPTY_REPO_READY'};
+  let buildState = Build.IDLE;
+
+  let routeIndex = 0; // current route tile index
+  let lastTarget = -1;
+  let pivotIndex = 0; // structural integrity pivot index
+  let lastPivot = -1;
+  let denyStreak = 0;
+  let totalDenies = 0;
+  let fallbackUsed = false;
+  const MAX_DENY_STREAK = 8;
+  const MAX_TOTAL_DENIES = 40;
+
+  
+  function triggerFallback(reason){
+    if(fallbackUsed) return;
+    logLine(`FALLBACK TRIGGER: ${reason}`);
+    fallbackUsed = true;
+    shells.clear(); shellBySeed.clear();
+    activeShellId=''; blueprintLoaded=false;
+    bootState = Boot.WAIT_BLUEPRINT;
+    buildState = Build.IDLE;
+    inflight = null;
+    receipts.length = 0;
+    denyStreak=0; totalDenies=0;
+    try{ loadBlueprint(FALLBACK_BLUEPRINT, true); }catch(e){ setError(e); bootState = Boot.SAFE_MODE; }
+  }
+
+function bootStep(){
+    if(!blueprintLoaded){
+      bootState = Boot.WAIT_BLUEPRINT;
+      return;
+    }
+    if(bootState === Boot.WAIT_BLUEPRINT){
+      bootState = Boot.COLD;
+      logLine('BOOT: blueprint accepted → begin self-validation');
+      denyStreak=0; totalDenies=0;
+    }
+    if(bootState === Boot.COLD){
+      logLine('BOOT: COLD → POST');
+      bootState = Boot.POST;
+      return;
+    }
+    if(bootState === Boot.POST){
+      logLine('BOOT: POST → PING_TEST (NOOP)');
+      bootState = Boot.PING_TEST;
+      inflight = null;
+      return;
+    }
+    if(bootState === Boot.PING_TEST){
+      const sh = shells.get(activeShellId);
+      if(!sh){ bootState = Boot.SAFE_MODE; logLine('BOOT FAIL: no active shell'); return; }
+      if(!inflight){
+        const req = pingRequest(sh.shellId, sh.seed, 'NOOP', 0);
+        inflight = {req, t0: tick};
+        logLine(`PING REQ #${req.reqId} NOOP`);
+      }else{
+        const age = tick - inflight.t0;
+        if(age > PING_TTL){
+          logLine(`PING DENY #${inflight.req.reqId} TIMEOUT`);
+          bootState = Boot.SAFE_MODE;
+          inflight = null;
+          triggerFallback('BOOT_PING_TIMEOUT');
+          return;
+        }
+        const res = scannerHandlePing(inflight.req);
+        if(res.status==='GRANT'){
+          receipts.push({tick, ...res.receipt});
+          logLine(`PING GRANT #${res.reqId} NOOP`);
+          inflight = null;
+          bootState = Boot.READY;
+          logLine('BOOT: READY');
+        }else{
+          logLine(`PING DENY #${res.reqId} ${DenyName[res.code]||res.code}`);
+          bootState = Boot.SAFE_MODE;
+          inflight = null;
+        }
+      }
+    }
+  }
+
+  function buildStep(){
+    if(bootState !== Boot.READY) return;
+    const sh = shells.get(activeShellId);
+    if(!sh) return;
+
+    if(denyStreak >= MAX_DENY_STREAK || totalDenies >= MAX_TOTAL_DENIES){ triggerFallback('EXCESS_DENY'); return; }
+
+
+    if(buildState === Build.PLANNED){
+      buildState = Build.INTEGRITY;
+      pivotIndex = 0;
+      lastPivot = -1;
+      routeIndex = 0;
+      lastTarget = -1;
+      logLine(`DIRECTIVE START INTEGRITY_PIVOTS count=${sh.pivotDirs.length}`);
+      return;
+    }
+
+    
+    if(buildState === Build.INTEGRITY){
+      if(pivotIndex >= sh.pivotDirs.length){
+        buildState = Build.MAPPING;
+        routeIndex = 0;
+        lastTarget = -1;
+        logLine(`INTEGRITY COMPLETE → TERRAFORM_ROUTE tiles=${sh.routeTiles.length}`);
+        return;
+      }
+
+      const targetDir = sh.pivotDirs[pivotIndex];
+      SCN.targetDir = targetDir;
+
+      if(!inflight && lastPivot !== pivotIndex){
+        const req = pingRequest(sh.shellId, sh.seed, 'MOVE_TO_PIVOT', pivotIndex);
+        inflight = {req, t0: tick};
+        lastPivot = pivotIndex;
+        logLine(`PING REQ #${req.reqId} MOVE_TO_PIVOT idx=${pivotIndex}`);
+      }
+
+      if(!inflight){
+        if(dot(SCN.pos, targetDir) > 0.99925){
+          const req = pingRequest(sh.shellId, sh.seed, 'SCAN_PIVOT', pivotIndex);
+          inflight = {req, t0: tick};
+          logLine(`PING REQ #${req.reqId} SCAN_PIVOT idx=${pivotIndex}`);
+        }
+      }else{
+        const age = tick - inflight.t0;
+        if(age > PING_TTL){
+          logLine(`PING DENY #${inflight.req.reqId} TIMEOUT`);
+          inflight = null;
+          denyStreak++; totalDenies++;
+          return;
+        }
+        const res = scannerHandlePing(inflight.req);
+        if(res.status==='GRANT'){
+          receipts.push({tick, ...res.receipt});
+          logLine(`PING GRANT #${res.reqId} ${inflight.req.action}`);
+          if(inflight.req.action === 'SCAN_PIVOT'){
+            sh.pivotVerified[pivotIndex] = 1;
+            pivotIndex++;
+            denyStreak = 0;
+          }
+          inflight = null;
+        }else{
+          logLine(`PING DENY #${res.reqId} ${DenyName[res.code]||res.code}`);
+          inflight = null;
+          denyStreak++; totalDenies++;
+        }
+      }
+    }
+
+if(buildState === Build.MAPPING){
+      if(routeIndex >= sh.routeTiles.length){
+        buildState = Build.COMPLETE;
+        logLine('DIRECTIVE COMPLETE: ALL_TILES_MAPPED');
+        sh.constructed = true;
+        return;
+      }
+
+      // current target tile dir
+      const targetDir = sh.routeDirs[routeIndex];
+      SCN.targetDir = targetDir;
+
+      // request MOVE authorization once per new tile index
+      if(!inflight && lastTarget !== routeIndex){
+        const req = pingRequest(sh.shellId, sh.seed, 'MOVE_TO_TILE', routeIndex);
+        inflight = {req, t0: tick};
+        lastTarget = routeIndex;
+        logLine(`PING REQ #${req.reqId} MOVE_TO_TILE idx=${routeIndex}`);
+      }
+
+      // after move grant, attempt WRITE when close enough (requires ping)
+      if(!inflight){
+        if(dot(SCN.pos, targetDir) > 0.99925){
+          const req = pingRequest(sh.shellId, sh.seed, 'WRITE_TILE', routeIndex);
+          inflight = {req, t0: tick};
+          logLine(`PING REQ #${req.reqId} WRITE_TILE idx=${routeIndex}`);
+        }
+      }else{
+        const age = tick - inflight.t0;
+        if(age > PING_TTL){
+          logLine(`PING DENY #${inflight.req.reqId} TIMEOUT`);
+          inflight = null;
+          denyStreak++; totalDenies++;
+          return;
+        }
+        const res = scannerHandlePing(inflight.req);
+        if(res.status==='GRANT'){
+          receipts.push({tick, ...res.receipt});
+          logLine(`PING GRANT #${res.reqId} ${inflight.req.action}`);
+          if(inflight.req.action === 'WRITE_TILE'){
+            // commit tile write
+            sh.mapped[routeIndex] = 1;
+            sh.mappedCount++;
+            routeIndex++;
+            denyStreak = 0;
+          }
+          inflight = null;
+        }else{
+          // if not close enough, allow retry later
+          if(inflight.req.action === 'WRITE_TILE' && res.code === Deny.OUTSIDE_SHELL){
+            inflight = null;
+          }else{
+            logLine(`PING DENY #${res.reqId} ${DenyName[res.code]||res.code}`);
+            inflight = null;
+            denyStreak++; totalDenies++;
+          }
+        }
+      }
+    }
+
+    if(buildState === Build.COMPLETE){
+      buildState = Build.EMPTY_REPO_READY;
+      sh.emptyRepoReady = true;
+      logLine('SHELL STATE: EMPTY_REPO_READY (mass=0, commit-ready)');
+    }
+  }
+
+  // ---------- scanner movement (on-surface probe) ----------
+  function scannerMotion(){
+    // Always moves toward its targetDir; authorization gates are separate pings.
+    const spd = 0.040; // per tick slerp factor for snappy probe feel
+    SCN.pos = slerp(SCN.pos, SCN.targetDir, clamp(spd,0,0.35));
+  }
+
+  // ---------- blueprint load ----------
+  function loadBlueprint(bp, isFallback=false){
+    try{
+      if(!bp || !Array.isArray(bp.pivots) || bp.pivots.length < 3) throw new Error('Blueprint missing pivots[] (>=3)');
+      if(!Array.isArray(bp.edges) || bp.edges.length < 3) throw new Error('Blueprint missing edges[] (>=3)');
+      const shellId = String(bp.shellId || `SHELL_${Date.now()}`);
+      currentBlueprintRaw = bp;
+      const canon = canonicalizeBlueprint(bp);
+      const seedStr = (STATE && STATE.seedStr) ? String(STATE.seedStr) : '7F021AE4';
+      const seed = fnv1a32(canon + '|' + seedStr);
+
+      const origin = bp.origin ? norm({x:+bp.origin.x,y:+bp.origin.y,z:+bp.origin.z}) : norm({x:0.12,y:0.04,z:0.992});
+      const tb = tangentBasis(origin);
+
+      // pivot directions on sphere
+      const pivotDirs = new Array(bp.pivots.length);
+      for(let i=0;i<bp.pivots.length;i++){
+        const pu=+bp.pivots[i].u, pv=+bp.pivots[i].v;
+        pivotDirs[i] = norm(add(origin, add(mul(tb.tx, pu), mul(tb.ty, pv))));
+      }
+
+      // Build route tile list by walking edges and sampling along great-circle.
+      const routeTiles = [];
+      const routeDirs  = [];
+      const routeSet   = new Set();
+
+      const samplesPerEdge = Math.max(10, Math.round(N * 0.75)); // depends on grid density
+      for(const e of bp.edges){
+        const a = e.a|0, b = e.b|0;
+        const A = pivotDirs[a], B = pivotDirs[b];
+        for(let k=0;k<=samplesPerEdge;k++){
+          const t = k/samplesPerEdge;
+          const d = slerp(A,B,t);
+          const tile = faceIJFromSphere(d);
+          const key = tileKey(tile);
+          if(routeSet.has(key)) continue;
+          routeSet.add(key);
+          routeTiles.push(tile);
+          routeDirs.push(d);
+        }
+      }
+
+      const shell = {
+        shellId, seed, origin,
+        pivots: bp.pivots.map((p,i)=>({id:(p.id??i),u:+p.u,v:+p.v})),
+        edges: bp.edges.map(e=>({a:e.a|0,b:e.b|0})),
+        pivotDirs,
+        // One verified flag per pivot — the build sets these as the
+        // scanner confirms each pivot. Without this array the first
+        // render reads .length of undefined and the shell SAFE_MODEs,
+        // so no blueprint could ever finish building.
+        pivotVerified: new Uint8Array(bp.pivots.length),
+        routeTiles,
+        routeDirs,
+        mapped: new Uint8Array(routeTiles.length),
+        mappedCount: 0,
+        constructed: false,
+        emptyRepoReady: false,
+        rules: bp.rules || {}
+      };
+
+      shells.set(shellId, shell);
+      shellBySeed.set(seed, shellId);
+      setActiveShell(shellId);
+
+      // Bind scanner target to shell origin initially
+      SCN.boundShellId = shellId;
+      SCN.boundSeed = seed;
+      SCN.targetDir = shell.routeDirs[0] || shell.origin;
+
+      // Set master eye to look at origin
+      eye = shell.origin;
+
+      blueprintLoaded = true;
+      buildState = Build.PLANNED;
+      logLine(`BLUEPRINT LOADED shellId=${shellId} seed=${seed.toString(16).toUpperCase()} routeTiles=${routeTiles.length}`);
+      try{ IV.updateUI(); }catch(e){}
+      return true;
+    }catch(e){
+      setError(e);
+      logLine(`BLUEPRINT ERROR: ${e && e.message ? e.message : e}`);
+      if(!isFallback){
+        logLine('FALLBACK ENGAGED: loading default octagon blueprint');
+        fallbackUsed = true;
+        shells.clear(); shellBySeed.clear();
+        activeShellId=''; blueprintLoaded=false;
+        bootState = Boot.WAIT_BLUEPRINT;
+        buildState = Build.IDLE;
+        inflight = null;
+        receipts.length = 0;
+        denyStreak=0; totalDenies=0;
+        try{ loadBlueprint(FALLBACK_BLUEPRINT, true); }catch(_e){}
+      }
+      return false;
+    }
+  }
+
+  // ---------- overlay ----------
+  let overlayOn = false;
+  function toggleOverlay(){ overlayOn = !overlayOn; overlay.style.display = overlayOn ? 'block' : 'none'; }
+  btnOverlay.onclick = ()=>toggleOverlay();
+  btnLoad.onclick = ()=>fileInput.click();
+
+  btnLoadShip.onclick = ()=>fileShip.click();
+  btnLoadScanner.onclick = ()=>fileScanner.click();
+  btnLoadHud.onclick = ()=>fileHud.click();
+
+  fileShip.addEventListener('change', ()=>{ const f=fileShip.files&&fileShip.files[0]; fileShip.value=''; if(!f) return;
+    readJSONFile(f,(err,obj)=>{ if(err){safeFail('SHIP_MODULE_READ',err); return;}
+      try{ const mod=parseModuleJSON(obj); setModule('ship', mod); }catch(e){ safeFail('SHIP_MODULE_PARSE', e); }
+    });
+  });
+  fileScanner.addEventListener('change', ()=>{ const f=fileScanner.files&&fileScanner.files[0]; fileScanner.value=''; if(!f) return;
+    readJSONFile(f,(err,obj)=>{ if(err){safeFail('SCANNER_MODULE_READ',err); return;}
+      try{ const mod=parseModuleJSON(obj); setModule('scanner', mod); }catch(e){ safeFail('SCANNER_MODULE_PARSE', e); }
+    });
+  });
+  fileHud.addEventListener('change', ()=>{ const f=fileHud.files&&fileHud.files[0]; fileHud.value=''; if(!f) return;
+    readJSONFile(f,(err,obj)=>{ if(err){safeFail('HUD_MODULE_READ',err); return;}
+      try{ const mod=parseModuleJSON(obj); setModule('hud', mod); }catch(e){ safeFail('HUD_MODULE_PARSE', e); }
+    });
+  });
+
+  function loadDefaultModules(){
+    // Default visuals = iteration4-like ship/scanner so you always see "eye + probe" even before custom modules.
+    setModule('ship', {moduleType:'ship', id:'MASTER_CONTROL_DEFAULT', style:'iteration4', config:{}, hooks:null, raw:null});
+    setModule('scanner', {moduleType:'scanner', id:'SYNTHESIS_SCANNER_DEFAULT', style:'iteration4', config:{}, hooks:null, raw:null});
+    setModule('hud', {moduleType:'hud', id:'HUD_DEFAULT', style:'default', config:{}, hooks:null, raw:null});
+  }
+
+  fileInput.addEventListener('change', async ()=>{
+    const f = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if(!f) return;
+    try{
+      const txt = await f.text();
+      const bp = JSON.parse(txt);
+      // clear existing and load new
+      shells.clear(); shellBySeed.clear();
+      activeShellId=''; blueprintLoaded=false;
+      bootState = Boot.WAIT_BLUEPRINT;
+      buildState = Build.IDLE;
+      inflight = null;
+      receipts.length = 0;
+      loadBlueprint(bp, false);
+    }catch(e){ setError(e); }
+  });
+
+  // ---------- reset ----------
+  function hardReset(){
+    logs.fill('');
+    logHead = 0;
+    lastError = '';
+    tick = 0;
+    acc = 0;
+    last = performance.now();
+
+    qCam = quat();
+    eye = norm({x:0.12,y:0.04,z:0.992});
+    SCN.pos = norm({x:-0.18,y:0.10,z:0.978});
+    SCN.targetDir = SCN.pos;
+    SCN.boundShellId = '';
+    SCN.boundSeed = 0;
+    SCN.name = 'SYNTH-SCN';
+    inflight = null;
+    receipts.length = 0;
+
+    shells.clear(); shellBySeed.clear();
+    activeShellId = '';
+    blueprintLoaded = false;
+
+    bootState = Boot.WAIT_BLUEPRINT;
+    buildState = Build.IDLE;
+    routeIndex = 0;
+    lastTarget = -1;
+    logLine('RESET: waiting for blueprint');
+    hudShell.textContent = '(none)';
+    loadDefaultModules();
+  }
+  btnReset.onclick = ()=>hardReset();
+
+  // ---------- drawing helpers ----------
+  function glowLine(ax,ay,bx,by, col, a, w){
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.strokeStyle = col + a + ')';
+    ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+    ctx.strokeStyle = col + (a*0.35) + ')';
+    ctx.lineWidth = w*2.7;
+    ctx.stroke();
+    ctx.restore();
+  }
+  function glowDot(x,y, r, col, a){
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle = col + a + ')';
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = col + (a*0.18) + ')';
+    ctx.beginPath(); ctx.arc(x,y,r*3.0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  
+  // Synthesis Scanner Protocol (visual-only overwatch frame; EXACT iteration4 style)
+  let scannerOn = true;
+  let scannerParallax = 0.22;  // lower = farther away
+  let scannerYOffset = -0.30;  // negative = higher
+  let scannerSize = 0.20;      // fraction of min(canvas)
+
+  function drawSynthesisScanner(playerDirLocal, scannerDirLocal){
+    if(!ctx || !scannerOn) return;
+    const cx = W * 0.5, cy = H * 0.5;
+    const minDim = Math.min(W, H);
+
+    const prP = projectDir(playerDirLocal);
+    if(!prP) return;
+    const dxP = prP.x - cx;
+    const dyP = prP.y - cy;
+
+    const boxW = Math.max(260 * dpr, minDim * scannerSize);
+    const boxH = Math.max(86 * dpr, minDim * 0.115);
+    const x0 = cx - boxW * 0.5 - dxP * scannerParallax;
+    const y0 = cy + scannerYOffset * minDim - boxH * 0.5 - dyP * scannerParallax;
+
+    const prS = projectDir(scannerDirLocal);
+    if(!prS) return;
+    const sxLocal = clamp((prS.x - x0) / boxW, 0, 1);
+    const syLocal = clamp((prS.y - y0) / boxH, 0, 1);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // outer frame
+    ctx.strokeStyle = 'rgba(255,60,210,0.40)';
+    ctx.lineWidth = 1.2 * dpr;
+    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.beginPath();
+    ctx.roundRect(x0, y0, boxW, boxH, 10 * dpr);
+    ctx.fill();
+    ctx.stroke();
+
+    // inner scan lines
+    glowLine(x0 + boxW*0.15, y0 + boxH*0.50, x0 + boxW*0.85, y0 + boxH*0.50, COL_MAG, 0.18, 1.0*dpr);
+    glowLine(x0 + boxW*0.50, y0 + boxH*0.18, x0 + boxW*0.50, y0 + boxH*0.82, COL_MAG, 0.18, 1.0*dpr);
+
+    // scanner pip
+    const pipX = x0 + sxLocal * boxW;
+    const pipY = y0 + syLocal * boxH;
+    glowDot(pipX, pipY, 2.2*dpr, COL_ORG, 0.75);
+    glowDot(pipX, pipY, 1.2*dpr, COL_WHT, 0.40);
+
+    // title
+    ctx.font = `${Math.max(10, Math.round(minDim*0.014))}px monospace`;
+    ctx.fillStyle = 'rgba(180,255,255,0.75)';
+    const sloc = faceIJFromSphere(scannerDirLocal);
+    ctx.fillText(`SYNTHESIS SCANNER  tile f${sloc.face} i${sloc.i} j${sloc.j}`, x0 + 10*dpr, y0 - 8*dpr);
+    ctx.restore();
+  }
+
+
+
+  // ---------- render ----------
+  
+  function drawCenterReticle(cx, cy){
+    if(!showReticle) return;
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    const r = 10*dpr;
+    ctx.lineWidth = 1.25*dpr;
+    ctx.strokeStyle = 'rgba(240,250,255,0.55)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.stroke();
+    // crosshair
+    ctx.strokeStyle = 'rgba(120,255,255,0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - r*1.6, cy); ctx.lineTo(cx - r*0.6, cy);
+    ctx.moveTo(cx + r*0.6, cy); ctx.lineTo(cx + r*1.6, cy);
+    ctx.moveTo(cx, cy - r*1.6); ctx.lineTo(cx, cy - r*0.6);
+    ctx.moveTo(cx, cy + r*0.6); ctx.lineTo(cx, cy + r*1.6);
+    ctx.stroke();
+    // dot
+    ctx.fillStyle = 'rgba(255,60,210,0.65)';
+    ctx.beginPath(); ctx.arc(cx, cy, 1.6*dpr, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+function render(){
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,W,H);
+
+    const R = Math.min(W,H)*R_FRAC;
+    const cx=W*0.5, cy=H*0.5;
+
+    // sphere base glow
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    const g = ctx.createRadialGradient(cx,cy, R*0.12, cx,cy, R*1.05);
+    g.addColorStop(0, 'rgba(120,255,255,0.08)');
+    g.addColorStop(1, 'rgba(120,255,255,0.00)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    // grid
+    preprojectGrid();
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.strokeStyle = 'rgba(120,255,255,0.07)';
+    ctx.lineWidth = 1.0*dpr;
+    for(let k=0;k<E.length;k+=2){
+      const a = E[k], b = E[k+1];
+      if(sz[a]===0 || sz[b]===0) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx[a], sy[a]);
+      ctx.lineTo(sx[b], sy[b]);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // if no blueprint: show nothing else (EMPTY)
+    const sh = shells.get(activeShellId);
+    if(!sh){
+      hudState.textContent = `boot=${bootState}  build=${buildState}  waiting=UPLOAD_BLUEPRINT`;
+      drawCenterReticle(cx, cy);
+      return;
+    }
+
+    // Phase 0: integrity pivots (no edges until pivots verified)
+    let pivCount = 0;
+    for(let i=0;i<sh.pivotVerified.length;i++) pivCount += sh.pivotVerified[i] ? 1 : 0;
+    const pivDone = pivCount >= sh.pivotVerified.length;
+
+    for(let i=0;i<sh.pivotDirs.length;i++){
+      const P = projectDir(sh.pivotDirs[i]);
+      if(!P) continue;
+      const a = sh.pivotVerified[i] ? 0.90 : 0.14;
+      const col = sh.pivotVerified[i] ? COL_MAG : COL_WHT;
+      glowDot(P.x,P.y, 3.3*dpr, col, a);
+    }
+
+    // Phase 1: secondary preview (edges) ONLY after all pivotal points are verified
+    if(pivDone){
+      for(const e of sh.edges){
+        const A = projectDir(sh.pivotDirs[e.a]);
+        const B = projectDir(sh.pivotDirs[e.b]);
+        if(!A||!B) continue;
+        glowLine(A.x,A.y,B.x,B.y, COL_WHT, 0.16, 1.1*dpr);
+      }
+    }
+
+    // Phase 2: mapped tiles highlight behind scanner along route
+    // We render small segments by connecting consecutive route dirs if mapped.
+    for(let i=1;i<sh.routeDirs.length;i++){
+      if(sh.mapped[i-1] && sh.mapped[i]){
+        const A = projectDir(sh.routeDirs[i-1]);
+        const B = projectDir(sh.routeDirs[i]);
+        if(!A||!B) continue;
+        glowLine(A.x,A.y,B.x,B.y, COL_MAG, 0.55, 2.0*dpr);
+      }
+    }
+
+    // Phase 2: full perimeter ONLY after all tiles mapped (constructed)
+    if(sh.constructed){
+      for(const e of sh.edges){
+        const A = projectDir(sh.pivotDirs[e.a]);
+        const B = projectDir(sh.pivotDirs[e.b]);
+        if(!A||!B) continue;
+        glowLine(A.x,A.y,B.x,B.y, COL_CYN, 0.86, 3.0*dpr);
+      }
+    }
+
+    // eye marker (Master Control)
+    const ep = projectDir(eye);
+    if(ep){
+      glowDot(ep.x, ep.y, 3.2*dpr, COL_WHT, 0.85);
+      glowDot(ep.x, ep.y, 7.0*dpr, COL_MAG, 0.38);
+    }
+
+    // scanner probe marker
+    const sp = projectDir(SCN.pos);
+    if(sp){
+      glowDot(sp.x, sp.y, 2.7*dpr, COL_CYN, 0.92);
+    }
+    drawSynthesisScanner(eye, SCN.pos);
+
+    // HUD
+    hudState.textContent =
+      `boot=${bootState}  build=${buildState}  route=${routeIndex}/${sh.routeTiles.length}  mapped=${sh.mappedCount}/${sh.routeTiles.length}` +
+      (sh.emptyRepoReady ? `  EMPTY_REPO_READY` : ``);
+  }
+
+  function renderOverlay(){
+    if(!overlayOn) return;
+    const sh = shells.get(activeShellId);
+    const infl = inflight ? `${inflight.req.action} idx=${inflight.req.target} age=${tick-inflight.t0}` : 'none';
+    ov.innerHTML = `
+      <div class="row"><span class="pill">boot</span><code>${bootState}</code></div>
+      <div class="row"><span class="pill">build</span><code>${buildState}</code></div>
+      <div class="row"><span class="pill">blueprint</span><code>${blueprintLoaded ? 'loaded' : 'none'}</code></div>
+      <div class="row"><span class="pill">shell</span><code>${sh?sh.shellId:'(none)'}</code></div>
+      <div class="row"><span class="pill">seed</span><code>${sh?sh.seed.toString(16).padStart(8,'0').toUpperCase():'-'}</code></div>
+      <div class="row"><span class="pill">scanner</span><code>${SCN.name}</code></div>
+      <div class="row"><span class="pill">routeIndex</span><code>${routeIndex}</code> / <code>${sh?sh.routeTiles.length:0}</code></div>
+      <div class="row"><span class="pill">inflight</span><code>${infl}</code></div>
+      <div class="row"><span class="pill">receipts</span><code>${receipts.length}</code></div>
+      <div class="row"><span class="pill">tick</span><code>${tick}</code> dt=<code>${DT.toFixed(6)}</code> hz=<code>${HZ}</code></div>
+      <div class="row"><span class="pill">lastError</span><code>${lastError ? lastError.split('\\n')[0] : '(none)'}</code></div>
+    `;
+    let out = '';
+    let lines = 0;
+    for(let i=0;i<LOG_N;i++){
+      const idx = (logHead - 1 - i + LOG_N) % LOG_N;
+      const s = logs[idx];
+      if(!s) continue;
+      out += s + '\n';
+      lines++;
+      if(lines>24) break;
+    }
+    logEl.textContent = out.trim();
+  }
+
+  // ---------- Lucid bridge (Iteration 8 in Lucid) ----------
+  // The shell owns its own boot/build machine; Lucid reads it through
+  // these state posts instead of simulating it. Posted only when
+  // something changed, so the parent is not spammed every frame.
+  let _lastPostedBoot = '';
+  let _lastPostedBuild = '';
+  let _lastPostedMapped = -1;
+  let _lastPostedShellId = '';
+  function postShellState(){
+    try{
+      const sh = shells.get(activeShellId);
+      window.parent.postMessage({
+        type: 'iteration8-shell-state',
+        boot: bootState,
+        build: buildState,
+        shellId: sh ? sh.shellId : null,
+        seed: (STATE && STATE.seedStr) ? STATE.seedStr : null,
+        routeTiles: sh ? sh.routeTiles.length : 0,
+        mappedCount: sh ? sh.mappedCount : 0,
+        receipts: receipts.length,
+      }, '*');
+    }catch(e){}
+  }
+  function postShellStateIfChanged(){
+    const sh = shells.get(activeShellId);
+    const sid = sh ? sh.shellId : '';
+    const mapped = sh ? sh.mappedCount : 0;
+    if(bootState === _lastPostedBoot && buildState === _lastPostedBuild && mapped === _lastPostedMapped && sid === _lastPostedShellId) return;
+    _lastPostedBoot = bootState; _lastPostedBuild = buildState; _lastPostedMapped = mapped; _lastPostedShellId = sid;
+    postShellState();
+  }
+  // Lucid can load the vendored defaults straight into the shell
+  // (one click in the inspector) instead of making the user hunt the
+  // files down with the picker — the same load path as the Upload
+  // buttons, so the shell's own flow stays the truth.
+  window.addEventListener('message', (ev)=>{
+    const d = ev && ev.data;
+    if(!d || typeof d !== 'object') return;
+    if(d.type === 'iteration8-load-blueprint' && d.blueprint){
+      try{
+        shells.clear(); shellBySeed.clear();
+        activeShellId=''; blueprintLoaded=false;
+        bootState = Boot.WAIT_BLUEPRINT;
+        buildState = Build.IDLE;
+        inflight = null;
+        receipts.length = 0;
+        loadBlueprint(d.blueprint, false);
+      }catch(e){ setError(e); }
+    }else if(d.type === 'iteration8-load-module' && d.module){
+      try{ const mod = parseModuleJSON(d.module); setModule(mod.moduleType, mod); }catch(e){ safeFail('MODULE_PARSE', e); }
+    }
+  });
+
+  // ---------- main update loop (fail closed) ----------
+  function step(){
+    try{
+      eyeStep();
+      cameraStep();
+      scannerMotion();
+      if(bootState !== Boot.READY) bootStep();
+      buildStep();
+      tick++;
+    }catch(e){
+      setError(e);
+      bootState = Boot.SAFE_MODE;
+    }
+  }
+
+  function frame(now){
+    const dt = (now - last) / 1000;
+    last = now;
+    acc = Math.min(0.25, acc + dt);
+
+    while(acc >= DT){
+      step();
+      acc -= DT;
+    }
+
+    try{
+      render();
+    }catch(e){
+      setError(e);
+      bootState = Boot.SAFE_MODE;
+    }
+    renderOverlay();
+    postShellStateIfChanged();
+    requestAnimationFrame(frame);
+  }
+
+  // polyfill roundRect for older Safari
+  if(!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r,y);
+      this.arcTo(x+w,y,x+w,y+h,r);
+      this.arcTo(x+w,y+h,x,y+h,r);
+      this.arcTo(x,y+h,x,y,r);
+      this.arcTo(x,y,x+w,y,r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  // init
+  logLine('SYNTH: ready (waiting for blueprint upload)');
+  // The default lanes start attached (their comment promises the eye +
+  // probe are visible before any custom module), and the parent learns
+  // the starting state right away.
+  loadDefaultModules();
+  postShellStateIfChanged();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

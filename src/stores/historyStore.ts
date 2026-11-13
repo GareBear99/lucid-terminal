@@ -128,6 +128,12 @@ export function flushHistoryPersistence(): void {
       clearTimeout(persistTimer);
       persistTimer = null;
     }
+    // A guest session never writes history to disk: the guest's
+    // live blocks are dropped when the guest session ends, and the
+    // owner's persisted history must never be overwritten with the
+    // guest's empty (or guest-live) view. This also covers the
+    // beforeunload flush, which calls this function directly.
+    if (useHistoryStore.getState().guestSessionActive) return;
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(HISTORY_STORAGE_KEY, serializeHistory(useHistoryStore.getState().blocksByTab));
   } catch {
@@ -137,6 +143,9 @@ export function flushHistoryPersistence(): void {
 
 /** Schedule a persisted write (debounced — see the module header). */
 function scheduleHistoryPersistence(): void {
+  // Same guard as flushHistoryPersistence: nothing is scheduled
+  // while a guest session is veiled in.
+  if (useHistoryStore.getState().guestSessionActive) return;
   if (typeof localStorage === 'undefined') return;
   if (persistTimer !== null) return;
   persistTimer = setTimeout(() => {
@@ -148,6 +157,11 @@ function scheduleHistoryPersistence(): void {
 /** Remove the persisted copy (tests / a future "forget history" action). */
 export function clearPersistedHistory(): void {
   try {
+    // Never during a guest session: the key holds the OWNER's
+    // persisted history, and a guest must never delete it. (The
+    // only production caller is profile wipe, which refuses
+    // guests — this is belt-and-braces for the hard constraint.)
+    if (useHistoryStore.getState().guestSessionActive) return;
     if (typeof localStorage === 'undefined') return;
     localStorage.removeItem(HISTORY_STORAGE_KEY);
   } catch {
@@ -165,9 +179,37 @@ interface HistoryState {
   clearBlocks: (tabId: string) => void;
   /** Drop a tab's blocks entirely (on tab close). */
   removeTab: (tabId: string) => void;
+  /** Whether a guest session is veiled in: the visible blocks are
+   *  the guest's own live terminal output; the owner's blocks are
+   *  stashed (see guestStash) and untouched on disk. */
+  guestSessionActive: boolean;
+  /** The owner's blocks by tab, stashed when a guest session
+   *  starts and restored when it ends. Null outside a guest
+   *  session. Never persisted — it only ever lives in memory. */
+  guestStash: Record<string, TerminalBlock[]> | null;
+  /**
+   * Start a guest session (Gary, 2026-11-12 ~17:59 PST): no chat
+   * memory, no history in any guest build. The owner's blocks
+   * are stashed in memory — never deleted, never written over —
+   * and the visible state goes empty; while the flag is on, no
+   * history is ever persisted to disk (see the guards in
+   * scheduleHistoryPersistence / flushHistoryPersistence). The
+   * guest's own live terminal blocks live only in the visible
+   * state and are dropped on exit — they are NOT history (the
+   * History panel shows nothing for a guest; see
+   * selectHistoryBlocksForTab).
+   */
+  enterGuestSession: () => void;
+  /** End a guest session: drop the guest's live blocks and restore
+   *  the stashed owner blocks exactly, flushing them back to disk. */
+  exitGuestSession: () => void;
+  /** Drop the current guest's live blocks (a fresh guest replaces
+   *  the old one — "always a new guest") without touching the
+   *  stashed owner blocks. No-op outside a guest session. */
+  resetGuestSession: () => void;
 }
 
-export const useHistoryStore = create<HistoryState>((set) => ({
+export const useHistoryStore = create<HistoryState>((set, get) => ({
   // Rehydrated from the previous session when there is one ({} on a
   // fresh install / corrupt storage) — see readPersistedHistory.
   blocksByTab: readPersistedHistory(),
@@ -202,6 +244,37 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       delete blocksByTab[tabId];
       return { blocksByTab };
     }),
+
+  guestSessionActive: false,
+  guestStash: null,
+
+  enterGuestSession: () => {
+    const state = get();
+    if (state.guestSessionActive) return;
+    set({ guestSessionActive: true, guestStash: state.blocksByTab, blocksByTab: {} });
+  },
+
+  exitGuestSession: () => {
+    const state = get();
+    if (!state.guestSessionActive) return;
+    const stash = state.guestStash;
+    set({ guestSessionActive: false, guestStash: null, blocksByTab: stash ?? {} });
+    // Write the restored owner blocks back to disk now (the
+    // debounced flush was paused for the whole guest session, and
+    // the key still holds the owner's pre-guest copy — this just
+    // makes the restore durable immediately).
+    flushHistoryPersistence();
+  },
+
+  resetGuestSession: () => {
+    const state = get();
+    // Outside a guest session the visible state IS the owner's —
+    // never clear it. Inside one, the visible state is the
+    // previous guest's live blocks only; drop them for the fresh
+    // guest. The stash (owner blocks) is untouched.
+    if (!state.guestSessionActive) return;
+    set({ blocksByTab: {} });
+  },
 }));
 
 // Every mutation persists (debounced) — including direct setState,
@@ -217,6 +290,22 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   window.addEventListener('beforeunload', () => {
     flushHistoryPersistence();
   });
+}
+
+/**
+ * What the History panel shows for a tab: the tab's blocks — except
+ * during a guest session, where it shows nothing at all. A guest
+ * has no history (Gary, 2026-11-12 ~17:59 PST): the owner's blocks
+ * are stashed, and the guest's own live blocks belong to the
+ * terminal feed, not the History panel. The feed itself reads
+ * blocksByTab directly and keeps showing the guest's live output.
+ */
+export function selectHistoryBlocksForTab(
+  state: HistoryState,
+  tabId: string | null,
+): TerminalBlock[] {
+  if (state.guestSessionActive) return EMPTY_BLOCKS;
+  return tabId ? state.blocksByTab[tabId] ?? EMPTY_BLOCKS : EMPTY_BLOCKS;
 }
 
 /**

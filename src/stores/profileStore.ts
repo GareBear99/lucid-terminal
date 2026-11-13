@@ -60,14 +60,29 @@
  *   the profile's own view: Settings > Profile tab, on the active
  *   profile only. A non-active profile is deleted by entering it
  *   first, then deleting from within.
- * - GUESTS (Gary, 2026-11-12 ~16:41 + ~17:36 PST): a guest is
- *   demo-locked AND has NO deletion — wipeProfile refuses a guest
- *   outright (returns false, nothing changes). A guest owns no
- *   creation and its synth is demo-only, so there is nothing of
- *   its own to wipe; the owner's global creation must never be
- *   touched from a guest. OPEN QUESTION (Gary's call): can the
- *   owner ever remove a guest profile? No owner-delete exists —
- *   do not invent one.
+ * - GUESTS (Gary, 2026-11-12 ~16:41 + ~17:36 + ~17:53 + ~17:56 +
+ *   ~17:59 PST): a guest is demo-locked AND has NO deletion —
+ *   wipeProfile refuses a guest outright (returns false, nothing
+ *   changes). A guest owns no creation and its synth is demo-only,
+ *   so there is nothing of its own to wipe; the owner's global
+ *   creation must never be touched from a guest. "Guest is all
+ *   one account" + "always a new guest": exactly one guest profile
+ *   ever exists, and entering as guest always creates a fresh one
+ *   (createGuestProfile replaces any previous guest record) — so
+ *   no guest profiles ever accumulate and no owner-delete of a
+ *   guest is needed (the earlier open question is answered).
+ *   THE GUEST VEIL (Gary, 2026-11-12 ~17:59 PST): "no llmbuilder
+ *   memory or driving intelligence memory or chat memory or
+ *   history etc" — "in every guest build". Entering as guest
+ *   veils ALL saved data: aiStore + historyStore stash the
+ *   owner's sessions + blocks in memory (never deleted, never
+ *   persisted over) and show empty; the guest's own live chats /
+ *   terminal blocks are never persisted and are dropped on exit.
+ *   The only restriction on a guest is demo until a real profile
+ *   is made; a guest can run long enough to verify the build.
+ *   The veil transitions live in selectProfile (the boot Profiles
+ *   screen's onDone is the only caller) + the module-bottom init
+ *   sync (a relaunch with a guest still active).
  *
  * Persistence: localStorage, versioned key (same pattern as
  * historyStore — guarded, never throws, corrupt storage starts
@@ -333,12 +348,25 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         ],
         ...(activeWasGuest ? { activeProfileId: profile.id } : {}),
       }));
+      // The previous guest's live data goes with it: a fresh guest
+      // starts empty (its chats / terminal blocks were never
+      // persisted, and the owner's stashed sessions + blocks stay
+      // stashed). Only when the replaced guest was the active one
+      // is a guest session actually veiled in.
+      if (activeWasGuest) {
+        useAIStore.getState().resetGuestSession();
+        useHistoryStore.getState().resetGuestSession();
+      }
       return profile;
     },
 
     selectProfile: (id) => {
       const state = get();
-      if (!state.profiles.some((p) => p.id === id)) return false;
+      const next = state.profiles.find((p) => p.id === id);
+      if (!next) return false;
+      const wasGuest =
+        state.profiles.find((p) => p.id === state.activeProfileId)?.status === 'guest';
+      const isGuest = next.status === 'guest';
       const now = new Date().toISOString();
       set({
         activeProfileId: id,
@@ -346,6 +374,21 @@ export const useProfileStore = create<ProfileState>((set, get) => {
           p.id === id ? { ...p, lastActiveAt: now } : p,
         ),
       });
+      // Guest veil (Gary, 2026-11-12 ~17:59 PST): a guest session
+      // shows NO saved data — no LLMBuilder memory, no
+      // driving-intelligence memory, no chat memory, no history.
+      // The veil lives in aiStore / historyStore: entering veils
+      // the owner's sessions + blocks in memory (never deleted,
+      // never persisted over), leaving restores them exactly.
+      // Guest-to-guest (a fresh guest replacing the old one) keeps
+      // the veil on.
+      if (!wasGuest && isGuest) {
+        useAIStore.getState().enterGuestSession();
+        useHistoryStore.getState().enterGuestSession();
+      } else if (wasGuest && !isGuest) {
+        useAIStore.getState().exitGuestSession();
+        useHistoryStore.getState().exitGuestSession();
+      }
       return true;
     },
 
@@ -439,3 +482,21 @@ useProfileStore.subscribe((state) => {
     activeProfileId: state.activeProfileId,
   });
 });
+
+// A relaunch with a guest still active boots straight into the
+// guest session: veil the owner's chats + history before anything
+// reads them (the boot Profiles screen's onDone → selectProfile
+// covers every later transition; this covers the persisted-active
+// guest on module load).
+if (
+  useProfileStore
+    .getState()
+    .profiles.some(
+      (p) =>
+        p.id === useProfileStore.getState().activeProfileId &&
+        p.status === 'guest',
+    )
+) {
+  useAIStore.getState().enterGuestSession();
+  useHistoryStore.getState().enterGuestSession();
+}

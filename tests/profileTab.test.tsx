@@ -8,11 +8,13 @@
  * NO deletion: no delete control exists for a guest profile. The
  * tab is wired into SettingsPanel as the 'profile' tab.
  */
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProfileTab } from '../src/components/Settings/ProfileTab';
 import SettingsPanel from '../src/components/Settings/SettingsPanel';
 import { useSettingsStore } from '../src/stores/settingsStore';
+import { useAIStore } from '../src/stores/aiStore';
+import { useHistoryStore } from '../src/stores/historyStore';
 import {
   DEFAULT_PROFILE_ID,
   PROFILE_STORAGE_KEY,
@@ -22,7 +24,9 @@ import {
 
 // updateSetting/updateSettings + clearSessions persist through
 // window.lucidAPI; stub just those calls (the convention in the
-// component tests).
+// component tests). verifyTotpCode is the Authenticator gate's IPC
+// (settingsStore.verifyTotpCode forwards to it) — a mock so each
+// 2FA test can answer ok / wrong / locked.
 const win = globalThis as unknown as {
   lucidAPI?: {
     settings: {
@@ -31,12 +35,14 @@ const win = globalThis as unknown as {
       hasApiKey: (...args: unknown[]) => Promise<unknown>;
       hasPingKey: (...args: unknown[]) => Promise<unknown>;
       getStorageStatus: (...args: unknown[]) => Promise<unknown>;
+      verifyTotpCode: (...args: unknown[]) => Promise<unknown>;
     };
     ai: { clearSessions: (...args: unknown[]) => Promise<unknown> };
   };
 };
 
 let prevLucidAPI: typeof win.lucidAPI;
+let verifyTotpCode: ReturnType<typeof vi.fn>;
 
 function resetProfiles() {
   try {
@@ -52,6 +58,11 @@ function resetProfiles() {
 
 beforeEach(() => {
   prevLucidAPI = win.lucidAPI;
+  verifyTotpCode = vi.fn().mockResolvedValue({
+    ok: true,
+    locked: false,
+    retryAfterMs: 0,
+  });
   win.lucidAPI = {
     settings: {
       set: async () => undefined,
@@ -59,9 +70,16 @@ beforeEach(() => {
       hasApiKey: async () => false,
       hasPingKey: async () => false,
       getStorageStatus: async () => ({ degraded: false, reason: null }),
+      verifyTotpCode: async (...args: unknown[]) => verifyTotpCode(...args),
     },
     ai: { clearSessions: async () => undefined },
   };
+  // 2FA off by default — each gate test turns it on itself.
+  useSettingsStore.setState({ hasTotpSecret: false });
+  // Each test starts un-veiled (direct setState never runs the veil
+  // transitions — see tests/profiles.test.ts for the same reset).
+  useAIStore.setState({ guestSessionActive: false, guestStash: null });
+  useHistoryStore.setState({ guestSessionActive: false, guestStash: null });
   resetProfiles();
 });
 
@@ -187,5 +205,145 @@ describe('Profile tab wiring in SettingsPanel', () => {
     expect(tabButton?.textContent).toContain('Profile');
     fireEvent.click(tabButton);
     expect(screen.getByTestId('profile-tab')).toBeTruthy();
+  });
+});
+
+describe('ProfileTab — Authenticator gate on deletion (Gary, 2026-11-12 ~17:59 PST)', () => {
+  /** A second profile, active, so the delete flow has a target. */
+  function makeSecond() {
+    const created = useProfileStore.getState().createProfile('Second');
+    expect(created).not.toBeNull();
+    expect(useProfileStore.getState().selectProfile(created!.id)).toBe(true);
+    return created!;
+  }
+
+  function armDelete() {
+    render(<ProfileTab />);
+    fireEvent.click(screen.getByTestId('profile-tab-delete-button'));
+    expect(screen.getByTestId('profile-tab-delete-confirm')).toBeTruthy();
+  }
+
+  function typeCode(value: string) {
+    fireEvent.change(screen.getByTestId('profile-tab-delete-code-input'), {
+      target: { value },
+    });
+  }
+
+  test('2FA off: no code input — deletion proceeds exactly as before', async () => {
+    makeSecond();
+    armDelete();
+    expect(
+      screen.queryByTestId('profile-tab-delete-code-input'),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByTestId('profile-tab-delete-confirm-button'),
+    );
+    await waitFor(() => {
+      expect(useProfileStore.getState().profiles).toHaveLength(1);
+    });
+    expect(verifyTotpCode).not.toHaveBeenCalled();
+  });
+
+  test('2FA on + correct code: the code is verified, then the profile is deleted', async () => {
+    makeSecond();
+    useSettingsStore.setState({ hasTotpSecret: true });
+    armDelete();
+    const input = screen.getByTestId(
+      'profile-tab-delete-code-input',
+    ) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    typeCode('123456');
+    fireEvent.click(
+      screen.getByTestId('profile-tab-delete-confirm-button'),
+    );
+    await waitFor(() => {
+      expect(useProfileStore.getState().profiles).toHaveLength(1);
+    });
+    expect(verifyTotpCode).toHaveBeenCalledTimes(1);
+    expect(verifyTotpCode).toHaveBeenCalledWith('123456');
+    expect(useProfileStore.getState().activeProfileId).toBe(
+      DEFAULT_PROFILE_ID,
+    );
+  });
+
+  test('2FA on + wrong code: no delete, an error shows, and the code is cleared', async () => {
+    makeSecond();
+    useSettingsStore.setState({ hasTotpSecret: true });
+    verifyTotpCode.mockResolvedValue({
+      ok: false,
+      locked: false,
+      retryAfterMs: 0,
+    });
+    armDelete();
+    typeCode('000000');
+    fireEvent.click(
+      screen.getByTestId('profile-tab-delete-confirm-button'),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('profile-tab-delete-code-error'),
+      ).toBeTruthy();
+    });
+    expect(
+      screen.getByTestId('profile-tab-delete-code-error').textContent,
+    ).toContain("doesn't match");
+    // The profile is still there, and the typed code is cleared
+    // after the check (same pattern as the Security tab).
+    expect(useProfileStore.getState().profiles).toHaveLength(2);
+    expect(
+      (
+        screen.getByTestId(
+          'profile-tab-delete-code-input',
+        ) as HTMLInputElement
+      ).value,
+    ).toBe('');
+    expect(verifyTotpCode).toHaveBeenCalledTimes(1);
+  });
+
+  test('2FA on + locked: the lockout message shows and nothing is deleted', async () => {
+    makeSecond();
+    useSettingsStore.setState({ hasTotpSecret: true });
+    verifyTotpCode.mockResolvedValue({
+      ok: false,
+      locked: true,
+      retryAfterMs: 120000,
+    });
+    armDelete();
+    typeCode('123456');
+    fireEvent.click(
+      screen.getByTestId('profile-tab-delete-confirm-button'),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('profile-tab-delete-code-error'),
+      ).toBeTruthy();
+    });
+    expect(
+      screen.getByTestId('profile-tab-delete-code-error').textContent,
+    ).toContain('locked');
+    expect(
+      screen.getByTestId('profile-tab-delete-code-error').textContent,
+    ).toContain('2 minutes');
+    expect(useProfileStore.getState().profiles).toHaveLength(2);
+  });
+
+  test('2FA on + malformed code: the format error shows and verify is never called', async () => {
+    makeSecond();
+    useSettingsStore.setState({ hasTotpSecret: true });
+    armDelete();
+    typeCode('123');
+    fireEvent.click(
+      screen.getByTestId('profile-tab-delete-confirm-button'),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('profile-tab-delete-code-error'),
+      ).toBeTruthy();
+    });
+    expect(
+      screen.getByTestId('profile-tab-delete-code-error').textContent,
+    ).toContain('6-digit');
+    expect(verifyTotpCode).not.toHaveBeenCalled();
+    expect(useProfileStore.getState().profiles).toHaveLength(2);
   });
 });

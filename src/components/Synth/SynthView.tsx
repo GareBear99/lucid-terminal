@@ -46,6 +46,10 @@ import { PluginVoiceButton } from '../PluginVoiceButton';
 import { pluginVoiceSrc } from '../../lib/pluginVoice';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
+  isGuestProfile,
+  useProfileStore,
+} from '../../stores/profileStore';
+import {
   HOMUNCULUS_REVEAL_MS,
   HOMUNCULUS_THEMES,
   HOMUNCULUS_UNFORMED_THEME,
@@ -125,6 +129,24 @@ export function SynthView() {
     (s) => s.loadDefaultShellBlueprint,
   );
   const refreshDirectory = useSynthStore((s) => s.refreshDirectory);
+
+  // Guest demo-lock (Gary, 2026-11-12 ~16:41 PST): "allow guests in
+  // the profiles for it to be locked to demo mode in synth" — while
+  // the active profile is a guest, the synth stays in demo mode: no
+  // builder, no permanent demo replacement, no demo wipe, no owner
+  // creation loaded or shown. The shell picker still offers both
+  // shells, so the guest compares the demo synth vs Iteration 8 — the
+  // lock is about not building or replacing, not about hiding
+  // Iteration 8. The saved guest profile is the test bed for that
+  // comparison.
+  const activeProfile = useProfileStore((s) =>
+    s.profiles.find((p) => p.id === s.activeProfileId),
+  );
+  const demoLocked = isGuestProfile(activeProfile);
+  // The Voxel Directory belongs to the owner's creation — a guest
+  // never sees it (its directory is always null, even when the
+  // store holds the owner's rebuilt directory).
+  const displayDirectory = demoLocked ? null : directory;
 
   const spec = PLUGIN_SHELLS[activePluginId];
   const embodiment = spec?.embodiment;
@@ -275,8 +297,12 @@ export function SynthView() {
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
+    // A guest never loads the owner's creation — its synth is
+    // demo-only. Without this the guest would see (and the machine
+    // would run) the owner's build.
+    if (demoLocked) return;
     useSynthStore.getState().restoreCreation();
-  }, []);
+  }, [demoLocked]);
 
   // Drive the shell machine — ONE driver, for both the builder
   // path and the demo path (the view owns the shell, so the view
@@ -433,6 +459,7 @@ export function SynthView() {
   const showSynthDisclaimer =
     !synthDisclaimerDone &&
     !demoReplaced &&
+    !demoLocked &&
     chosenHomunculusColor !== null &&
     synthDisclaimerDelayDone;
   const chooseSynthDisclaimer = useCallback(
@@ -514,6 +541,13 @@ export function SynthView() {
   // nothing left to set here.
   const handleCreateBuild = useCallback(
     (build: CreatorBuild) => {
+      // Defense in depth: the builder never renders for a guest, but
+      // a guest must never be able to persist a creation or flip the
+      // permanent-replacement flag — that would overwrite the
+      // owner's creation. The mount call is left alone (the mount
+      // coordinator owns mount logic); the guest simply never
+      // reaches it.
+      if (demoLocked) return;
       const store = useSettingsStore.getState();
       void store.updateSettings({
         synthDemoReplaced: true,
@@ -526,7 +560,7 @@ export function SynthView() {
       mountPlugin(activePluginId);
       setBuilderOpen(false);
     },
-    [activePluginId, mountPlugin, refreshDirectory],
+    [activePluginId, mountPlugin, refreshDirectory, demoLocked],
   );
 
   return (
@@ -628,8 +662,11 @@ export function SynthView() {
                 one exists, else the version the builder below it
                 starts from. The "(coming soon)" is gone: the builder
                 is real (Phase 2), and creating a build mounts it
-                (Phase 3). */}
-            {storedSynthDisclaimerChoice === 'build' && !spec?.managesOwnState && (
+                (Phase 3). Hidden for guests — a guest never sees the
+                owner's build. */}
+            {storedSynthDisclaimerChoice === 'build' &&
+              !spec?.managesOwnState &&
+              !demoLocked && (
               <div>
                 {ownBuild ? (
                   <>
@@ -643,6 +680,9 @@ export function SynthView() {
                   </>
                 )}
               </div>
+            )}
+            {demoLocked && (
+              <div>Guest — synth locked to demo mode.</div>
             )}
           </div>
           {/* The thinker's seed is the demo shell's — a shell that
@@ -806,10 +846,10 @@ export function SynthView() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
             Voxel Directory — {spec?.name ?? activePluginId}
           </h2>
-          {directory ? (
+          {displayDirectory ? (
             <VoxelDirectoryPanelErrorBoundary>
               <VoxelDirectoryPanel
-                directory={directory}
+                directory={displayDirectory}
                 pluginName={spec?.name ?? activePluginId}
               />
             </VoxelDirectoryPanelErrorBoundary>
@@ -820,6 +860,12 @@ export function SynthView() {
                   {spec?.name ?? activePluginId} is a blueprint shell —
                   it has no Voxel Directory; its build lives in the
                   shell itself.
+                </>
+              ) : demoLocked ? (
+                <>
+                  Guests stay in demo mode — the Voxel Directory
+                  belongs to the owner&apos;s creation. Switch shells
+                  above to compare the demo synth with Iteration 8.
                 </>
               ) : (
                 <>
@@ -834,8 +880,12 @@ export function SynthView() {
 
         {/* Creator builder (Iteration 8, Phase 2) — "build my own"
             opens a REAL builder here, in the inspector. No own build
-            yet: the builder. Own build saved: the summary + Edit. */}
-        {storedSynthDisclaimerChoice === 'build' && !spec?.managesOwnState && (
+            yet: the builder. Own build saved: the summary + Edit.
+            Guests never see it: their synth is demo-locked, no
+            building, no permanent demo replacement. */}
+        {storedSynthDisclaimerChoice === 'build' &&
+          !spec?.managesOwnState &&
+          !demoLocked && (
           <section className="border-t border-[var(--border)] pt-3">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
               Your own build — {buildVersionLabel}

@@ -144,8 +144,21 @@ beforeEach(() => {
   resetProfileStore();
   resetSynthStore();
   setGate(null, false);
-  useAIStore.setState({ sessions: [], currentSessionId: null });
-  useHistoryStore.setState({ blocksByTab: {} });
+  // Each test starts un-veiled: direct setState never runs the
+  // veil transitions, so the guest flags are reset here too —
+  // otherwise a guest selected in one test would still veil the
+  // next test's seeded live data.
+  useAIStore.setState({
+    sessions: [],
+    currentSessionId: null,
+    guestSessionActive: false,
+    guestStash: null,
+  });
+  useHistoryStore.setState({
+    blocksByTab: {},
+    guestSessionActive: false,
+    guestStash: null,
+  });
 });
 
 afterEach(() => {
@@ -496,15 +509,28 @@ describe('guest profiles — demo-locked (Gary, 2026-11-12 ~16:41 PST)', () => {
       false,
     );
     // NOTHING changes: the guest record stays, the guest stays
-    // active, the owner's creation stays, and the guest's chats +
-    // history stay — a refused guest wipe must never cross into
-    // anything.
+    // active, the owner's creation stays — and the refused wipe
+    // never crosses into the owner's data. Entering as guest veiled
+    // it (Gary, 2026-11-12 ~17:59 PST): the guest sees empty chats
+    // + history while the owner's sessions + blocks sit stashed in
+    // memory, untouched — that is the guest's empty view, not a
+    // deletion.
     expect(
       useProfileStore.getState().profiles.find((p) => p.id === guest.id),
     ).toBeDefined();
     expect(useProfileStore.getState().activeProfileId).toBe(guest.id);
     expect(useSettingsStore.getState().settings.synthOwnBuild).not.toBeNull();
     expect(useSettingsStore.getState().settings.synthDemoReplaced).toBe(
+      true,
+    );
+    expect(useAIStore.getState().sessions).toEqual([]);
+    expect(useAIStore.getState().guestStash?.sessions).toHaveLength(1);
+    expect(useHistoryStore.getState().blocksByTab).toEqual({});
+    expect(useHistoryStore.getState().guestStash).toEqual({
+      tab1: expect.any(Array),
+    });
+    // And leaving the guest brings the owner's data back exactly.
+    expect(useProfileStore.getState().selectProfile(DEFAULT_PROFILE_ID)).toBe(
       true,
     );
     expect(useAIStore.getState().sessions).toHaveLength(1);

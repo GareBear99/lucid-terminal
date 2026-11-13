@@ -18,7 +18,7 @@ import {
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { useHistoryStore, EMPTY_BLOCKS, jumpToBlock } from '../../stores/historyStore';
+import { useHistoryStore, selectHistoryBlocksForTab, jumpToBlock } from '../../stores/historyStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { enabledToolbarPlugins } from '../../data/toolbarPlugins';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
@@ -83,10 +83,13 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   const [historyWidth, setHistoryWidth] = useState(320);
 
   // The active tab's blocks — what the chats panel shows. Only the
-  // active tab's blocks, never all tabs flattened together.
+  // active tab's blocks, never all tabs flattened together. During
+  // a guest session the selector returns nothing: a guest has no
+  // history (the guest's own live blocks stay in the terminal
+  // feed, which reads blocksByTab directly).
   const activeTabId = useTerminalStore((s) => s.activeTabId);
   const historyBlocks = useHistoryStore((s) =>
-    activeTabId ? s.blocksByTab[activeTabId] ?? EMPTY_BLOCKS : EMPTY_BLOCKS
+    selectHistoryBlocksForTab(s, activeTabId),
   );
 
   // Toolbar plugins — the plugins section above Settings. One button

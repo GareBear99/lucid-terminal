@@ -95,6 +95,52 @@ interface AIState {
     setSessionModel: (id: string, model?: string, modelSource?: 'local' | 'openai' | 'ping') => void;
     deleteSession: (id: string) => Promise<void>;
     clearSessions: () => Promise<void>;
+    /**
+     * Whether a guest session is veiled in: the visible sessions /
+     * messages are the guest's own live ones; the owner's sessions
+     * are stashed (see guestStash) and untouched on disk.
+     */
+    guestSessionActive: boolean;
+    /** The owner's sessions + current chat + in-flight generation
+     *  state, stashed when a guest session starts and restored
+     *  when it ends. Null outside a guest session. Never
+     *  persisted — it only ever lives in memory. */
+    guestStash: {
+        sessions: ChatSession[];
+        currentSessionId: string | null;
+        messages: ChatMessage[];
+        isLoading: boolean;
+        generatingSessionId: string | null;
+        /** Whether the owner's sessions had actually been loaded
+         *  off disk when the guest session started. False when the
+         *  veil went on at boot, before the chat ever loaded —
+         *  exitGuestSession then loads them for real instead of
+         *  restoring an empty stash. */
+        sessionsLoaded: boolean;
+    } | null;
+    /**
+     * Start a guest session (Gary, 2026-11-12 ~17:59 PST): no
+     * LLMBuilder memory, no driving-intelligence memory, no chat
+     * memory, no history in any guest build. The owner's sessions
+     * are stashed in memory — never deleted, never written over —
+     * and the visible state goes empty; while the flag is on, no
+     * session is ever persisted to disk (see the guards in
+     * loadSessions / createSession / addMessage / setSessionModel /
+     * deleteSession / clearSessions). The guest's own live chats
+     * live only in the visible state and are dropped on exit.
+     * The backend's per-chat memory is scoped by chat id and is
+     * in-memory only, so a guest chat (fresh id) never sees the
+     * owner's context — and the renderer only ever sends the
+     * guest's own live messages as history.
+     */
+    enterGuestSession: () => void;
+    /** End a guest session: drop the guest's live chats and
+     *  restore the stashed owner sessions exactly. */
+    exitGuestSession: () => void;
+    /** Drop the current guest's live chats (a fresh guest replaces
+     *  the old one — "always a new guest") without touching the
+     *  stashed owner sessions. No-op outside a guest session. */
+    resetGuestSession: () => void;
     addMessage: (message: ChatMessage, targetSessionId?: string) => void;
     updateStreamingMessage: (content: string) => void;
     completeStream: () => void;
@@ -301,8 +347,18 @@ export const useAIStore = create<AIState>((set, get) => {
     lastRestockAt: null,
     stagingMessages: null,
     nextMessages: null,
+    guestSessionActive: false,
+    guestStash: null,
 
     loadSessions: async () => {
+        // A guest never loads the owner's sessions off disk: the
+        // visible list stays empty (the guest's own live chats are
+        // created fresh below). Mark loaded so the chat still opens
+        // with an empty session for the guest to use.
+        if (get().guestSessionActive) {
+            set({ isSessionsLoaded: true });
+            return;
+        }
         try {
             const sessions = await window.lucidAPI.ai.getSessions();
             // Sessions come off disk unsorted — normalize each chat's
@@ -376,8 +432,12 @@ export const useAIStore = create<AIState>((set, get) => {
             currentSessionId: newSession.id,
         });
 
-        // Save the new session immediately
-        window.lucidAPI.ai.saveSession(newSession);
+        // Save the new session immediately — unless this is a
+        // guest's live chat: a guest session is never persisted
+        // (it is dropped when the guest session ends).
+        if (!get().guestSessionActive) {
+            window.lucidAPI.ai.saveSession(newSession);
+        }
     },
 
     selectSession: (id: string) => {
@@ -400,13 +460,21 @@ export const useAIStore = create<AIState>((set, get) => {
         const updated: ChatSession = { ...session, model, modelSource, updatedAt: Date.now() };
         set({ sessions: state.sessions.map((s) => (s.id === id ? updated : s)) });
         // Persist — the model round-trips through sessions.json with
-        // the rest of the session, so the chat remembers it.
-        window.lucidAPI.ai.saveSession(updated);
+        // the rest of the session, so the chat remembers it. Not
+        // for a guest's live chat: it is never persisted.
+        if (!get().guestSessionActive) {
+            window.lucidAPI.ai.saveSession(updated);
+        }
     },
 
     deleteSession: async (id: string) => {
         try {
-            await window.lucidAPI.ai.deleteSession(id);
+            // A guest's live chat was never written to disk, so
+            // there is nothing to delete on disk — only drop it
+            // from the visible list.
+            if (!get().guestSessionActive) {
+                await window.lucidAPI.ai.deleteSession(id);
+            }
             const state = get();
             const newSessions = state.sessions.filter((s) => s.id !== id);
 
@@ -442,6 +510,22 @@ export const useAIStore = create<AIState>((set, get) => {
     },
 
     clearSessions: async () => {
+        // A guest session must NEVER clear the owner's sessions on
+        // disk: sessions.json is the owner's data, and a guest
+        // clear only drops the guest's own live chats from view.
+        if (get().guestSessionActive) {
+            // The guest's own live chats only — the owner's
+            // sessions.json is never touched. A guest generation in
+            // flight is cancelled like any other clear.
+            if (get().generatingSessionId) {
+                cancelGeneration();
+            }
+            swapToChat([], {
+                sessions: [],
+                currentSessionId: null,
+            });
+            return;
+        }
         try {
             await window.lucidAPI.ai.clearSessions();
             // If a generation was running, its origin chat is gone —
@@ -458,6 +542,83 @@ export const useAIStore = create<AIState>((set, get) => {
         }
     },
 
+    enterGuestSession: () => {
+        const state = get();
+        if (state.guestSessionActive) return;
+        set({
+            guestSessionActive: true,
+            guestStash: {
+                sessions: state.sessions,
+                currentSessionId: state.currentSessionId,
+                messages: state.messages,
+                isLoading: state.isLoading,
+                generatingSessionId: state.generatingSessionId,
+                sessionsLoaded: state.isSessionsLoaded,
+            },
+            sessions: [],
+            currentSessionId: null,
+            messages: [],
+            isLoading: false,
+            generatingSessionId: null,
+            streamingMessage: '',
+            streamStartedAt: null,
+            lastTokenAt: null,
+            stagingMessages: null,
+            nextMessages: null,
+        });
+    },
+
+    exitGuestSession: () => {
+        const state = get();
+        if (!state.guestSessionActive) return;
+        const stash = state.guestStash;
+        set({
+            guestSessionActive: false,
+            guestStash: null,
+            sessions: stash?.sessions ?? [],
+            currentSessionId: stash?.currentSessionId ?? null,
+            messages: stash?.messages ?? [],
+            isLoading: stash?.isLoading ?? false,
+            generatingSessionId: stash?.generatingSessionId ?? null,
+            // The stash is only authoritative when the owner's
+            // sessions had actually been loaded at guest entry.
+            // A guest session entered at boot (before the chat ever
+            // loaded) stashed nothing — the no-op loadSessions
+            // during the guest session marked loaded without
+            // fetching, so load for real now that the veil is off.
+            isSessionsLoaded: stash?.sessionsLoaded ?? false,
+            streamingMessage: '',
+            streamStartedAt: null,
+            lastTokenAt: null,
+            stagingMessages: null,
+            nextMessages: null,
+        });
+        if (!stash?.sessionsLoaded) {
+            void get().loadSessions();
+        }
+    },
+
+    resetGuestSession: () => {
+        const state = get();
+        // Outside a guest session the visible state IS the owner's —
+        // never clear it. Inside one, the visible state is the
+        // previous guest's live data only; drop it for the fresh
+        // guest. The stash (owner sessions) is untouched.
+        if (!state.guestSessionActive) return;
+        set({
+            sessions: [],
+            currentSessionId: null,
+            messages: [],
+            isLoading: false,
+            generatingSessionId: null,
+            streamingMessage: '',
+            streamStartedAt: null,
+            lastTokenAt: null,
+            stagingMessages: null,
+            nextMessages: null,
+        });
+    },
+
     addMessage: (message: ChatMessage, targetSessionId?: string) => {
         // Route: an explicit target wins; otherwise a message belongs
         // to the in-flight generation's origin session (a reply that
@@ -470,6 +631,13 @@ export const useAIStore = create<AIState>((set, get) => {
         const targetSession = targetId ? state.sessions.find((s) => s.id === targetId) : undefined;
 
         if (!targetSession) {
+            // A guest session shows the guest's own live chats only:
+            // a message aimed at a session that is not visible — an
+            // owner's stashed chat, e.g. a reply completing after
+            // guest entry — is dropped here, never inserted into the
+            // guest's displayed list. The owner's data is never
+            // shown to a guest.
+            if (get().guestSessionActive) return;
             // No such session (deleted mid-generation without the
             // cancel landing, or no session at all): never silently
             // drop the message — insert it into the displayed list so
@@ -517,8 +685,11 @@ export const useAIStore = create<AIState>((set, get) => {
         };
         const newSessions = state.sessions.map((s) => (s.id === targetId ? updatedSession : s));
 
-        // Persist the update
-        window.lucidAPI.ai.saveSession(updatedSession);
+        // Persist the update — unless this is a guest's live chat:
+        // a guest session is never persisted to disk.
+        if (!get().guestSessionActive) {
+            window.lucidAPI.ai.saveSession(updatedSession);
+        }
 
         // The displayed list (buffer A) changes only when the target
         // IS the displayed chat — and then only to the same ordered
@@ -536,6 +707,17 @@ export const useAIStore = create<AIState>((set, get) => {
     },
 
     updateStreamingMessage: (content: string) => {
+        // A guest never sees the owner's stream: while the veil is
+        // on, chunks only land when the in-flight generation
+        // belongs to a visible (guest) session. A generation still
+        // running from before guest entry has its id in the stash,
+        // not the visible list — its chunks are dropped, never
+        // shown. (Profile switches happen at boot, so this is a
+        // belt-and-braces case, not a live path.)
+        if (get().guestSessionActive) {
+            const genId = get().generatingSessionId;
+            if (!genId || !get().sessions.some((s) => s.id === genId)) return;
+        }
         // Every chunk is token activity: record when it arrived. This
         // is the activity record Gary's timeout rule runs on — alive
         // while tokens flow, quiet only when they stop — but it drives

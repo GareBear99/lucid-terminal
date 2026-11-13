@@ -1,6 +1,10 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { EMPTY_BLOCKS, useHistoryStore } from '../../stores/historyStore';
 import { copyText, formatBlockDuration } from '../../lib/terminalBlocks';
+
+/** How close to the bottom the feed must be to count as "pinned"
+ *  there (and keep following new content) — px. */
+const STICK_TO_BOTTOM_PX = 64;
 
 /**
  * DEFCON 3 Phase 2 — blocks in devmode (Gary, 2026-11-09 ~08:10 PST).
@@ -91,6 +95,44 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
   );
   const [copied, setCopied] = useState<string | null>(null);
 
+  // Feed ordering — newest closest to the prompt, like Warp (Gary,
+  // 2026-11-12 ~17:11 PST: "i dont like how it goes to the top and
+  // doesnt order closest like warp").
+  //
+  // The defect: new blocks append at the END of the store array
+  // (Terminal.tsx openBlock: [...prev, block]) and render in that
+  // order into a plain overflow-y-auto div with NO scroll
+  // management anywhere — no scrollTo, no scrollTop, no
+  // scrollIntoView in Terminal.tsx or here. So the feed's content
+  // starts at the TOP of the column (with one block it sits at
+  // the top, empty black below, prompt far below — exactly
+  // Gary's screenshot), and once the feed overflows scrollTop
+  // stays 0 while new blocks land below the visible fold. Two
+  // halves to the fix:
+  // (a) bottom-anchor: the container is flex-col and the blocks
+  //     wrap in a div with mt-auto — free space is absorbed ABOVE
+  //     the blocks, so short content hugs the bottom (newest
+  //     right above the prompt); when the content overflows the
+  //     auto margin collapses to 0 and normal scrolling works,
+  //     top still reachable (justify-end would strand it).
+  // (b) sticky follow-scroll: while the user is pinned near the
+  //     bottom, new blocks — and streaming output growing the
+  //     current block — scroll the feed to the bottom; scrolling
+  //     up unpins it, so reading old output is never yanked.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
+  const handleFeedScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_PX;
+  };
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [blocks]);
+
   if (blocks.length === 0) {
     // Empty feed in `fill` mode — the non-devmode DEFCON 3
     // landing (Gary, 2026-11-09 ~11:41 PST — "see how its at
@@ -126,12 +168,18 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
   return (
     <div
       data-testid="terminal-blocks"
+      ref={listRef}
+      onScroll={handleFeedScroll}
       className={
         fill
-          ? 'mx-4 mb-4 mt-4 min-h-0 flex-1 overflow-y-auto rounded-none border-0 bg-transparent'
-          : 'mx-4 mt-4 max-h-72 shrink-0 overflow-y-auto rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50'
+          ? 'mx-4 mb-4 mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-none border-0 bg-transparent'
+          : 'mx-4 mt-4 flex max-h-72 shrink-0 flex-col overflow-y-auto rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50'
       }
     >
+      {/* Bottom-anchored content (see the ordering note above):
+          mt-auto absorbs free space above the blocks, so the
+          newest block sits right above the prompt. */}
+      <div data-testid="terminal-blocks-content" className="mt-auto">
       {blocks.map((block, index) => (
         <div key={block.id}>
           {/* Faint divider between blocks — a real 1px
@@ -214,6 +262,7 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
           </article>
         </div>
       ))}
+      </div>
     </div>
   );
 }

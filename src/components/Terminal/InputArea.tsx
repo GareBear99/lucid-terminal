@@ -81,6 +81,15 @@ interface InputAreaProps {
      *  by the linked composer (prompterActive) — the delinked
      *  bar below level 3 gets no ghost. */
     ghostSuggestion?: string | null;
+    /** True-placeholder ghost words (Gary, 2026-11-13 ~02:02 PST,
+     *  Warp reference): the prompt hint words, rendered INSIDE
+     *  the composer as a placeholder overlay at the caret's
+     *  origin — the caret overlaps the start of the ghost text,
+     *  exactly like Warp. Shown only while the input is empty;
+     *  the parent gates it further (first prompt per tab, icon
+     *  enabled). Null = no words. Placeholder behaviour only —
+     *  the auto-detection ghost suggestion stays future. */
+    hintPlaceholder?: string | null;
     /** Accept the ghost suggestion (parent sets the input to
      *  it). Called by Right-arrow / Tab when a ghost is shown. */
     onAcceptSuggestion?: () => void;
@@ -97,7 +106,7 @@ interface InputAreaProps {
     onEof?: () => void;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, onAcceptSuggestion, onInterrupt, onEof }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, hintPlaceholder = null, onAcceptSuggestion, onInterrupt, onEof }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // The ghost remainder (the part after what is typed) — the
   // overlay renders this faded after the input text. Null when
@@ -113,6 +122,14 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
   // keeps the mounted handlers reading the latest values.
   const latestRef = useRef({ ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof });
   latestRef.current = { ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof };
+  // True-placeholder ghost words (Gary, 2026-11-13 ~02:02 PST):
+  // the overlay shows only while the input is empty — the
+  // parent also gates it on the tab's first prompt and the
+  // icon. Never overlaps the ghost suggestion: that one needs
+  // non-empty input (computeGhostSuggestion returns null for
+  // empty input), so the two overlays are mutually exclusive.
+  const showHintPlaceholder = hintPlaceholder != null && input.length === 0;
+
   // The ghost overlay hides while the editor is scrolled —
   // the mirror can only align with unscrolled text (the
   // textarea path syncs its scroll instead; see onScroll).
@@ -494,7 +511,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     rows={1}
                     wrap="off"
                     autoFocus
-                    placeholder="Type a command… (plain input — Monaco unavailable)"
+                    placeholder={showHintPlaceholder ? '' : 'Type a command… (plain input — Monaco unavailable)'}
                     title="Monaco editor unavailable — using plain input"
                     className="w-full bg-transparent text-[var(--text-primary)] font-mono text-[13px] leading-5 px-0 py-[10px] outline-none resize-none overflow-y-auto overflow-x-auto whitespace-nowrap"
                     style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace", maxHeight: `${INPUT_DRAG_MAX_HEIGHT_VH}vh` }}
@@ -561,6 +578,16 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                 >
                     <span style={{ visibility: 'hidden' }}>{input}</span>
                     <span className="text-[var(--text-muted)] opacity-60">{ghostRemainder}</span>
+                </div>
+            )}
+            {showHintPlaceholder && (
+                <div
+                    data-testid="composer-hint-placeholder"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-pre py-[10px] font-mono text-[13px] leading-5"
+                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace" }}
+                >
+                    <span className="text-[var(--text-muted)] opacity-80">{hintPlaceholder}</span>
                 </div>
             )}
         </div>

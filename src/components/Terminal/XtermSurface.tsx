@@ -151,6 +151,12 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     // --- Fallback (no canvas): plain output pane + input line. ---
     const [fallbackOutput, setFallbackOutput] = useState('');
     const [fallbackInput, setFallbackInput] = useState('');
+    // Ghost words (Gary, 2026-11-13 ~02:14 PST — the mechanism
+    // covers EVERY prompt): gone for this surface after its first
+    // submitted command, even when the input is empty again.
+    // Local state — the fallback is the plain-text stand-in for
+    // the shell prompt, and it remounts with the surface.
+    const [fallbackSubmitted, setFallbackSubmitted] = useState(false);
     const fallbackPrevInput = useRef('');
     const fallbackInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -329,6 +335,12 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
         const ctrl = e.ctrlKey || e.metaKey;
         if (e.key === 'Enter') {
           e.preventDefault();
+          // Only an accepted submit marks the first prompt — an
+          // empty line never reaches this (same rule as the
+          // DEFCON 3 composer's markTabPrompted).
+          if (fallbackPrevInput.current.trim().length > 0) {
+            setFallbackSubmitted(true);
+          }
           onInput('\r');
           fallbackPrevInput.current = '';
           setFallbackInput('');
@@ -389,18 +401,38 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
           >
             {fallbackOutput}
           </pre>
-          <textarea
-            ref={fallbackInputRef}
-            data-testid="xterm-fallback-input"
-            value={fallbackInput}
-            onChange={(e) => forwardChange(e.target.value)}
-            onKeyDown={forwardKey}
-            rows={1}
-            autoFocus
-            aria-label="Terminal input"
-            placeholder="Type a command… (plain input — terminal surface unavailable)"
-            className="w-full resize-none bg-transparent px-3 py-2 font-mono text-[13px] text-[var(--text-primary)] outline-none"
-          />
+          {/* Ghost-words overlay (Gary, 2026-11-13 ~02:14 PST):
+              the same true-placeholder mechanism as the DEFCON 3
+              composer and the AI chat input — the ghost text is a
+              position:absolute overlay inside this relative wrap,
+              at the textarea's own text origin (px-3 py-2),
+              pointer-events-none, so the caret overlaps the ghost
+              text and nothing moves when the words appear or
+              disappear. Native placeholder is '' while the overlay
+              shows so the two never double-render. Text frozen. */}
+          <div className="relative w-full">
+            <textarea
+              ref={fallbackInputRef}
+              data-testid="xterm-fallback-input"
+              value={fallbackInput}
+              onChange={(e) => forwardChange(e.target.value)}
+              onKeyDown={forwardKey}
+              rows={1}
+              autoFocus
+              aria-label="Terminal input"
+              placeholder=""
+              className="w-full resize-none bg-transparent px-3 py-2 font-mono text-[13px] text-[var(--text-primary)] outline-none"
+            />
+            {!fallbackSubmitted && fallbackInput.length === 0 && (
+              <div
+                data-testid="xterm-fallback-hint-placeholder"
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-nowrap py-2 font-mono text-[13px] text-[var(--text-muted)] opacity-80"
+              >
+                Type a command… (plain input — terminal surface unavailable)
+              </div>
+            )}
+          </div>
         </div>
       );
     }

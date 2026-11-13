@@ -49,6 +49,15 @@ export interface TerminalState {
   updateTabTitle: (id: string, title: string) => void;
   updateTabCwd: (id: string, cwd: string) => void;
   /**
+   * First prompt sent to a tab (Gary, 2026-11-13 ~02:02 PST —
+   * Warp reference): after the first prompt to a tab, the
+   * ghost words are gone for that tab. Per tab, never global —
+   * marking one tab never affects another. Called by the
+   * composer's submit path; a dropped submit (empty line, or
+   * one already in flight) does not mark.
+   */
+  markTabPrompted: (id: string) => void;
+  /**
    * Test-only reset (same precedent as forgeStore.resetForTests):
    * clears the cached home dir (see cachedHomeDir). The cache is
    * module-level, so without this a test file that stubs a fresh
@@ -116,6 +125,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       title: `Terminal ${tabNumber}`,
       cwd: workingDir,
       isActive: true,
+      hasPrompted: false,
     };
 
     // Create the PTY process (fail gracefully if terminal can't be created).
@@ -212,6 +222,12 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   updateTabCwd: (id, cwd) => {
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)),
+    }));
+  },
+
+  markTabPrompted: (id) => {
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, hasPrompted: true } : t)),
     }));
   },
 

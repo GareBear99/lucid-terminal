@@ -57,7 +57,27 @@ export function DualUnisonPanel() {
     savedDuration.kind === 'seconds' ? savedDuration.seconds : 3,
   );
   const [message, setMessage] = useState('');
+  // Ghost words (Gary, 2026-11-13 ~02:14 PST — the mechanism
+  // covers EVERY prompt): gone after the first message assigned
+  // here, even when the input is empty again. Local state — the
+  // panel remounts each time the Dual Unison tab opens.
+  const [hasSentMessage, setHasSentMessage] = useState(false);
   const [inputting, setInputting] = useState(false);
+
+  // Assign the action message (Enter or the button): only a
+  // successful assign marks the first prompt — a rejected one
+  // (assignStopActionMessage throws, lastError says why) leaves
+  // the ghost words in place.
+  const assignMessage = () => {
+    if (!message.trim()) return;
+    try {
+      assignStopActionMessage(message);
+      setHasSentMessage(true);
+      setMessage('');
+    } catch {
+      // lastError already says why.
+    }
+  };
 
   const detection = detectDualUnison(roster);
   const tailUnlocked = isTailPageFullyUnlocked(unison.stopAction);
@@ -333,33 +353,38 @@ export function DualUnisonPanel() {
               last validated solid.
             </p>
             <div className="mt-3 flex gap-2">
-              <input
-                className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-sm text-[var(--text-primary)]"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && message.trim()) {
-                    try {
-                      assignStopActionMessage(message);
-                      setMessage('');
-                    } catch {
-                      // lastError already says why.
-                    }
-                  }
-                }}
-                placeholder="Action message for this stop…"
-                aria-label="Action message for this stop"
-              />
+              {/* Ghost-words overlay (Gary, 2026-11-13 ~02:14 PST):
+                  position:absolute inside this relative wrap, at
+                  the input's own text origin (px-2 py-1),
+                  pointer-events-none — the caret overlaps the
+                  ghost text and nothing moves when the words
+                  appear or disappear. Native placeholder is ''
+                  while the overlay shows so the two never
+                  double-render. Text frozen. */}
+              <div className="relative min-w-0 flex-1">
+                <input
+                  className="w-full rounded border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-sm text-[var(--text-primary)]"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') assignMessage();
+                  }}
+                  placeholder=""
+                  aria-label="Action message for this stop"
+                />
+                {!hasSentMessage && message.length === 0 && (
+                  <div
+                    data-testid="dual-unison-hint-placeholder"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-2 right-2 z-10 overflow-hidden whitespace-nowrap py-1 text-sm text-[var(--text-muted)] opacity-80"
+                  >
+                    Action message for this stop…
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
-                onClick={() => {
-                  try {
-                    assignStopActionMessage(message);
-                    setMessage('');
-                  } catch {
-                    // lastError already says why.
-                  }
-                }}
+                onClick={assignMessage}
                 disabled={!message.trim()}
                 className="shrink-0 rounded bg-[var(--accent)] px-3 py-1 text-sm text-white disabled:opacity-50"
               >

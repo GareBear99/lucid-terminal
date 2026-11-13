@@ -67,6 +67,11 @@ export function ForgeView() {
   const [newColor, setNewColor] = useState<HomunculusColor>('purple');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [askPrompt, setAskPrompt] = useState('Who are you?');
+  // Ghost words (Gary, 2026-11-13 ~02:14 PST — the mechanism
+  // covers EVERY prompt): gone after the first question asked
+  // here, even when the input is empty again. Local state — the
+  // panel remounts with the Forge view.
+  const [hasAsked, setHasAsked] = useState(false);
   const [asking, setAsking] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
   // Forge tabs (Gary, 2026-11-06): the Forge itself, the Dual Unison
@@ -146,6 +151,9 @@ export function ForgeView() {
 
   const handleAsk = async () => {
     if (!selected || !askPrompt.trim()) return;
+    // First question asked — the ghost words are gone for this
+    // panel after it, even when the input is empty again.
+    setHasAsked(true);
     setAsking(true);
     try {
       await askBrain(selected.id, askPrompt.trim());
@@ -422,16 +430,38 @@ export function ForgeView() {
         ) : (
           <>
             <div className="flex gap-2">
-              <input
-                className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-sm text-[var(--text-primary)]"
-                value={askPrompt}
-                onChange={(e) => setAskPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleAsk();
-                }}
-                placeholder="Who are you?"
-                aria-label="Ask the brain"
-              />
+              {/* Ghost-words overlay (Gary, 2026-11-13 ~02:14 PST):
+                  position:absolute inside this relative wrap, at
+                  the input's own text origin (px-2 py-1),
+                  pointer-events-none — the caret overlaps the
+                  ghost text and nothing moves when the words
+                  appear or disappear. Native placeholder is ''
+                  while the overlay shows so the two never
+                  double-render. The input ships pre-filled with
+                  the question, so the ghost only shows if the
+                  user clears it before the first ask. Text
+                  frozen: 'Who are you?'. */}
+              <div className="relative min-w-0 flex-1">
+                <input
+                  className="w-full rounded border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-sm text-[var(--text-primary)]"
+                  value={askPrompt}
+                  onChange={(e) => setAskPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleAsk();
+                  }}
+                  placeholder=""
+                  aria-label="Ask the brain"
+                />
+                {!hasAsked && askPrompt.length === 0 && (
+                  <div
+                    data-testid="forge-ask-hint-placeholder"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-2 right-2 z-10 overflow-hidden whitespace-nowrap py-1 text-sm text-[var(--text-muted)] opacity-80"
+                  >
+                    Who are you?
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => void handleAsk()}

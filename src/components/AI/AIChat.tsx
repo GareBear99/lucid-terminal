@@ -31,6 +31,14 @@ interface AIChatProps {
 function AIChat({ onClose }: AIChatProps) {
 
   const { hasApiKey, setApiKey, isLocalBackendAvailable, isLocalModelAvailable, checkBackendStatus, settings, updateSetting } = useSettingsStore();
+  // A snapshot installed (version + hash recorded) can answer
+  // from its packets (0 SP) even with ping off and no key or
+  // loaded local model — it is a route, like ping. The file is
+  // the truth for the route itself (electron checks the GGUF
+  // on disk); settings is enough to let the user send.
+  const snapshotInstalled =
+    settings.installedSnapshotVersion !== null &&
+    settings.installedSnapshotHash !== null;
   // SILENCED (Gary, 2026-11-08 ~06:41 PST): when the blood drop
   // is grey, the visual causal bubbles are removed from LuciferAI
   // inputs — user messages render flat, no bubble chrome — and
@@ -183,6 +191,20 @@ function AIChat({ onClose }: AIChatProps) {
   // what handleSend passes for the next reply.
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
+  // Ghost words (Gary, 2026-11-13 ~02:02 PST — Warp reference,
+  // and the ~02:14 PST correction: the mechanism covers EVERY
+  // prompt, the TEXT stays frozen): 'Ask Lucid...' is the ghost
+  // text, exactly as-is, rendered as a position:absolute overlay
+  // inside the input wrap — the caret overlaps the start of the
+  // ghost text, and when the words appear or disappear NOTHING
+  // on screen moves. It shows only before this chat's first
+  // sent message; after the first sent message the ghost is
+  // gone for this chat, even when the input is empty again. Per
+  // chat (messages is the current chat's list, swapped per
+  // chat in aiStore), never global — a new chat shows it again.
+  const hasSentMessage = messages.some((m) => m.role === 'user');
+  const showAiChatHint = !hasSentMessage && input.length === 0;
+
   // Gate actions: install the bundled model from inside the panel, and
   // re-check the backend. The backend/model status is only probed once
   // at launch (settingsStore.loadSettings), so a backend that came up
@@ -318,10 +340,26 @@ function AIChat({ onClose }: AIChatProps) {
     const cleanupEnd = window.lucidAPI.ai.onStreamEnd(handleStreamEnd);
     const cleanupError = window.lucidAPI.ai.onStreamError(handleStreamError);
 
+    // A snapshot packet answered a reply (0 SP, 0 neurons, 0 CPU):
+    // log the packet-hits ring tick — the main process cannot
+    // touch the renderer event ring directly, so the event
+    // carries the tick here. This also completes the update
+    // stream the Security tab tracks (first packet hitting
+    // the new snapshot after a flip).
+    const cleanupSnapshotHit = window.lucidAPI.ai.onSnapshotHit((hit) => {
+      useEventLogStore.getState().logSnapshotUpdate(
+        'packet-hits',
+        hit.version,
+        'completed',
+        `Packet ${hit.packetId ?? 'unknown'} hit snapshot ${hit.version} — delivered verbatim, 0 SP, 0 neurons, 0 CPU.`,
+      );
+    });
+
     return () => {
       cleanupStream();
       cleanupEnd();
       cleanupError();
+      cleanupSnapshotHit();
     };
   }, []);
 
@@ -331,9 +369,11 @@ function AIChat({ onClose }: AIChatProps) {
 
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
-    // Allow if has key OR a loaded local model. A wrapper with no model
+    // Allow if has key OR a loaded local model OR ping enabled OR
+    // a snapshot installed — a snapshot packet can answer (0 SP)
+    // even with ping off and no key/model. A wrapper with no model
     // must not receive the message — it answers with a raw Python error.
-    if (!text || isLoading || (!hasApiKey && !isLocalModelAvailable && !settings.pingServerEnabled)) return;
+    if (!text || isLoading || (!hasApiKey && !isLocalModelAvailable && !settings.pingServerEnabled && !snapshotInstalled)) return;
 
     // A submitted prompt feeds the Sentinel face's horns.
     usePromptPaceStore.getState().recordPrompt();
@@ -610,9 +650,11 @@ function AIChat({ onClose }: AIChatProps) {
   );
 
   // API Key / No Model Screen — shown when there is no key and no
-  // loaded local model. The message must say so plainly when the wrapper
-  // is up but no model is loaded.
-  if (!hasApiKey && !isLocalModelAvailable && !settings.pingServerEnabled) {
+  // loaded local model and no snapshot installed. The message must
+  // say so plainly when the wrapper is up but no model is loaded.
+  // A snapshot installed admits the chat: its packets can answer
+  // even with ping off and no key/model (see snapshotInstalled).
+  if (!hasApiKey && !isLocalModelAvailable && !settings.pingServerEnabled && !snapshotInstalled) {
     return (
       <div className="h-full flex flex-col bg-[var(--bg-primary)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -629,12 +671,12 @@ function AIChat({ onClose }: AIChatProps) {
           <div className="max-w-sm text-center">
             <Key size={48} className="mx-auto mb-4 text-[var(--accent)]" />
             <h3 className="text-lg font-semibold mb-2">{isLocalBackendAvailable ? 'No model loaded' : 'Activate Lucid Terminal'}</h3>
-            <p className="text-[var(--text-secondary)] mb-6 text-sm">
+            <p className="text-[var(--text-secondary)] mb-6 text-sm leading-[1.5]">
               {isLocalBackendAvailable ? (
                 <>
                   No model loaded — AI chat is unavailable.
                   <br />
-                  <span className="text-xs text-[var(--text-muted)] mt-2 block">
+                  <span className="text-xs text-[var(--text-muted)] mt-2 block leading-[1.5]">
                     Install a model, or enter an API key to use AI chat instead.
                   </span>
                 </>
@@ -642,7 +684,7 @@ function AIChat({ onClose }: AIChatProps) {
                 <>
                   Please enter your API key to access AI features.
                   <br />
-                  <span className="text-xs text-[var(--text-muted)] mt-2 block">
+                  <span className="text-xs text-[var(--text-muted)] mt-2 block leading-[1.5]">
                     (Or verify local LuciferAI backend is running)
                   </span>
                 </>
@@ -666,7 +708,7 @@ function AIChat({ onClose }: AIChatProps) {
                 Save API Key
               </button>
               <div className="pt-1 border-t border-[var(--border)]">
-                <p className="text-xs text-[var(--text-muted)] mt-3 mb-2">
+                <p className="text-xs text-[var(--text-muted)] mt-3 mb-2 leading-[1.5]">
                   No API key? Install the bundled local model instead — free, about 700 MB, a few minutes. No key needed.
                 </p>
                 <button
@@ -686,7 +728,7 @@ function AIChat({ onClose }: AIChatProps) {
                   )}
                 </button>
                 {installing && (
-                  <p className="mt-2 text-xs text-[var(--text-muted)]">
+                  <p className="mt-2 text-xs text-[var(--text-muted)] leading-[1.5]">
                     Installing TinyLlama… (downloads about 700 MB — this can take a few minutes)
                     {progressLine && (
                       <span className="block font-mono truncate" title={progressLine}>
@@ -696,7 +738,7 @@ function AIChat({ onClose }: AIChatProps) {
                   </p>
                 )}
                 {installError && (
-                  <p className="mt-2 text-xs text-red-300">
+                  <p className="mt-2 text-xs text-red-300 leading-[1.5]">
                     Install failed: {installError}
                   </p>
                 )}
@@ -946,24 +988,47 @@ function AIChat({ onClose }: AIChatProps) {
             onDragHandlePointerDown={onDragHandlePointerDown}
           />
           <div className="flex gap-2">
-            <textarea
-              ref={inputRef}
-              className="input resize-none flex-1 overflow-y-auto"
-              placeholder="Ask Lucid..."
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              rows={1}
-              style={{ minHeight: `${INPUT_MIN_HEIGHT_PX}px`, maxHeight: `${INPUT_DRAG_MAX_HEIGHT_VH}vh` }}
-              disabled={isLoading}
-            />
+            {/* Ghost-words overlay (Gary, 2026-11-13 ~02:14 PST):
+                the relative wrap holds the textarea AND the ghost
+                text. The overlay is position:absolute inside the
+                wrap at the textarea's own text origin (px-3 py-2,
+                matching .input), pointer-events-none so clicks pass
+                through to the textarea — the caret stays at the
+                input start, overlapping the ghost text, and nothing
+                moves when the words appear or disappear. The
+                native placeholder is '' while the overlay shows so
+                the two never double-render; it stays '' after the
+                first sent message too, because the ghost is gone
+                for this chat then. Text frozen: 'Ask Lucid...'. */}
+            <div className="relative min-w-0 flex-1">
+              <textarea
+                ref={inputRef}
+                className="input resize-none w-full overflow-y-auto"
+                placeholder=""
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                rows={1}
+                style={{ minHeight: `${INPUT_MIN_HEIGHT_PX}px`, maxHeight: `${INPUT_DRAG_MAX_HEIGHT_VH}vh` }}
+                disabled={isLoading}
+              />
+              {showAiChatHint && (
+                <div
+                  data-testid="ai-chat-hint-placeholder"
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-nowrap py-2 text-[var(--text-muted)] opacity-80"
+                >
+                  Ask Lucid...
+                </div>
+              )}
+            </div>
             {isLoading ? (
               <button onClick={handleCancel} className="btn btn-danger px-3 self-end h-[40px]">
                 <StopCircle size={18} />

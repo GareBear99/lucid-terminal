@@ -33,6 +33,13 @@ export function TailGeneratorPanel() {
   const rootUnitedAction = useForgeStore((s) => s.rootUnitedAction);
 
   const [action, setAction] = useState('');
+  // Ghost words (Gary, 2026-11-13 ~02:14 PST — the mechanism
+  // covers EVERY prompt): gone after the first action rooted
+  // here, even when the input is empty again. Local state — the
+  // panel remounts each time the Tail Generator tab opens. Only
+  // a successful root marks it; a rejected root (lastError says
+  // why) leaves the ghost words in place.
+  const [hasRooted, setHasRooted] = useState(false);
 
   const detection = detectDualUnison(roster);
   const fullyUnlocked = isTailPageFullyUnlocked(unison.stopAction);
@@ -41,6 +48,7 @@ export function TailGeneratorPanel() {
     if (!action.trim()) return;
     try {
       rootUnitedAction(action);
+      setHasRooted(true);
       setAction('');
     } catch {
       // Rejected (not detected / not fully unlocked / empty) —
@@ -114,16 +122,35 @@ export function TailGeneratorPanel() {
               grows the tail. Write what happened, in your own words.
             </p>
             <div className="mt-2 flex gap-2">
-              <input
-                className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-sm text-[var(--text-primary)]"
-                value={action}
-                onChange={(e) => setAction(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleRoot();
-                }}
-                placeholder="What did you do while united?"
-                aria-label="United action to root"
-              />
+              {/* Ghost-words overlay (Gary, 2026-11-13 ~02:14 PST):
+                  position:absolute inside this relative wrap, at
+                  the input's own text origin (px-2 py-1),
+                  pointer-events-none — the caret overlaps the
+                  ghost text and nothing moves when the words
+                  appear or disappear. Native placeholder is ''
+                  while the overlay shows so the two never
+                  double-render. Text frozen. */}
+              <div className="relative min-w-0 flex-1">
+                <input
+                  className="w-full rounded border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-sm text-[var(--text-primary)]"
+                  value={action}
+                  onChange={(e) => setAction(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRoot();
+                  }}
+                  placeholder=""
+                  aria-label="United action to root"
+                />
+                {!hasRooted && action.length === 0 && (
+                  <div
+                    data-testid="tail-generator-hint-placeholder"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-2 right-2 z-10 overflow-hidden whitespace-nowrap py-1 text-sm text-[var(--text-muted)] opacity-80"
+                  >
+                    What did you do while united?
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={handleRoot}

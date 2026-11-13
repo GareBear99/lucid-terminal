@@ -158,10 +158,17 @@ function renderDevmode(level: 1 | 2 | 3, luciferAiEnabled = true, silenced = fal
   render(<Terminal tabId="tab-1" />);
 }
 
-/** The non-devmode composer's input (the fallback textarea in jsdom). */
+/** The non-devmode composer's input (the fallback textarea in jsdom).
+ *  Found by element, not by placeholder text: when the
+ *  true-placeholder ghost words are showing (Gary, 2026-11-13
+ *  ~02:02 PST), the textarea's native placeholder is suppressed
+ *  so the two placeholders never double-render — the overlay
+ *  IS the placeholder there. */
 function nonDevmodeComposerInput(): HTMLTextAreaElement {
   const wrap = screen.getByTestId('prompter-composer-wrap');
-  return within(wrap).getByPlaceholderText(/Monaco unavailable/) as HTMLTextAreaElement;
+  const textarea = wrap.querySelector('textarea');
+  expect(textarea).not.toBeNull();
+  return textarea as HTMLTextAreaElement;
 }
 
 /** Type a command into the non-devmode composer and press Enter. */
@@ -226,7 +233,7 @@ describe('DEFCON 3 Phase 5 — the landing shape (the settle)', () => {
     // hint, plain cwd text, plain-shell header.
     expect(screen.getByTestId('prompt-section').style.background).toContain('0, 0, 0');
     expect(screen.getByTestId('terminal-page').className).toContain('bg-black/25');
-    expect(screen.getByText('Real shell — type /help for Lucid commands')).not.toBeNull();
+    expect(screen.getByText('Ask Lucid...')).not.toBeNull();
     expect(screen.getByText(TAB_CWD)).not.toBeNull();
     expect(screen.queryByTestId('cwd-chip')).toBeNull();
     const header = screen.getByTestId('prompt-section-header');
@@ -487,7 +494,7 @@ describe('extend drag tab — gone in non-devmode, kept in devmode (Gary, 2026-1
     await screen.findByTestId('prompter-composer-wrap');
     const wrap = screen.getByTestId('prompter-composer-wrap');
     // The composer input is there and typeable — only the drag tab is gone.
-    expect(within(wrap).getByPlaceholderText(/Monaco unavailable/)).not.toBeNull();
+    expect(nonDevmodeComposerInput()).not.toBeNull();
     expect(within(wrap).queryByTestId('input-drag-handle')).toBeNull();
     expect(screen.queryByTestId('input-drag-handle')).toBeNull();
   });
@@ -501,39 +508,55 @@ describe('extend drag tab — gone in non-devmode, kept in devmode (Gary, 2026-1
 });
 
 describe('Prompt input row — cursor on the same line as the blood drop icon (Gary, 2026-11-12 ~10:13 PST)', () => {
-  // DOM order within the one row: a is before b in the row.
-  function isBeforeInRow(a: Element, b: Element): boolean {
-    return Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-  }
-
-  test('level 3, LuciferAI on, empty input: one row holds [drop] [words] [composer] — words in front of the cursor', async () => {
+  test('level 3, LuciferAI on, empty input: one row holds [drop] [composer] with the ghost words INSIDE it as a true placeholder — the caret overlaps the ghost text (Gary, 2026-11-13 ~02:02 PST, Warp reference)', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     const row = screen.getByTestId('prompt-input-row');
     const drop = screen.getByTestId('blood-drop');
-    const words = screen.getByTestId('prompt-hint-words');
     const wrap = screen.getByTestId('prompter-composer-wrap');
     expect(row.contains(drop)).toBe(true);
-    expect(row.contains(words)).toBe(true);
     expect(row.contains(wrap)).toBe(true);
-    expect(isBeforeInRow(drop, words)).toBe(true);
-    expect(isBeforeInRow(words, wrap)).toBe(true);
-    expect(words.textContent).toBe('Real shell — type /help for Lucid commands');
+    // No separate words span before the composer anymore — the
+    // words live INSIDE the composer wrap as the placeholder
+    // overlay. That is the whole point: the caret used to sit in
+    // front of static text (Gary ~16:30 PST) because the span
+    // was a sibling before the composer.
+    expect(within(row).queryByTestId('prompt-hint-words')).toBeNull();
+    const overlay = within(wrap).getByTestId('composer-hint-placeholder');
+    expect(overlay.textContent).toBe('Ask Lucid...');
+    // Caret-overlap positioning: the overlay starts at the
+    // composer's text origin — the same classes the ghost
+    // suggestion overlay uses to align with the editor/textarea
+    // text (left-3 = the 12px container padding, py-[10px] =
+    // the editor's top padding, 13px/leading-5 = the editor
+    // font). The caret at position 0 sits on the ghost text,
+    // exactly like Warp's screenshot. jsdom has no layout, so
+    // the classes are the check — the live deploy still needs
+    // eyes on it.
+    expect(overlay.className).toContain('pointer-events-none');
+    expect(overlay.className).toContain('absolute');
+    expect(overlay.className).toContain('left-3');
+    expect(overlay.className).toContain('py-[10px]');
+    expect(overlay.className).toContain('text-[13px]');
+    expect(overlay.className).toContain('leading-5');
     // The composer input is typeable in the row — the caret lives here now.
-    expect(within(wrap).getByPlaceholderText(/Monaco unavailable/)).not.toBeNull();
+    expect(nonDevmodeComposerInput()).not.toBeNull();
   });
 
   test('typing makes the words VANISH entirely: normal ghost words — gone once there is input, no faded trail behind the cursor (Gary, 2026-11-12 ~15:12 PST)', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
-    // Empty first: the words are there, in front of the cursor.
-    expect(screen.getByTestId('prompt-hint-words').textContent).toBe(
-      'Real shell — type /help for Lucid commands',
+    // Empty first: the words are there, inside the composer as
+    // the placeholder overlay.
+    expect(screen.getByTestId('composer-hint-placeholder').textContent).toBe(
+      'Ask Lucid...',
     );
     typeInNonDevmodeComposer('ls');
     const row = screen.getByTestId('prompt-input-row');
     // No words span anywhere in the row once there is input.
     expect(within(row).queryByTestId('prompt-hint-words')).toBeNull();
+    // And no placeholder overlay either — it hides on input too.
+    expect(within(row).queryByTestId('composer-hint-placeholder')).toBeNull();
     // The typed text is in the composer, in the row.
     expect(nonDevmodeComposerInput().value).toBe('ls');
   });
@@ -543,16 +566,17 @@ describe('Prompt input row — cursor on the same line as the blood drop icon (G
     await screen.findByTestId('prompter-composer-wrap');
     const row = screen.getByTestId('prompt-input-row');
     expect(within(row).queryByTestId('prompt-hint-words')).toBeNull();
+    expect(within(row).queryByTestId('composer-hint-placeholder')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Toggle LuciferAI' })).toBeNull();
     // The composer is still there and typeable — only LuciferAI's surfaces are gone.
     expect(within(row).getByPlaceholderText(/Monaco unavailable/)).not.toBeNull();
   });
 
-  test('level 3, drop grey (silenced): plain mode words only — never mentions anything is off', async () => {
+  test('level 3, drop grey (silenced): the same words — never mentions anything is off', async () => {
     renderNonDevmode(3, true, true);
     await screen.findByTestId('prompter-composer-wrap');
-    const words = screen.getByTestId('prompt-hint-words');
-    expect(words.textContent).toBe('Real shell');
+    const overlay = screen.getByTestId('composer-hint-placeholder');
+    expect(overlay.textContent).toBe('Ask Lucid...');
     expect(screen.getByTestId('prompt-input-row').textContent).not.toMatch(/silenc|paused|disabled/i);
   });
 
@@ -571,7 +595,7 @@ describe('Prompt input row — cursor on the same line as the blood drop icon (G
     const first = renderNonDevmode(2, true);
     await screen.findByTestId('xterm-surface');
     expect(screen.getByTestId('prompt-hint-words').textContent).toBe(
-      'Real shell — type /help for Lucid commands',
+      'Ask Lucid...',
     );
     expect(screen.queryByTestId('prompter-composer-wrap')).toBeNull();
     first.unmount();
@@ -594,7 +618,7 @@ describe('Prompt-row clicks focus the composer (Gary, 2026-11-12 — the prompt-
   test('clicking the hint words focuses the composer — the words are not a dead span', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
-    const words = screen.getByTestId('prompt-hint-words');
+    const words = screen.getByTestId('composer-hint-placeholder');
     // The words are a label, not a target: clicks pass through them.
     expect(words.className).toContain('pointer-events-none');
     blurComposer();
@@ -633,5 +657,66 @@ describe('Prompt-row clicks focus the composer (Gary, 2026-11-12 — the prompt-
     expect(document.activeElement).not.toBe(input);
     fireEvent.click(screen.getByTestId('prompt-section'));
     expect(document.activeElement).not.toBe(input);
+  });
+});
+
+describe('True-placeholder ghost words — per-tab first prompt (Gary, 2026-11-13 ~02:02 PST, Warp reference)', () => {
+  test('hidden on input; returns when emptied again — but only while the tab has not had its first prompt', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    expect(screen.getByTestId('composer-hint-placeholder')).not.toBeNull();
+    typeInNonDevmodeComposer('ls');
+    expect(screen.queryByTestId('composer-hint-placeholder')).toBeNull();
+    // Emptied again, still no prompt sent: the words come back.
+    typeInNonDevmodeComposer('');
+    expect(screen.getByTestId('composer-hint-placeholder').textContent).toBe(
+      'Ask Lucid...',
+    );
+  });
+
+  test('after the first prompt to a tab the words are gone even when the input is empty again', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    expect(screen.getByTestId('composer-hint-placeholder')).not.toBeNull();
+    submitToNonDevmodeComposer('ls');
+    await waitFor(() => {
+      expect(writeMock).toHaveBeenCalledWith('tab-1', 'ls\r');
+    });
+    // Submit clears the input — and the words do NOT come back:
+    // this tab has had its first prompt.
+    expect(nonDevmodeComposerInput().value).toBe('');
+    expect(screen.queryByTestId('composer-hint-placeholder')).toBeNull();
+    expect(screen.queryByTestId('prompt-hint-words')).toBeNull();
+    expect(useTerminalStore.getState().tabs[0].hasPrompted).toBe(true);
+  });
+
+  test("per-tab: one tab's first prompt never affects another tab; switching tabs does not leak the state", async () => {
+    const first = renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    submitToNonDevmodeComposer('ls');
+    await waitFor(() => {
+      expect(writeMock).toHaveBeenCalledWith('tab-1', 'ls\r');
+    });
+    expect(screen.queryByTestId('composer-hint-placeholder')).toBeNull();
+    first.unmount();
+
+    // A fresh second tab still shows its own ghost words.
+    useTerminalStore.setState((state) => ({
+      tabs: [...state.tabs, { id: 'tab-2', title: 'Terminal 2', cwd: TAB_CWD, isActive: false }],
+      activeTabId: 'tab-2',
+    }));
+    const second = render(<Terminal tabId="tab-2" />);
+    await screen.findByTestId('prompter-composer-wrap');
+    expect(screen.getByTestId('composer-hint-placeholder').textContent).toBe(
+      'Ask Lucid...',
+    );
+    second.unmount();
+
+    // Back to the first tab: its words stay gone — the store
+    // holds the per-tab state, not the component.
+    useTerminalStore.setState({ activeTabId: 'tab-1' });
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('prompter-composer-wrap');
+    expect(screen.queryByTestId('composer-hint-placeholder')).toBeNull();
   });
 });

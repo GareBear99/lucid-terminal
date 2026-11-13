@@ -103,6 +103,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // follows the live shell now: the main process reports OSC 7 /
   // cd moves over `terminal:cwd`.
   const tabCwd = useTerminalStore((st) => st.tabs.find((t) => t.id === tabId)?.cwd);
+  // Whether this tab has had its first prompt through the linked
+  // composer (Gary, 2026-11-13 ~02:02 PST — Warp reference): after
+  // the first prompt to a tab, the ghost words are gone for that
+  // tab. Per tab, from the store — it survives tab switches and
+  // remounts, and one tab's first prompt never affects another.
+  const hasPrompted = useTerminalStore((s) => s.tabs.find((t) => t.id === tabId)?.hasPrompted ?? false);
   // A slash command is running (the 'command' loading key). The
   // shell itself never sets this — only Lucid work does.
   const [slashRunning, setSlashRunning] = useState(false);
@@ -1089,6 +1095,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // re-renders; devRunning below drives the glow.
     if (composerRunningRef.current) return;
     composerRunningRef.current = true;
+    // First prompt to this tab — mark it before the submit runs
+    // (Gary, 2026-11-13 ~02:02 PST — Warp reference): the ghost
+    // words are gone for this tab after its first prompt. Only an
+    // accepted submit marks — an empty line or a dropped
+    // concurrent submit never reaches this line.
+    useTerminalStore.getState().markTabPrompted(tabId);
     setDevHistory((prev) => [...prev, trimmed].slice(-100));
     devHistoryIdx.current = null;
     setDevInput('');
@@ -1331,7 +1343,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // the prompt, so the composer drops the border there —
   // background untouched. Devmode keeps the border
   // exactly as-is.
-  const renderPrompterComposer = () => (
+  // The hint placeholder for the composer (null = no words):
+  // passed in by the call sites — the prompt section passes
+  // the ghost words, the dev bar passes null (its row keeps
+  // the static hint). The value is computed where hintWords
+  // lives (below, next to composerHasInput) and read at call
+  // time, after it is initialized.
+  const renderPrompterComposer = (hintPlaceholder: string | null) => (
     <div data-testid="prompter-composer" className={luciferAiEnabled ? (!devMode && prompterActive ? 'rounded-none bg-[var(--bg-tertiary)]/50' : 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50') : 'flex items-center gap-2'}>
       {!luciferAiEnabled && (
         <>
@@ -1366,6 +1384,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           // Devmode keeps the handle exactly as it was.
           showDragHandle={devMode}
           ghostSuggestion={ghostSuggestion}
+          hintPlaceholder={hintPlaceholder}
           onAcceptSuggestion={acceptGhostSuggestion}
           onInterrupt={handleComposerInterrupt}
           onEof={handleComposerEof}
@@ -1378,24 +1397,31 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // ~10:00–10:19 PST — the cursor must sit on the SAME LINE as the
   // blood drop icon, with the words there until you type):
   // - hintWords: WHICH words show, from the §2.3 table
-  //   (src/lib/promptHintWords.ts). Terminal words are the blood
-  //   drop's help entry — null when LuciferAI is off (zero
-  //   residue); plain "Real shell" when the drop is grey. Agent
-  //   words never depend on LuciferAI. The MODE is 'terminal'
+  //   (src/lib/promptHintWords.ts). The words are "Ask Lucid..."
+  //   in both modes (Gary, 2026-11-13 ~02:58 PST) — null when
+  //   LuciferAI is off (zero residue); the same words when the
+  //   drop is grey. Agent words never depend on LuciferAI. The
+  //   MODE is 'terminal'
   //   until the mode dropdown pill lands and owns it — there is
   //   no mode state in the code yet (the pill is designed, not
   //   built), so nothing here invents one.
-  // - The words sit IN FRONT OF the cursor (before the composer)
-  //   while the composer is empty, and VANISH ENTIRELY once you
-  //   type — normal ghost words, like any other prompt on earth
-  //   (Gary, 2026-11-12 ~15:12 PST: "make them normal fucking
-  //   ghost words ... that disappear when you type"). This
-  //   REVERSES the ~10:00 drop-behind rule (words trailing behind
-  //   the cursor, faded, after you typed) — there is no behind
-  //   span anymore. The words are NOT the ghost suggestion and
-  //   never become one: the post-first-entry auto-detection ghost
-  //   text is FUTURE design (Gary, 2026-11-12 ~10:17 PST —
-  //   "we're nowhere near it").
+  // - The words are TRUE-PLACEHOLDER ghost words (Gary,
+  //   2026-11-13 ~02:02 PST — Warp reference): they render
+  //   INSIDE the composer as an overlay at the caret's origin,
+  //   so the caret overlaps the start of the ghost text — never
+  //   a separate span before the composer (that is why the caret
+  //   used to appear in front of static text, Gary ~16:30 PST).
+  //   They show while the composer is empty and VANISH ENTIRELY
+  //   once you type — normal ghost words, like any other prompt
+  //   on earth (Gary, 2026-11-12 ~15:12 PST: "make them normal
+  //   fucking ghost words ... that disappear when you type") —
+  //   and they are gone for the tab after its first prompt.
+  //   This REVERSES the ~10:00 drop-behind rule (words trailing
+  //   behind the cursor, faded, after you typed) — there is no
+  //   behind span anymore. The words are NOT the ghost
+  //   suggestion and never become one: the post-first-entry
+  //   auto-detection ghost text is FUTURE design (Gary,
+  //   2026-11-12 ~10:17 PST — "we're nowhere near it").
   // - The composer IS the input line at DEFCON 3+ in non-devmode
   //   (the xterm surface is unmounted there), so it renders
   //   INSIDE this row — flex-1 — and its caret is on the same
@@ -1415,6 +1441,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   //   unchanged.
   const hintWords = getPromptHintWords('terminal', luciferAiEnabled, luciferAiSilenced);
   const composerHasInput = devInput.length > 0;
+  // Whether the true-placeholder ghost words show in the
+  // composer (Gary, 2026-11-13 ~02:02 PST — Warp reference):
+  // non-devmode prompter only, words exist for this state,
+  // input empty, and this tab has not had its first prompt
+  // yet. The dev bar and below-DEFCON-3 rows keep the static
+  // hint span instead (see below) — they never get the overlay.
+  const composerHintPlaceholder =
+    !devMode && prompterActive && hintWords !== null && !composerHasInput && !hasPrompted
+      ? hintWords
+      : null;
 
   return (
     <>
@@ -1684,24 +1720,26 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 />
               )}
 
-              {/* The hint words IN FRONT OF the cursor (Gary,
-                  2026-11-12 ~10:00–10:13 PST, REVERSED ~15:12 PST):
-                  normal ghost words — they show while the composer
-                  is empty and VANISH ENTIRELY once you type, like
-                  any other prompt on earth. No dropped-behind span
-                  anymore: the ~10:00 rule (words drop behind the
-                  cursor, faded, after you type) is gone. Which
-                  words is hintWords (the §2.3 table); they show
-                  only while the composer is empty — or always,
-                  below DEFCON 3 / in devmode, where this row is
-                  the static hint and the input lives elsewhere
-                  (the xterm above / the dev bar below). When
-                  LuciferAI is off hintWords is null: no words
-                  at all, the cursor repositions without them
-                  (zero residue). The words are NOT the ghost
-                  suggestion and never become one (Gary,
-                  2026-11-12 ~10:17 PST — that is future design). */}
-              {hintWords !== null && (!prompterActive || devMode || !composerHasInput) && (
+              {/* The STATIC hint words (Gary, 2026-11-12 ~10:00–
+                  10:13 PST): this span is the static hint now —
+                  it shows ONLY below DEFCON 3 / in devmode, where
+                  this row is the hint and the input lives
+                  elsewhere (the xterm above / the dev bar below).
+                  At DEFCON 3+ in non-devmode the words do NOT live
+                  here anymore: they render INSIDE the composer as
+                  a true placeholder overlay (Gary, 2026-11-13
+                  ~02:02 PST — Warp reference), with the caret
+                  overlapping the start of the ghost text, and gone
+                  for the tab after its first prompt. Which words
+                  is hintWords (the §2.3 table). When LuciferAI is
+                  off hintWords is null: no words at all, the
+                  cursor repositions without them (zero residue).
+                  The words are NOT the ghost suggestion and never
+                  become one (Gary, 2026-11-12 ~10:17 PST — that
+                  is future design). No dropped-behind span: the
+                  ~10:00 rule (words drop behind the cursor,
+                  faded, after you type) is gone since ~15:12 PST. */}
+              {hintWords !== null && (!prompterActive || devMode) && (
                 // pointer-events-none (Gary, 2026-11-12 — the
                 // prompt-row click fix): the words are a label,
                 // not a target — a click on them lands on the
@@ -1718,9 +1756,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   input. It lives IN this row now (Gary, 2026-11-12
                   ~10:13 PST — "the cursor should be on same line
                   as icon"): flex-1, so its caret sits on the same
-                  line as the blood drop icon, with the words in
-                  front of it until you type — then the words are
-                  gone entirely (Gary, ~15:12 PST). The solid-black
+                  line as the blood drop icon, with the words inside
+                  it as a placeholder overlay until you type — then
+                  the words are gone entirely (Gary, ~15:12 PST). The solid-black
                   prompt section is unchanged (the mist stays as
                   DEFCON 2 left it — the prompt section is NOT
                   part of the merge). Below 3 this renders
@@ -1733,7 +1771,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   2026-11-12 ~10:17–10:18 PST). */}
               {!devMode && prompterActive && (
                 <div className="min-w-0 flex-1" data-testid="prompter-composer-wrap" ref={prompterComposerWrapRef}>
-                  {renderPrompterComposer()}
+                  {renderPrompterComposer(composerHintPlaceholder)}
                 </div>
               )}
 
@@ -1869,7 +1907,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     LuciferAI is on, the squared bottom-drop
                     section. The rainbow glow still shows either way
                     (platform trait). */}
-                {prompterActive ? renderPrompterComposer() : luciferAiEnabled ? (
+                {prompterActive ? renderPrompterComposer(null) : luciferAiEnabled ? (
                   <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
                     <InputArea
                       input={devInput}

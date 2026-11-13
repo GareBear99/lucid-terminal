@@ -1,22 +1,20 @@
 // The prompt-row hint words table (dissection doc §2.3, Gary
-// 2026-11-12 ~10:00–10:05 PST). Pure function — all six cells:
-// three LuciferAI states x two modes.
+// 2026-11-12 ~10:00–10:05 PST; wording Gary, 2026-11-13 ~02:58
+// PST: "Ask Lucid..." in both modes). Pure function — the
+// gating cells: three LuciferAI states x two modes.
 import { describe, test, expect } from 'vitest';
 import { getPromptHintWords } from '../src/lib/promptHintWords';
 
-const TERMINAL_FULL = 'Real shell — type /help for Lucid commands';
-const TERMINAL_PLAIN = 'Real shell';
-const AGENT =
-  'Agent — describe the task; Lucid plans, acts, and reports';
+const ASK_LUCID = 'Ask Lucid...';
 
 describe('getPromptHintWords', () => {
-  test('Terminal + LuciferAI lit: the full hint', () => {
-    expect(getPromptHintWords('terminal', true, false)).toBe(TERMINAL_FULL);
+  test('Terminal + LuciferAI lit: "Ask Lucid..."', () => {
+    expect(getPromptHintWords('terminal', true, false)).toBe(ASK_LUCID);
   });
 
-  test('Terminal + LuciferAI grey (silenced): plain mode words only — never mentions anything is off', () => {
+  test('Terminal + LuciferAI grey (silenced): the same words — never mentions anything is off', () => {
     const words = getPromptHintWords('terminal', true, true);
-    expect(words).toBe(TERMINAL_PLAIN);
+    expect(words).toBe(ASK_LUCID);
     expect(words).not.toMatch(/silenc|off|paused|disabled/i);
   });
 
@@ -26,9 +24,9 @@ describe('getPromptHintWords', () => {
   });
 
   test('Agent words do not depend on LuciferAI at all', () => {
-    expect(getPromptHintWords('agent', true, false)).toBe(AGENT);
-    expect(getPromptHintWords('agent', true, true)).toBe(AGENT);
-    expect(getPromptHintWords('agent', false, false)).toBe(AGENT);
-    expect(getPromptHintWords('agent', false, true)).toBe(AGENT);
+    expect(getPromptHintWords('agent', true, false)).toBe(ASK_LUCID);
+    expect(getPromptHintWords('agent', true, true)).toBe(ASK_LUCID);
+    expect(getPromptHintWords('agent', false, false)).toBe(ASK_LUCID);
+    expect(getPromptHintWords('agent', false, true)).toBe(ASK_LUCID);
   });
 });

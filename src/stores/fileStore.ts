@@ -47,7 +47,7 @@ export function withFileEntryChildren(
   });
 }
 
-interface OpenFile {
+export interface OpenFile {
   path: string;
   name: string;
   content: string;
@@ -78,6 +78,22 @@ interface FileState {
   selectPath: (path: string) => void;
   openFile: (path: string) => Promise<boolean>;
   closeFile: (path: string) => void;
+  /**
+   * Detach (Gary, 2026-11-09): drop the file from THIS window's
+   * editor WITHOUT touching disk — the file's content (including
+   * unsaved edits) transfers to a detached window. The opposite
+   * of closeFile only in that the content is handed over, not
+   * dropped: closeFile also drops dirty content silently, so the
+   * detach caller must move the snapshot first.
+   */
+  detachFile: (path: string) => void;
+  /**
+   * Add a file that already has content (detach / pop-in):
+   * insert it WITHOUT reading disk. Idempotent — adding a file
+   * that is already open is a no-op, so a push + a pending fetch
+   * delivering the same file twice lands once.
+   */
+  addDetachedFile: (file: OpenFile) => void;
   setActiveFile: (path: string) => void;
   updateFileContent: (path: string, content: string) => void;
   saveFile: (path: string) => Promise<void>;
@@ -257,6 +273,38 @@ export const useFileStore = create<FileState>((set, get) => ({
       }
 
       return { openFiles: newOpenFiles, activeFilePath: newActivePath };
+    });
+  },
+
+  detachFile: (path) => {
+    // Same removal as closeFile, but the content is handed to a
+    // detached window by the caller (files:detach) — nothing is
+    // written, nothing is dropped from disk.
+    set((state) => {
+      const newOpenFiles = state.openFiles.filter((f) => f.path !== path);
+      let newActivePath = state.activeFilePath;
+
+      if (state.activeFilePath === path) {
+        const closedIndex = state.openFiles.findIndex((f) => f.path === path);
+        if (newOpenFiles.length > 0) {
+          const newIndex = Math.max(0, closedIndex - 1);
+          newActivePath = newOpenFiles[newIndex].path;
+        } else {
+          newActivePath = null;
+        }
+      }
+
+      return { openFiles: newOpenFiles, activeFilePath: newActivePath };
+    });
+  },
+
+  addDetachedFile: (file) => {
+    set((state) => {
+      if (state.openFiles.some((f) => f.path === file.path)) return state;
+      return {
+        openFiles: [...state.openFiles, { ...file }],
+        activeFilePath: file.path,
+      };
     });
   },
 

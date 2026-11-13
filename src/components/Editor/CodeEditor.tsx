@@ -5,12 +5,30 @@ import Editor, { loader } from '@monaco-editor/react';
 import '../../lib/monacoLoader';
 import { MONACO_LOAD_TIMEOUT_MS } from '../../lib/monacoLoader';
 import { useFileStore } from '../../stores/fileStore';
+import { useFileTabDrag } from '../../lib/tabDrag';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useToastStore } from '../../stores/toastStore';
 
 function CodeEditor() {
-  const { openFiles, activeFilePath, setActiveFile, closeFile, updateFileContent, saveFile } =
+  const { openFiles, activeFilePath, setActiveFile, closeFile, detachFile, updateFileContent, saveFile } =
     useFileStore();
+  const fileStripRef = useRef<HTMLDivElement | null>(null);
+  // Files detach (Gary, 2026-11-09): the same drag-out as
+  // terminal tabs, natively, with the regular theme. The
+  // detach is invoked on drop and the file is only dropped
+  // locally when main says ok — a refused detach keeps the
+  // file exactly where it was.
+  const fileDrag = useFileTabDrag({
+    barRef: fileStripRef,
+    onDetach: (file, dropPoint) => {
+      void (async () => {
+        const api = window.lucidAPI?.filesDetach;
+        if (!api) return;
+        const result = await api.detach(file, dropPoint.x, dropPoint.y);
+        if (result.ok) detachFile(file.path);
+      })();
+    },
+  });
   const { settings, currentTheme } = useSettingsStore();
 
   const activeFile = openFiles.find((f) => f.path === activeFilePath);
@@ -140,7 +158,12 @@ function CodeEditor() {
   return (
     <div className="h-full flex flex-col" onKeyDown={handleKeyDown}>
       {/* File Tabs */}
-      <div className="h-9 flex items-center bg-[var(--bg-secondary)] border-b border-[var(--border)]">
+      <div
+        ref={fileStripRef}
+        data-testid="file-tabs-bar"
+        className="h-9 flex items-center bg-[var(--bg-secondary)] border-b border-[var(--border)]"
+        {...fileDrag.barHandlers}
+      >
         <div className="flex-1 flex items-center overflow-x-auto">
           {openFiles.map((file) => (
             <div
@@ -150,6 +173,7 @@ function CodeEditor() {
                   : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
                 }`}
               onClick={() => setActiveFile(file.path)}
+              onPointerDown={(e) => fileDrag.onFileTabPointerDown(file, e)}
             >
               <span className="text-sm whitespace-nowrap">
                 {file.isDirty && <span className="text-[var(--accent)]">● </span>}

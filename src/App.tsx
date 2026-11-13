@@ -5,6 +5,7 @@ import { isLuciferAiEnabled, isLuciferAiSilenced } from './lib/luciferAi';
 import { useToastStore, visibleToastNotifications } from './stores/toastStore';
 import { ErrorNotification } from './components/Terminal/ErrorNotification';
 import { useTerminalStore } from './stores/terminalStore';
+import { useDetachPushListeners } from './lib/detachPushListeners';
 import { useFileStore } from './stores/fileStore';
 import { useBrowserStore } from './stores/browserStore';
 import TitleBar from './components/Layout/TitleBar';
@@ -57,6 +58,9 @@ function App() {
   const luciferAiSilenced = isLuciferAiSilenced(settings);
   const { notifications, dismissToast } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
+  // Tab detach + remount pushes (Gary, 2026-11-09): tabs/files
+  // returning to the main window land here.
+  useDetachPushListeners();
   const { currentDir, setCurrentDir } = useFileStore();
   // Snapshot update alert (Gary, 2026-11-12 ~08:22 PST):
   // the dialog shows when the launch check (or a manual
@@ -316,8 +320,36 @@ function App() {
         console.log('[INIT] LucidCore init unavailable:', error);
       }
       
+      // Tabs/files popped back in while the main window was gone
+      // (a detached window closed, or a pop-in with no main
+      // window): main holds them as pending. Add them here and do
+      // NOT mint a fresh tab alongside them — a fresh tab could
+      // take the popped-in tab's number and destroy its live PTY.
+      let pendingTabsAdded = false;
+      try {
+        const detach = window.lucidAPI?.terminal?.detach;
+        if (detach) {
+          const pending = await detach.getPendingMainTabs();
+          for (const { tab, index } of pending) {
+            useTerminalStore.getState().addDetachedTab({ ...tab, isActive: true }, index);
+            detach.claimTab(tab.id);
+          }
+          pendingTabsAdded = pending.length > 0;
+        }
+        const filesDetach = window.lucidAPI?.filesDetach;
+        if (filesDetach) {
+          const pendingFiles = await filesDetach.getPendingMainFiles();
+          for (const file of pendingFiles) {
+            useFileStore.getState().addDetachedFile(file);
+          }
+        }
+      } catch {
+        // Pending fetch is best-effort: a failed fetch just means
+        // a fresh tab is created below.
+      }
+
       // Create terminal immediately (doesn't need currentDir)
-      if (tabs.length === 0) {
+      if (tabs.length === 0 && !pendingTabsAdded) {
         console.log('[INIT] Creating terminal...');
         await createTab(); // Will use home dir by default
         // Readiness is logged by the Terminal itself on first shell

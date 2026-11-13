@@ -1064,6 +1064,37 @@ declare global {
         onCwd: (callback: (id: string, cwd: string) => void) => () => void;
         getCwd: (id: string) => Promise<string>;
         executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+        detach: {
+          dragStart: (tab: import('./detach').DetachedTab, index: number) => void;
+          dragMove: (clientX: number, clientY: number) => void;
+          dragEnd: (clientX: number, clientY: number) => void;
+          dragCancel: () => void;
+          dragDiag: (message: string) => void;
+          reportBarRect: (report: import('./detach').BarRectReport) => void;
+          getDetachState: () => Promise<import('./detach').DetachedTab | null>;
+          getPendingMainTabs: () => Promise<{ tab: import('./detach').DetachedTab; index: number }[]>;
+          popIn: (tab: import('./detach').DetachedTab) => Promise<import('./detach').DetachResult>;
+          claimTab: (id: string) => void;
+          notifyTabClosed: (id: string) => void;
+          registerDetachedTab: (tab: import('./detach').DetachedTab, index: number) => void;
+          reserveNumber: (id: string) => void;
+          getReservedNumbers: () => Promise<string[]>;
+          onTabAdded: (callback: (tab: import('./detach').DetachedTab, index: number) => void) => () => void;
+          onTabRemoved: (callback: (id: string) => void) => () => void;
+          onTabDetached: (callback: (id: string) => void) => () => void;
+          onDragDetect: (callback: (payload: import('./detach').DragDetectPayload) => void) => () => void;
+          onDragDetectClear: (callback: () => void) => () => void;
+          onReleaseNumber: (callback: (id: string) => void) => () => void;
+          onReserveNumber: (callback: (id: string) => void) => () => void;
+        };
+      };
+      filesDetach: {
+        detach: (file: import('./detach').DetachedFile, dropX: number, dropY: number) => Promise<import('./detach').DetachResult>;
+        getDetachState: () => Promise<import('./detach').DetachedFile | null>;
+        getPendingMainFiles: () => Promise<import('./detach').DetachedFile[]>;
+        popIn: (file: import('./detach').DetachedFile) => Promise<import('./detach').DetachResult>;
+        onFileAdded: (callback: (file: import('./detach').DetachedFile) => void) => () => void;
+        onFileRemoved: (callback: (path: string) => void) => () => void;
       };
       git: {
         getStatus: (cwd: string) => Promise<RawGitStatus | null>;
@@ -1245,6 +1276,7 @@ declare global {
         setRunOnStartup: (value: boolean) => Promise<boolean>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;
+        onChanged: (callback: (key: string, value: unknown) => void) => () => void;
       };
       lucid: {
         init: () => Promise<{ success: boolean; error?: string }>;

@@ -89,6 +89,57 @@
   animation-play-state: paused;
 }
 
+/* ---- Detached-window loading mist (Gary, 2026-11-13) ----
+   MiniLoadingMist: the detached window loads INTO the splash
+   mist (pure black + the same smoke puffs) and fades out once
+   its content is ready — never an instant cut, never a blank
+   window. The overlay is opaque black (the splash's own
+   background); the smoke inside is held at opacity 1 (the base
+   .splash-smoke rule gates on .splash-mounted, which a mini
+   window never has). The fade is the mist's own 700 ms. */
+.mini-loading-mist {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: #000;
+  transition: opacity 700ms ease; /* MINI_LOADING_MIST_FADE_MS */
+}
+
+.mini-loading-mist .splash-smoke {
+  opacity: 1;
+}
+
+.mini-loading-mist-fading {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mini-loading-mist-fading .splash-puff {
+  animation-play-state: paused;
+}
+
+/* ---- Detached-window DEFCON mist back layer (Gary, 2026-11-13)
+   "terminal tabs should always be in the global defcon state,
+   even when pulled out": the splash mist is the detached
+   window's persistent background, exactly as it is behind the
+   main terminal — always rendered, revealed by the merge veil
+   (bg-black/25) at DEFCON 2+. At DEFCON 1 the content layer
+   above is opaque, so the mist stays hidden. Same puffs, same
+   drift, same black — the smoke inside is held at opacity 1
+   (the base .splash-smoke rule gates on .splash-mounted, which
+   a mini window never has). */
+.mini-defcon-mist {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #000;
+  pointer-events: none;
+}
+
+.mini-defcon-mist .splash-smoke {
+  opacity: 1;
+}
+
 .splash-skipping .splash-smoke {
   transition-duration: 250ms; /* SPLASH_SKIP_FADE_MS */
 }

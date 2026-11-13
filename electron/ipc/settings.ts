@@ -1,4 +1,4 @@
-import { app, IpcMain } from 'electron';
+import { app, BrowserWindow, IpcMain } from 'electron';
 import { settings, apiKeyStorage, isStorageDegraded, getStorageDegradedReason } from '../services/secureStorage';
 import { resetClient } from '../services/openai';
 
@@ -39,8 +39,21 @@ export function setupSettingsHandlers(ipcMain: IpcMain): void {
   });
 
   // Set a setting value
-  ipcMain.handle('settings:set', async (_, key: string, value: unknown): Promise<void> => {
+  ipcMain.handle('settings:set', async (event, key: string, value: unknown): Promise<void> => {
     settings.set(key, value);
+    // Detached windows follow theme changes (tab detach, Gary
+    // 2026-11-09 — section 6.1): a theme flip in the main
+    // window's Settings re-applies in every detached window via
+    // this push; the main window applies locally and ignores it.
+    try {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
+          win.webContents.send('settings:changed', key, value);
+        }
+      }
+    } catch {
+      // Best-effort: the set itself already landed.
+    }
   });
 
   // Get all settings

@@ -146,6 +146,90 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     getCwd: (id: string) => ipcRenderer.invoke('terminal:getCwd', id),
     executeCommand: (command: string) =>
       ipcRenderer.invoke('terminal:executeCommand', command),
+    // Tab detach + remount (Gary, 2026-11-09): the drag session
+    // is owned by main after drag-start; the renderer reports
+    // pointer moves and main fires the detach / volley itself.
+    detach: {
+      dragStart: (tab: import('../src/types/detach').DetachedTab, index: number) =>
+        ipcRenderer.send('terminal:drag-start', tab, index),
+      dragMove: (clientX: number, clientY: number) =>
+        ipcRenderer.send('terminal:drag-move', clientX, clientY),
+      dragEnd: (clientX: number, clientY: number) =>
+        ipcRenderer.send('terminal:drag-end', clientX, clientY),
+      dragCancel: () => ipcRenderer.send('terminal:drag-cancel'),
+      dragDiag: (message: string) => ipcRenderer.send('terminal:drag-diag', message),
+      reportBarRect: (report: import('../src/types/detach').BarRectReport) =>
+        ipcRenderer.send('terminal:report-bar-rect', report),
+      getDetachState: () => ipcRenderer.invoke('terminal:get-detach-state'),
+      getPendingMainTabs: () => ipcRenderer.invoke('terminal:get-pending-main-tabs'),
+      popIn: (tab: import('../src/types/detach').DetachedTab) =>
+        ipcRenderer.invoke('terminal:pop-in', tab),
+      claimTab: (id: string) => ipcRenderer.send('terminal:claim-tab', id),
+      notifyTabClosed: (id: string) => ipcRenderer.send('terminal:tab-closed', id),
+      // Cross-window number registry (Gary, 2026-11-13): a tab
+      // created in a detached window registers itself with main
+      // (close-pop-back), and every tab creation reserves its
+      // number through main so no window can take it.
+      registerDetachedTab: (tab: import('../src/types/detach').DetachedTab, index: number) =>
+        ipcRenderer.send('terminal:register-detached-tab', tab, index),
+      reserveNumber: (id: string) => ipcRenderer.send('terminal:reserve-number', id),
+      getReservedNumbers: () => ipcRenderer.invoke('terminal:get-reserved-numbers'),
+      onTabAdded: (callback: (tab: import('../src/types/detach').DetachedTab, index: number) => void) => {
+        const listener = (_: any, tab: import('../src/types/detach').DetachedTab, index: number) => callback(tab, index);
+        ipcRenderer.on('terminal:tab-added', listener);
+        return () => ipcRenderer.removeListener('terminal:tab-added', listener);
+      },
+      onTabRemoved: (callback: (id: string) => void) => {
+        const listener = (_: any, id: string) => callback(id);
+        ipcRenderer.on('terminal:tab-removed', listener);
+        return () => ipcRenderer.removeListener('terminal:tab-removed', listener);
+      },
+      onTabDetached: (callback: (id: string) => void) => {
+        const listener = (_: any, id: string) => callback(id);
+        ipcRenderer.on('terminal:tab-detached', listener);
+        return () => ipcRenderer.removeListener('terminal:tab-detached', listener);
+      },
+      onDragDetect: (callback: (payload: import('../src/types/detach').DragDetectPayload) => void) => {
+        const listener = (_: any, payload: import('../src/types/detach').DragDetectPayload) => callback(payload);
+        ipcRenderer.on('terminal:drag-detect', listener);
+        return () => ipcRenderer.removeListener('terminal:drag-detect', listener);
+      },
+      onDragDetectClear: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on('terminal:drag-detect-clear', listener);
+        return () => ipcRenderer.removeListener('terminal:drag-detect-clear', listener);
+      },
+      onReleaseNumber: (callback: (id: string) => void) => {
+        const listener = (_: any, id: string) => callback(id);
+        ipcRenderer.on('terminal:release-number', listener);
+        return () => ipcRenderer.removeListener('terminal:release-number', listener);
+      },
+      onReserveNumber: (callback: (id: string) => void) => {
+        const listener = (_: any, id: string) => callback(id);
+        ipcRenderer.on('terminal:reserve-number', listener);
+        return () => ipcRenderer.removeListener('terminal:reserve-number', listener);
+      },
+    },
+  },
+  // Files detach (Gary, 2026-11-09 — same window pattern as
+  // terminal tabs, no PTY: the file's content transfers with it).
+  filesDetach: {
+    detach: (file: import('../src/types/detach').DetachedFile, dropX: number, dropY: number) =>
+      ipcRenderer.invoke('files:detach', file, dropX, dropY),
+    getDetachState: () => ipcRenderer.invoke('files:get-detach-state'),
+    getPendingMainFiles: () => ipcRenderer.invoke('files:get-pending-main-files'),
+    popIn: (file: import('../src/types/detach').DetachedFile) =>
+      ipcRenderer.invoke('files:pop-in', file),
+    onFileAdded: (callback: (file: import('../src/types/detach').DetachedFile) => void) => {
+      const listener = (_: any, file: import('../src/types/detach').DetachedFile) => callback(file);
+      ipcRenderer.on('files:file-added', listener);
+      return () => ipcRenderer.removeListener('files:file-added', listener);
+    },
+    onFileRemoved: (callback: (path: string) => void) => {
+      const listener = (_: any, path: string) => callback(path);
+      ipcRenderer.on('files:file-removed', listener);
+      return () => ipcRenderer.removeListener('files:file-removed', listener);
+    },
   },
 
   // Git status (heavy terminal work, 2026-11-13): read-only git
@@ -259,6 +343,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setRunOnStartup: (value: boolean) => ipcRenderer.invoke('settings:setRunOnStartup', value),
     export: () => ipcRenderer.invoke('settings:export'),
     import: (data: string) => ipcRenderer.invoke('settings:import', data),
+    // A setting changed in another window (theme flips reach
+    // detached windows through this push — section 6.1).
+    onChanged: (callback: (key: string, value: unknown) => void) => {
+      const listener = (_: any, key: string, value: unknown) => callback(key, value);
+      ipcRenderer.on('settings:changed', listener);
+      return () => ipcRenderer.removeListener('settings:changed', listener);
+    },
   },
 
   // In-panel browser (BrowserView tabs in the main process)
@@ -704,6 +795,37 @@ export interface LucidAPI {
     onCwd: (callback: (id: string, cwd: string) => void) => void;
     getCwd: (id: string) => Promise<string>;
     executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+    detach: {
+      dragStart: (tab: import('../src/types/detach').DetachedTab, index: number) => void;
+      dragMove: (clientX: number, clientY: number) => void;
+      dragEnd: (clientX: number, clientY: number) => void;
+      dragCancel: () => void;
+      dragDiag: (message: string) => void;
+      reportBarRect: (report: import('../src/types/detach').BarRectReport) => void;
+      getDetachState: () => Promise<import('../src/types/detach').DetachedTab | null>;
+      getPendingMainTabs: () => Promise<{ tab: import('../src/types/detach').DetachedTab; index: number }[]>;
+      popIn: (tab: import('../src/types/detach').DetachedTab) => Promise<import('../src/types/detach').DetachResult>;
+      claimTab: (id: string) => void;
+      notifyTabClosed: (id: string) => void;
+      registerDetachedTab: (tab: import('../src/types/detach').DetachedTab, index: number) => void;
+      reserveNumber: (id: string) => void;
+      getReservedNumbers: () => Promise<string[]>;
+      onTabAdded: (callback: (tab: import('../src/types/detach').DetachedTab, index: number) => void) => () => void;
+      onTabRemoved: (callback: (id: string) => void) => () => void;
+      onTabDetached: (callback: (id: string) => void) => () => void;
+      onDragDetect: (callback: (payload: import('../src/types/detach').DragDetectPayload) => void) => () => void;
+      onDragDetectClear: (callback: () => void) => () => void;
+      onReleaseNumber: (callback: (id: string) => void) => () => void;
+      onReserveNumber: (callback: (id: string) => void) => () => void;
+    };
+  };
+  filesDetach: {
+    detach: (file: import('../src/types/detach').DetachedFile, dropX: number, dropY: number) => Promise<import('../src/types/detach').DetachResult>;
+    getDetachState: () => Promise<import('../src/types/detach').DetachedFile | null>;
+    getPendingMainFiles: () => Promise<import('../src/types/detach').DetachedFile[]>;
+    popIn: (file: import('../src/types/detach').DetachedFile) => Promise<import('../src/types/detach').DetachResult>;
+    onFileAdded: (callback: (file: import('../src/types/detach').DetachedFile) => void) => () => void;
+    onFileRemoved: (callback: (path: string) => void) => () => void;
   };
   git: {
     getStatus: (cwd: string) => Promise<import('../src/lib/gitStatus').RawGitStatus | null>;
@@ -878,6 +1000,7 @@ export interface LucidAPI {
     setRunOnStartup: (value: boolean) => Promise<boolean>;
     export: () => Promise<string>;
     import: (data: string) => Promise<void>;
+    onChanged: (callback: (key: string, value: unknown) => void) => () => void;
   };
   lucid: {
     // Core

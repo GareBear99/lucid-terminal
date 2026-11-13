@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { TerminalTab } from '../types';
+import { toDetachedTab } from '../types/detach';
 import { useToastStore } from './toastStore';
 import { useHistoryStore } from './historyStore';
 
@@ -41,8 +42,46 @@ export interface TerminalState {
   ptyStateKnown: boolean;
 
   // Actions
-  createTab: (cwd?: string) => Promise<string>;
+  // opts.detached (Gary, 2026-11-13 - the + button lives in the
+  // detached window too): a tab created in a detached window is
+  // registered with main (terminal:register-detached-tab) so
+  // closing the window pops it back, and its number is broadcast
+  // to every window so no other window can take it.
+  createTab: (cwd?: string, opts?: { detached?: boolean }) => Promise<string>;
   closeTab: (id: string) => void;
+  /**
+   * Detach (Gary, 2026-11-09): drop the tab from THIS window's
+   * strip WITHOUT destroying its PTY and WITHOUT freeing its
+   * number — the shell still lives, now owned by a detached
+   * window. The opposite of closeTab, which destroys the PTY.
+   */
+  detachTab: (id: string) => void;
+  /**
+   * Add a tab that already has a live PTY (detach / remount /
+   * pop-in): insert it at `index` (appended when omitted or out
+   * of range) WITHOUT creating a PTY, reserving its number in
+   * this window. Idempotent — adding a tab that is already here
+   * is a no-op, so a push + a pending fetch delivering the same
+   * tab twice lands once.
+   */
+  addDetachedTab: (tab: TerminalTab, index?: number) => void;
+  /** Clear the exited mark for a tab (restart in a detached window re-creates the SAME id). */
+  clearTabExited: (id: string) => void;
+  /**
+   * Free a tab number reserved by a tab that was detached out of
+   * this window and has since been closed for real in the
+   * detached window (its PTY is destroyed; the number is free).
+   */
+  releaseTabNumber: (id: string) => void;
+  /**
+   * Reserve a tab number taken by another window (cross-window
+   * number registry, Gary 2026-11-13): main broadcasts every
+   * tab creation (terminal:reserve-number) and every window
+   * seeds its set on mount (terminal:get-reserved-numbers), so
+   * a fresh tab here can never take a number whose PTY already
+   * lives in another window. Idempotent.
+   */
+  reserveTabNumber: (id: string) => void;
   clearCreateError: (id: string) => void;
   markTabExited: (id: string, code: number) => void;
   setActiveTab: (id: string) => void;
@@ -97,14 +136,14 @@ function lowestFreeTabNumber(): number {
  */
 let cachedHomeDir: string | null = null;
 
-export const useTerminalStore = create<TerminalState>((set) => ({
+export const useTerminalStore = create<TerminalState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   createErrors: {},
   exitedTabs: {},
   ptyStateKnown: false,
 
-  createTab: async (cwd?: string) => {
+  createTab: async (cwd?: string, opts?: { detached?: boolean }) => {
     // Reserve the lowest free number synchronously, before any await:
     // two creates fired back-to-back must still get distinct numbers.
     const tabNumber = lowestFreeTabNumber();
@@ -157,6 +196,23 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       };
     });
 
+    // Cross-window number registry (Gary, 2026-11-13): tell main
+    // this number is taken - main broadcasts it to every other
+    // window, so no window can create a tab with this id (whose
+    // PTY createTerminal would destroy first). A tab created in
+    // a detached window is ALSO registered with main, so closing
+    // that window pops it back into the main window instead of
+    // losing it. The strip index is the append position (the
+    // tab lands at the end of this window's strip).
+    if (opts?.detached) {
+      window.lucidAPI.terminal.detach?.registerDetachedTab?.(
+        toDetachedTab(newTab),
+        get().tabs.length - 1,
+      );
+    } else {
+      window.lucidAPI.terminal.detach?.reserveNumber?.(id);
+    }
+
     return id;
   },
 
@@ -174,6 +230,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     if (tabNumber !== null) usedTabNumbers.delete(tabNumber);
     // Destroy the PTY process
     window.lucidAPI.terminal.destroy(id);
+    // A detached window that destroys a PTY tells main, so the
+    // main window — which still has this number reserved from
+    // the detach — frees it too (releaseTabNumber). From the
+    // main window this is a no-op (main skips its own sender).
+    window.lucidAPI.terminal.detach?.notifyTabClosed?.(id);
     // Drop the tab's chats too — its blocks must not linger in the
     // Sidebar's History after the tab is gone.
     useHistoryStore.getState().removeTab(id);
@@ -200,6 +261,61 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       delete exitedTabs[id];
       return { tabs: newTabs, activeTabId: newActiveId, createErrors, exitedTabs };
     });
+  },
+
+  detachTab: (id) => {
+    set((state) => {
+      const newTabs = state.tabs.filter((t) => t.id !== id);
+      let newActiveId = state.activeTabId;
+      if (state.activeTabId === id) {
+        const closedIndex = state.tabs.findIndex((t) => t.id === id);
+        if (newTabs.length > 0) {
+          const newIndex = Math.max(0, closedIndex - 1);
+          newActiveId = newTabs[newIndex].id;
+          newTabs[newIndex].isActive = true;
+        } else {
+          newActiveId = null;
+        }
+      }
+      // The number stays reserved and the PTY stays alive — the
+      // tab lives on in a detached window. No destroy, no
+      // removeTab (its blocks stay in History while it lives).
+      return { tabs: newTabs, activeTabId: newActiveId };
+    });
+  },
+
+  addDetachedTab: (tab, index) => {
+    set((state) => {
+      if (state.tabs.some((t) => t.id === tab.id)) return state;
+      const tabNumber = tabNumberFromId(tab.id);
+      if (tabNumber !== null) usedTabNumbers.add(tabNumber);
+      const newTab: TerminalTab = { ...tab, isActive: true };
+      const tabs = state.tabs.map((t) => ({ ...t, isActive: false }));
+      const at = index === undefined ? tabs.length : Math.max(0, Math.min(tabs.length, index));
+      tabs.splice(at, 0, newTab);
+      const exitedTabs = { ...state.exitedTabs };
+      delete exitedTabs[tab.id];
+      return { tabs, activeTabId: tab.id, exitedTabs, ptyStateKnown: true };
+    });
+  },
+
+  clearTabExited: (id) => {
+    set((state) => {
+      if (!(id in state.exitedTabs)) return state;
+      const exitedTabs = { ...state.exitedTabs };
+      delete exitedTabs[id];
+      return { exitedTabs };
+    });
+  },
+
+  releaseTabNumber: (id) => {
+    const tabNumber = tabNumberFromId(id);
+    if (tabNumber !== null) usedTabNumbers.delete(tabNumber);
+  },
+
+  reserveTabNumber: (id) => {
+    const tabNumber = tabNumberFromId(id);
+    if (tabNumber !== null) usedTabNumbers.add(tabNumber);
   },
 
   markTabExited: (id, code) => {

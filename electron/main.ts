@@ -12,6 +12,7 @@ import { setupPermissionsHandlers } from './ipc/permissions';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupSnapshotHandlers } from './ipc/snapshot';
+import { setupTerminalDetachHandlers } from './ipc/terminalDetach';
 import { setupBrowserHandlers } from './ipc/browser';
 import {
   createMiniBrowserWindow,
@@ -129,6 +130,16 @@ app.whenReady().then(() => {
   setupDaemonHandlers(ipcMain);
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   setupSnapshotHandlers(ipcMain);
+  // Tab detach + remount (Gary, 2026-11-09): the drag session is
+  // owned by main; pop-back-in re-creates the main window when
+  // it is gone (guarded — never two main windows).
+  setupTerminalDetachHandlers(ipcMain, {
+    getMainWindow: () => mainWindow,
+    createMainWindow: async () => {
+      if (mainWindow && !mainWindow.isDestroyed()) return;
+      await createWindow();
+    },
+  });
   // The in-panel browser needs the window to attach its BrowserViews to.
   setupBrowserHandlers(ipcMain, () => mainWindow, {
     // Downloads (Area 2): Gary can point the browser at a different

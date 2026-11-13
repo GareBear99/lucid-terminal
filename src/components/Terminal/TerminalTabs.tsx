@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Plus, X, Terminal, Bell } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
@@ -6,6 +6,7 @@ import { getTypeStyles } from './ErrorNotification';
 import type { Notification } from './ErrorNotification';
 import type { TerminalTab } from '../../types';
 import { BloodDropIcon } from '../Layout/BloodDropIcon';
+import { useTerminalTabDrag } from '../../lib/tabDrag';
 
 /**
  * Terminal tab bar.
@@ -63,6 +64,18 @@ export interface TerminalTabsViewProps {
   onToggleNotifications: () => void;
   onDismissNotification: (id: string) => void;
   onClearAllNotifications: () => void;
+  /**
+   * The + button is shown in EVERY window, detached included
+   * (Gary, 2026-11-13 — "ok i want it in the detached").
+   * It used to be hidden in detached windows because a new tab
+   * created there could take a number whose PTY already lives
+   * in the main window, and createTerminal DESTROYS the
+   * existing PTY first. That hazard is gone: every tab creation
+   * is broadcast through main (terminal:reserve-number) and
+   * every window seeds its numbers on mount
+   * (terminal:get-reserved-numbers), so a fresh tab can never
+   * take a number that already lives elsewhere.
+   */
 }
 
 export function TerminalTabsView({
@@ -92,6 +105,40 @@ export function TerminalTabsView({
   const [editValue, setEditValue] = useState('');
   const cancelEditRef = useRef(false);
 
+  // Tab detach + remount (Gary, 2026-11-09): pointer capture
+  // lives on the BAR (it stays mounted for the whole drag —
+  // the tab unmounts at detach), moves go to main, and main's
+  // volley feedback lights this bar and shows the landing spot.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const drag = useTerminalTabDrag({ tabs, barRef });
+
+  // The landing marker's x, measured from the live tab elements
+  // (the strip scrolls, so the slots are read from the DOM, not
+  // from the store order).
+  const [markerLeft, setMarkerLeft] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!drag.dropIndicator || !barRef.current) {
+      setMarkerLeft(null);
+      return;
+    }
+    const bar = barRef.current;
+    const barRect = bar.getBoundingClientRect();
+    const nodes = Array.from(bar.querySelectorAll('[data-tab-id]'));
+    const index = drag.dropIndicator.index;
+    let x: number;
+    if (nodes.length === 0) {
+      x = barRect.width / 2;
+    } else if (index <= 0) {
+      x = (nodes[0] as HTMLElement).getBoundingClientRect().left - barRect.left;
+    } else if (index >= nodes.length) {
+      const last = (nodes[nodes.length - 1] as HTMLElement).getBoundingClientRect();
+      x = last.right - barRect.left;
+    } else {
+      x = (nodes[index] as HTMLElement).getBoundingClientRect().left - barRect.left;
+    }
+    setMarkerLeft(x);
+  }, [drag.dropIndicator, tabs]);
+
   // Black portal splashscreen glass (Gary, 2026-11-07): the tab strip
   // carries the splashscreen's own look — pure black, frosted
   // translucent, squared (no rounded bubble chrome) — so the terminal
@@ -104,9 +151,23 @@ export function TerminalTabsView({
   // so this glass is identical in both.
   return (
     <div
+      ref={barRef}
       data-testid="terminal-tabs-bar"
-      className="relative h-9 flex items-center rounded-none border-b border-[var(--border)] bg-black/50 backdrop-blur-md"
+      data-drop-target={drag.dropIndicator ? 'true' : undefined}
+      className={`relative h-9 flex items-center rounded-none border-b border-[var(--border)] bg-black/50 backdrop-blur-md ${
+        drag.dropIndicator ? 'shadow-[inset_0_0_24px_rgba(88,166,255,0.35)] ring-1 ring-inset ring-[rgba(88,166,255,0.85)]' : ''
+      }`}
+      {...drag.barHandlers}
     >
+      {/* Volley landing marker: the single lit bar shows where
+          the dragged tab lands (Gary, 2026-11-09). */}
+      {drag.dropIndicator && markerLeft !== null && (
+        <div
+          data-testid="tab-drop-marker"
+          className="absolute top-0 bottom-0 w-0.5 bg-[rgba(88,166,255,0.9)] pointer-events-none z-10"
+          style={{ left: markerLeft }}
+        />
+      )}
       {/* Tabs */}
       <div className="flex-1 flex items-center overflow-x-auto">
         {/* Blood drop tab (Gary, 2026-11-07). Pinned first in the
@@ -142,15 +203,18 @@ export function TerminalTabsView({
           </div>
         )}
 
-        {tabs.map((tab) => (
+        {tabs.map((tab, index) => (
           <div
             key={tab.id}
+            data-testid={`tab-${tab.id}`}
+            data-tab-id={tab.id}
             className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] cursor-pointer transition-colors ${
               tab.id === activeTabId
                 ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
             }`}
             onClick={() => onSelectTab(tab.id)}
+            onPointerDown={(e) => drag.onTabPointerDown(tab, index, e)}
             onDoubleClick={() => {
               setEditingTabId(tab.id);
               setEditValue(tab.title);
@@ -201,7 +265,9 @@ export function TerminalTabsView({
           </div>
         ))}
 
-        {/* New Tab Button — directly after the last tab */}
+        {/* New Tab Button — directly after the last tab, in
+            every window including detached ones (Gary,
+            2026-11-13). */}
         <button
           onClick={onCreateTab}
           className="h-9 px-3 shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors"
@@ -288,6 +354,9 @@ export function TerminalTabsView({
 }
 
 interface TerminalTabsProps {
+  /** Detached window — a tab created here is registered with main
+   * (createTab opts.detached) so closing the window pops it back. */
+  detachedWindow?: boolean;
   /** LuciferAI enabled — the blood drop tab renders only then. */
   showBloodDrop?: boolean;
   /** The blood drop tab is the selected one. */
@@ -298,7 +367,7 @@ interface TerminalTabsProps {
   bloodDropDisabled?: boolean;
 }
 
-function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange, bloodDropDisabled = false }: TerminalTabsProps) {
+function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange, bloodDropDisabled = false }: TerminalTabsProps) {
   const { tabs, activeTabId, createTab, closeTab, updateTabTitle, setActiveTab } =
     useTerminalStore();
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
@@ -345,7 +414,7 @@ function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodD
       onBloodDropActiveChange={onBloodDropActiveChange}
       bloodDropDisabled={bloodDropDisabled}
       onCreateTab={() => {
-        void createTab();
+        void createTab(undefined, { detached: detachedWindow });
         onBloodDropActiveChange?.(false);
       }}
       onCloseTab={closeTab}

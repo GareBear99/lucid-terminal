@@ -20,13 +20,16 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { SplashScreen } from '../src/components/Splash/SplashScreen';
 import {
   SPLASH_TOTAL_MS,
+  SPLASH_NO_FADE_TOTAL_MS,
   SPLASH_SMOKE_IN_MS,
   SPLASH_WORDMARK_IN_MS,
   SPLASH_WORDMARK_HOLD_MS,
   SPLASH_FADE_OUT_MS,
+  SPLASH_CONTENT_FADE_MS,
   SPLASH_SKIP_FADE_MS,
   SPLASH_REDUCED_MOTION_MS,
   SPLASH_REDUCED_MOTION_FADE_MS,
+  SPLASH_REDUCED_MOTION_EXIT_MS,
   SPLASH_SMOKE_PUFF_COUNT,
 } from '../src/components/Splash/SplashScreen';
 
@@ -181,14 +184,19 @@ describe('SplashScreen', () => {
   });
 });
 
-describe('SplashScreen fadeOut={false} (splash1 — hard cut into profiles)', () => {
-  // The rule (2026-11-13): splash1 must NEVER fade — the fade turns
-  // the whole overlay (black background included) transparent and the
-  // terminal mounted underneath shows through for ~1s before profiles
-  // pops in. With fadeOut={false} there is no fade phase at all:
-  // onDone fires at the end of the hold and the screen cuts black
-  // straight into profiles.
-  test('never enters the fade phase and calls onDone at the end of the hold', () => {
+describe('SplashScreen fadeOut={false} (splash1 — content fades out on black into profiles)', () => {
+  // The rule (2026-11-13): splash1 must NEVER do a full fade — the
+  // fade turns the whole overlay (black background included)
+  // transparent and the terminal mounted underneath shows through
+  // for ~1s before profiles pops in. And it must never hard-cut
+  // either (Gary, 2026-11-13 ~02:19 PST: "thats not a clean
+  // transition to spashcreen to screen"). Instead the CONTENT
+  // (smoke + wordmark) dissolves while the background stays opaque
+  // black, and profiles then fades in on black — a clean
+  // black-to-black handoff. So there is an 'exit' phase at the end
+  // of the hold, onDone fires after the content fade, and the root
+  // never enters the 'fade' phase (its opacity never goes to 0).
+  test('walks smoke, wordmark, hold, then exit, and calls onDone after the content fade', () => {
     const onDone = vi.fn();
     render(<SplashScreen fadeOut={false} onDone={onDone} />);
     const splash = screen.getByTestId('splash-screen');
@@ -204,55 +212,92 @@ describe('SplashScreen fadeOut={false} (splash1 — hard cut into profiles)', ()
     expect(splash.getAttribute('data-phase')).toBe('hold');
     expect(onDone).not.toHaveBeenCalled();
 
-    // End of the hold: hard cut — onDone fires, phase never becomes 'fade'.
+    // End of the hold: the content starts dissolving on black —
+    // the phase is 'exit', never 'fade', and onDone has not fired.
     act(() => {
       vi.advanceTimersByTime(SPLASH_WORDMARK_HOLD_MS);
     });
-    expect(onDone).toHaveBeenCalledTimes(1);
-    expect(splash.getAttribute('data-phase')).toBe('hold');
+    expect(splash.getAttribute('data-phase')).toBe('exit');
+    expect(splash.className).not.toContain('splash-phase-fade');
+    expect(onDone).not.toHaveBeenCalled();
 
-    // Advancing past the old fade window changes nothing.
+    // After the content fade, onDone fires and profiles takes over.
     act(() => {
-      vi.advanceTimersByTime(SPLASH_FADE_OUT_MS + 10_000);
+      vi.advanceTimersByTime(SPLASH_CONTENT_FADE_MS);
     });
     expect(onDone).toHaveBeenCalledTimes(1);
-    expect(splash.getAttribute('data-phase')).toBe('hold');
+    expect(splash.getAttribute('data-phase')).toBe('exit');
+    expect(splash.className).not.toContain('splash-phase-fade');
+
+    // Advancing far past the end never calls onDone twice.
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  test('click skips immediately with no fade phase', () => {
+  test('total duration with fadeOut={false} is the ~2.8s sequence', () => {
+    expect(SPLASH_NO_FADE_TOTAL_MS).toBe(
+      SPLASH_SMOKE_IN_MS +
+        SPLASH_WORDMARK_IN_MS +
+        SPLASH_WORDMARK_HOLD_MS +
+        SPLASH_CONTENT_FADE_MS,
+    );
+    expect(SPLASH_NO_FADE_TOTAL_MS).toBeGreaterThanOrEqual(2500);
+    expect(SPLASH_NO_FADE_TOTAL_MS).toBeLessThanOrEqual(3500);
+  });
+
+  test('click skips to a fast content fade and calls onDone once', () => {
     const onDone = vi.fn();
     render(<SplashScreen fadeOut={false} onDone={onDone} />);
     fireEvent.click(screen.getByTestId('splash-screen'));
-    expect(onDone).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('smoke');
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('exit');
+    expect(screen.getByTestId('splash-screen').className).not.toContain('splash-phase-fade');
 
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_SKIP_FADE_MS);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
+
+    // A second click after skipping does not fire onDone again.
+    fireEvent.click(screen.getByTestId('splash-screen'));
     act(() => {
       vi.advanceTimersByTime(5000);
     });
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  test('keypress skips immediately with no fade phase', () => {
+  test('keypress skips to a fast content fade', () => {
     const onDone = vi.fn();
     render(<SplashScreen fadeOut={false} onDone={onDone} />);
     act(() => {
       window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
+    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('exit');
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_SKIP_FADE_MS);
+    });
     expect(onDone).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('smoke');
   });
 
-  test('reduced motion: cuts at the point the fade would have started, never fades', () => {
+  test('reduced motion: brief wordmark, then content fade, never a full fade', () => {
     mockMatchMedia(true);
     const onDone = vi.fn();
     render(<SplashScreen fadeOut={false} onDone={onDone} />);
     expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('wordmark');
 
     act(() => {
-      vi.advanceTimersByTime(SPLASH_REDUCED_MOTION_MS - SPLASH_REDUCED_MOTION_FADE_MS);
+      vi.advanceTimersByTime(SPLASH_REDUCED_MOTION_MS - SPLASH_REDUCED_MOTION_EXIT_MS);
+    });
+    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('exit');
+    expect(screen.getByTestId('splash-screen').className).not.toContain('splash-phase-fade');
+    expect(onDone).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_REDUCED_MOTION_EXIT_MS);
     });
     expect(onDone).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('wordmark');
   });
 });
 

@@ -1,0 +1,34 @@
+/* Profiles screen entrance — the root mounts OPAQUE.
+ *
+ * THE LEAK (Gary, 2026-11-13 ~02:53 PST: "glitches to lucid still
+ * on splash" / "lucid still flashes on splash"): the 400ms fade
+ * used to ride the profiles ROOT (fixed inset-0 bg-black) — so the
+ * instant splash1 unmounted and profiles mounted, the root was at
+ * opacity 0 and the dashboard (mounted underneath the whole time)
+ * showed straight through for up to 400ms. The fix is the same
+ * pattern as the splash exit fix: the root NEVER fades. It is
+ * opacity 1 from the first frame — the handoff is black-to-black
+ * with no leak — and the 400ms fade rides the inner centered
+ * content block only (profiles-content-enter). No movement, no
+ * scale — an OS login step just appears. Reduced motion: no
+ * animation at all, the content is simply there.
+ */
+
+.profiles-content-enter {
+  animation: profiles-fade-in 400ms ease both;
+}
+
+@keyframes profiles-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profiles-content-enter {
+    animation: none;
+  }
+}

@@ -2,9 +2,12 @@
  *
  * How it leaves depends on what comes next (see the fadeOut prop in
  * SplashScreen.tsx): splash2 cross-fades into the dashboard, splash1
- * cuts hard into profiles and must NEVER fade — a fade turns the whole
- * overlay (including its black background) transparent and shows the
- * terminal underneath for ~1s before profiles appears.
+ * fades its CONTENT out on black and must NEVER fade the whole overlay
+ * — a full fade turns the overlay (including its black background)
+ * transparent and shows the terminal underneath for ~1s before
+ * profiles appears. The content fade keeps the background opaque, so
+ * the handoff into profiles is black-to-black: no hard cut, no
+ * dashboard flash.
  *
  * GPU-friendly by design: every animation is transform and/or opacity only, so it
  * runs on the compositor thread with no per-frame JS and no layout thrash. The smoke
@@ -54,12 +57,25 @@
   transition-duration: 1000ms; /* SPLASH_FADE_OUT_MS */
 }
 
+/* Content fade-out (splash1 into profiles, .splash-phase-exit): only
+   the smoke dissolves — the overlay root stays at opacity 1, so the
+   black background never goes transparent and the dashboard mounted
+   underneath never shows through. Same duration as the wordmark's
+   exit below (SPLASH_CONTENT_FADE_MS). */
+.splash-phase-exit .splash-smoke {
+  opacity: 0;
+  transition-duration: 600ms; /* SPLASH_CONTENT_FADE_MS */
+}
+
 /* Freeze the puffs once the fade starts: they are invisible anyway as
    the overlay goes transparent, and stopping their animations cuts the
    per-frame compositing work during the fade — this is what keeps the
    fade smooth on the CPU/software fallback path (measured: all dropped
-   frames were in the fade phase before this was added). */
+   frames were in the fade phase before this was added). The same
+   freeze applies to the content fade-out, where the puffs are
+   dissolving with the smoke. */
 .splash-phase-fade .splash-puff,
+.splash-phase-exit .splash-puff,
 .splash-skipping .splash-puff {
   animation-play-state: paused;
 }
@@ -74,6 +90,13 @@
 }
 
 .splash-skipping .splash-smoke {
+  transition-duration: 250ms; /* SPLASH_SKIP_FADE_MS */
+}
+
+/* A skipped content fade-out is fast too (same 250ms as a skipped
+   full fade). */
+.splash-skipping.splash-phase-exit .splash-smoke,
+.splash-skipping.splash-phase-exit .splash-wordmark {
   transition-duration: 250ms; /* SPLASH_SKIP_FADE_MS */
 }
 
@@ -132,6 +155,17 @@
 .splash-phase-fade .splash-wordmark {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Content fade-out (splash1 into profiles): the wordmark dissolves
+   with a slight upward drift while the overlay background stays
+   opaque black. The root never goes transparent in this phase, so
+   this is the clean black-to-black handoff — no hard cut, no
+   dashboard flash. */
+.splash-phase-exit .splash-wordmark {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition-duration: 600ms; /* SPLASH_CONTENT_FADE_MS */
 }
 
 .splash-wordmark-glow {

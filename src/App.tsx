@@ -214,11 +214,14 @@ function App() {
   const bootOverlays = (
     <>
       {bootPhase === 'splash1' && (
-        // fadeOut={false}: splash1 cuts hard into profiles. It must
-        // NEVER fade — the fade would turn the overlay transparent
-        // and show the terminal underneath for ~1s before profiles
-        // appears (Gary, 2026-11-13: "opens lucid first briefly").
-        // Both screens are black, so the cut is seamless.
+        // fadeOut={false}: splash1 fades its CONTENT out on black and
+        // profiles fades in on black — a clean black-to-black
+        // handoff. It must NEVER do a full fade — the fade would
+        // turn the overlay transparent and show the terminal
+        // underneath for ~1s before profiles appears (Gary,
+        // 2026-11-13: "opens lucid first briefly"). And it must
+        // never hard-cut either (Gary, 2026-11-13 ~02:19 PST:
+        // "thats not a clean transition to spashcreen to screen").
         <SplashScreen fadeOut={false} onDone={() => setBootPhase('profiles')} />
       )}
       {bootPhase === 'profiles' && (

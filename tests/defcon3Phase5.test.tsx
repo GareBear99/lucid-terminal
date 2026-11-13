@@ -147,7 +147,7 @@ function renderNonDevmode(level: 1 | 2 | 3, luciferAiEnabled = true, silenced = 
   setDefconLevel(level);
   setLuciferAiEnabled(luciferAiEnabled);
   setLuciferAiSilenced(silenced);
-  render(<Terminal tabId="tab-1" />);
+  return render(<Terminal tabId="tab-1" />);
 }
 
 function renderDevmode(level: 1 | 2 | 3, luciferAiEnabled = true, silenced = false) {
@@ -497,5 +497,141 @@ describe('extend drag tab — gone in non-devmode, kept in devmode (Gary, 2026-1
     await screen.findByTestId('dev-command-bar');
     const bar = screen.getByTestId('dev-command-bar');
     expect(within(bar).queryByTestId('input-drag-handle')).not.toBeNull();
+  });
+});
+
+describe('Prompt input row — cursor on the same line as the blood drop icon (Gary, 2026-11-12 ~10:13 PST)', () => {
+  // DOM order within the one row: a is before b in the row.
+  function isBeforeInRow(a: Element, b: Element): boolean {
+    return Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  test('level 3, LuciferAI on, empty input: one row holds [drop] [words] [composer] — words in front of the cursor', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    const row = screen.getByTestId('prompt-input-row');
+    const drop = screen.getByTestId('blood-drop');
+    const words = screen.getByTestId('prompt-hint-words');
+    const wrap = screen.getByTestId('prompter-composer-wrap');
+    expect(row.contains(drop)).toBe(true);
+    expect(row.contains(words)).toBe(true);
+    expect(row.contains(wrap)).toBe(true);
+    expect(isBeforeInRow(drop, words)).toBe(true);
+    expect(isBeforeInRow(words, wrap)).toBe(true);
+    expect(words.textContent).toBe('Real shell — type /help for Lucid commands');
+    // The composer input is typeable in the row — the caret lives here now.
+    expect(within(wrap).getByPlaceholderText(/Monaco unavailable/)).not.toBeNull();
+  });
+
+  test('typing makes the words VANISH entirely: normal ghost words — gone once there is input, no faded trail behind the cursor (Gary, 2026-11-12 ~15:12 PST)', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    // Empty first: the words are there, in front of the cursor.
+    expect(screen.getByTestId('prompt-hint-words').textContent).toBe(
+      'Real shell — type /help for Lucid commands',
+    );
+    typeInNonDevmodeComposer('ls');
+    const row = screen.getByTestId('prompt-input-row');
+    // No words span anywhere in the row once there is input.
+    expect(within(row).queryByTestId('prompt-hint-words')).toBeNull();
+    // The typed text is in the composer, in the row.
+    expect(nonDevmodeComposerInput().value).toBe('ls');
+  });
+
+  test('level 3, LuciferAI off: no words at all — the cursor repositions without them (zero residue)', async () => {
+    renderNonDevmode(3, false);
+    await screen.findByTestId('prompter-composer-wrap');
+    const row = screen.getByTestId('prompt-input-row');
+    expect(within(row).queryByTestId('prompt-hint-words')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Toggle LuciferAI' })).toBeNull();
+    // The composer is still there and typeable — only LuciferAI's surfaces are gone.
+    expect(within(row).getByPlaceholderText(/Monaco unavailable/)).not.toBeNull();
+  });
+
+  test('level 3, drop grey (silenced): plain mode words only — never mentions anything is off', async () => {
+    renderNonDevmode(3, true, true);
+    await screen.findByTestId('prompter-composer-wrap');
+    const words = screen.getByTestId('prompt-hint-words');
+    expect(words.textContent).toBe('Real shell');
+    expect(screen.getByTestId('prompt-input-row').textContent).not.toMatch(/silenc|paused|disabled/i);
+  });
+
+  test('multi-line input keeps the row intact (auto-extend untouched): [drop] [composer], words gone once there is input', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    typeInNonDevmodeComposer('echo one\necho two');
+    const row = screen.getByTestId('prompt-input-row');
+    const wrap = screen.getByTestId('prompter-composer-wrap');
+    expect(row.contains(wrap)).toBe(true);
+    expect(within(row).queryByTestId('prompt-hint-words')).toBeNull();
+    expect(nonDevmodeComposerInput().value).toBe('echo one\necho two');
+  });
+
+  test('below 3 the row keeps the static hint (LuciferAI on) and drops it when off', async () => {
+    const first = renderNonDevmode(2, true);
+    await screen.findByTestId('xterm-surface');
+    expect(screen.getByTestId('prompt-hint-words').textContent).toBe(
+      'Real shell — type /help for Lucid commands',
+    );
+    expect(screen.queryByTestId('prompter-composer-wrap')).toBeNull();
+    first.unmount();
+
+    renderNonDevmode(2, false);
+    await screen.findByTestId('xterm-surface');
+    expect(screen.queryByTestId('prompt-hint-words')).toBeNull();
+  });
+});
+
+describe('Prompt-row clicks focus the composer (Gary, 2026-11-12 — the prompt-row click fix)', () => {
+  // The fallback textarea auto-focuses on mount in jsdom, so
+  // every test here blurs FIRST — otherwise the assertion would
+  // pass without the click doing anything at all.
+  function blurComposer() {
+    nonDevmodeComposerInput().blur();
+    expect(document.activeElement).not.toBe(nonDevmodeComposerInput());
+  }
+
+  test('clicking the hint words focuses the composer — the words are not a dead span', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    const words = screen.getByTestId('prompt-hint-words');
+    // The words are a label, not a target: clicks pass through them.
+    expect(words.className).toContain('pointer-events-none');
+    blurComposer();
+    fireEvent.click(words);
+    expect(document.activeElement).toBe(nonDevmodeComposerInput());
+  });
+
+  test('clicking anywhere in the prompt section focuses the composer', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    blurComposer();
+    fireEvent.click(screen.getByTestId('prompt-section'));
+    expect(document.activeElement).toBe(nonDevmodeComposerInput());
+    // And the topology failsafe did NOT fire — the composer is the
+    // input at level 3, not a missing xterm surface.
+    expect(settingsSetMock).not.toHaveBeenCalledWith('devMode', true);
+    expect(useSettingsStore.getState().settings.devMode).toBe(false);
+  });
+
+  test('after typing the words are gone, so clicking the prompt section still focuses the composer (no dead span left behind)', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    typeInNonDevmodeComposer('ls');
+    // The words vanished entirely — nothing to click on, nothing blocking.
+    expect(screen.queryByTestId('prompt-hint-words')).toBeNull();
+    blurComposer();
+    fireEvent.click(screen.getByTestId('prompt-section'));
+    expect(document.activeElement).toBe(nonDevmodeComposerInput());
+  });
+
+  test('devmode: clicking the prompt section does NOT steal focus into the dev bar', async () => {
+    renderDevmode(3);
+    await screen.findByTestId('dev-command-bar');
+    const input = devComposerInput();
+    input.blur();
+    expect(document.activeElement).not.toBe(input);
+    fireEvent.click(screen.getByTestId('prompt-section'));
+    expect(document.activeElement).not.toBe(input);
   });
 });

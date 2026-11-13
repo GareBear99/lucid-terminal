@@ -13,6 +13,7 @@ import { InputArea } from './InputArea';
 import { BlockList } from './BlockList';
 import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, dropPendingEscape, newBlock } from '../../lib/terminalBlocks';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
+import { getPromptHintWords } from '../../lib/promptHintWords';
 import type { TerminalBlock } from '../../types';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
 import { HelpPanel } from '../Help/HelpPanel';
@@ -257,6 +258,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // terminal screen.
   const [devLines, setDevLines] = useState<string[]>([]);
   const termRef = useRef<XtermSurfaceHandle>(null);
+  // The DEFCON 3+ composer's wrapper in the prompt row (Gary,
+  // 2026-11-12 — the prompt-row click fix): the wrapper is how a
+  // click anywhere in the prompt row reaches the composer. The
+  // composer itself is Monaco in production (its editable
+  // textarea) and the plain-textarea fallback in tests — either
+  // way the first textarea inside the wrapper IS the input, so
+  // focusPrompterComposer focuses it through this ref.
+  const prompterComposerWrapRef = useRef<HTMLDivElement | null>(null);
   // The current shell line, as typed — tracked so a slash command
   // can be recognised on Enter. `null` means "unknown": Tab,
   // arrows or reverse-search changed the line in a way this
@@ -1259,14 +1268,36 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // the sync has failed: FALL INTO dev mode (the failsafe), so the
   // user gets the detached bar instead of a dead prompt bar. Dev
   // mode ON (delinked): a click must NOT focus the terminal, or the
-  // detached bar could never be typed in. DEFCON 3 Phase 5: the
-  // same early return applies whenever the prompter owns typing
-  // (non-devmode at level 3+) — the xterm surface is UNMOUNTED
-  // there, so the focus check below would read termRef null and
-  // fire the failsafe for a surface that is deliberately gone;
-  // the composer is the input, and it takes focus itself.
+  // detached bar could never be typed in. DEFCON 3 Phase 5: at
+  // level 3+ in non-devmode the prompter owns typing — the xterm
+  // surface is UNMOUNTED there, so the focus check below would
+  // read termRef null and fire the failsafe for a surface that is
+  // deliberately gone. Instead a click in the section focuses the
+  // composer (Gary, 2026-11-12 — the prompt-row click fix): the
+  // hint-words span is pointer-events-none, so a click on the
+  // words lands on the section, and the section hands it to the
+  // composer — ANY click in the prompt row focuses the composer,
+  // including Gary's physical mouse. A missing wrapper is NOT a
+  // topology failure (no failsafe): the composer takes focus
+  // itself when it is there, and nothing here forces dev mode.
+  const focusPrompterComposer = () => {
+    const wrap = prompterComposerWrapRef.current;
+    if (!wrap) return false;
+    // Monaco in production, the plain textarea fallback in
+    // tests — either way the first textarea in the wrapper is
+    // the composer's input.
+    const target = wrap.querySelector('textarea') as HTMLElement | null;
+    if (!target) return false;
+    target.focus();
+    return document.activeElement === target;
+  };
+
   const handlePromptSectionClick = () => {
-    if (devMode || prompterActive) return;
+    if (devMode) return;
+    if (prompterActive) {
+      focusPrompterComposer();
+      return;
+    }
     const check = checkPromptFocus(
       termRef.current !== null,
       () => termRef.current?.focus(),
@@ -1342,6 +1373,48 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       </div>
     </div>
   );
+
+  // The prompt-row hint words + the cursor line (Gary, 2026-11-12
+  // ~10:00–10:19 PST — the cursor must sit on the SAME LINE as the
+  // blood drop icon, with the words there until you type):
+  // - hintWords: WHICH words show, from the §2.3 table
+  //   (src/lib/promptHintWords.ts). Terminal words are the blood
+  //   drop's help entry — null when LuciferAI is off (zero
+  //   residue); plain "Real shell" when the drop is grey. Agent
+  //   words never depend on LuciferAI. The MODE is 'terminal'
+  //   until the mode dropdown pill lands and owns it — there is
+  //   no mode state in the code yet (the pill is designed, not
+  //   built), so nothing here invents one.
+  // - The words sit IN FRONT OF the cursor (before the composer)
+  //   while the composer is empty, and VANISH ENTIRELY once you
+  //   type — normal ghost words, like any other prompt on earth
+  //   (Gary, 2026-11-12 ~15:12 PST: "make them normal fucking
+  //   ghost words ... that disappear when you type"). This
+  //   REVERSES the ~10:00 drop-behind rule (words trailing behind
+  //   the cursor, faded, after you typed) — there is no behind
+  //   span anymore. The words are NOT the ghost suggestion and
+  //   never become one: the post-first-entry auto-detection ghost
+  //   text is FUTURE design (Gary, 2026-11-12 ~10:17 PST —
+  //   "we're nowhere near it").
+  // - The composer IS the input line at DEFCON 3+ in non-devmode
+  //   (the xterm surface is unmounted there), so it renders
+  //   INSIDE this row — flex-1 — and its caret is on the same
+  //   line as the drop. Below 3 the row keeps the static hint
+  //   (the xterm above is the input there); devmode keeps its
+  //   own bar below.
+  // - AUTO-EXTEND is already in the build (Gary, 2026-11-12
+  //   ~10:19 PST — "that should be in the build already"):
+  //   InputArea grows with its content up to the 33.33vh cap
+  //   (src/lib/inputHeight.ts, resolveInputHeightPx) and the
+  //   row grows with it — nothing here rebuilds that, and the
+  //   row keeps items-center so the icon/words stay on the
+  //   input's line as it extends. The wide click target is
+  //   untouched too: the composer box stays flex-1 (clicking
+  //   anywhere in the extendo prompt area focuses it and the
+  //   caret appears), and handlePromptSectionClick below is
+  //   unchanged.
+  const hintWords = getPromptHintWords('terminal', luciferAiEnabled, luciferAiSilenced);
+  const composerHasInput = devInput.length > 0;
 
   return (
     <>
@@ -1524,9 +1597,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               a stronger blur, translucent over the mist.
               The input itself is the terminal surface above now —
               there is no Monaco prompt and no send arrow any more
-              (that was the simulation's input). This row keeps the
-              prompt-section controls: the blood drop (LuciferAI's
-              quick disable, on-state only) and the Sentinel face. */}
+              (that was the simulation's input) — EXCEPT at DEFCON
+              3+ in non-devmode, where the linked composer IS the
+              input and lives in the row below, on the same line as
+              the blood drop icon (Gary, 2026-11-12 ~10:13 PST).
+              This row keeps the prompt-section controls: the blood
+              drop (LuciferAI's quick disable, on-state only) and
+              the Sentinel face. */}
           <div data-testid="prompt-section"
                onClick={handlePromptSectionClick}
                className="input-container border-t-2 border-t-[var(--text-muted)] pb-safe"
@@ -1575,7 +1652,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 </>
               )}
             </div>
-            <div className="flex items-center gap-3 px-5 py-4">
+            <div className="flex items-center gap-3 px-5 py-4" data-testid="prompt-input-row">
               {/* LuciferAI Plugin Status Indicator (the blood drop).
                   It renders ONLY while LuciferAI is on (Gary,
                   2026-11-07 ~20:17 PST): a plain terminal has no
@@ -1584,7 +1661,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   2026-11-08 ~02:29 PST: "off like in settings
                   toggle") there is no drop here at all — not
                   darkened, not clickable — and the flex row
-                  reflows with the hint stretching to fill the gap.
+                  reflows with the composer stretching to fill the gap.
                   It is LuciferAI's silencer (Gary, 2026-11-08
                   ~02:28 PST): lit while on and speaking, GREYED
                   OUT while silenced — clicking it silences /
@@ -1607,16 +1684,68 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 />
               )}
 
-              {/* The terminal surface above IS the input now — type
-                  straight into it. Slash commands (`/fix`, `/llm`,
-                  `/help`) are Lucid's; everything else is the shell. */}
-              <span className="flex-1 truncate font-mono text-[12px] text-[var(--text-muted)] opacity-80">
-                Real shell — type /help for Lucid commands
-              </span>
+              {/* The hint words IN FRONT OF the cursor (Gary,
+                  2026-11-12 ~10:00–10:13 PST, REVERSED ~15:12 PST):
+                  normal ghost words — they show while the composer
+                  is empty and VANISH ENTIRELY once you type, like
+                  any other prompt on earth. No dropped-behind span
+                  anymore: the ~10:00 rule (words drop behind the
+                  cursor, faded, after you type) is gone. Which
+                  words is hintWords (the §2.3 table); they show
+                  only while the composer is empty — or always,
+                  below DEFCON 3 / in devmode, where this row is
+                  the static hint and the input lives elsewhere
+                  (the xterm above / the dev bar below). When
+                  LuciferAI is off hintWords is null: no words
+                  at all, the cursor repositions without them
+                  (zero residue). The words are NOT the ghost
+                  suggestion and never become one (Gary,
+                  2026-11-12 ~10:17 PST — that is future design). */}
+              {hintWords !== null && (!prompterActive || devMode || !composerHasInput) && (
+                // pointer-events-none (Gary, 2026-11-12 — the
+                // prompt-row click fix): the words are a label,
+                // not a target — a click on them lands on the
+                // prompt section, which focuses the composer.
+                <span data-testid="prompt-hint-words" className="pointer-events-none min-w-0 truncate font-mono text-[12px] text-[var(--text-muted)] opacity-80">
+                  {hintWords}
+                </span>
+              )}
+
+              {/* DEFCON 3 Phase 5 — the non-devmode landing
+                  (Gary, 2026-11-09): the SAME composer lands in
+                  the non-devmode prompt section at level 3+ — the
+                  shared renderPrompterComposer, not a second
+                  input. It lives IN this row now (Gary, 2026-11-12
+                  ~10:13 PST — "the cursor should be on same line
+                  as icon"): flex-1, so its caret sits on the same
+                  line as the blood drop icon, with the words in
+                  front of it until you type — then the words are
+                  gone entirely (Gary, ~15:12 PST). The solid-black
+                  prompt section is unchanged (the mist stays as
+                  DEFCON 2 left it — the prompt section is NOT
+                  part of the merge). Below 3 this renders
+                  nothing: non-devmode is byte-for-byte today's
+                  behavior (the section IS the terminal's input,
+                  typing at the xterm cursor). The wide click
+                  target is untouched: this box stays flex-1, so
+                  clicking anywhere in the extendo prompt area
+                  focuses it and the caret appears (Gary,
+                  2026-11-12 ~10:17–10:18 PST). */}
+              {!devMode && prompterActive && (
+                <div className="min-w-0 flex-1" data-testid="prompter-composer-wrap" ref={prompterComposerWrapRef}>
+                  {renderPrompterComposer()}
+                </div>
+              )}
+
+              {/* (No dropped-behind words span anymore: Gary,
+                  2026-11-12 ~15:12 PST — normal ghost words
+                  vanish entirely once you type. The old span here
+                  trailed the words behind the cursor, faded, after
+                  typing; that behavior is removed, not moved.) */}
 
               {/* Sentinel face — press to toggle the Synth view, the Sentinel's home.
                   A LuciferAI surface: gone while the plugin is disabled, so the
-                  hint stretches into the space it leaves too. */}
+                  composer stretches into the space it leaves too. */}
               {onOpenSynth && luciferAiEnabled && (
                 <Tooltip content="Toggle the Synth view — hold to open the roster">
                   <button
@@ -1656,22 +1785,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 </Tooltip>
               )}
             </div>
-            {/* DEFCON 3 Phase 5 — the non-devmode landing
-                (Gary, 2026-11-09): the SAME composer lands in
-                the non-devmode prompt section at level 3+ — the
-                shared renderPrompterComposer, not a second
-                input. It sits below the blood-drop row, in the
-                solid-black prompt section (the mist stays as
-                DEFCON 2 left it — the prompt section is NOT
-                part of the merge). Below 3 this renders
-                nothing: non-devmode is byte-for-byte today's
-                behavior (the section IS the terminal's input,
-                typing at the xterm cursor). */}
-            {!devMode && prompterActive && (
-              <div className="px-5 pb-4" data-testid="prompter-composer-wrap">
-                {renderPrompterComposer()}
-              </div>
-            )}
+            {/* The non-devmode composer no longer sits below this
+                row — it lives IN the row now (see the
+                prompter-composer-wrap above): one line holds the
+                blood drop, the words, and the cursor. */}
             {/* Topology fallback notice (Gary, 2026-11-08 ~07:05
                 PST): the failsafe FIRED — the sync failed and the
                 app fell into dev mode. The notice says so plainly

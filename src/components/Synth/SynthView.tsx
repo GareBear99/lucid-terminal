@@ -41,6 +41,7 @@ import {
 } from '../../stores/synthStore';
 import { useWindowMaximized } from '../../hooks/useWindowMaximized';
 import { synthScaleStyle } from './windowedScale';
+import { WidgetLayer } from './widgets';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PluginVoiceButton } from '../PluginVoiceButton';
 import { pluginVoiceSrc } from '../../lib/pluginVoice';
@@ -164,6 +165,30 @@ export function SynthView() {
   const displayBuild = spec?.managesOwnState
     ? (iframeShellState?.build ?? 'IDLE')
     : buildState;
+
+  // The seed the inspector shows: the SESSION's loaded creation, never
+  // the store's seedHex as-is — the same rule as the widget layer
+  // (src/components/Synth/widgets/WidgetLayer.tsx). The store
+  // initializes to the shell's default seed, and the Lucifer default
+  // IS the owner's creation seed, so rendering seedHex whenever would
+  // show the owner's seed to a session with nothing loaded (the guest
+  // leak, 2026-11-12 ~20:34 PST: the inspector's SHELL — LUCIFER
+  // block showed seed: F1B49B1CB10D6FED as guest). A demo-locked
+  // session gets null whatever is loaded; a shell that manages its own
+  // state reports its own seed once a blueprint is loaded (shellId);
+  // otherwise a seed exists only once the TS machine has a shell
+  // loaded. Null renders "no creation loaded", the SeedWidget
+  // convention — never the persisted store seed.
+  const sessionSeedHex: string | null =
+    demoLocked
+      ? null
+      : spec?.managesOwnState
+        ? iframeShellState?.shellId
+          ? (iframeShellState.seed ?? null)
+          : null
+        : machine.shell
+          ? seedHex
+          : null;
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -591,6 +616,8 @@ export function SynthView() {
             {mounted ? ` · ${mounted.name} mounted` : ' · shell empty'}
           </div>
         )}
+        {/* Demo widgets — only after a permanent creation build (the widget gate, same as the Voxel Directory). */}
+        <WidgetLayer />
       </div>
 
       {/* Inspector */}
@@ -628,7 +655,7 @@ export function SynthView() {
           <div className="font-mono text-xs space-y-1 text-[var(--text-primary)]">
             <div>boot: <span style={{ color: homunculusTheme.bright }}>{displayBoot}</span></div>
             <div>build: {displayBuild}</div>
-            <div>seed: {spec?.managesOwnState ? (iframeShellState?.seed ?? seedHex) : seedHex}</div>
+            <div>seed: {sessionSeedHex ?? 'no creation loaded'}</div>
             <div>tile: {selectedTileId} (center)</div>
             <div>eye: {eyeMode}</div>
             <div>

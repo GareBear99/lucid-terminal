@@ -42,7 +42,9 @@
  *   (b) a divider line, then the Guest card — Guest is an immutable
  *       profile (always a fresh blank slate, never changed or
  *       deleted), so it sits on its own side of the line. The card
- *       just says "Guest" — no "Enter as guest" wording anywhere;
+ *       says "Guest Access" (Gary, 2026-11-13 ~07:29 PST:
+       "should say Guest Access on lucid guest") — no "Enter as guest"
+       wording anywhere;
  *       clicking it creates a fresh guest and enters immediately.
  *   (c) below the cards: create a profile. Nothing else.
  * Each card shows its verified gates + status (temp / unverified /
@@ -165,7 +167,8 @@ function ProfileCard({
 /** The Guest card — the immutable profile's entry point (Gary,
  *  2026-11-13 ~03:22–03:26 PST: guest access is right there, so
  *  there is no separate "Enter as guest" step and the screen never
- *  says "Enter as guest" — the card just says "Guest"). It is NOT
+ *  says "Enter as guest" — the card says "Guest Access" (Gary,
+ *  2026-11-13 ~07:29 PST). It is NOT
  *  the stored guest record: clicking it always creates a fresh
  *  guest (always a new guest, always a blank slate) and enters
  *  immediately, the same way clicking any card enters. Same card
@@ -176,7 +179,7 @@ function GuestCard({ onEnter }: { onEnter: () => void }) {
     <div
       role="button"
       tabIndex={0}
-      aria-label="Guest"
+      aria-label="Guest Access"
       data-testid="profile-guest-card"
       onClick={onEnter}
       onKeyDown={(e) => {
@@ -189,7 +192,7 @@ function GuestCard({ onEnter }: { onEnter: () => void }) {
     >
       <div className="flex items-center justify-between gap-3">
         <span className="truncate text-base font-medium text-[var(--text-primary)]">
-          Guest
+          Guest Access
         </span>
         <span
           data-testid="profile-status-guest"

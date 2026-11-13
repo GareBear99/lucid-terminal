@@ -254,7 +254,7 @@ describe('terminal prompt — whole glass section', () => {
     // terminal surface IS the input now, so there is no send button
     // left to match. That is the real terminal, not a regression.)
     const section = screen.getByTestId('prompt-section');
-    expectGlassMatched(within(section).getByText('Ask Lucid...'));
+    expectGlassMatched(within(section).getByText('Type a command e.g. ls'));
     const header = screen.getByTestId('prompt-section-header');
     expectGlassMatched(header);
     header.querySelectorAll('span').forEach((s) => expectGlassMatched(s as unknown as HTMLElement));

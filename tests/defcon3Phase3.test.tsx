@@ -24,7 +24,7 @@
  *    the prompt section. No git-branch / runtime-version /
  *    change-count chips — no such data exists in the terminal
  *    code; deferred, not invented.
- * 4. Hint bar: stays static ("Ask Lucid...") — decided, not built dynamic.
+ * 4. Hint bar: stays static ("Type a command e.g. ls") — decided, not built dynamic.
  * 5. Multi-line + syntax highlighting: already in `InputArea`
  *    (Monaco `language="shell"`, grows with content). Verified
  *    they still work in the linked composer: multi-line input
@@ -441,7 +441,7 @@ describe('DEFCON 3 composer — cwd chip, static hint, multi-line, re-input', ()
 
   test('the hint bar stays static', async () => {
     await renderPrompter();
-    expect(screen.getByText('Ask Lucid...')).not.toBeNull();
+    expect(screen.getByText('Type a command e.g. ls')).not.toBeNull();
   });
 
   test('multi-line input: Shift+Enter keeps a newline without submitting', async () => {

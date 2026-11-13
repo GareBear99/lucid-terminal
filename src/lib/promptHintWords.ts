@@ -1,12 +1,25 @@
 /**
- * The prompt-row hint words ("Ask Lucid...").
+ * The prompt-row hint words.
  *
  * Rules (Gary, 2026-11-12 ~10:00–10:05 PST, screenshot of the
- * prompt bar + follow-ups; WORDING changed Gary, 2026-11-13
- * ~02:58 PST: "real shell still clearly obstructing everything
- * you input unlick the correct ask lucid in ai chat" — the
- * composer ghost words are "Ask Lucid...", the same text as the
- * AI chat, in both Terminal and Agent modes):
+ * prompt bar + follow-ups; PER-MODE wording Gary, 2026-11-13
+ * ~08:59 PST: "agent should be ask lucid and terminal should be
+ * some terminal spiel commond or to switch to agent for driving
+ * intelligence" — then ~09:07 PST: "idk just look how warp does
+ * theirs"):
+ *
+ * - Agent mode: "Ask Lucid..." — the same text as the AI chat.
+ * - Terminal mode: "Type a command e.g. ls" — Warp's pattern.
+ *   Warp's terminal placeholder is "Warp anything e.g. Help me
+ *   debug why my Python tests are failing in CI" (Gary's
+ *   screenshot, Image_2026-11-10_at_6.50_PM.jpg): the same
+ *   example-pattern in both of Warp's views, with the example
+ *   showing what to type in that mode. Lucid's terminal takes
+ *   commands (auto-detect is suggest-only, never auto-route),
+ *   so the terminal example is a command. This SUPERSEDES the
+ *   ~02:58 PST rule that the terminal ghost should also say
+ *   "Ask Lucid" — that rule made both modes identical, which
+ *   is not what Warp does and not what Gary wants.
  *
  * - The words sit IN FRONT OF the cursor until you type, and
  *   VANISH ENTIRELY once you type — normal ghost words, like
@@ -20,7 +33,7 @@
  *   is enabled; when LuciferAI is off, the cursor repositions
  *   without the words there at all (zero residue, plain terminal).
  * - When the drop is grey (silenced): the words are the same
- *   "Ask Lucid..." — the point is NOT to mention that something
+ *   "Type a command e.g. ls" — the point is NOT to mention that something
  *   is off (Gary, ~10:05 PST, correcting the "LuciferAI
  *   silenced" proposal). Lit and grey show the same words now;
  *   only off hides them.
@@ -29,7 +42,8 @@
  *   PST), so the Agent words are the same in all three
  *   LuciferAI states.
  *
- * The words are "Ask Lucid..." in both modes. The old wordings
+ * The words are "Ask Lucid..." in Agent mode and
+ * "Type a command e.g. ls" in Terminal mode. The old wordings
  * ("Real shell — type /help for Lucid commands" / "Real shell"
  * / "Agent — describe the task; Lucid plans, acts, and reports")
  * are gone — the "Real shell" words obstructed everything typed,
@@ -64,7 +78,7 @@ export function getPromptHintWords(
   if (!luciferAiEnabled) return null;
   // Grey (silenced) → the same words as lit. Never mention that
   // anything is off.
-  if (luciferAiSilenced) return 'Ask Lucid...';
+  if (luciferAiSilenced) return 'Type a command e.g. ls';
   // Lit → the same words.
-  return 'Ask Lucid...';
+  return 'Type a command e.g. ls';
 }

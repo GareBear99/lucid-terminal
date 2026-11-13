@@ -1,14 +1,13 @@
-// Terminal sessions — segregation + stacking (heavy terminal
-// work, 2026-11-13). Agent sessions are owned here; terminal
-// sessions are a view over terminalStore.tabs.
-import { describe, test, expect, beforeEach } from 'vitest';
+// Tab mode — the mode pill (heavy terminal work, 2026-11-13;
+// REBUILT 2026-11-13 ~08:21 PST per Gary — Warp's in-tab
+// agent flow). ONE session per tab: the pill flips ONLY the
+// tab's mode, and agent prompts are ordinary blocks in the
+// tab's own feed (one memory per tab).
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import {
   useSessionStore,
-  selectSessions,
-  selectActiveSession,
-  getFeedBlocksForSession,
+  getTabMode,
   selectAgentPromptHistory,
-  NEW_AGENT_SESSION_TITLE,
   AGENT_NOT_BUILT_NOTICE,
 } from '../src/stores/sessionStore';
 import { useTerminalStore } from '../src/stores/terminalStore';
@@ -22,188 +21,143 @@ function commandBlock(id: string, command: string): TerminalBlock {
   return { id, command, output: 'out', timestamp: 1, isComplete: true };
 }
 
-beforeEach(() => {
-  useSessionStore.getState().resetForTests();
-  useTerminalStore.setState({ tabs: [TAB_1, TAB_2], activeTabId: 'terminal-1' });
+function resetAll() {
   useHistoryStore.setState({ blocksByTab: {}, guestSessionActive: false, guestStash: null });
+  useTerminalStore.setState({ tabs: [TAB_1, TAB_2], activeTabId: 'terminal-1' });
+  useSessionStore.getState().resetForTests();
+}
+
+beforeEach(() => {
+  resetAll();
 });
 
-describe('createAgentSession', () => {
-  test('creates an agent session and switches to it', () => {
-    const id = useSessionStore.getState().createAgentSession({ cwd: '/Users/gary' });
-    expect(id).toBe('agent-1');
+afterEach(() => {
+  resetAll();
+});
+
+describe('tab mode', () => {
+  test('defaults to terminal, sets agent, toggles back', () => {
     const state = useSessionStore.getState();
-    expect(state.activeSessionId).toBe('agent-1');
-    expect(state.agentSessions).toHaveLength(1);
-    expect(state.agentSessions[0].kind).toBe('agent');
-    expect(state.agentSessions[0].title).toBe(NEW_AGENT_SESSION_TITLE);
-    expect(state.agentSessions[0].cwd).toBe('/Users/gary');
+    expect(getTabMode(state.tabMode, 'terminal-1')).toBe('terminal');
+    expect(state.setTabMode('terminal-1', 'agent')).toBe('agent');
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('agent');
+    expect(useSessionStore.getState().toggleTabMode('terminal-1')).toBe('terminal');
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('terminal');
   });
 
-  test('numbers reuse the lowest free number after a close', () => {
-    const a = useSessionStore.getState().createAgentSession();
-    useSessionStore.getState().createAgentSession();
-    useSessionStore.getState().closeAgentSession(a!);
-    expect(useSessionStore.getState().createAgentSession()).toBe('agent-1');
+  test('mode is per-tab: flipping one tab leaves the other terminal', () => {
+    useSessionStore.getState().setTabMode('terminal-1', 'agent');
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('agent');
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-2')).toBe('terminal');
   });
 
-  test('a first prompt submits immediately and titles the session', () => {
-    const id = useSessionStore.getState().createAgentSession({ firstPrompt: 'why is the build failing?' });
-    const session = useSessionStore.getState().agentSessions.find((s) => s.id === id);
-    expect(session?.title).toBe('why is the build failing?');
-    const blocks = useSessionStore.getState().agentBlocksBySession[id!];
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0].kind).toBe('agent-prompt');
-    expect(blocks[1].kind).toBe('notice');
-    expect(blocks[1].output).toBe(AGENT_NOT_BUILT_NOTICE);
+  test('a closed tab’s mode dies with it — a fresh tab reusing the id starts terminal', () => {
+    useSessionStore.getState().setTabMode('terminal-2', 'agent');
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-2')).toBe('agent');
+    // Closing the tab (terminalStore drops the tab) prunes the mode.
+    useTerminalStore.setState({ tabs: [TAB_1], activeTabId: 'terminal-1' });
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-2')).toBe('terminal');
+    // A fresh tab reusing the id starts terminal.
+    useTerminalStore.setState({ tabs: [TAB_1, TAB_2], activeTabId: 'terminal-2' });
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-2')).toBe('terminal');
   });
 
-  test('refuses while a guest session is veiled in', () => {
+  test('refuses agent mode while a guest session is veiled in', () => {
     useHistoryStore.getState().enterGuestSession();
-    expect(useSessionStore.getState().createAgentSession()).toBeNull();
-    expect(useSessionStore.getState().agentSessions).toHaveLength(0);
+    expect(useSessionStore.getState().setTabMode('terminal-1', 'agent')).toBeNull();
+    expect(useSessionStore.getState().toggleTabMode('terminal-1')).toBeNull();
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('terminal');
     useHistoryStore.getState().exitGuestSession();
   });
 });
 
 describe('submitAgentPrompt', () => {
-  test('appends prompt + notice, titles from the first prompt only', () => {
-    const id = useSessionStore.getState().createAgentSession()!;
-    expect(useSessionStore.getState().submitAgentPrompt(id, 'first prompt here')).toBe(true);
-    expect(useSessionStore.getState().submitAgentPrompt(id, 'second prompt here')).toBe(true);
-    const session = useSessionStore.getState().agentSessions.find((s) => s.id === id);
-    expect(session?.title).toBe('first prompt here');
-    expect(useSessionStore.getState().agentBlocksBySession[id]).toHaveLength(4);
+  test('appends prompt + notice to the tab’s own feed — one memory, no separate store', () => {
+    useHistoryStore.setState({
+      blocksByTab: { 'terminal-1': [commandBlock('b1', 'ls')] },
+    });
+    expect(useSessionStore.getState().submitAgentPrompt('terminal-1', 'fix the build', '/Users/gary')).toBe(true);
+    const blocks = useHistoryStore.getState().blocksByTab['terminal-1'];
+    expect(blocks.map((b) => b.command)).toEqual(['ls', 'fix the build', '']);
+    expect(blocks[1].kind).toBe('agent-prompt');
+    expect(blocks[1].cwd).toBe('/Users/gary');
+    expect(blocks[2].kind).toBe('notice');
+    expect(blocks[2].output).toBe(AGENT_NOT_BUILT_NOTICE);
   });
 
-  test('empty prompts and unknown sessions return false', () => {
-    const id = useSessionStore.getState().createAgentSession()!;
-    expect(useSessionStore.getState().submitAgentPrompt(id, '   ')).toBe(false);
-    expect(useSessionStore.getState().submitAgentPrompt('agent-99', 'hi')).toBe(false);
-  });
-});
-
-describe('closeAgentSession', () => {
-  test('drops the session + blocks and returns to the terminal session', () => {
-    const id = useSessionStore.getState().createAgentSession({ firstPrompt: 'hello' })!;
-    useSessionStore.getState().closeAgentSession(id);
-    const state = useSessionStore.getState();
-    expect(state.agentSessions).toHaveLength(0);
-    expect(state.agentBlocksBySession[id]).toBeUndefined();
-    expect(state.activeSessionId).toBeNull();
+  test('a second prompt appends after the first — one conversation, in order', () => {
+    useSessionStore.getState().submitAgentPrompt('terminal-1', 'first prompt here');
+    useSessionStore.getState().submitAgentPrompt('terminal-1', 'second prompt here');
+    const blocks = useHistoryStore.getState().blocksByTab['terminal-1'];
+    expect(blocks).toHaveLength(4);
+    expect(blocks.filter((b) => b.kind === 'agent-prompt').map((b) => b.command)).toEqual([
+      'first prompt here',
+      'second prompt here',
+    ]);
   });
 
-  test('closing a non-active session leaves the active one alone', () => {
-    const a = useSessionStore.getState().createAgentSession()!;
-    const b = useSessionStore.getState().createAgentSession()!;
-    useSessionStore.getState().switchToAgentSession(a);
-    useSessionStore.getState().closeAgentSession(b);
-    expect(useSessionStore.getState().activeSessionId).toBe(a);
-  });
-});
-
-describe('switching', () => {
-  test('switchToTerminalSession sets the tab active and clears the agent session', () => {
-    useSessionStore.getState().createAgentSession();
-    useSessionStore.getState().switchToTerminalSession('terminal-2');
-    expect(useTerminalStore.getState().activeTabId).toBe('terminal-2');
-    expect(useSessionStore.getState().activeSessionId).toBeNull();
+  test('empty prompts return false and append nothing', () => {
+    expect(useSessionStore.getState().submitAgentPrompt('terminal-1', '   ')).toBe(false);
+    expect(useHistoryStore.getState().blocksByTab['terminal-1'] ?? []).toHaveLength(0);
   });
 
-  test('switchToAgentSession ignores unknown ids', () => {
-    useSessionStore.getState().switchToAgentSession('agent-99');
-    expect(useSessionStore.getState().activeSessionId).toBeNull();
+  test('refuses while a guest session is veiled in', () => {
+    useHistoryStore.getState().enterGuestSession();
+    expect(useSessionStore.getState().submitAgentPrompt('terminal-1', 'hello')).toBe(false);
+    expect(useHistoryStore.getState().blocksByTab['terminal-1'] ?? []).toHaveLength(0);
+    useHistoryStore.getState().exitGuestSession();
   });
 });
 
-describe('selectors', () => {
-  test('selectSessions lists terminal tabs first, then agent sessions', () => {
-    const id = useSessionStore.getState().createAgentSession()!;
-    const sessions = selectSessions(
-      useTerminalStore.getState().tabs,
-      useSessionStore.getState().agentSessions,
-    );
-    expect(sessions.map((s) => s.id)).toEqual(['terminal-1', 'terminal-2', id]);
-    expect(sessions[0].kind).toBe('terminal');
-    expect(sessions[2].kind).toBe('agent');
-  });
-
-  test('selectActiveSession is the active tab when no agent session is active', () => {
-    const active = selectActiveSession(
-      useTerminalStore.getState().tabs,
-      'terminal-2',
-      [],
-      null,
-    );
-    expect(active?.id).toBe('terminal-2');
-    expect(active?.kind).toBe('terminal');
-  });
-
-  test('selectActiveSession is the agent session when one is active', () => {
-    const id = useSessionStore.getState().createAgentSession()!;
-    const active = selectActiveSession(
-      useTerminalStore.getState().tabs,
-      'terminal-1',
-      useSessionStore.getState().agentSessions,
-      id,
-    );
-    expect(active?.id).toBe(id);
-    expect(active?.kind).toBe('agent');
-  });
-
-  test('getFeedBlocksForSession reads the live terminal transcript, restored excluded', () => {
+describe('selectAgentPromptHistory', () => {
+  test('walks the tab’s agent prompts most recent first, ignoring terminal blocks and notices', () => {
+    useSessionStore.getState().submitAgentPrompt('terminal-1', 'first');
     useHistoryStore.setState({
       blocksByTab: {
-        'terminal-1': [commandBlock('b1', 'ls'), { ...commandBlock('b2', 'old'), restored: true }],
+        'terminal-1': [
+          ...(useHistoryStore.getState().blocksByTab['terminal-1'] ?? []),
+          commandBlock('b9', 'ls'),
+        ],
       },
     });
-    const session = selectActiveSession(
-      useTerminalStore.getState().tabs,
-      'terminal-1',
-      [],
-      null,
-    );
-    const blocks = getFeedBlocksForSession(
-      session,
-      useHistoryStore.getState().blocksByTab,
-      {},
-    );
-    expect(blocks.map((b) => b.id)).toEqual(['b1']);
-  });
-
-  test('getFeedBlocksForSession reads the agent session blocks', () => {
-    const id = useSessionStore.getState().createAgentSession({ firstPrompt: 'hello there' })!;
-    const session = selectActiveSession(
-      useTerminalStore.getState().tabs,
-      'terminal-1',
-      useSessionStore.getState().agentSessions,
-      id,
-    );
-    const blocks = getFeedBlocksForSession(
-      session,
-      {},
-      useSessionStore.getState().agentBlocksBySession,
-    );
-    expect(blocks.map((b) => b.kind)).toEqual(['agent-prompt', 'notice']);
-  });
-
-  test('selectAgentPromptHistory walks prompts most recent first', () => {
-    const id = useSessionStore.getState().createAgentSession()!;
-    useSessionStore.getState().submitAgentPrompt(id, 'first');
-    useSessionStore.getState().submitAgentPrompt(id, 'second');
+    useSessionStore.getState().submitAgentPrompt('terminal-1', 'second');
     expect(
-      selectAgentPromptHistory(useSessionStore.getState().agentBlocksBySession, id),
+      selectAgentPromptHistory(useHistoryStore.getState().blocksByTab, 'terminal-1'),
     ).toEqual(['second', 'first']);
+  });
+
+  test('empty for a tab with no agent prompts', () => {
+    useHistoryStore.setState({ blocksByTab: { 'terminal-1': [commandBlock('b1', 'ls')] } });
+    expect(selectAgentPromptHistory(useHistoryStore.getState().blocksByTab, 'terminal-1')).toEqual([]);
   });
 });
 
 describe('guest veil', () => {
-  test('a guest session starting drops every agent session', () => {
-    useSessionStore.getState().createAgentSession({ firstPrompt: 'hello' });
-    expect(useSessionStore.getState().agentSessions).toHaveLength(1);
+  test('entering a guest session resets agent mode to terminal; exiting restores it exactly', () => {
+    useSessionStore.getState().setTabMode('terminal-1', 'agent');
+    useSessionStore.getState().setTabMode('terminal-2', 'terminal');
     useHistoryStore.getState().enterGuestSession();
-    expect(useSessionStore.getState().agentSessions).toHaveLength(0);
-    expect(useSessionStore.getState().activeSessionId).toBeNull();
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('terminal');
     useHistoryStore.getState().exitGuestSession();
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('agent');
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-2')).toBe('terminal');
+  });
+
+  test('a mode for a tab closed during the guest session is not restored', () => {
+    useSessionStore.getState().setTabMode('terminal-2', 'agent');
+    useHistoryStore.getState().enterGuestSession();
+    useTerminalStore.setState({ tabs: [TAB_1], activeTabId: 'terminal-1' });
+    useHistoryStore.getState().exitGuestSession();
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-2')).toBe('terminal');
+  });
+
+  test('a fresh guest replacing the old one keeps the owner’s modes stashed', () => {
+    useSessionStore.getState().setTabMode('terminal-1', 'agent');
+    useHistoryStore.getState().enterGuestSession();
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('terminal');
+    useHistoryStore.getState().resetGuestSession();
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('terminal');
+    useHistoryStore.getState().exitGuestSession();
+    expect(getTabMode(useSessionStore.getState().tabMode, 'terminal-1')).toBe('agent');
   });
 });

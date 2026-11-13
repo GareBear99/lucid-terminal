@@ -1,20 +1,22 @@
 // The prompt-row hint words table (dissection doc §2.3, Gary
-// 2026-11-12 ~10:00–10:05 PST; wording Gary, 2026-11-13 ~02:58
-// PST: "Ask Lucid..." in both modes). Pure function — the
+// 2026-11-12 ~10:00–10:05 PST; per-mode wording Gary, 2026-11-13
+// ~08:59 PST + Warp reference ~09:07 PST: Agent "Ask Lucid...",
+// Terminal "Type a command e.g. ls"). Pure function — the
 // gating cells: three LuciferAI states x two modes.
 import { describe, test, expect } from 'vitest';
 import { getPromptHintWords } from '../src/lib/promptHintWords';
 
 const ASK_LUCID = 'Ask Lucid...';
+const TERMINAL_WORDS = 'Type a command e.g. ls';
 
 describe('getPromptHintWords', () => {
-  test('Terminal + LuciferAI lit: "Ask Lucid..."', () => {
-    expect(getPromptHintWords('terminal', true, false)).toBe(ASK_LUCID);
+  test('Terminal + LuciferAI lit: "Type a command e.g. ls"', () => {
+    expect(getPromptHintWords('terminal', true, false)).toBe(TERMINAL_WORDS);
   });
 
   test('Terminal + LuciferAI grey (silenced): the same words — never mentions anything is off', () => {
     const words = getPromptHintWords('terminal', true, true);
-    expect(words).toBe(ASK_LUCID);
+    expect(words).toBe(TERMINAL_WORDS);
     expect(words).not.toMatch(/silenc|off|paused|disabled/i);
   });
 

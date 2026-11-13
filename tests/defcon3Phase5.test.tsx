@@ -233,7 +233,7 @@ describe('DEFCON 3 Phase 5 — the landing shape (the settle)', () => {
     // hint, plain cwd text, plain-shell header.
     expect(screen.getByTestId('prompt-section').style.background).toContain('0, 0, 0');
     expect(screen.getByTestId('terminal-page').className).toContain('bg-black/25');
-    expect(screen.getByText('Ask Lucid...')).not.toBeNull();
+    expect(screen.getByText('Type a command e.g. ls')).not.toBeNull();
     // getAllByText, not getByText: the cwd shows twice now —
     // the header's plain text AND the pill row's copyable cwd
     // pill (heavy terminal work, 2026-11-13 — the known
@@ -527,7 +527,7 @@ describe('Prompt input row — cursor on the same line as the blood drop icon (G
     // was a sibling before the composer.
     expect(within(row).queryByTestId('prompt-hint-words')).toBeNull();
     const overlay = within(wrap).getByTestId('composer-hint-placeholder');
-    expect(overlay.textContent).toBe('Ask Lucid...');
+    expect(overlay.textContent).toBe('Type a command e.g. ls');
     // Caret-overlap positioning: the overlay starts at the
     // composer's text origin — the same classes the ghost
     // suggestion overlay uses to align with the editor/textarea
@@ -553,7 +553,7 @@ describe('Prompt input row — cursor on the same line as the blood drop icon (G
     // Empty first: the words are there, inside the composer as
     // the placeholder overlay.
     expect(screen.getByTestId('composer-hint-placeholder').textContent).toBe(
-      'Ask Lucid...',
+      'Type a command e.g. ls',
     );
     typeInNonDevmodeComposer('ls');
     const row = screen.getByTestId('prompt-input-row');
@@ -580,7 +580,7 @@ describe('Prompt input row — cursor on the same line as the blood drop icon (G
     renderNonDevmode(3, true, true);
     await screen.findByTestId('prompter-composer-wrap');
     const overlay = screen.getByTestId('composer-hint-placeholder');
-    expect(overlay.textContent).toBe('Ask Lucid...');
+    expect(overlay.textContent).toBe('Type a command e.g. ls');
     expect(screen.getByTestId('prompt-input-row').textContent).not.toMatch(/silenc|paused|disabled/i);
   });
 
@@ -599,7 +599,7 @@ describe('Prompt input row — cursor on the same line as the blood drop icon (G
     const first = renderNonDevmode(2, true);
     await screen.findByTestId('xterm-surface');
     expect(screen.getByTestId('prompt-hint-words').textContent).toBe(
-      'Ask Lucid...',
+      'Type a command e.g. ls',
     );
     expect(screen.queryByTestId('prompter-composer-wrap')).toBeNull();
     first.unmount();
@@ -674,7 +674,7 @@ describe('True-placeholder ghost words — per-tab first prompt (Gary, 2026-11-1
     // Emptied again, still no prompt sent: the words come back.
     typeInNonDevmodeComposer('');
     expect(screen.getByTestId('composer-hint-placeholder').textContent).toBe(
-      'Ask Lucid...',
+      'Type a command e.g. ls',
     );
   });
 
@@ -712,7 +712,7 @@ describe('True-placeholder ghost words — per-tab first prompt (Gary, 2026-11-1
     const second = render(<Terminal tabId="tab-2" />);
     await screen.findByTestId('prompter-composer-wrap');
     expect(screen.getByTestId('composer-hint-placeholder').textContent).toBe(
-      'Ask Lucid...',
+      'Type a command e.g. ls',
     );
     second.unmount();
 

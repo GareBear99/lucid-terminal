@@ -6,15 +6,28 @@
  * the prompt-section header and the app status bar, and the
  * version / branch / git counts existed nowhere).
  *
- * - Mode pill (button): the current session kind + title. Click
- *   switches sessions (Option A — see sessionStore.ts
- *   PILL_SWITCHES_SESSIONS, Gary's call). The parent owns the
- *   switch + the composer focus after it.
+ * - Mode pill (button): just the mode name — "Terminal" or
+ *   "Agent" — plus an up-down arrow (↕). Gary, 2026-11-13
+ *   ~07:32 PST: the pill should just say terminal or agent
+ *   with up and down arrow. Click flips THIS tab's mode and
+ *   nothing else (REBUILT 2026-11-13 ~08:21 PST per Gary —
+ *   Warp's in-tab agent flow: one session per tab, the agent
+ *   works in the tab). The parent owns the flip + the composer
+ *   focus after it. The session title lives in the tab strip,
+ *   not the pill.
+ *   In a guest build the pill is DISABLED (Gary, 2026-11-13
+ *   ~10:58 PST: guest stays terminal-only — the Default
+ *   account is the full account): greyed out with a
+ *   not-allowed cursor, instead of a silently dead clickable
+ *   button. The sessionStore guard still refuses the flip
+ *   itself; this is only the visible state.
+ *   Later, a side arrow can be configurable (Gary, same
+ *   message) — not built yet.
  * - Driving-agent pill (label, not a button): the base/default
  *   driving model. The picker lands with the driving
  *   intelligence (step 3) — a button with nothing behind it
  *   would be a dead toggle.
- * - Cwd pill (button): the active session's cwd — click copies
+ * - Cwd pill (button): the tab's cwd — click copies
  *   it. (Known wart: the cwd also shows in the prompt-section
  *   header and the app status bar. The header is settled and
  *   not redesigned; this pill earns its place as the copyable
@@ -37,20 +50,23 @@ import { copyText } from '../../lib/terminalBlocks';
 import type { GitStatus } from '../../types';
 
 interface PillRowProps {
-  sessionKind: 'terminal' | 'agent';
-  sessionTitle: string;
+  /** This tab's mode — what its prompt does. */
+  mode: 'terminal' | 'agent';
   cwd?: string;
   /** Live git state for the cwd (undefined = not looked up yet,
    *  null = not a repo). */
   gitStatus?: GitStatus | null;
-  /** The mode pill was clicked (Option A: switch sessions). */
+  /** The mode pill was clicked (flip the tab's mode). */
   onModePill: () => void;
+  /** Guest build: the pill is disabled (greyed, not clickable).
+   *  Guests stay terminal-only; agent mode needs a profile. */
+  modePillDisabled?: boolean;
 }
 
 const PILL_CLASS =
   'shrink-0 truncate rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)]/50 px-2 py-px font-mono text-[11px] text-[var(--text-secondary)]';
 
-export function PillRow({ sessionKind, sessionTitle, cwd, gitStatus, onModePill }: PillRowProps) {
+export function PillRow({ mode, cwd, gitStatus, onModePill, modePillDisabled = false }: PillRowProps) {
   const [copiedCwd, setCopiedCwd] = useState(false);
 
   const handleCopyCwd = async () => {
@@ -71,10 +87,21 @@ export function PillRow({ sessionKind, sessionTitle, cwd, gitStatus, onModePill 
         type="button"
         data-testid="mode-pill"
         onClick={onModePill}
-        title={sessionKind === 'agent' ? 'Switch to the terminal session' : 'Switch to the agent session'}
-        className={`${PILL_CLASS} max-w-56 hover:bg-white/10 hover:text-[var(--text-primary)]`}
+        disabled={modePillDisabled}
+        title={
+          modePillDisabled
+            ? 'Agent needs a profile — guests use the terminal'
+            : mode === 'agent'
+              ? 'Switch to terminal mode'
+              : 'Switch to agent mode'
+        }
+        className={
+          modePillDisabled
+            ? `${PILL_CLASS} max-w-56 cursor-not-allowed opacity-50`
+            : `${PILL_CLASS} max-w-56 hover:bg-white/10 hover:text-[var(--text-primary)]`
+        }
       >
-        {sessionKind === 'agent' ? 'Agent' : 'Terminal'} · {sessionTitle} ⌄
+        {mode === 'agent' ? 'Agent' : 'Terminal'} ↕
       </button>
       <span
         data-testid="driving-agent-pill"

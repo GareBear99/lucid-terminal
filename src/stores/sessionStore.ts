@@ -1,49 +1,54 @@
 /**
- * Terminal sessions — segregation + stacking (heavy terminal work,
- * 2026-11-13 — Warp's agent and terminal are separate sessions in
- * a visible stack; Lucid had terminal tabs only, no Agent mode,
- * no agent sessions, no pill, no stack).
+ * Tab mode — the mode pill (heavy terminal work, 2026-11-13;
+ * REBUILT 2026-11-13 ~08:21 PST per Gary's corrections —
+ * Warp's in-tab agent flow, see
+ * ~/workspace/warp-terminal-flow-2026-11-12.md).
  *
- * THE MODEL: one stack, two kinds.
- * - Terminal sessions are a VIEW over terminalStore.tabs — they
- *   are not duplicated here. A terminal session's id IS its tab
- *   id; its feed is historyStore.blocksByTab[tabId] (the live
- *   session's transcript, restored blocks excluded, exactly as
- *   BlockList reads it today).
- * - Agent sessions are OWNED here: id `agent-N`, title, created
- *   time, the cwd they were started in, blocks attached as
- *   context by the hand-off, and their own block list
- *   (agentBlocksBySession — agent prompts, responses, notices;
- *   never mixed into historyStore, never shown in the History
- *   panel, never persisted to disk).
- * - The active session is `activeSessionId` (an agent id) or
- *   null, which means "the active tab's terminal session".
- *   Switching to a terminal tab clears it (TerminalTabs does
- *   that on select); creating/closing tabs never touches it.
+ * ONE session per tab. The pill toggles ONLY the tab's mode —
+ * Terminal ↔ Agent — what the prompt does. Nothing spawns,
+ * nothing switches views: the agent works IN the terminal tab,
+ * in the same feed, on the same screen, through the same prompt
+ * input. The pill and ⌘⏎ hand-off NEVER create a session, a
+ * tab, or a row. (A separate "New agent conversation" session
+ * in a sidebar stack is a DIFFERENT Warp feature — starting a
+ * fresh standalone conversation — and it is not what the pill
+ * or the hand-off does.)
  *
- * PILL FIT — OPEN QUESTION (Gary's call). Option A (recommended
- * in the Warp diagnosis, built here): the mode pill SWITCHES
- * SESSIONS — Terminal ↔ Agent moves between the most recent
- * session of each kind. Option B (not built): the pill picks
- * the mode WITHIN a session. PILL_SWITCHES_SESSIONS below is
- * the single decision point: the pill's click handler reads
- * it. Do not flip it until B is designed — flipping it alone
- * leaves the pill with no behaviour.
+ * ONE memory per tab (Gary, 2026-11-13 ~08:20 PST: "there is
+ * no difference between conversation memory in a terminal tab
+ * and terminal input in a terminal"): the tab's input/history
+ * IS the conversation memory. Agent prompts are ordinary blocks
+ * in the tab's historyStore feed — terminal blocks and agent
+ * blocks interleaved in the one BlockList, read the same way.
+ * They persist, show in History, and are restored exactly like
+ * terminal blocks. There is no separate agent memory, no
+ * separate agent block store, no separate agent history. The
+ * block KIND ('agent-prompt' / 'notice') is presentation only.
  *
- * GUESTS: agent sessions are memory-only and never exist in a
- * guest build (Gary, 2026-11-12 ~17:59 PST — no chat memory,
- * no history in any guest build). createAgentSession refuses
- * while a guest session is veiled in, and any agent sessions
- * alive when a guest session starts are dropped. The owner's
- * agent sessions do not survive a guest session — they are
- * ephemeral by design (Warp persists conversations; Lucid's
- * agent sessions are conversation drafts for the driving
- * intelligence, step 3).
+ * The old Option A machinery is GONE: agent sessions in a
+ * stack, PILL_SWITCHES_SESSIONS, agent rows in the tab strip,
+ * stack numbers, the session title. It was a recommendation in
+ * the Warp diagnosis doc, never Gary's decision (Gary,
+ * 2026-11-13 ~08:19 PST: "why would it be a session switcher
+ * thats mentally retarded and not what we agreed on").
+ *
+ * Auto-detect stays SUGGEST-ONLY (the hint line only): Warp
+ * routes natural language to the agent automatically, Lucid
+ * does not — the pill / ⌘⏎ are the explicit switches. That is
+ * a deliberate difference from Warp, per the settled design,
+ * not an oversight.
+ *
+ * GUESTS: a guest never sees agent mode. Entering a guest
+ * session resets every tab to terminal mode; the owner's modes
+ * are stashed in memory and restored exactly on exit, like the
+ * owner's blocks (historyStore's guestStash). setTabMode
+ * refuses 'agent' while a guest is veiled in.
  *
  * The driving intelligence itself is NOT here (step 3 of the
  * endgame order). submitAgentPrompt records the prompt as a
- * block and appends a notice block saying so, honestly — the
- * prompt is kept, nothing is run, nothing is faked.
+ * block in the tab's feed and appends a notice block saying so,
+ * honestly — the prompt is kept, nothing is run, nothing is
+ * faked.
  */
 
 import { create } from 'zustand';
@@ -52,208 +57,87 @@ import { useTerminalStore } from './terminalStore';
 import { useHistoryStore, EMPTY_BLOCKS } from './historyStore';
 import { newBlockId } from '../lib/terminalBlocks';
 
-export type SessionKind = 'terminal' | 'agent';
-
-/**
- * One session in the stack. Terminal sessions are a view over a
- * tab (tabId set, kind 'terminal'); agent sessions are owned
- * here (tabId unset, kind 'agent').
- */
-export interface TerminalSession {
-  id: string;
-  kind: SessionKind;
-  title: string;
-  createdAt: number;
-  /** Terminal sessions: the tab this session is the view over. */
-  tabId?: string;
-  /** The cwd the session is attached to: the tab's live cwd for
-   *  terminal sessions, the cwd the conversation was started in
-   *  for agent sessions (the hand-off's attached directory). */
-  cwd?: string;
-  /** Agent sessions: terminal block ids attached as context by
-   *  the hand-off (the failed build, etc.) — the record step 3
-   *  reads. Terminal sessions never carry these. */
-  attachedBlockIds?: string[];
-}
-
-/** PILL FIT (see the header): true = Option A, the pill switches
- *  sessions. The one decision point — Gary's call flips it. */
-export const PILL_SWITCHES_SESSIONS = true;
+/** A tab's mode — what its prompt does. 'terminal' is the
+ *  default: absent from tabMode means terminal. */
+export type TabMode = 'terminal' | 'agent';
 
 /** The base/default driving model (Gary, 2026-11-12): the
  *  driving-agent pill shows this until the driving
  *  intelligence lands (step 3) and owns the picker. */
 export const DRIVING_AGENT_BASE_MODEL = 'LLMBuilder';
 
-/** Agent session ids: `agent-N`, lowest free number reused on
- *  close (same pattern as terminalStore's tab numbers). */
-const usedAgentNumbers = new Set<number>();
-
-function lowestFreeAgentNumber(): number {
-  let n = 1;
-  while (usedAgentNumbers.has(n)) n++;
-  return n;
-}
-
-function agentNumberFromId(id: string): number | null {
-  const match = /^agent-(\d+)$/.exec(id);
-  return match ? Number(match[1]) : null;
-}
-
-/** The notice an agent session carries until the driving
+/** The notice a tab's agent mode carries until the driving
  *  intelligence lands (step 3): the prompt is recorded, nothing
  *  is run, nothing is faked. */
 export const AGENT_NOT_BUILT_NOTICE =
   'The driving intelligence isn\u2019t built yet — this conversation is a placeholder for it (step 3). Your prompt is recorded here; nothing was run.';
 
-/** Title for a fresh agent session, until its first prompt. */
-export const NEW_AGENT_SESSION_TITLE = 'New agent conversation';
-
-/** The first prompt becomes the session title (truncated). */
-export const AGENT_SESSION_TITLE_MAX = 40;
-
-export function titleFromPrompt(prompt: string): string {
-  const trimmed = prompt.trim();
-  if (trimmed.length <= AGENT_SESSION_TITLE_MAX) return trimmed;
-  return `${trimmed.slice(0, AGENT_SESSION_TITLE_MAX - 1).trimEnd()}…`;
-}
-
 export interface SessionState {
-  /** Agent sessions owned here, oldest first. Terminal sessions
-   *  are a view over terminalStore.tabs (see selectSessions). */
-  agentSessions: TerminalSession[];
-  /** Agent session blocks, keyed by agent session id. */
-  agentBlocksBySession: Record<string, TerminalBlock[]>;
-  /** The active agent session id, or null for the active tab's
-   *  terminal session. */
-  activeSessionId: string | null;
+  /** The mode of each tab. Absent = 'terminal'. */
+  tabMode: Record<string, TabMode>;
 
-  /** Create an agent session (and switch to it). Returns the id,
-   *  or null when a guest session is veiled in (agent sessions
-   *  never exist in a guest build). `context` is the hand-off:
-   *  the cwd the conversation starts in, terminal block ids
-   *  attached as context, and an optional first prompt to submit
-   *  immediately (⌘⏎ with a draft sends it). */
-  createAgentSession: (context?: {
-    cwd?: string;
-    attachedBlockIds?: string[];
-    firstPrompt?: string;
-  }) => string | null;
-  /** Close an agent session (and its blocks). If it was active,
-   *  the active tab's terminal session becomes active. No-op
-   *  for a terminal session id (tabs close through
-   *  terminalStore.closeTab). */
-  closeAgentSession: (id: string) => void;
-  /** Switch to an agent session. */
-  switchToAgentSession: (id: string) => void;
-  /** Switch to a terminal tab's session: sets the tab active in
-   *  terminalStore and clears the agent session. */
-  switchToTerminalSession: (tabId: string) => void;
-  /** Append a block to an agent session. */
-  appendAgentBlock: (sessionId: string, block: TerminalBlock) => void;
-  /** Replace an agent session's blocks (value or updater). */
-  setAgentBlocks: (
-    sessionId: string,
-    updater: TerminalBlock[] | ((prev: TerminalBlock[]) => TerminalBlock[]),
-  ) => void;
-  /** Submit a prompt to an agent session: the prompt block
-   *  (which becomes the title when the session is still new)
-   *  plus the driving-intelligence notice. Returns false when
-   *  the session does not exist. */
-  submitAgentPrompt: (sessionId: string, prompt: string) => boolean;
-  /** Drop every agent session + its blocks (guest veil). */
-  clearAllAgentSessions: () => void;
-  /** Test-only reset: clears agent numbers + state (same
-   *  precedent as terminalStore.resetForTests). */
+  /** Set a tab's mode. Returns the mode, or null when the flip
+   *  was refused — agent mode while a guest session is veiled
+   *  in (a guest never sees agent mode). */
+  setTabMode: (tabId: string, mode: TabMode) => TabMode | null;
+  /** Flip a tab's mode. Same refusal as setTabMode. */
+  toggleTabMode: (tabId: string) => TabMode | null;
+  /** Submit a prompt to a tab in agent mode: the prompt block
+   *  plus the driving-intelligence notice, appended to the
+   *  tab's own feed (historyStore) like any other block — one
+   *  memory per tab. Returns false on an empty prompt or while
+   *  a guest session is veiled in. */
+  submitAgentPrompt: (tabId: string, prompt: string, cwd?: string) => boolean;
+  /** Test-only reset: clears tab modes (and the veil stash —
+   *  see the subscriptions below). */
   resetForTests: () => void;
 }
 
+/** A tab's mode — 'terminal' when nothing is recorded. */
+export function getTabMode(tabMode: Record<string, TabMode>, tabId: string): TabMode {
+  return tabMode[tabId] ?? 'terminal';
+}
+
+/** A tab's past agent prompts, most recent first — the
+ *  composer's Up/Down history in agent mode. They are read from
+ *  the tab's own feed (historyStore), not a separate history:
+ *  the tab's input history IS the conversation memory. */
+export function selectAgentPromptHistory(
+  blocksByTab: Record<string, TerminalBlock[]>,
+  tabId: string,
+): string[] {
+  const blocks = blocksByTab[tabId] ?? EMPTY_BLOCKS;
+  const prompts: string[] = [];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.kind === 'agent-prompt' && b.command) prompts.push(b.command);
+  }
+  return prompts;
+}
+
 export const useSessionStore = create<SessionState>((set, get) => ({
-  agentSessions: [],
-  agentBlocksBySession: {},
-  activeSessionId: null,
+  tabMode: {},
 
-  createAgentSession: (context) => {
-    // No agent sessions in a guest build — ever.
-    if (useHistoryStore.getState().guestSessionActive) return null;
-    const n = lowestFreeAgentNumber();
-    usedAgentNumbers.add(n);
-    const id = `agent-${n}`;
-    const now = Date.now();
-    const session: TerminalSession = {
-      id,
-      kind: 'agent',
-      title: NEW_AGENT_SESSION_TITLE,
-      createdAt: now,
-      cwd: context?.cwd,
-      attachedBlockIds: context?.attachedBlockIds,
-    };
-    set((state) => ({
-      agentSessions: [...state.agentSessions, session],
-      agentBlocksBySession: { ...state.agentBlocksBySession, [id]: [] },
-      activeSessionId: id,
-    }));
-    const firstPrompt = context?.firstPrompt?.trim();
-    if (firstPrompt) get().submitAgentPrompt(id, firstPrompt);
-    return id;
-  },
-
-  closeAgentSession: (id) => {
-    const n = agentNumberFromId(id);
-    if (n !== null) usedAgentNumbers.delete(n);
+  setTabMode: (tabId, mode) => {
+    // No agent mode in a guest build — ever.
+    if (mode === 'agent' && useHistoryStore.getState().guestSessionActive) return null;
     set((state) => {
-      if (!state.agentSessions.some((s) => s.id === id)) return state;
-      const agentBlocksBySession = { ...state.agentBlocksBySession };
-      delete agentBlocksBySession[id];
-      return {
-        agentSessions: state.agentSessions.filter((s) => s.id !== id),
-        agentBlocksBySession,
-        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
-      };
+      if (state.tabMode[tabId] === mode) return state;
+      return { tabMode: { ...state.tabMode, [tabId]: mode } };
     });
+    return mode;
   },
 
-  switchToAgentSession: (id) => {
-    if (!get().agentSessions.some((s) => s.id === id)) return;
-    set({ activeSessionId: id });
+  toggleTabMode: (tabId) => {
+    const next = getTabMode(get().tabMode, tabId) === 'agent' ? 'terminal' : 'agent';
+    return get().setTabMode(tabId, next);
   },
 
-  switchToTerminalSession: (tabId) => {
-    useTerminalStore.getState().setActiveTab(tabId);
-    set({ activeSessionId: null });
-  },
-
-  appendAgentBlock: (sessionId, block) => {
-    set((state) => {
-      if (!state.agentSessions.some((s) => s.id === sessionId)) return state;
-      const prev = state.agentBlocksBySession[sessionId] ?? EMPTY_BLOCKS;
-      return {
-        agentBlocksBySession: {
-          ...state.agentBlocksBySession,
-          [sessionId]: [...prev, block],
-        },
-      };
-    });
-  },
-
-  setAgentBlocks: (sessionId, updater) => {
-    set((state) => {
-      if (!state.agentSessions.some((s) => s.id === sessionId)) return state;
-      const prev = state.agentBlocksBySession[sessionId] ?? EMPTY_BLOCKS;
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (next === prev) return state;
-      return {
-        agentBlocksBySession: { ...state.agentBlocksBySession, [sessionId]: next },
-      };
-    });
-  },
-
-  submitAgentPrompt: (sessionId, prompt) => {
+  submitAgentPrompt: (tabId, prompt, cwd) => {
     const trimmed = prompt.trim();
     if (!trimmed) return false;
-    const state = get();
-    const session = state.agentSessions.find((s) => s.id === sessionId);
-    if (!session) return false;
+    // No agent prompts in a guest build — ever.
+    if (useHistoryStore.getState().guestSessionActive) return false;
     const now = Date.now();
     const promptBlock: TerminalBlock = {
       id: newBlockId(now),
@@ -261,7 +145,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       output: '',
       timestamp: now,
       isComplete: true,
-      cwd: session.cwd,
+      cwd,
       kind: 'agent-prompt',
     };
     const noticeBlock: TerminalBlock = {
@@ -270,125 +154,64 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       output: AGENT_NOT_BUILT_NOTICE,
       timestamp: now + 1,
       isComplete: true,
-      cwd: session.cwd,
+      cwd,
       kind: 'notice',
     };
-    set((s) => {
-      const prev = s.agentBlocksBySession[sessionId] ?? EMPTY_BLOCKS;
-      const agentSessions =
-        session.title === NEW_AGENT_SESSION_TITLE
-          ? s.agentSessions.map((x) =>
-              x.id === sessionId ? { ...x, title: titleFromPrompt(trimmed) } : x,
-            )
-          : s.agentSessions;
-      return {
-        agentSessions,
-        agentBlocksBySession: {
-          ...s.agentBlocksBySession,
-          [sessionId]: [...prev, promptBlock, noticeBlock],
-        },
-      };
-    });
+    // One memory per tab: the prompt lands in the tab's own
+    // feed (historyStore) like any other block — it persists,
+    // shows in History, and the guest veil stashes it with the
+    // rest of the owner's blocks.
+    useHistoryStore.getState().setBlocks(tabId, (prev) => [...prev, promptBlock, noticeBlock]);
     return true;
   },
 
-  clearAllAgentSessions: () => {
-    usedAgentNumbers.clear();
-    set({ agentSessions: [], agentBlocksBySession: {}, activeSessionId: null });
-  },
-
   resetForTests: () => {
-    usedAgentNumbers.clear();
-    set({ agentSessions: [], agentBlocksBySession: {}, activeSessionId: null });
+    stashedTabMode = null;
+    guestWasActive = useHistoryStore.getState().guestSessionActive;
+    set({ tabMode: {} });
   },
 }));
 
-// A guest session veiling in drops every agent session (see the
-// header): agent sessions never exist in a guest build. This
-// fires on any history-store change while a guest is veiled in —
-// including a fresh guest replacing the old one — so a guest's
-// agent sessions never linger into the owner's session.
+// A guest session veiling in resets every tab to terminal mode
+// (see the header): a guest never sees agent mode. The owner's
+// modes are stashed in memory and restored exactly on exit —
+// like the owner's blocks — for tabs that still exist (a tab
+// closed during the guest session does not come back). This
+// fires on the guest flag's transitions only, not on every
+// history change (every PTY chunk mutates the store).
+let stashedTabMode: Record<string, TabMode> | null = null;
+let guestWasActive = false;
 useHistoryStore.subscribe((state) => {
-  if (!state.guestSessionActive) return;
-  const sessionState = useSessionStore.getState();
-  if (sessionState.agentSessions.length > 0 || sessionState.activeSessionId !== null) {
-    sessionState.clearAllAgentSessions();
+  const guestActive = state.guestSessionActive;
+  if (guestActive === guestWasActive) return;
+  guestWasActive = guestActive;
+  if (guestActive) {
+    stashedTabMode = useSessionStore.getState().tabMode;
+    if (Object.keys(stashedTabMode).length > 0) {
+      useSessionStore.setState({ tabMode: {} });
+    }
+  } else if (stashedTabMode !== null) {
+    const liveIds = new Set(useTerminalStore.getState().tabs.map((t) => t.id));
+    const restored: Record<string, TabMode> = {};
+    for (const [tabId, mode] of Object.entries(stashedTabMode)) {
+      if (liveIds.has(tabId)) restored[tabId] = mode;
+    }
+    stashedTabMode = null;
+    useSessionStore.setState({ tabMode: restored });
   }
 });
 
-/** The terminal session for a tab: the stack's view over
- *  terminalStore.tabs (see the header — never duplicated). */
-export function terminalSessionForTab(tab: {
-  id: string;
-  title: string;
-  cwd: string;
-}): TerminalSession {
-  return {
-    id: tab.id,
-    kind: 'terminal',
-    title: tab.title,
-    createdAt: 0,
-    tabId: tab.id,
-    cwd: tab.cwd,
-  };
-}
-
-/** The whole stack, in order: terminal tabs in strip order,
- *  then agent sessions oldest first (newest last, Warp-style).
- *  Tabs carry no creation time, so they cannot interleave by
- *  age — terminal sessions first is the settled order. */
-export function selectSessions(
-  tabs: { id: string; title: string; cwd: string }[],
-  agentSessions: TerminalSession[],
-): TerminalSession[] {
-  return [...tabs.map(terminalSessionForTab), ...agentSessions];
-}
-
-/** The active session: the active agent session, or the active
- *  tab's terminal session when no agent session is active. */
-export function selectActiveSession(
-  tabs: { id: string; title: string; cwd: string }[],
-  activeTabId: string | null,
-  agentSessions: TerminalSession[],
-  activeSessionId: string | null,
-): TerminalSession | null {
-  if (activeSessionId !== null) {
-    return agentSessions.find((s) => s.id === activeSessionId) ?? null;
-  }
-  const tab = tabs.find((t) => t.id === activeTabId);
-  return tab ? terminalSessionForTab(tab) : null;
-}
-
-/** The feed blocks for a session — the ONE list the unified feed
- *  renders (see UnifiedFeed). Terminal sessions read the live
- *  transcript from historyStore (restored blocks excluded — the
- *  feed is the live session's transcript, never last session's
- *  record); agent sessions read their own block list. */
-export function getFeedBlocksForSession(
-  session: TerminalSession | null,
-  blocksByTab: Record<string, TerminalBlock[]>,
-  agentBlocksBySession: Record<string, TerminalBlock[]>,
-): TerminalBlock[] {
-  if (!session) return EMPTY_BLOCKS;
-  if (session.kind === 'agent') {
-    return agentBlocksBySession[session.id] ?? EMPTY_BLOCKS;
-  }
-  const tabId = session.tabId ?? session.id;
-  return (blocksByTab[tabId] ?? EMPTY_BLOCKS).filter((b) => !b.restored);
-}
-
-/** An agent session's past prompts, most recent first — the
- *  composer's Up/Down history in agent sessions (the blocks
- *  are the record; no separate history state). */
-export function selectAgentPromptHistory(
-  agentBlocksBySession: Record<string, TerminalBlock[]>,
-  sessionId: string,
-): string[] {
-  const blocks = agentBlocksBySession[sessionId] ?? EMPTY_BLOCKS;
-  const prompts: string[] = [];
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i];
-    if (b.kind === 'agent-prompt' && b.command) prompts.push(b.command);
-  }
-  return prompts;
-}
+// A closed tab's mode dies with it: tab ids are `terminal-N`
+// with the lowest free number reused (terminalStore), so a fresh
+// tab must never inherit a dead tab's agent mode. This fires on
+// every terminal-store change and only writes when something
+// actually dropped.
+useTerminalStore.subscribe((state) => {
+  const liveIds = new Set(state.tabs.map((t) => t.id));
+  const mode = useSessionStore.getState().tabMode;
+  const keys = Object.keys(mode);
+  if (keys.every((k) => liveIds.has(k))) return;
+  const pruned: Record<string, TabMode> = {};
+  for (const k of keys) if (liveIds.has(k)) pruned[k] = mode[k];
+  useSessionStore.setState({ tabMode: pruned });
+});

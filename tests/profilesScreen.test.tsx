@@ -9,7 +9,8 @@
  * scrollable area, then a divider line, then the Guest card — Guest
  * is an immutable profile (always a fresh blank slate, never
  * changed or deleted), so it sits on its own side of the line. The
- * card just says "Guest" — no "Enter as guest" wording anywhere.
+ * card says "Guest Access" (Gary, 2026-11-13 ~07:29 PST) — no
+ * "Enter as guest" wording anywhere.
  * Below the cards ONLY create a profile — nothing else. Clicking a
  * card enters that profile immediately (no select-then-enter step,
  * no "Enter Lucid" button, no gates note). Creating a profile
@@ -177,6 +178,8 @@ describe('ProfilesScreen', () => {
     // The Guest card is right there in the cards area — no separate
     // "Enter as guest" step, and the screen never says those words.
     expect(screen.queryByText(/Enter as guest/i)).toBeNull();
+    // The card says "Guest Access" (Gary, 2026-11-13 ~07:29 PST).
+    expect(screen.getByText('Guest Access')).toBeTruthy();
     fireEvent.click(screen.getByTestId('profile-guest-card'));
     const guest = useProfileStore
       .getState()

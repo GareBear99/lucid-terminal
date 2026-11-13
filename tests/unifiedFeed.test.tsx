@@ -2,14 +2,16 @@
 /**
  * Unified feed tests (heavy terminal work, 2026-11-13 — Warp is
  * one ordered list of blocks; Lucid had two surfaces taking
- * turns).
+ * turns; REBUILT 2026-11-13 ~08:21 PST per Gary — Warp's
+ * in-tab agent flow).
  *
- * The UnifiedFeed renders one list per session through the same
- * BlockList: terminal sessions read the live terminal transcript
- * (historyStore, restored blocks excluded), agent sessions read
- * their own blocks. A terminal block carries its exit code and
- * git state in the header when captured — never faked. An agent
- * session with no blocks shows the intro card, not an empty list.
+ * The UnifiedFeed renders ONE list for the tab through the same
+ * BlockList: terminal blocks and agent blocks interleaved, in
+ * the order they happened — one memory per tab. A terminal
+ * block carries its exit code and git state in the header when
+ * captured — never faked. Agent prompts and notices render in
+ * the same feed; there is no intro card and no separate agent
+ * view.
  *
  * jsdom + @testing-library/react: the feed reads zustand stores,
  * and under renderToStaticMarkup zustand returns the store's
@@ -25,7 +27,6 @@ import { render, screen } from '@testing-library/react';
 import { UnifiedFeed } from '../src/components/Terminal/UnifiedFeed';
 import { useHistoryStore } from '../src/stores/historyStore';
 import { useSessionStore, AGENT_NOT_BUILT_NOTICE } from '../src/stores/sessionStore';
-import type { TerminalSession } from '../src/stores/sessionStore';
 import type { TerminalBlock, GitStatus } from '../src/types';
 
 const TAB_ID = 'tab-1';
@@ -50,42 +51,24 @@ function commandBlock(overrides: Partial<TerminalBlock> & { id: string }): Termi
   };
 }
 
-const TERMINAL_SESSION: TerminalSession = {
-  id: TAB_ID,
-  kind: 'terminal',
-  title: 'Terminal 1',
-  createdAt: 1,
-  tabId: TAB_ID,
-  cwd: '/tmp',
-};
-
-const AGENT_SESSION: TerminalSession = {
-  id: 'agent-1',
-  kind: 'agent',
-  title: 'fix the build',
-  createdAt: 1,
-  cwd: '/tmp',
-  attachedBlockIds: ['b1'],
-};
-
-function renderFeed(session: TerminalSession | null, fill = true) {
+function renderFeed(fill = true) {
   const { container } = render(
-    React.createElement(UnifiedFeed, { session, tabId: TAB_ID, onReinput: noop, fill }),
+    React.createElement(UnifiedFeed, { tabId: TAB_ID, onReinput: noop, fill }),
   );
   return container.innerHTML;
 }
 
 beforeEach(() => {
-  useHistoryStore.setState({ blocksByTab: {} });
-  useSessionStore.setState({ agentSessions: [], activeSessionId: null, agentBlocksBySession: {} });
+  useHistoryStore.setState({ blocksByTab: {}, guestSessionActive: false, guestStash: null });
+  useSessionStore.getState().resetForTests();
 });
 
 afterEach(() => {
-  useHistoryStore.setState({ blocksByTab: {} });
-  useSessionStore.setState({ agentSessions: [], activeSessionId: null, agentBlocksBySession: {} });
+  useHistoryStore.setState({ blocksByTab: {}, guestSessionActive: false, guestStash: null });
+  useSessionStore.getState().resetForTests();
 });
 
-describe('UnifiedFeed — terminal sessions', () => {
+describe('UnifiedFeed — one feed, one memory', () => {
   it('renders the tab’s live blocks, command + output', () => {
     useHistoryStore.setState({
       blocksByTab: {
@@ -95,11 +78,36 @@ describe('UnifiedFeed — terminal sessions', () => {
         ],
       },
     });
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).toContain('npm test');
     expect(html).toContain('all green');
     expect(html).toContain('ls');
     expect(html).toContain('data-testid="terminal-blocks"');
+  });
+
+  it('interleaves terminal blocks and agent blocks in the order they happened', () => {
+    useHistoryStore.setState({
+      blocksByTab: {
+        [TAB_ID]: [
+          commandBlock({ id: 'b1', command: 'ls', output: 'a\nb' }),
+          commandBlock({ id: 'p1', kind: 'agent-prompt', command: 'fix the build', output: '' }),
+          commandBlock({ id: 'n1', kind: 'notice', command: '', output: AGENT_NOT_BUILT_NOTICE }),
+          commandBlock({ id: 'b2', command: 'npm test', output: 'all green' }),
+        ],
+      },
+    });
+    const html = renderFeed();
+    expect(html).toContain('ls');
+    expect(html).toContain('fix the build');
+    expect(html).toContain('AGENT');
+    expect(html).toContain(AGENT_NOT_BUILT_NOTICE);
+    expect(html).toContain('npm test');
+    // In order: the terminal block before the agent prompt, the
+    // prompt before the notice, the notice before the next
+    // terminal block — one ordered list, not two views.
+    expect(html.indexOf('ls')).toBeLessThan(html.indexOf('fix the build'));
+    expect(html.indexOf('fix the build')).toBeLessThan(html.indexOf(AGENT_NOT_BUILT_NOTICE));
+    expect(html.indexOf(AGENT_NOT_BUILT_NOTICE)).toBeLessThan(html.indexOf('npm test'));
   });
 
   it('excludes restored blocks — the feed is the live transcript, never last session’s record', () => {
@@ -111,13 +119,13 @@ describe('UnifiedFeed — terminal sessions', () => {
         ],
       },
     });
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).not.toContain('old command');
     expect(html).toContain('live command');
   });
 
   it('renders the empty fill container with no blocks — no intro card, no blocks', () => {
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).toContain('data-testid="terminal-blocks"');
     expect(html).not.toContain('agent-intro-card');
     expect(screen.queryByTestId('terminal-block')).toBeNull();
@@ -129,7 +137,7 @@ describe('UnifiedFeed — terminal sessions', () => {
         [TAB_ID]: [commandBlock({ id: 'b1', command: 'make', exitCode: 1 })],
       },
     });
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).toContain('data-testid="block-exit-code"');
     expect(html).toContain('exit 1');
     expect(html).toContain('text-red-400');
@@ -141,7 +149,7 @@ describe('UnifiedFeed — terminal sessions', () => {
         [TAB_ID]: [commandBlock({ id: 'b1', command: 'make', exitCode: 0 })],
       },
     });
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).toContain('exit 0');
     expect(html).not.toContain('text-red-400');
   });
@@ -150,7 +158,7 @@ describe('UnifiedFeed — terminal sessions', () => {
     useHistoryStore.setState({
       blocksByTab: { [TAB_ID]: [commandBlock({ id: 'b1', command: 'make' })] },
     });
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).not.toContain('block-exit-code');
   });
 
@@ -160,7 +168,7 @@ describe('UnifiedFeed — terminal sessions', () => {
         [TAB_ID]: [commandBlock({ id: 'b1', command: 'git status', gitState: GIT })],
       },
     });
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).toContain('data-testid="block-git-state"');
     expect(html).toContain('main ↑1');
     expect(html).toContain('3 • +12 -4');
@@ -170,51 +178,21 @@ describe('UnifiedFeed — terminal sessions', () => {
     useHistoryStore.setState({
       blocksByTab: { [TAB_ID]: [commandBlock({ id: 'b1', command: 'ls' })] },
     });
-    const html = renderFeed(TERMINAL_SESSION);
+    const html = renderFeed();
     expect(html).not.toContain('block-git-state');
   });
-});
 
-describe('UnifiedFeed — agent sessions', () => {
-  it('renders the session’s own blocks — prompt, notice, no terminal blocks', () => {
+  it('a prompt submitted through the store lands in the feed — one memory', () => {
     useHistoryStore.setState({
-      blocksByTab: { [TAB_ID]: [commandBlock({ id: 'b1', command: 'terminal command' })] },
-    });
-    useSessionStore.setState({
-      agentBlocksBySession: {
-        'agent-1': [
-          commandBlock({ id: 'p1', kind: 'agent-prompt', command: 'fix the build', output: '' }),
-          commandBlock({ id: 'n1', kind: 'notice', command: '', output: AGENT_NOT_BUILT_NOTICE }),
-        ],
+      blocksByTab: {
+        [TAB_ID]: [commandBlock({ id: 'b1', command: 'ls' })],
       },
     });
-    const html = renderFeed(AGENT_SESSION);
+    useSessionStore.getState().submitAgentPrompt(TAB_ID, 'fix the build', '/tmp');
+    const html = renderFeed();
+    expect(html).toContain('ls');
     expect(html).toContain('fix the build');
-    expect(html).toContain('AGENT');
     expect(html).toContain(AGENT_NOT_BUILT_NOTICE);
-    expect(html).not.toContain('terminal command');
-  });
-
-  it('shows the intro card with no blocks — title, cwd, attached count', () => {
-    const html = renderFeed(AGENT_SESSION);
-    expect(html).toContain('data-testid="agent-intro-card"');
-    expect(html).toContain('New agent conversation');
-    expect(html).toContain('/tmp');
-    expect(html).toContain('1 block attached as context');
-  });
-
-  it('the intro card omits the attached line when nothing is attached', () => {
-    const html = renderFeed({ ...AGENT_SESSION, attachedBlockIds: [] });
-    expect(html).toContain('data-testid="agent-intro-card"');
-    expect(html).not.toContain('attached as context');
-  });
-});
-
-describe('UnifiedFeed — no session', () => {
-  it('renders nothing when there is no active session', () => {
-    const { container } = render(
-      React.createElement(UnifiedFeed, { session: null, tabId: TAB_ID, onReinput: noop, fill: true }),
-    );
-    expect(container.innerHTML).toBe('');
+    expect(html.indexOf('ls')).toBeLessThan(html.indexOf('fix the build'));
   });
 });

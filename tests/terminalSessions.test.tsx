@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
 /**
- * Terminal sessions — the overnight heavy terminal work,
- * end to end through the real Terminal (2026-11-13).
+ * Terminal mode — the mode pill as a same-tab toggle (heavy
+ * terminal work, 2026-11-13; REBUILT 2026-11-13 ~08:21 PST
+ * per Gary — Warp's in-tab agent flow).
  *
  * Covered here: the hint line per context (including the
  * auto-detection offer), ⌘⏎ hand-off from the composer and
- * from the xterm, Esc back to the terminal session, the mode
- * pill switching sessions (Option A), the agent view at
- * DEFCON 1 (composer visible, xterm unmounted, intro card),
- * and Up/Down walking the agent session's past prompts.
+ * from the xterm (flips the SAME tab to Agent, draft as first
+ * prompt), Esc back to Terminal, the mode pill flipping the
+ * tab's mode and nothing else (no new tab, no new session, no
+ * new row), the agent view at DEFCON 1 (composer visible,
+ * xterm unmounted, the tab's own feed), switching tabs
+ * preserving each tab's mode + conversation, and Up/Down
+ * walking the tab's past agent prompts.
  *
  * Harness: same as tests/defcon3Phase5.test.tsx — jsdom has
  * no canvas, so XtermSurface renders its plain-text fallback
@@ -22,10 +26,10 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Terminal from '../src/components/Terminal/Terminal';
-import { useHistoryStore } from '../src/stores/historyStore';
+import { useHistoryStore, selectHistoryBlocksForTab } from '../src/stores/historyStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import { useTerminalStore } from '../src/stores/terminalStore';
-import { useSessionStore } from '../src/stores/sessionStore';
+import { useSessionStore, getTabMode } from '../src/stores/sessionStore';
 import { resetGitStatusCacheForTests } from '../src/lib/useGitStatus';
 
 // Monaco never mounts here: the loader rejects at once, so
@@ -86,12 +90,12 @@ beforeEach(() => {
     git: { getStatus: gitStatusMock },
     settings: { set: settingsSetMock },
   };
-  useHistoryStore.setState({ blocksByTab: {} });
+  useHistoryStore.setState({ blocksByTab: {}, guestSessionActive: false, guestStash: null });
   useTerminalStore.setState({
     tabs: [{ id: 'tab-1', title: 'Terminal 1', cwd: TAB_CWD, isActive: true }],
     activeTabId: 'tab-1',
   });
-  useSessionStore.setState({ agentSessions: [], activeSessionId: null, agentBlocksBySession: {} });
+  useSessionStore.getState().resetForTests();
   resetGitStatusCacheForTests();
   const base = useSettingsStore.getState().settings;
   useSettingsStore.setState({
@@ -102,9 +106,9 @@ beforeEach(() => {
 afterEach(() => {
   if (prevLucidAPI === undefined) delete win.lucidAPI;
   else win.lucidAPI = prevLucidAPI;
-  useHistoryStore.setState({ blocksByTab: {} });
+  useHistoryStore.setState({ blocksByTab: {}, guestSessionActive: false, guestStash: null });
   useTerminalStore.setState({ tabs: [], activeTabId: null });
-  useSessionStore.setState({ agentSessions: [], activeSessionId: null, agentBlocksBySession: {} });
+  useSessionStore.getState().resetForTests();
   resetGitStatusCacheForTests();
   const base = useSettingsStore.getState().settings;
   useSettingsStore.setState({
@@ -118,13 +122,13 @@ function setDefconLevel(level: 1 | 2 | 3) {
   useSettingsStore.setState({ settings: { ...base, defconLevel: level } });
 }
 
-function renderNonDevmode(level: 1 | 2 | 3) {
+function renderNonDevmode(level: 1 | 2 | 3, tabId = 'tab-1') {
   setDefconLevel(level);
-  return render(<Terminal tabId="tab-1" />);
+  return render(<Terminal tabId={tabId} />);
 }
 
 /** The composer's input (the fallback textarea in jsdom) — the
- *  linked composer in the prompt section, in both session kinds. */
+ *  linked composer in the prompt section, in both modes. */
 function composerInput(): HTMLTextAreaElement {
   const wrap = screen.getByTestId('prompter-composer-wrap');
   const textarea = wrap.querySelector('textarea');
@@ -152,15 +156,15 @@ function headerText(): string {
   return screen.getByTestId('prompt-section-header').textContent ?? '';
 }
 
-function agentSessions() {
-  return useSessionStore.getState().agentSessions;
+function tabMode(tabId = 'tab-1') {
+  return getTabMode(useSessionStore.getState().tabMode, tabId);
 }
 
-function agentBlocks(sessionId: string) {
-  return useSessionStore.getState().agentBlocksBySession[sessionId] ?? [];
+function tabBlocks(tabId = 'tab-1') {
+  return useHistoryStore.getState().blocksByTab[tabId] ?? [];
 }
 
-describe('Terminal sessions — the hint line', () => {
+describe('Terminal mode — the hint line', () => {
   test('below DEFCON 3 the hint line offers only the hand-off the window listener provides', async () => {
     renderNonDevmode(1);
     await screen.findByTestId('xterm-surface');
@@ -188,89 +192,88 @@ describe('Terminal sessions — the hint line', () => {
   });
 });
 
-describe('Terminal sessions — hand-off and Esc', () => {
-  test('⌘⏎ from the composer creates an agent session with the draft as its first prompt', async () => {
+describe('Terminal mode — hand-off and Esc', () => {
+  test('⌘⏎ from the composer flips the SAME tab to Agent with the draft as its first prompt', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     typeInComposer('fix the build');
     fireEvent.keyDown(composerInput(), { key: 'Enter', metaKey: true });
 
     await waitFor(() => {
-      expect(agentSessions()).toHaveLength(1);
+      expect(tabMode()).toBe('agent');
     });
-    const session = agentSessions()[0];
-    expect(useSessionStore.getState().activeSessionId).toBe(session.id);
-    expect(session.title).toBe('fix the build');
-    expect(session.cwd).toBe(TAB_CWD);
-    const blocks = agentBlocks(session.id);
+    // One tab, no new tab, no new session, no new row.
+    expect(useTerminalStore.getState().tabs).toHaveLength(1);
+    expect(document.querySelectorAll('[data-testid^="session-tab-"]')).toHaveLength(0);
+    // The prompt lands in the tab's own feed — one memory.
+    const blocks = tabBlocks();
     expect(blocks.some((b) => b.kind === 'agent-prompt' && b.command === 'fix the build')).toBe(true);
     expect(blocks.some((b) => b.kind === 'notice')).toBe(true);
 
-    // The agent view: header says Agent + title, the intro card
-    // is gone (blocks exist), the hint line is the way back.
+    // The agent view: header says Agent + the tab title, the
+    // hint line is the way back.
     expect(headerText()).toContain('Agent');
-    expect(headerText()).toContain('fix the build');
+    expect(headerText()).toContain('Terminal 1');
     expect(screen.queryByTestId('agent-intro-card')).toBeNull();
     expect(hintLineText()).toBe('esc back to terminal · ↑ past prompts');
     // The composer is still the input, and the draft cleared.
     expect(composerInput().value).toBe('');
   });
 
-  test('⌘⏎ with an empty draft creates an empty agent session (no first prompt)', async () => {
+  test('⌘⏎ with an empty draft flips to Agent with no prompt — same tab, empty feed', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     fireEvent.keyDown(composerInput(), { key: 'Enter', metaKey: true });
 
     await waitFor(() => {
-      expect(agentSessions()).toHaveLength(1);
+      expect(tabMode()).toBe('agent');
     });
-    const session = agentSessions()[0];
-    expect(session.title).toBe('New agent conversation');
-    expect(agentBlocks(session.id)).toHaveLength(0);
-    // Empty agent session: the intro card teaches the session.
-    expect(screen.getByTestId('agent-intro-card')).not.toBeNull();
-    expect(screen.getByTestId('agent-intro-card').textContent).toContain(TAB_CWD);
+    expect(useTerminalStore.getState().tabs).toHaveLength(1);
+    expect(tabBlocks()).toHaveLength(0);
+    // No intro card: the feed is the tab's feed, empty.
+    expect(screen.queryByTestId('agent-intro-card')).toBeNull();
+    expect(screen.getByTestId('terminal-blocks')).not.toBeNull();
   });
 
-  test('Esc in the agent session returns to the terminal session', async () => {
+  test('Esc in agent mode returns the SAME tab to Terminal — the prompt stays in the feed', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     typeInComposer('fix the build');
     fireEvent.keyDown(composerInput(), { key: 'Enter', metaKey: true });
     await waitFor(() => {
-      expect(agentSessions()).toHaveLength(1);
+      expect(tabMode()).toBe('agent');
     });
 
     fireEvent.keyDown(composerInput(), { key: 'Escape' });
     await waitFor(() => {
-      expect(useSessionStore.getState().activeSessionId).toBeNull();
+      expect(tabMode()).toBe('terminal');
     });
     expect(headerText()).toContain('Terminal');
     expect(headerText()).toContain('plain shell');
     expect(hintLineText()).toBe('⌘⏎ new agent conversation · ↑ past commands');
-    // The agent session survives the trip back — Esc switches,
-    // it does not close.
-    expect(agentSessions()).toHaveLength(1);
+    // Esc flips the mode, it does not close anything: the
+    // prompt is still in the tab's feed (one memory).
+    expect(tabBlocks().some((b) => b.kind === 'agent-prompt' && b.command === 'fix the build')).toBe(true);
   });
 
-  test('⌘⏎ from the xterm (window-level listener) creates an agent session', async () => {
+  test('⌘⏎ from the xterm (window-level listener) flips the same tab to Agent', async () => {
     renderNonDevmode(1);
     const xtermInput = await screen.findByTestId('xterm-fallback-input');
     (xtermInput as HTMLElement).focus();
     fireEvent.keyDown(xtermInput, { key: 'Enter', metaKey: true });
 
     await waitFor(() => {
-      expect(agentSessions()).toHaveLength(1);
+      expect(tabMode()).toBe('agent');
     });
-    expect(useSessionStore.getState().activeSessionId).toBe(agentSessions()[0].id);
+    expect(useTerminalStore.getState().tabs).toHaveLength(1);
     // The agent view replaces the xterm at any DEFCON level.
     expect(screen.queryByTestId('xterm-surface')).toBeNull();
     expect(screen.getByTestId('prompter-composer-wrap')).not.toBeNull();
   });
 });
 
-describe('Terminal sessions — the mode pill', () => {
-  test('clicking the mode pill creates an agent session; clicking again returns to the terminal', async () => {
+describe('Terminal mode — the mode pill', () => {
+  test('clicking the mode pill flips the tab’s mode and creates nothing', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     const pill = screen.getByTestId('mode-pill');
@@ -278,16 +281,19 @@ describe('Terminal sessions — the mode pill', () => {
 
     fireEvent.click(pill);
     await waitFor(() => {
-      expect(agentSessions()).toHaveLength(1);
+      expect(tabMode()).toBe('agent');
     });
-    expect(useSessionStore.getState().activeSessionId).toBe(agentSessions()[0].id);
+    expect(useTerminalStore.getState().tabs).toHaveLength(1);
+    expect(document.querySelectorAll('[data-testid^="session-tab-"]')).toHaveLength(0);
+    expect(useSessionStore.getState().tabMode).toEqual({ 'tab-1': 'agent' });
     expect(screen.getByTestId('mode-pill').textContent).toContain('Agent');
 
     fireEvent.click(screen.getByTestId('mode-pill'));
     await waitFor(() => {
-      expect(useSessionStore.getState().activeSessionId).toBeNull();
+      expect(tabMode()).toBe('terminal');
     });
     expect(screen.getByTestId('mode-pill').textContent).toContain('Terminal');
+    expect(useTerminalStore.getState().tabs).toHaveLength(1);
   });
 
   test('the pill row shows the driving-agent label, the cwd pill and the version pill', async () => {
@@ -302,30 +308,87 @@ describe('Terminal sessions — the mode pill', () => {
   });
 });
 
-describe('Terminal sessions — the agent view at DEFCON 1', () => {
-  test('an agent session has the composer and the feed at any level — no xterm', async () => {
+describe('Terminal mode — switching tabs preserves mode + conversation', () => {
+  test('each tab keeps its own mode and its own feed', async () => {
+    useTerminalStore.setState({
+      tabs: [
+        { id: 'tab-1', title: 'Terminal 1', cwd: TAB_CWD, isActive: true },
+        { id: 'tab-2', title: 'Terminal 2', cwd: TAB_CWD, isActive: false },
+      ],
+      activeTabId: 'tab-1',
+    });
+    const { rerender } = renderNonDevmode(3, 'tab-1');
+    await screen.findByTestId('prompter-composer-wrap');
+    typeInComposer('fix the build');
+    fireEvent.keyDown(composerInput(), { key: 'Enter', metaKey: true });
+    await waitFor(() => {
+      expect(tabMode('tab-1')).toBe('agent');
+    });
+
+    // Tab 2: terminal mode, its own empty feed.
+    useTerminalStore.setState({ activeTabId: 'tab-2' });
+    rerender(<Terminal tabId="tab-2" />);
+    await waitFor(() => {
+      expect(screen.getByTestId('mode-pill').textContent).toContain('Terminal');
+    });
+    expect(tabMode('tab-2')).toBe('terminal');
+    expect(tabBlocks('tab-2')).toHaveLength(0);
+
+    // Back to tab 1: agent mode and the prompt are still there.
+    useTerminalStore.setState({ activeTabId: 'tab-1' });
+    rerender(<Terminal tabId="tab-1" />);
+    await waitFor(() => {
+      expect(screen.getByTestId('mode-pill').textContent).toContain('Agent');
+    });
+    expect(tabMode('tab-1')).toBe('agent');
+    expect(tabBlocks('tab-1').some((b) => b.kind === 'agent-prompt' && b.command === 'fix the build')).toBe(true);
+  });
+});
+
+describe('Terminal mode — flipping the pill does not change the feed', () => {
+  test('the same feed shows in both modes — terminal blocks stay visible in Agent mode', async () => {
+    useHistoryStore.setState({
+      blocksByTab: {
+        'tab-1': [{ id: 'b1', command: 'ls', output: 'a\nb', timestamp: 1, isComplete: true }],
+      },
+    });
     renderNonDevmode(1);
     await screen.findByTestId('xterm-surface');
     fireEvent.click(screen.getByTestId('mode-pill'));
     await waitFor(() => {
-      expect(agentSessions()).toHaveLength(1);
+      expect(tabMode()).toBe('agent');
+    });
+    // The feed is the same feed: the earlier terminal block is
+    // still there, in Agent mode.
+    expect(screen.getByTestId('terminal-blocks').textContent).toContain('ls');
+    expect(screen.queryByTestId('agent-intro-card')).toBeNull();
+  });
+});
+
+describe('Terminal mode — the agent view at DEFCON 1', () => {
+  test('agent mode has the composer and the feed at any level — no xterm, no intro card', async () => {
+    renderNonDevmode(1);
+    await screen.findByTestId('xterm-surface');
+    fireEvent.click(screen.getByTestId('mode-pill'));
+    await waitFor(() => {
+      expect(tabMode()).toBe('agent');
     });
     expect(screen.queryByTestId('xterm-surface')).toBeNull();
     expect(screen.getByTestId('prompter-composer-wrap')).not.toBeNull();
-    expect(screen.getByTestId('agent-intro-card')).not.toBeNull();
+    expect(screen.queryByTestId('agent-intro-card')).toBeNull();
     expect(screen.getByTestId('terminal-blocks')).not.toBeNull();
     expect(hintLineText()).toBe('esc back to terminal · ↑ past prompts');
   });
 });
 
-describe('Terminal sessions — agent prompt history', () => {
-  test('Up/Down walk the session’s past prompts, most recent first', async () => {
+describe('Terminal mode — agent prompt history', () => {
+  test('Up/Down walk the tab’s past agent prompts, most recent first', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     typeInComposer('fix the build');
     fireEvent.keyDown(composerInput(), { key: 'Enter', metaKey: true });
     await waitFor(() => {
-      expect(agentSessions()).toHaveLength(1);
+      expect(tabMode()).toBe('agent');
     });
     submitToComposer('explain the error');
 
@@ -337,5 +400,17 @@ describe('Terminal sessions — agent prompt history', () => {
     expect(composerInput().value).toBe('explain the error');
     fireEvent.keyDown(composerInput(), { key: 'ArrowDown' });
     expect(composerInput().value).toBe('');
+  });
+
+  test('an agent prompt lands in the tab’s History — one memory, no separate store', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    typeInComposer('fix the build');
+    fireEvent.keyDown(composerInput(), { key: 'Enter', metaKey: true });
+    await waitFor(() => {
+      expect(tabMode()).toBe('agent');
+    });
+    const history = selectHistoryBlocksForTab(useHistoryStore.getState(), 'tab-1');
+    expect(history.some((b) => b.kind === 'agent-prompt' && b.command === 'fix the build')).toBe(true);
   });
 });

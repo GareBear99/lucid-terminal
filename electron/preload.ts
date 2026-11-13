@@ -231,6 +231,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     deleteTotpSecret: () => ipcRenderer.invoke('settings:deleteTotpSecret'),
     verifyTotpCode: (code: string) => ipcRenderer.invoke('settings:verifyTotpCode', code),
     getStorageStatus: () => ipcRenderer.invoke('settings:getStorageStatus'),
+    getRunOnStartup: () => ipcRenderer.invoke('settings:getRunOnStartup'),
+    setRunOnStartup: (value: boolean) => ipcRenderer.invoke('settings:setRunOnStartup', value),
     export: () => ipcRenderer.invoke('settings:export'),
     import: (data: string) => ipcRenderer.invoke('settings:import', data),
   },
@@ -821,6 +823,8 @@ export interface LucidAPI {
     deleteTotpSecret: () => Promise<void>;
     verifyTotpCode: (code: string) => Promise<{ ok: boolean; locked: boolean; retryAfterMs: number }>;
     getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
+    getRunOnStartup: () => Promise<boolean>;
+    setRunOnStartup: (value: boolean) => Promise<boolean>;
     export: () => Promise<string>;
     import: (data: string) => Promise<void>;
   };

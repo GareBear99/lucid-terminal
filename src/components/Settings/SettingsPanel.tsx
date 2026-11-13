@@ -86,7 +86,16 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     deletePingKey,
     exportSettings,
     importSettings,
+    runOnStartup,
+    setRunOnStartup,
+    syncRunOnStartup,
   } = useSettingsStore();
+  // Run on startup shows the real macOS login-item state — re-read
+  // it every time Settings opens, so a flip in System Settings never
+  // leaves the toggle stale (Gary, 2026-11-12).
+  useEffect(() => {
+    void syncRunOnStartup();
+  }, [syncRunOnStartup]);
   // The LuciferAI disable rule: the Synth / AI Chat toolbar toggles
   // below cannot be switched on while the plugin is off, and the
   // LuciferAI row's own switch is what turns it off.
@@ -1703,6 +1712,24 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
           {activeTab === 'general' && (
             <div className="space-y-6">
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
+                  Run on startup
+                </h3>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Toggle
+                    checked={runOnStartup === true}
+                    onChange={(checked) => void setRunOnStartup(checked)}
+                    ariaLabel="Run on startup"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    {runOnStartup === true
+                      ? 'On — Lucid launches when you log in to your Mac.'
+                      : 'Off — Lucid only launches when you open it. Nothing starts on its own.'}
+                  </span>
+                </label>
+              </section>
+
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
                   Startup Directory

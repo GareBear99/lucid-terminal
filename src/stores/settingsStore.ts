@@ -64,6 +64,14 @@ interface SettingsState {
   checkTotpSecret: () => Promise<void>;
   verifyTotpCode: (code: string) => Promise<{ ok: boolean; locked: boolean; retryAfterMs: number }>;
   hasTotpSecret: boolean;
+  // Run on startup — the mirror of the macOS login-item state (Gary,
+  // 2026-11-12). The OS is the truth; this field is only a mirror,
+  // never persisted in the settings file, so a change in System
+  // Settings never leaves Lucid showing a stale value. Default false:
+  // nothing auto-starts unless Gary flips it on.
+  runOnStartup: boolean;
+  syncRunOnStartup: () => Promise<void>;
+  setRunOnStartup: (value: boolean) => Promise<void>;
   checkBackendStatus: () => Promise<void>;
 
   exportSettings: () => Promise<string>;
@@ -197,6 +205,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hasTelegramBotToken: false,
   hasStripeApiKey: false,
   hasTotpSecret: false,
+  runOnStartup: false,
   isLocalBackendAvailable: false,
   isLocalModelAvailable: false,
   storageDegraded: false,
@@ -271,6 +280,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
 
       set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, hasTelegramBotToken, hasStripeApiKey, hasTotpSecret, isLoading: false });
+
+      // Run on startup syncs from the OS, not the settings file — the
+      // macOS login-item state is the truth (Gary, 2026-11-12).
+      await get().syncRunOnStartup();
 
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -418,6 +431,29 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   verifyTotpCode: async (code) => {
     return window.lucidAPI.settings.verifyTotpCode(code);
+  },
+
+  syncRunOnStartup: async () => {
+    try {
+      const openAtLogin = await window.lucidAPI.settings.getRunOnStartup();
+      set({ runOnStartup: openAtLogin === true });
+    } catch {
+      // Preload without the call (an older build) — leave the last
+      // known value; the toggle stays off rather than lying.
+    }
+  },
+
+  setRunOnStartup: async (value) => {
+    try {
+      // Main returns the value it re-read from the OS — store the
+      // actual state, never the requested one.
+      const actual = await window.lucidAPI.settings.setRunOnStartup(value);
+      set({ runOnStartup: actual === true });
+    } catch (error) {
+      console.error('Failed to set run on startup:', error);
+      // Re-read the truth — the toggle shows the actual state.
+      await get().syncRunOnStartup();
+    }
   },
 
   checkBackendStatus: async () => {

@@ -1150,6 +1150,8 @@ declare global {
         deleteTotpSecret: () => Promise<void>;
         verifyTotpCode: (code: string) => Promise<{ ok: boolean; locked: boolean; retryAfterMs: number }>;
         getStorageStatus: () => Promise<{ degraded: boolean; reason: string | null }>;
+        getRunOnStartup: () => Promise<boolean>;
+        setRunOnStartup: (value: boolean) => Promise<boolean>;
         export: () => Promise<string>;
         import: (data: string) => Promise<void>;
       };

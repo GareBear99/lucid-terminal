@@ -214,7 +214,12 @@ function App() {
   const bootOverlays = (
     <>
       {bootPhase === 'splash1' && (
-        <SplashScreen onDone={() => setBootPhase('profiles')} />
+        // fadeOut={false}: splash1 cuts hard into profiles. It must
+        // NEVER fade — the fade would turn the overlay transparent
+        // and show the terminal underneath for ~1s before profiles
+        // appears (Gary, 2026-11-13: "opens lucid first briefly").
+        // Both screens are black, so the cut is seamless.
+        <SplashScreen fadeOut={false} onDone={() => setBootPhase('profiles')} />
       )}
       {bootPhase === 'profiles' && (
         <ProfilesScreen
@@ -225,7 +230,9 @@ function App() {
         />
       )}
       {bootPhase === 'splash2' && (
-        <SplashScreen onDone={() => setBootPhase('lucid')} />
+        // fadeOut={true} (the default): splash2 cross-fades into the
+        // dashboard, which is the phase that follows it.
+        <SplashScreen fadeOut={true} onDone={() => setBootPhase('lucid')} />
       )}
     </>
   );

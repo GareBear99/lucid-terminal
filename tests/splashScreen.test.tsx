@@ -26,6 +26,7 @@ import {
   SPLASH_FADE_OUT_MS,
   SPLASH_SKIP_FADE_MS,
   SPLASH_REDUCED_MOTION_MS,
+  SPLASH_REDUCED_MOTION_FADE_MS,
   SPLASH_SMOKE_PUFF_COUNT,
 } from '../src/components/Splash/SplashScreen';
 
@@ -177,5 +178,101 @@ describe('SplashScreen', () => {
     const { container } = render(<SplashScreen onDone={onDone} />);
     expect(container.firstChild).toBeNull();
     expect(onDone).not.toHaveBeenCalled();
+  });
+});
+
+describe('SplashScreen fadeOut={false} (splash1 — hard cut into profiles)', () => {
+  // The rule (2026-11-13): splash1 must NEVER fade — the fade turns
+  // the whole overlay (black background included) transparent and the
+  // terminal mounted underneath shows through for ~1s before profiles
+  // pops in. With fadeOut={false} there is no fade phase at all:
+  // onDone fires at the end of the hold and the screen cuts black
+  // straight into profiles.
+  test('never enters the fade phase and calls onDone at the end of the hold', () => {
+    const onDone = vi.fn();
+    render(<SplashScreen fadeOut={false} onDone={onDone} />);
+    const splash = screen.getByTestId('splash-screen');
+
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_SMOKE_IN_MS);
+    });
+    expect(splash.getAttribute('data-phase')).toBe('wordmark');
+
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_WORDMARK_IN_MS);
+    });
+    expect(splash.getAttribute('data-phase')).toBe('hold');
+    expect(onDone).not.toHaveBeenCalled();
+
+    // End of the hold: hard cut — onDone fires, phase never becomes 'fade'.
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_WORDMARK_HOLD_MS);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(splash.getAttribute('data-phase')).toBe('hold');
+
+    // Advancing past the old fade window changes nothing.
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_FADE_OUT_MS + 10_000);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(splash.getAttribute('data-phase')).toBe('hold');
+  });
+
+  test('click skips immediately with no fade phase', () => {
+    const onDone = vi.fn();
+    render(<SplashScreen fadeOut={false} onDone={onDone} />);
+    fireEvent.click(screen.getByTestId('splash-screen'));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('smoke');
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  test('keypress skips immediately with no fade phase', () => {
+    const onDone = vi.fn();
+    render(<SplashScreen fadeOut={false} onDone={onDone} />);
+    act(() => {
+      window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('smoke');
+  });
+
+  test('reduced motion: cuts at the point the fade would have started, never fades', () => {
+    mockMatchMedia(true);
+    const onDone = vi.fn();
+    render(<SplashScreen fadeOut={false} onDone={onDone} />);
+    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('wordmark');
+
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_REDUCED_MOTION_MS - SPLASH_REDUCED_MOTION_FADE_MS);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('splash-screen').getAttribute('data-phase')).toBe('wordmark');
+  });
+});
+
+describe('SplashScreen fadeOut={true} (splash2 — cross-fade into the dashboard)', () => {
+  test('keeps the fade phase and calls onDone only after the fade', () => {
+    const onDone = vi.fn();
+    render(<SplashScreen fadeOut={true} onDone={onDone} />);
+    const splash = screen.getByTestId('splash-screen');
+
+    act(() => {
+      vi.advanceTimersByTime(
+        SPLASH_SMOKE_IN_MS + SPLASH_WORDMARK_IN_MS + SPLASH_WORDMARK_HOLD_MS,
+      );
+    });
+    expect(splash.getAttribute('data-phase')).toBe('fade');
+    expect(onDone).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(SPLASH_FADE_OUT_MS);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 });

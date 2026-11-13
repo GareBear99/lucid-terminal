@@ -1,4 +1,10 @@
-/* Lucid boot splash — black smoke/mist, "Lucid" wordmark, cross-fade to the dashboard.
+/* Lucid boot splash — black smoke/mist, "Lucid" wordmark, then out.
+ *
+ * How it leaves depends on what comes next (see the fadeOut prop in
+ * SplashScreen.tsx): splash2 cross-fades into the dashboard, splash1
+ * cuts hard into profiles and must NEVER fade — a fade turns the whole
+ * overlay (including its black background) transparent and shows the
+ * terminal underneath for ~1s before profiles appears.
  *
  * GPU-friendly by design: every animation is transform and/or opacity only, so it
  * runs on the compositor thread with no per-frame JS and no layout thrash. The smoke

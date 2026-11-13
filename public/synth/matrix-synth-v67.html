@@ -1942,9 +1942,10 @@
     qCam = worldToCamQuatFromBasis(b);
   }
 
-  // Navigation moves the PLAYER RETICLE (the user's pointer sentinel), never
-  // the eye. The eye is FIXED at the center of the loaded blueprint; seeds,
-  // bookmarks and the reticle-center reset all reposition the reticle.
+  // Navigation moves the PLAYER RETICLE (the user's pointer sentinel) or the
+  // eye — never both at once. The eye is the center of the loaded blueprint;
+  // WASD moves it (eyeStep); the arrow keys move the reticle (reticleStep).
+  // Seeds, bookmarks and the reticle-center reset reposition the reticle.
   function setReticleAnchor(dir, opts={}){
     const target = norm(dir || {x:0,y:0,z:1});
     reticleDir = target;
@@ -2748,7 +2749,16 @@ const quatFromTo=(a,b)=>{
   function toggleReticle(){
     showReticle = !showReticle;
     if(showReticle){
-      resetToCanonicalApex('reticle_center');
+      // LUCID PATCH (Gary, 2026-11-12 ~16:38/16:45 PST — the field at the
+      // center): "Center Reticle" now centers the reticle ON THE EYE (the
+      // blueprint center), not on the canonical-face center tile. The old
+      // resetToCanonicalApex target is a different point than the eye
+      // (the apex is dirFromFaceST(CANONICAL_FACE, 0, 0); the eye is the
+      // shell origin) — that is one of the reasons the field has never been
+      // at the center. setReticleAnchor also snaps the camera, so the field
+      // (drawn at the eye's world-projected position) lands at screen
+      // center immediately.
+      setReticleAnchor(eye);
       syncReticleSeed(true);
     }
     logLine(`[UI] reticle=${showReticle ? 'on' : 'off'}`);
@@ -2881,14 +2891,18 @@ const quatFromTo=(a,b)=>{
   const TILE_RESIDENCY_MAX = 12;
   function currentViewRadius(){ return Math.min(W,H) * R_FRAC * viewZoom; }
   let qCam = quat();               // rotates world so the reticle (user's pointer sentinel) stays locked
-  // FINAL MODEL (Gary, 2026-11-08 ~01:52–01:58 PST):
+  // FINAL MODEL (Gary, 2026-11-08 ~01:52–01:58 PST; movement split Gary,
+  // 2026-11-12 ~16:38/16:45 PST):
   // - `eye` is the CENTER of the loaded blueprint (the blueprint's
-  //   pivot-centroid anchor). It is FIXED — W never moves it. It is set to
-  //   the shell origin in setActiveShell() on blueprint load; the canonical
-  //   apex (0,0,1) when no blueprint is loaded.
+  //   pivot-centroid anchor). It is set to the shell origin in
+  //   setActiveShell() on a snap event (blueprint load / shell rebind); the
+  //   canonical apex (0,0,1) when no blueprint is loaded. WASD moves the
+  //   eye (eyeStep) — the original movement — and the reticle resnaps onto
+  //   it, so the field stays at the center while WASD drives.
   // - `reticleDir` is the PLAYER RETICLE — the user's pointer sentinel. It
-  //   is the ONLY thing on the outside, and the ONLY thing that moves with
-  //   W (great-circle traversal). The camera follows it, so the globe
+  //   is the ONLY thing on the outside, and it moves with the ARROW KEYS
+  //   (great-circle traversal, reticleStep). The camera follows it, so the
+  //   globe
   //   rotates beneath the fixed center and the address under the center
   //   changes as the globe turns.
   let eye = norm({x:0,y:0,z:1}); // center of the loaded blueprint (fixed; set to shell origin on load)
@@ -2897,20 +2911,26 @@ const quatFromTo=(a,b)=>{
   const CAM_FOLLOW = 8.0;
   const REF_DIR = norm({x:0, y:0.05, z:1}); // slight tilt
 
-  // Movement only for the player reticle (the user's pointer sentinel).
-  // The eye is FIXED at the center of the loaded blueprint and never moves.
+  // Movement: the ARROW KEYS move the player reticle (the user's pointer
+  // sentinel, reticleStep) and WASD moves the eye (eyeStep) — the split Gary
+  // ordered 2026-11-12 ~16:38 PST. The eye is the center of the loaded
+  // blueprint; the reticle resnaps onto it whenever the eye moves, so the
+  // field stays at the center while WASD drives.
   // Scanner executes approved work; the probe only proposes candidates.
 
   // Movement on the sphere surface (GW3-style):
 // - Treat `reticleDir` (the player reticle, the user's pointer sentinel)
 //   as a point on the unit sphere (surface anchor).
-// - Convert input (WASD / drag) into a tangent direction in *screen space*.
+// - Convert input (arrow keys / drag) into a tangent direction in *screen space*.
 // - Advance along a great-circle by rotating `reticleDir` around the
-//   appropriate axis. The eye stays locked to the center of the loaded
-//   blueprint; only the reticle moves.
+//   appropriate axis. (The eye moves the same way, in eyeStep, with WASD.)
 //
 // This avoids yaw/pitch singularities and allows full 360° traversal with no pole lock.
 let lookVX = 0, lookVY = 0;  // smoothed input (unitless)
+// LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split): the eye's own
+// smoothing, separate from the reticle's lookVX/lookVY so WASD (eyeStep)
+// and the arrow keys (reticleStep) never fight each other.
+let eyeVX = 0, eyeVY = 0;    // smoothed WASD input for the eye (unitless)
 let drag = false, lastMX = 0, lastMY = 0, mouseDX = 0, mouseDY = 0;
 
 window.addEventListener('mousedown',(e)=>{ if(e.button===0){ drag=true; lastMX=e.clientX; lastMY=e.clientY; }});
@@ -2987,14 +3007,19 @@ function worldToCamQuatFromBasis(b){
 function reticleStep(){
   // INPUT AUTHORITIES
   // ---------------------------------------------------------------------------
-  // This function is the single source of truth for shell traversal + planet spin.
-  // It moves ONLY the player reticle (the user's pointer sentinel, `reticleDir`).
-  // The eye is FIXED at the center of the loaded blueprint and never moves here.
-  // Keep these mappings locked:
-  // - A / D               = lateral traversal on the shell (movement stays as-is)
-  // - W / ArrowUp         = forward traversal on the shell
-  // - S / ArrowDown       = backward traversal on the shell
-  // - ArrowLeft/Right     = planet/map spin only (visual orbit around the reticle)
+  // LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split):
+  // this function is the single source of truth for RETICLE traversal. It
+  // moves ONLY the player reticle (the user's pointer sentinel, `reticleDir`).
+  // ARROW KEYS move the reticle — WASD does NOT (WASD moves the eye, see
+  // eyeStep below). Keep these mappings locked:
+  // - ArrowLeft / ArrowRight = lateral traversal on the shell
+  // - ArrowUp                = forward traversal on the shell
+  // - ArrowDown              = backward traversal on the shell
+  // - WASD                   = the EYE (eyeStep), never the reticle
+  // The old ArrowLeft/Right planet-spin binding is GONE (Gary's order — the
+  // arrows are the reticle now, so there is no spin key left; the same roll
+  // degree of freedom is still driven directly by compass normalization /
+  // hardReset through lastUpW, not by a key).
   //
   // IMPORTANT:
   // - Do not change movement here when only the cursor/aim line looks wrong.
@@ -3002,10 +3027,10 @@ function reticleStep(){
   // - Do not fix both at once.
   // ---------------------------------------------------------------------------
   let ix = 0, iy = 0;
-  if(keys.has('a')) ix -= 1;
-  if(keys.has('d')) ix += 1;
-  if(keys.has('w')||keys.has('arrowup'))    iy += 1;
-  if(keys.has('s')||keys.has('arrowdown'))  iy -= 1;
+  if(keys.has('arrowleft'))  ix -= 1;
+  if(keys.has('arrowright')) ix += 1;
+  if(keys.has('arrowup'))    iy += 1;
+  if(keys.has('arrowdown'))  iy -= 1;
 
   // Mouse drag adds continuous input (pixels -> unitless impulse)
   const MOUSE_SENS = 0.010; // feel-good; not radians anymore (we convert later)
@@ -3044,15 +3069,10 @@ function reticleStep(){
   lookVX = clamp(lookVX, -MAXI, MAXI);
   lookVY = clamp(lookVY, -MAXI, MAXI);
 
-  // PLANET SPIN LOCK
-  // Final known-good directional rule:
-  //   ArrowLeft  = negative visual planet spin
-  //   ArrowRight = positive visual planet spin
-  // This affects only map/planet roll around the reticle (the camera forward).
-  const spinDir = (keys.has('arrowright') ? 1 : 0) - (keys.has('arrowleft') ? 1 : 0);
-  if(spinDir !== 0){
-    lastUpW = norm(rotateAroundAxis(lastUpW, reticleDir, spinDir * ROLL_SPEED * DT));
-  }
+  // (LUCID PATCH, Gary 2026-11-12 ~16:38 PST — the ArrowLeft/Right planet-spin
+  // binding is removed: the arrows are the reticle's traversal now, so there
+  // is no spin key left. The roll degree of freedom still exists and is still
+  // driven directly by compass normalization / hardReset through lastUpW.)
 
   // If no movement, keep stable.
   const inMag = Math.hypot(lookVX, lookVY);
@@ -3075,8 +3095,8 @@ function reticleStep(){
 
   // Move along great circle in direction `tdir`.
   // Rotate `reticleDir` around axis perpendicular to (reticleDir, tdir).
-  // The eye stays locked to the center of the loaded blueprint; only the
-  // reticle (the user's pointer sentinel) moves.
+  // Only the reticle (the user's pointer sentinel) moves here — the eye
+  // moves with WASD in eyeStep below, never here.
   const axis = cross(tdir, reticleDir);
   const al = len(axis);
   if(al < 1e-6) return;
@@ -3088,15 +3108,112 @@ function reticleStep(){
   reticleDir = norm(rotateAroundAxis(reticleDir, axis, ang));
 }
 
+// ---------- eye movement (WASD) ----------
+// LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split; ~16:45 PST —
+// WASD moves the EYE, the original movement). WASD moves the eye (the camera
+// anchor / eye direction). The eye is the center of the loaded blueprint —
+// the field (the spectrum animation, drawSynthEyeField) is drawn at the
+// eye's world-projected position, so the field is at screen center exactly
+// when the camera looks at the eye, i.e. when the reticle is ON the eye.
+// That is why the field has never been at the center: the reticle starts at
+// (0,0,1), is never reset to the eye on blueprint load, and roams away —
+// the camera follows the reticle, never the eye. This function resnaps the
+// reticle onto the eye every tick the eye moves (and kills the reticle's
+// drift so the snap holds), so WASD carries the field with it and the field
+// stays at the center. Arrow keys (reticleStep) are independent: while they
+// are held the reticle leaves the eye and the field leaves the center —
+// pressing C snaps it back (toggleReticle).
+function eyeStep(){
+  // Input (keyboard + drag). W/S = forward/back on screen, A/D = left/right.
+  // Arrow keys do NOT move the eye — they move the reticle (reticleStep).
+  let ix = 0, iy = 0;
+  if(keys.has('a')) ix -= 1;
+  if(keys.has('d')) ix += 1;
+  if(keys.has('w')) iy += 1;
+  if(keys.has('s')) iy -= 1;
+
+  // Mouse drag adds continuous input (pixels -> unitless impulse)
+  const MOUSE_SENS = 0.010; // feel-good; not radians anymore (we convert later)
+  ix += mouseDX * MOUSE_SENS;
+  iy -= mouseDY * MOUSE_SENS; // drag up = move "up" on screen
+  mouseDX = 0; mouseDY = 0;
+
+  // Invert controls to match "move around object" feel (GW3-style)
+  ix = -ix;
+  iy = -iy;
+
+  // Smooth like GW3 (critical damping-ish) — the eye's own smoothing, kept
+  // separate from the reticle's lookVX/lookVY so the two never fight.
+  const ACCEL = 10.0;         // 1/s
+  const DAMP  = 14.0;         // 1/s
+  const MAXI  = 2.2;          // clamp input magnitude
+
+  // Normalize keyboard diagonals so WASD isn't faster
+  if(Math.abs(ix) <= 1 && Math.abs(iy) <= 1){
+    const mag = Math.hypot(ix,iy);
+    if(mag > 1 && mag > 1e-6){ ix/=mag; iy/=mag; }
+  }
+
+  eyeVX += (ix - eyeVX) * (1 - Math.exp(-ACCEL*DT));
+  eyeVY += (iy - eyeVY) * (1 - Math.exp(-ACCEL*DT));
+
+  const noInput = (Math.abs(ix)<1e-3 && Math.abs(iy)<1e-3);
+  const damp = noInput ? DAMP*1.35 : DAMP;
+  eyeVX *= Math.exp(-damp*DT);
+  eyeVY *= Math.exp(-damp*DT);
+
+  eyeVX = clamp(eyeVX, -MAXI, MAXI);
+  eyeVY = clamp(eyeVY, -MAXI, MAXI);
+
+  // If no movement, keep stable.
+  const inMag = Math.hypot(eyeVX, eyeVY);
+  if(inMag < 1e-4) return;
+
+  // Derive screen axes in world space from a STABLE basis at the eye.
+  const bNow = basisFromForward(eye, lastUpW);
+  const camRightW = bNow.R;
+  const camUpW    = bNow.U;
+
+  // Build desired tangent direction in world space, aligned to screen axes.
+  let tdir = add(
+    mul(projectToTangent(camRightW, eye), eyeVX),
+    mul(projectToTangent(camUpW,    eye), eyeVY)
+  );
+  const tl = len(tdir);
+  if(tl < 1e-6) return;
+  tdir = mul(tdir, 1/tl);
+
+  // Move along great circle in direction `tdir`.
+  // Rotate `eye` around axis perpendicular to (eye, tdir).
+  const axis = cross(tdir, eye);
+  const al = len(axis);
+  if(al < 1e-6) return;
+
+  // Same speed as the reticle (tune here).
+  const BASE_SPEED = 1.65; // rad/s along surface
+  const ang = clamp(BASE_SPEED * DT * inMag, 0, 0.30); // per-step cap keeps it stable
+
+  eye = norm(rotateAroundAxis(eye, axis, ang));
+
+  // RESNAP: the eye moved, so the reticle comes with it — the camera follows
+  // the reticle, so this is what keeps the field (drawn at the eye's
+  // world-projected position) at screen center while WASD drives. Kill the
+  // reticle's drift so the snap holds through the eye's smoothing glide.
+  reticleDir = eye;
+  lookVX = 0;
+  lookVY = 0;
+}
+
 
 
   function cameraStep(){
   // GW3 rule: keep the player reticle (the user's pointer sentinel) at screen
   // center with STABLE roll. Build a world-space camera basis from
-  // `reticleDir` and a roll-continuity up-hint. The eye stays locked to the
-  // center of the loaded blueprint; the camera follows the reticle, so the
-  // globe rotates beneath the fixed center and the address under the center
-  // changes as the globe turns.
+  // `reticleDir` and a roll-continuity up-hint. The eye is the center of the
+  // loaded blueprint; the camera follows the reticle, so the field (drawn at
+  // the eye's world-projected position) is at screen center exactly when the
+  // reticle is on the eye — on blueprint load, while WASD drives the eye, and
+  // after C (see eyeStep / setActiveShell snap / toggleReticle).
   const b = basisFromForward(reticleDir, lastUpW);
   lastUpW = b.U;
   const qTarget = worldToCamQuatFromBasis(b);
@@ -3566,7 +3683,7 @@ function reticleStep(){
       };
       shells.set(shellId, shell);
       shellBySeed.set(seed, shellId);
-      setActiveShell(shellId);
+      setActiveShell(shellId, {snap:true});
       SCN.boundShellId = shellId; SCN.boundSeed = seed; SCN.targetDir = baseDir;
       PRB.pos = baseDir; PRB.targetDir = baseDir; PRB.plannedDir = baseDir; PRB.plannedKind = 'spawn_hold'; PRB.plannedIndex = 0; PRB.trail = [baseDir]; PRB.mode = 'SPAWN';
       try{ rebuildAuthorityRegistry(shell); }catch(_e){}
@@ -3862,14 +3979,31 @@ function reticleStep(){
     return {occupancy:'empty', hitKind:'free', type:'empty', roomId:'', material:'void', routeIndex:-1, occupied:false, edge:false, interior:false, objectId:shell.shellId};
   }
 
-  function setActiveShell(id){
+  function setActiveShell(id, opts){
     activeShellId = id;
     const sh = shells.get(id);
-    // FINAL MODEL (Gary, 2026-11-08 ~01:52 PST): the eye is LOCKED to the
-    // center of the loaded blueprint — the shell's pivot-centroid anchor
-    // (its origin). When no blueprint is loaded the eye is the canonical
-    // apex. The eye never moves with W; only the reticle moves.
-    eye = (sh && sh.origin) ? norm(sh.origin) : norm({x:0,y:0,z:1});
+    // FINAL MODEL (Gary, 2026-11-08 ~01:52 PST): the eye is the center of
+    // the loaded blueprint — the shell's pivot-centroid anchor (its origin).
+    // When no blueprint is loaded the eye is the canonical apex.
+    //
+    // LUCID PATCH (Gary, 2026-11-12 ~16:38/16:45 PST — movement split +
+    // field at center): the eye is (re)locked to the shell origin ONLY on a
+    // snap event — a new blueprint loaded or a shell (re)bound, i.e. a call
+    // that passes {snap:true}. The eye is NOT reset on the reticle-seed
+    // call (step() calls setActiveShell(activeShellId) with no opts every
+    // time the reticle crosses into a new tile seed, just to refresh the HUD
+    // lines): that call must not yank the eye back to the origin — WASD
+    // moves the eye now — and must not yank the reticle back to it either.
+    // On a snap, the reticle is put ON the eye and the camera is snapped
+    // with it, so the first frame of a new blueprint has the field (the
+    // spectrum animation, drawn at the eye's world-projected position) at
+    // screen center. New callers: pass {snap:true} when binding a
+    // different shell; pass nothing for a HUD-only refresh.
+    if(opts && opts.snap){
+      eye = (sh && sh.origin) ? norm(sh.origin) : norm({x:0,y:0,z:1});
+      reticleDir = eye;
+      syncCameraToReticle();
+    }
     const pkt = RETICLE_PACKET || STATE.reticlePacket;
     hudShell.textContent = sh ? `${sh.shellId}  shell=${sh.seed.toString(16).padStart(8,'0').toUpperCase()}  live=${STATE.seedStr || STATE.baseSeedStr}  tiles=${sh.routeTiles.length}` : '(none)';
     if(hudAnchor) hudAnchor.textContent = sh ? `${sh.anchorMode} • source=${sh.anchorSource} • shift=(${sh.centerShift.u.toFixed(4)}, ${sh.centerShift.v.toFixed(4)}) • ${pkt?`f${pkt.face}/i${pkt.i}/j${pkt.j}`:'center=waiting'}` : 'center=waiting';
@@ -4959,7 +5093,7 @@ if(buildState === Build.MAPPING){
 
       shells.set(shellId, shell);
       shellBySeed.set(seed, shellId);
-      setActiveShell(shellId);
+      setActiveShell(shellId, {snap:true});
 
       // Bind scanner target to shell origin initially
       SCN.boundShellId = shellId;
@@ -5083,7 +5217,7 @@ if(buildState === Build.MAPPING){
       if(!activeShellId && shells.size){
         const firstShellId = shells.keys().next().value || '';
         if(firstShellId){
-          setActiveShell(firstShellId);
+          setActiveShell(firstShellId, {snap:true});
           appendReceipt('boot_self_heal_shell_bind', { shellId:firstShellId, reason:'missing_active_shell_rebound' });
         }
       }
@@ -5110,7 +5244,7 @@ if(buildState === Build.MAPPING){
       if(blueprintLoaded && (!activeShellId || !shells.get(activeShellId))){
         const firstShellId = shells.keys().next().value || '';
         if(firstShellId){
-          setActiveShell(firstShellId);
+          setActiveShell(firstShellId, {snap:true});
           appendReceipt('boot_self_heal_shell_select', { shellId:firstShellId, reason:'post_blueprint_missing_shell_id' });
         }
       }
@@ -6423,6 +6557,13 @@ function render(){
   // ---------- main update loop (fail closed) ----------
   function step(){
     try{
+      // LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split): the eye
+      // moves first (WASD, eyeStep — it resnaps the reticle onto the eye),
+      // then the reticle (arrow keys, reticleStep), then the camera follows
+      // the reticle. Order matters: eyeStep's resnap must land before the
+      // reticle reads its own keys, so holding both at once lets the arrows
+      // roam the reticle off the eye for that tick.
+      eyeStep();
       reticleStep();
       cameraStep();
       updatePoleState();

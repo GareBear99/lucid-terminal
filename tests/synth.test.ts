@@ -1,5 +1,6 @@
 /**
- * Synth tests — Phase 1 scaffold.
+ * Synth tests — Phase 1 scaffold, updated for the Iteration 8 proper
+ * port (2026-11-12).
  *
  * Covers Gary's design requirements (2026-11-04):
  * 1. Seed determinism: same seed -> identical Neural Synth scene.
@@ -11,6 +12,20 @@
  *    does not hardcode it.
  * 5. Vendored v67 shell smoke: patch present, mount gate present,
  *    WAIT_BLUEPRINT present, and no avatar wiring remains.
+ * 6. Mount via the machine (2026-11-12): the mount needs the ping
+ *    handshake — the machine READY with a NOOP GRANT receipt. Mounting
+ *    before boot is refused. Unmounting leaves boot READY (boot is a
+ *    property of the shell+blueprint, not the mount).
+ * 7. Placement (Gary, 2026-11-08 ~03:55, af90dd2 — proved by Gary
+ *    with a scroll): the v67 shell draws thinker/field/ship at the
+ *    eye's world-projected position (ex, ey) = projectDir(eye),
+ *    gated on eyeVisible. Canvas centre (cx, cy) IS the reticle
+ *    (cameraStep builds the camera from reticleDir); the world
+ *    origin (0,0,0) is empty and unprojectable. The neural scene
+ *    cloud is centred in its own local frame only. (The Iteration 8
+ *    port's 2026-11-12 "center rule" — (cx, cy) = world origin,
+ *    thinker drawn there always — was wrong and was reverted;
+ *    see ~/workspace/iteration8-spatial-placements-2026-11-12.md §7.)
  */
 
 import * as fs from 'fs';
@@ -28,6 +43,7 @@ import {
   SynthEmbodiment,
 } from '../src/types/synth';
 import { useSynthStore } from '../src/stores/synthStore';
+import { createMachine } from '../src/lib/synthBoot';
 
 // ---------------------------------------------------------------------------
 // Seed determinism (Iteration 11 engine math)
@@ -72,6 +88,23 @@ describe('neural scene determinism', () => {
     );
     expect(seededColor('planner', DEFAULT_SYNTH_SEED)).toMatch(/^#[0-9a-f]{6}$/);
   });
+
+  test('scene centroid is near its local-frame origin — the Neural Synth cloud is centered in its own frame, not offset to the surface', () => {
+    const scene = buildNeuralScene(DEFAULT_SYNTH_SEED);
+    const points = [...scene.voxels, ...scene.nodes];
+    const n = points.length;
+    const cx = points.reduce((s, p) => s + p.x, 0) / n;
+    const cy = points.reduce((s, p) => s + p.y, 0) / n;
+    const cz = points.reduce((s, p) => s + p.z, 0) / n;
+    // The scene spans ~±200 units; a centered scene's mean is a few
+    // units from its local origin. An offset-to-the-surface scene would
+    // sit ~200 units out. 15 is comfortably above the noise, far
+    // below any surface offset. (This is the cloud's LOCAL frame only
+    // — it says nothing about the shell's world origin, which is empty.)
+    expect(Math.abs(cx)).toBeLessThan(15);
+    expect(Math.abs(cy)).toBeLessThan(15);
+    expect(Math.abs(cz)).toBeLessThan(15);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -113,7 +146,7 @@ describe('mount gate (classification-agnostic)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Store — empty shell, mount, unmount (generic plugin shells)
+// Store — empty shell, machine boot, mount, unmount (generic plugin shells)
 // ---------------------------------------------------------------------------
 
 describe('synth store', () => {
@@ -124,29 +157,52 @@ describe('synth store', () => {
       seedHex: DEFAULT_SYNTH_SEED,
       selectedTileId: 'tile_0000',
       eyeMode: 'AUTO',
-      shellLoaded: false,
+      machine: createMachine(),
+      modules: { ship: null, scanner: null, hud: null },
       mounts: {},
-      bootState: 'WAIT_BLUEPRINT',
+      directories: {},
+      localAccessSessionGranted: false,
     });
   });
 
+  /** Boot the active shell's machine to READY (default octagon). */
+  function bootToReady() {
+    const s = useSynthStore.getState();
+    s.loadDefaultShellBlueprint();
+    s.setShellReady(true);
+    s.runShellMachine();
+    const m = useSynthStore.getState().machine;
+    expect(m.boot).toBe('READY');
+    expect(m.build).toBe('EMPTY_REPO_READY');
+  }
+
   test('empty shell: boots in WAIT_BLUEPRINT with nothing mounted', () => {
     const s = useSynthStore.getState();
-    expect(s.bootState).toBe('WAIT_BLUEPRINT');
+    expect(s.machine.boot).toBe('WAIT_BLUEPRINT');
+    expect(s.machine.build).toBe('IDLE');
+    expect(s.machine.shell).toBeNull();
     expect(s.mounts['lucifer'] ?? null).toBeNull();
-    expect(s.shellLoaded).toBe(false);
   });
 
-  test('mountPlugin mounts Lucifer (Sentinel) as the synth embodiment', () => {
+  test('mount is refused before the machine boots (no ping handshake yet)', () => {
+    const s = useSynthStore.getState();
+    expect(s.mountPlugin('lucifer')).toBe(false);
+    expect(useSynthStore.getState().mounts['lucifer'] ?? null).toBeNull();
+    expect(useSynthStore.getState().machine.boot).toBe('WAIT_BLUEPRINT');
+  });
+
+  test('mountPlugin mounts Lucifer (Sentinel) as the synth embodiment once READY', () => {
+    bootToReady();
     const s = useSynthStore.getState();
     expect(s.mountPlugin('lucifer')).toBe(true);
     const after = useSynthStore.getState();
     expect(after.mounts['lucifer']).toEqual(LUCIFER_EMBODIMENT);
     expect(after.mounts['lucifer']?.classification).toBe('Sentinel');
-    expect(after.bootState).toBe('READY');
+    expect(after.machine.boot).toBe('READY');
   });
 
-  test('mountEmbodiment accepts a Sentinel-classified embodiment directly', () => {
+  test('mountEmbodiment accepts a Sentinel-classified embodiment directly once READY', () => {
+    bootToReady();
     const s = useSynthStore.getState();
     const ok = s.mountEmbodiment('lucifer', {
       id: 'lucifer',
@@ -156,10 +212,11 @@ describe('synth store', () => {
       plugin: 'lucifer-ai',
     });
     expect(ok).toBe(true);
-    expect(useSynthStore.getState().bootState).toBe('READY');
+    expect(useSynthStore.getState().machine.boot).toBe('READY');
   });
 
   test('mount rejects an unknown plugin shell and a wrong role', () => {
+    bootToReady();
     const s = useSynthStore.getState();
     expect(s.mountPlugin('no-such-plugin')).toBe(false);
     expect(
@@ -171,17 +228,19 @@ describe('synth store', () => {
         plugin: 'x',
       }),
     ).toBe(false);
-    expect(useSynthStore.getState().bootState).toBe('WAIT_BLUEPRINT');
+    expect(useSynthStore.getState().machine.boot).toBe('READY');
   });
 
-  test('unmount returns the shell to empty (WAIT_BLUEPRINT)', () => {
+  test('unmount returns the shell to empty but leaves boot READY (boot is the shell, not the mount)', () => {
+    bootToReady();
     const s = useSynthStore.getState();
     s.mountPlugin('lucifer');
-    expect(useSynthStore.getState().bootState).toBe('READY');
+    expect(useSynthStore.getState().machine.boot).toBe('READY');
     useSynthStore.getState().unmountEmbodiment('lucifer');
     const after = useSynthStore.getState();
     expect(after.mounts['lucifer'] ?? null).toBeNull();
-    expect(after.bootState).toBe('WAIT_BLUEPRINT');
+    expect(after.machine.boot).toBe('READY');
+    expect(after.machine.build).toBe('EMPTY_REPO_READY');
   });
 
   test('generic shell registry: lucifer is the first instance with a shell src', () => {
@@ -277,11 +336,16 @@ describe('vendored v67 shell', () => {
 });
 
 // Eye / reticle anchor model (Gary 2026-11-08 ~01:52–01:58 PST — final
-// model, supersedes the 00:53 statement): the neural synth IS the center
-// of the blueprint; the eye is locked to the center of the loaded
-// blueprint; the spectrum animation (eye field) is at the center; ONLY the
-// player reticle is on the outside, and it is the user's pointer sentinel
-// — the only thing that moves with W.
+// model, supersedes the 00:53 statement; movement split Gary 2026-11-12
+// ~16:38/16:45 PST): the neural synth IS the center of the blueprint; the
+// eye is the center of the loaded blueprint; the spectrum animation (eye
+// field) is at the center; ONLY the player reticle is on the outside, and
+// it is the user's pointer sentinel. WASD moves the EYE (the original
+// movement) and the reticle resnaps onto it, so the field stays at the
+// center; the ARROW KEYS move the reticle. (Placement, Gary 2026-11-08
+// ~03:55, af90dd2: drawn at the eye's world-projected position (ex, ey),
+// gated on eyeVisible — canvas center (cx, cy) IS the reticle, and the world
+// origin (0,0,0) is empty and unprojectable.)
 describe('synth eye / reticle anchor model', () => {
   const shellPath = path.join(
     process.cwd(),
@@ -337,15 +401,67 @@ describe('synth eye / reticle anchor model', () => {
     expect(shellSrc).not.toContain('const rp = reticleScreenPos(cx, cy, R);');
   });
 
-  test('W moves the reticle, not the eye', () => {
+  test('WASD moves the eye, arrow keys move the reticle (movement split)', () => {
+    // Movement split (Gary, 2026-11-12 ~16:38 PST — arrows = reticle,
+    // WASD = eye, the original movement; ~16:45 PST — "wasd moves what you
+    // called the eye not the field"). The old test asserted the reverse
+    // (W moves the reticle, the eye never moves); Gary's order reverses it.
     expect(shellSrc).toContain(
       'reticleDir = norm(rotateAroundAxis(reticleDir, axis, ang));',
     );
-    expect(shellSrc).not.toContain(
+    expect(shellSrc).toContain('function reticleStep(){');
+    expect(shellSrc).toContain('function eyeStep(){');
+    expect(shellSrc).toContain(
       'eye = norm(rotateAroundAxis(eye, axis, ang));',
     );
-    expect(shellSrc).toContain('function reticleStep(){');
-    expect(shellSrc).not.toContain('function eyeStep(){');
+
+    // reticleStep reads the arrow keys only — no WASD in its body.
+    const reticleBody = shellSrc.slice(
+      shellSrc.indexOf('function reticleStep(){'),
+      shellSrc.indexOf('function eyeStep(){'),
+    );
+    expect(reticleBody).toContain("keys.has('arrowleft')");
+    expect(reticleBody).toContain("keys.has('arrowright')");
+    expect(reticleBody).toContain("keys.has('arrowup')");
+    expect(reticleBody).toContain("keys.has('arrowdown')");
+    expect(reticleBody).not.toContain("keys.has('w')");
+    expect(reticleBody).not.toContain("keys.has('a')");
+    expect(reticleBody).not.toContain("keys.has('s')");
+    expect(reticleBody).not.toContain("keys.has('d')");
+    // The old ArrowLeft/Right planet-spin binding is gone with the split.
+    expect(reticleBody).not.toContain('ROLL_SPEED');
+
+    // eyeStep reads WASD only — no arrow keys in its body — and resnaps
+    // the reticle onto the eye every tick the eye moves, which is what
+    // keeps the field (drawn at the eye's world-projected position) at
+    // screen center while WASD drives.
+    const eyeBody = shellSrc.slice(
+      shellSrc.indexOf('function eyeStep(){'),
+      shellSrc.indexOf('function cameraStep(){'),
+    );
+    expect(eyeBody).toContain("keys.has('w')");
+    expect(eyeBody).toContain("keys.has('a')");
+    expect(eyeBody).toContain("keys.has('s')");
+    expect(eyeBody).toContain("keys.has('d')");
+    expect(eyeBody).not.toContain("keys.has('arrow");
+    expect(eyeBody).toContain('reticleDir = eye;');
+
+    // The eye is (re)locked to the shell origin only on a snap event
+    // (blueprint load / shell rebind) — the reticle-seed refresh in step()
+    // must not yank it back. And C snaps the reticle onto the eye (the
+    // blueprint center), not onto the canonical-face center tile.
+    expect(shellSrc).toContain('function setActiveShell(id, opts){');
+    expect(shellSrc).toContain('if(opts && opts.snap){');
+    expect(shellSrc).toContain('reticleDir = eye;');
+    const toggleBody = shellSrc.slice(
+      shellSrc.indexOf('function toggleReticle(){'),
+      shellSrc.indexOf("btnReticle.addEventListener('click'"),
+    );
+    expect(toggleBody).toContain('setReticleAnchor(eye);');
+    // The old call is gone (the name still appears in the LUCID PATCH
+    // comment explaining why, and the function itself is still defined —
+    // only C no longer calls it).
+    expect(toggleBody).not.toContain("resetToCanonicalApex('reticle_center')");
   });
 
   test('no stale reticle-center lock remains', () => {

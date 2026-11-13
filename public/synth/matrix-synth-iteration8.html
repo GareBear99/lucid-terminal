@@ -692,8 +692,21 @@ const quatFromTo=(a,b)=>{
   let showReticle = false;
   const btnReticle = document.getElementById('btnReticle');
   function toggleReticle(){
-    showReticle = !showReticle;
-    logLine(`[UI] reticle=${showReticle ? 'on' : 'off'}`);
+    // LUCID PATCH (Gary, 2026-11-12 ~16:38/16:45 PST — the field at the
+    // center): "Center Reticle" (C) now snaps the EYE back to the active
+    // shell's origin — the blueprint center — and shows the center marker.
+    // The marker itself is drawn at canvas center already (drawCenterReticle
+    // draws at cx, cy), so there is nothing to center about it; the thing
+    // that roams off the center is the eye (WASD walks it away from the
+    // origin after load). The old behaviour only toggled the marker on/off
+    // and never put anything at the center. No toggle-off: C is "go to the
+    // center". With no shell loaded, the eye returns to the no-blueprint
+    // default (the same center hardReset uses). The camera follows the eye
+    // (cameraStep), so it eases back onto the center on its own.
+    const sh = shells.get(activeShellId);
+    eye = (sh && sh.origin) ? norm(sh.origin) : norm({x:0.12,y:0.04,z:0.992});
+    showReticle = true;
+    logLine(`[UI] center: eye snapped to ${sh ? sh.shellId : 'default'} origin; reticle=on`);
   }
   btnReticle.addEventListener('click', toggleReticle);
 
@@ -720,6 +733,10 @@ const quatFromTo=(a,b)=>{
 //
 // This avoids yaw/pitch singularities and allows full 360° traversal with no pole lock.
 let lookVX = 0, lookVY = 0;  // smoothed input (unitless)
+// LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split): the probe's own
+// smoothing, separate from the eye's lookVX/lookVY so the arrow keys
+// (probeStep) and WASD (eyeStep) never fight each other.
+let probeVX = 0, probeVY = 0; // smoothed arrow input for the probe (unitless)
 let drag = false, lastMX = 0, lastMY = 0, mouseDX = 0, mouseDY = 0;
 
 window.addEventListener('mousedown',(e)=>{ if(e.button===0){ drag=true; lastMX=e.clientX; lastMY=e.clientY; }});
@@ -794,12 +811,16 @@ function worldToCamQuatFromBasis(b){
 }
 
 function eyeStep(){
-  // Input (keyboard + drag). W/S = forward/back on screen, A/D = left/right.
+  // Input (WASD + drag). W/S = forward/back on screen, A/D = left/right.
+  // LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split): arrow keys
+  // do NOT move the eye — they steer the SYNTHESIS SCANNER probe (probeStep
+  // below), the independent movable target. WASD moves the eye, the original
+  // movement (Gary ~16:45 PST: "wasd moves what you called the eye").
   let ix = 0, iy = 0;
-  if(keys.has('a')||keys.has('arrowleft'))  ix -= 1;
-  if(keys.has('d')||keys.has('arrowright')) ix += 1;
-  if(keys.has('w')||keys.has('arrowup'))    iy += 1;
-  if(keys.has('s')||keys.has('arrowdown'))  iy -= 1;
+  if(keys.has('a')) ix -= 1;
+  if(keys.has('d')) ix += 1;
+  if(keys.has('w')) iy += 1;
+  if(keys.has('s')) iy -= 1;
 
   // Mouse drag adds continuous input (pixels -> unitless impulse)
   const MOUSE_SENS = 0.010; // feel-good; not radians anymore (we convert later)
@@ -863,6 +884,82 @@ function eyeStep(){
   const ang = clamp(BASE_SPEED * DT * inMag, 0, 0.30); // per-step cap keeps it stable
 
   eye = norm(rotateAroundAxis(eye, axis, ang));
+}
+
+// ---------- scanner probe movement (arrow keys) ----------
+// LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split): the arrow keys
+// steer the SYNTHESIS SCANNER probe (SCN.targetDir), the independent movable
+// target, mirroring v67's reticle split. The probe is the thing the arrows
+// liked moving in the demo; here it is the scanner box's target, not the eye.
+// It only steers when the build machine is NOT driving it: during INTEGRITY
+// and MAPPING the machine sets SCN.targetDir itself every tick (MOVE_TO_PIVOT
+// / MOVE_TO_TILE), so arrow input there would fight the build. Once the build
+// is done (EMPTY_REPO_READY) — or before it starts — the probe is the user's.
+function probeStep(){
+  if(buildState === Build.INTEGRITY || buildState === Build.MAPPING) return;
+
+  // Input (arrow keys only — WASD moves the eye, see eyeStep).
+  let ix = 0, iy = 0;
+  if(keys.has('arrowleft'))  ix -= 1;
+  if(keys.has('arrowright')) ix += 1;
+  if(keys.has('arrowup'))    iy += 1;
+  if(keys.has('arrowdown'))  iy -= 1;
+
+  // Smooth like GW3 (critical damping-ish) — the probe's own smoothing, kept
+  // separate from the eye's lookVX/lookVY so the two never fight.
+  const ACCEL = 10.0;         // 1/s
+  const DAMP  = 14.0;         // 1/s
+  const MAXI  = 2.2;          // clamp input magnitude
+
+  // Normalize keyboard diagonals so the arrows aren't faster
+  if(Math.abs(ix) <= 1 && Math.abs(iy) <= 1){
+    const mag = Math.hypot(ix,iy);
+    if(mag > 1 && mag > 1e-6){ ix/=mag; iy/=mag; }
+  }
+
+  probeVX += (ix - probeVX) * (1 - Math.exp(-ACCEL*DT));
+  probeVY += (iy - probeVY) * (1 - Math.exp(-ACCEL*DT));
+
+  const noInput = (Math.abs(ix)<1e-3 && Math.abs(iy)<1e-3);
+  const damp = noInput ? DAMP*1.35 : DAMP;
+  probeVX *= Math.exp(-damp*DT);
+  probeVY *= Math.exp(-damp*DT);
+
+  probeVX = clamp(probeVX, -MAXI, MAXI);
+  probeVY = clamp(probeVY, -MAXI, MAXI);
+
+  // If no movement, keep stable.
+  const inMag = Math.hypot(probeVX, probeVY);
+  if(inMag < 1e-4) return;
+
+  // Derive screen axes in world space from a STABLE basis at the probe's
+  // current position.
+  const bNow = basisFromForward(SCN.pos, lastUpW);
+  const camRightW = bNow.R;
+  const camUpW    = bNow.U;
+
+  // Build desired tangent direction in world space, aligned to screen axes.
+  let tdir = add(
+    mul(projectToTangent(camRightW, SCN.pos), probeVX),
+    mul(projectToTangent(camUpW,    SCN.pos), probeVY)
+  );
+  const tl = len(tdir);
+  if(tl < 1e-6) return;
+  tdir = mul(tdir, 1/tl);
+
+  // Move along great circle in direction `tdir`.
+  // Rotate the probe target around the axis perpendicular to (target, tdir).
+  // scannerMotion slerps SCN.pos toward this target every tick, so the probe
+  // box follows at its usual 0.040/tick.
+  const axis = cross(tdir, SCN.targetDir);
+  const al = len(axis);
+  if(al < 1e-6) return;
+
+  // Same speed as the eye (tune here).
+  const BASE_SPEED = 1.65; // rad/s along surface
+  const ang = clamp(BASE_SPEED * DT * inMag, 0, 0.30); // per-step cap keeps it stable
+
+  SCN.targetDir = norm(rotateAroundAxis(SCN.targetDir, axis, ang));
 }
 
 
@@ -1818,6 +1915,10 @@ function render(){
   function step(){
     try{
       eyeStep();
+      // LUCID PATCH (Gary, 2026-11-12 ~16:38 PST — movement split): the
+      // arrow keys steer the scanner probe (probeStep), independently of the
+      // eye. It runs after eyeStep so the eye's camera basis is current.
+      probeStep();
       cameraStep();
       scannerMotion();
       if(bootState !== Boot.READY) bootStep();

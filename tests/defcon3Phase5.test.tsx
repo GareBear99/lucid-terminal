@@ -234,7 +234,11 @@ describe('DEFCON 3 Phase 5 — the landing shape (the settle)', () => {
     expect(screen.getByTestId('prompt-section').style.background).toContain('0, 0, 0');
     expect(screen.getByTestId('terminal-page').className).toContain('bg-black/25');
     expect(screen.getByText('Ask Lucid...')).not.toBeNull();
-    expect(screen.getByText(TAB_CWD)).not.toBeNull();
+    // getAllByText, not getByText: the cwd shows twice now —
+    // the header's plain text AND the pill row's copyable cwd
+    // pill (heavy terminal work, 2026-11-13 — the known
+    // triple-display wart, see PillRow.tsx).
+    expect(screen.getAllByText(TAB_CWD).length).toBeGreaterThan(0);
     expect(screen.queryByTestId('cwd-chip')).toBeNull();
     const header = screen.getByTestId('prompt-section-header');
     expect(header.textContent).toContain('plain shell');

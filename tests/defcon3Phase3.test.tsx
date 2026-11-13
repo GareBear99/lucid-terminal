@@ -432,7 +432,11 @@ describe('DEFCON 3 composer — cwd chip, static hint, multi-line, re-input', ()
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('prompter-composer-wrap');
     expect(screen.queryByTestId('cwd-chip')).toBeNull();
-    expect(screen.getByText(TAB_CWD)).not.toBeNull();
+    // getAllByText, not getByText: the cwd shows twice now —
+    // the header's plain text AND the pill row's copyable cwd
+    // pill (heavy terminal work, 2026-11-13 — the known
+    // triple-display wart, see PillRow.tsx).
+    expect(screen.getAllByText(TAB_CWD).length).toBeGreaterThan(0);
   });
 
   test('the hint bar stays static', async () => {

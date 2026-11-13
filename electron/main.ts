@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
 import { setupFileSystemHandlers } from './ipc/fileSystem';
 import { setupTerminalHandlers } from './ipc/terminal';
+import { setupGitHandlers } from './ipc/git';
 import { setupAIHandlers } from './ipc/ai';
 import { setupSettingsHandlers } from './ipc/settings';
 import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
@@ -10,6 +11,7 @@ import { setupComputerControlHandlers } from './ipc/computerControl';
 import { setupPermissionsHandlers } from './ipc/permissions';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
+import { setupSnapshotHandlers } from './ipc/snapshot';
 import { setupBrowserHandlers } from './ipc/browser';
 import {
   createMiniBrowserWindow,
@@ -17,7 +19,7 @@ import {
 } from './services/browserMiniWindow';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
-import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, stripeApiKeyStorage, totpSecretStorage, settings } from './services/secureStorage';
+import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, stripeApiKeyStorage, kaggleApiKeyStorage, totpSecretStorage, settings } from './services/secureStorage';
 import { verifyTotpCodeAgainstStored } from './services/totpAuth';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
@@ -116,6 +118,7 @@ app.whenReady().then(() => {
   // Setup IPC handlers once
   setupFileSystemHandlers(ipcMain);
   setupTerminalHandlers(ipcMain);
+  setupGitHandlers(ipcMain);
   setupAIHandlers(ipcMain);
   setupSettingsHandlers(ipcMain);
   setupGoogleDriveHandlers(ipcMain);
@@ -125,6 +128,7 @@ app.whenReady().then(() => {
   setupPermissionsHandlers(ipcMain);
   setupDaemonHandlers(ipcMain);
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
+  setupSnapshotHandlers(ipcMain);
   // The in-panel browser needs the window to attach its BrowserViews to.
   setupBrowserHandlers(ipcMain, () => mainWindow, {
     // Downloads (Area 2): Gary can point the browser at a different
@@ -225,6 +229,21 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:deleteStripeApiKey', () => {
     stripeApiKeyStorage.deleteStripeApiKey();
+  });
+
+  // Kaggle API key handlers - the key for the user's own Kaggle
+  // account (created on kaggle.com, Settings -> API), stored
+  // encrypted like the API key, the ping key, the Telegram bot
+  // token and the Stripe key. Bring your own account (Gary,
+  // 2026-11-12): the key belongs to whoever connects it.
+  ipcMain.handle('settings:setKaggleApiKey', (_, key) => {
+    kaggleApiKeyStorage.setKaggleApiKey(key);
+  });
+  ipcMain.handle('settings:hasKaggleApiKey', () => {
+    return kaggleApiKeyStorage.hasKaggleApiKey();
+  });
+  ipcMain.handle('settings:deleteKaggleApiKey', () => {
+    kaggleApiKeyStorage.deleteKaggleApiKey();
   });
 
   // Google Authenticator TOTP secret handlers — the second factor

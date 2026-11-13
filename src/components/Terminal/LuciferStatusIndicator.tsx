@@ -181,6 +181,7 @@ export function LuciferStatusIndicator({
       <Tooltip content={`${statusText} — ${silenceText}`}>
         <button
           type="button"
+          data-testid="blood-drop"
           onClick={onToggleBloodDrop}
           aria-label="Toggle LuciferAI"
           aria-pressed={active}
@@ -211,7 +212,7 @@ export function LuciferStatusIndicator({
 
   return (
     <Tooltip content={statusText}>
-      <span className={`text-xs ${color}`}>{dropGlyph}</span>
+      <span data-testid="blood-drop" className={`text-xs ${color}`}>{dropGlyph}</span>
     </Tooltip>
   );
 }

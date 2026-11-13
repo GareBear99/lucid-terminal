@@ -10,8 +10,19 @@ import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
 import { InputArea } from './InputArea';
-import { BlockList } from './BlockList';
-import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, dropPendingEscape, newBlock } from '../../lib/terminalBlocks';
+import { UnifiedFeed } from './UnifiedFeed';
+import { HintLine } from './HintLine';
+import { PillRow } from './PillRow';
+import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, dropPendingEscape, newBlock, parseOsc133ExitCodes } from '../../lib/terminalBlocks';
+import {
+  useSessionStore,
+  selectActiveSession,
+  selectAgentPromptHistory,
+  PILL_SWITCHES_SESSIONS,
+} from '../../stores/sessionStore';
+import { computeHintLine } from '../../lib/hintLine';
+import { detectAgentPrompt } from '../../lib/agentPromptDetect';
+import { getCachedGitStatus, useGitStatus } from '../../lib/useGitStatus';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
 import { getPromptHintWords } from '../../lib/promptHintWords';
 import type { TerminalBlock } from '../../types';
@@ -178,6 +189,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   const currentBlockIdRef = useRef<string | null>(null);
   const currentBlockClosedRef = useRef(false);
   const blockQuietTimerRef = useRef<number | null>(null);
+  // OSC 133 shell-integration exit codes (see terminalBlocks.ts):
+  // the trailing partial of a sequence split across PTY chunks.
+  const osc133PendingRef = useRef('');
+  // Agent-session composer history index (Up/Down walk the
+  // session's past prompts — separate from the shell devHistory
+  // index, so the two histories never contaminate each other).
+  const agentHistoryIdx = useRef<number | null>(null);
   const prompterActiveRef = useRef(false);
   useEffect(() => {
     prompterActiveRef.current = prompterActive;
@@ -254,6 +272,23 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     currentBlockIdRef.current = block.id;
     currentBlockClosedRef.current = false;
     useHistoryStore.getState().setBlocks(tabId, (prev) => [...prev, block]);
+    // Git state stamped at submit (heavy terminal work, 2026-11-13
+    // — Warp headers carry the branch + counts): fire-and-forget
+    // — the block already exists, the status lands when it
+    // resolves. No repo / no git → no stamp, never faked.
+    if (cwd) {
+      const blockId = block.id;
+      void getCachedGitStatus(cwd).then((gitState) => {
+        if (!gitState) return;
+        useHistoryStore.getState().setBlocks(tabId, (prev) => {
+          const idx = prev.findIndex((b) => b.id === blockId);
+          if (idx === -1 || prev[idx].gitState) return prev;
+          const next = [...prev];
+          next[idx] = { ...prev[idx], gitState };
+          return next;
+        });
+      });
+    }
   };
   // Detached dev-bar input + its own submitted-line history
   // (Up/Down), separate from the shell's history.
@@ -272,6 +307,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // way the first textarea inside the wrapper IS the input, so
   // focusPrompterComposer focuses it through this ref.
   const prompterComposerWrapRef = useRef<HTMLDivElement | null>(null);
+  // The terminal column's root, for the window-level ⌘⏎ / Esc
+  // listener (the xterm-owns-input case): the listener only fires
+  // when focus is inside THIS terminal.
+  const terminalRootRef = useRef<HTMLDivElement | null>(null);
   // The current shell line, as typed — tracked so a slash command
   // can be recognised on Enter. `null` means "unknown": Tab,
   // arrows or reverse-search changed the line in a way this
@@ -329,6 +368,23 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // xterm mounted (F2) but must not run timers (F4): the Lucifer
   // retry and the heartbeat below are gated on this.
   const isActiveTab = useTerminalStore((s) => s.activeTabId === tabId);
+
+  // The session stack (heavy terminal work, 2026-11-13 — Warp's
+  // segregation): the active session is the active agent session,
+  // or the active tab's terminal session when none is active.
+  // Terminal renders the active session's view — the terminal
+  // view for a terminal session, the agent view for an agent
+  // session — but only in the ACTIVE tab's instance (hidden tabs
+  // render their own terminal view).
+  const tabs = useTerminalStore((s) => s.tabs);
+  const activeTabId = useTerminalStore((s) => s.activeTabId);
+  const agentSessions = useSessionStore((s) => s.agentSessions);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const activeSession = useMemo(
+    () => selectActiveSession(tabs, activeTabId, agentSessions, activeSessionId),
+    [tabs, activeTabId, agentSessions, activeSessionId],
+  );
+  const isAgentSession = isActiveTab && activeSession?.kind === 'agent';
 
   // Help panel state
   const [showHelpPanel, setShowHelpPanel] = useState(false);
@@ -460,6 +516,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         useSettingsStore.getState().settings.bellSound,
       );
       lastTerminalData.current = cleaned.slice(-500);
+
+      // OSC 133 shell-integration exit codes (heavy terminal work,
+      // 2026-11-13 — see terminalBlocks.ts): the opt-in script
+      // emits one D sequence per prompt; parse it out of the raw
+      // chunk and stamp the current block. A block that already
+      // closed still takes it (same rule as late output).
+      if (prompterActiveRef.current && currentBlockIdRef.current !== null) {
+        const { codes, pending } = parseOsc133ExitCodes(cleaned, osc133PendingRef.current);
+        osc133PendingRef.current = pending;
+        if (codes.length > 0) {
+          const code = codes[codes.length - 1];
+          updateCurrentBlock((b) => (b.exitCode === code ? b : { ...b, exitCode: code }));
+        }
+      }
 
       // First data from the shell proves it actually spawned — only now is
       // the terminal genuinely ready (App.tsx must not claim readiness
@@ -1095,6 +1165,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // re-renders; devRunning below drives the glow.
     if (composerRunningRef.current) return;
     composerRunningRef.current = true;
+    // Agent sessions (heavy terminal work, 2026-11-13): the
+    // composer is a prompt input, not a shell input — the draft
+    // goes to the agent session as a prompt block. Slash lines
+    // are prompts here too (the agent owns them); Lucid commands
+    // stay in the terminal (esc back). No markTabPrompted (the
+    // tab's ghost-words state is the tab's), no devHistory (the
+    // session's past prompts are its blocks).
+    if (isAgentSession && activeSession) {
+      agentHistoryIdx.current = null;
+      useSessionStore.getState().submitAgentPrompt(activeSession.id, trimmed);
+      setDevInput('');
+      composerRunningRef.current = false;
+      return;
+    }
     // First prompt to this tab — mark it before the submit runs
     // (Gary, 2026-11-13 ~02:02 PST — Warp reference): the ghost
     // words are gone for this tab after its first prompt. Only an
@@ -1143,9 +1227,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // while the prompter is active: the delinked bar below level
   // 3 gets no ghost. Accepting it sets the input to the full
   // suggestion; the InputArea sync moves the cursor to the end.
+  // Agent sessions suggest from their OWN past prompts (reversed
+  // to chronological order — computeGhostSuggestion walks from
+  // the newest), never the shell's devHistory.
   const ghostSuggestion = useMemo(
-    () => (prompterActive ? computeGhostSuggestion(devInput, devHistory) : null),
-    [prompterActive, devInput, devHistory],
+    () => {
+      if (!prompterActive && !isAgentSession) return null;
+      if (isAgentSession && activeSession) {
+        const prompts = selectAgentPromptHistory(
+          useSessionStore.getState().agentBlocksBySession,
+          activeSession.id,
+        );
+        return computeGhostSuggestion(devInput, [...prompts].reverse());
+      }
+      return computeGhostSuggestion(devInput, devHistory);
+    },
+    [prompterActive, isAgentSession, activeSession, devInput, devHistory],
   );
   const acceptGhostSuggestion = useCallback(() => {
     if (ghostSuggestion) setDevInput(ghostSuggestion);
@@ -1167,6 +1264,21 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
 
   // Dev-bar history: Up/Down walk submitted lines, like the shell.
   const devHistoryUp = () => {
+    // Agent sessions walk the session's past prompts (most
+    // recent first), not the shell's devHistory.
+    if (isAgentSession && activeSession) {
+      const prompts = selectAgentPromptHistory(
+        useSessionStore.getState().agentBlocksBySession,
+        activeSession.id,
+      );
+      if (prompts.length === 0) return;
+      const idx = agentHistoryIdx.current === null
+        ? 0
+        : Math.min(prompts.length - 1, agentHistoryIdx.current + 1);
+      agentHistoryIdx.current = idx;
+      setDevInput(prompts[idx]);
+      return;
+    }
     if (devHistory.length === 0) return;
     const idx = devHistoryIdx.current === null
       ? devHistory.length - 1
@@ -1175,6 +1287,24 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     setDevInput(devHistory[idx]);
   };
   const devHistoryDown = () => {
+    // Agent sessions walk back down their past prompts; past the
+    // oldest, the input clears.
+    if (isAgentSession && activeSession) {
+      if (agentHistoryIdx.current === null) return;
+      const prompts = selectAgentPromptHistory(
+        useSessionStore.getState().agentBlocksBySession,
+        activeSession.id,
+      );
+      const idx = agentHistoryIdx.current - 1;
+      if (idx < 0) {
+        agentHistoryIdx.current = null;
+        setDevInput('');
+      } else {
+        agentHistoryIdx.current = idx;
+        setDevInput(prompts[idx]);
+      }
+      return;
+    }
     if (devHistoryIdx.current === null) return;
     const idx = devHistoryIdx.current + 1;
     if (idx >= devHistory.length) {
@@ -1319,6 +1449,64 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     }
   };
 
+  // Hand-off to a new agent conversation (Warp §7 — heavy
+  // terminal work, 2026-11-13): ⌘⏎ from the composer or the
+  // xterm line creates an agent session in the active tab's cwd,
+  // with the current block attached as context (the failed build
+  // the agent would fix) and the draft as its first prompt when
+  // there is one. The composer focuses itself on mount in the
+  // agent view; a tick later it is focused here too (the wrapper
+  // mounts on the re-render).
+  const handoffToAgent = useCallback((draft: string) => {
+    const cwd = useTerminalStore.getState().tabs.find((t) => t.id === tabId)?.cwd;
+    const attachedBlockIds = currentBlockIdRef.current ? [currentBlockIdRef.current] : undefined;
+    const firstPrompt = draft.trim() || undefined;
+    useSessionStore.getState().createAgentSession({ cwd, attachedBlockIds, firstPrompt });
+    // The draft was consumed as the first prompt (or there was
+    // none) — the composer clears, like a submit. The xterm's
+    // shell line is NOT cleared: it stays for the return trip.
+    setDevInput('');
+    setTimeout(() => focusPrompterComposer(), 0);
+  }, [tabId]);
+
+  // ⌘⏎ hand-off + Esc back, window-level (Warp §7 — heavy
+  // terminal work, 2026-11-13): the composer handles these
+  // itself when it owns input (InputArea onHandoff / onEscape);
+  // this listener covers the xterm-owns-input case (below DEFCON
+  // 3, non-devmode), where no composer exists to intercept the
+  // keys. It fires only when focus is inside THIS terminal and
+  // this tab is the visible one — never from Settings, the
+  // Synth, or another tab — and Esc only fires in an agent
+  // session (in a terminal session Esc belongs to the shell:
+  // vim, readline, ...).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isActiveTab) return;
+      const root = terminalRootRef.current;
+      if (!root || !root.contains(document.activeElement)) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (prompterActiveRef.current) return;
+        e.preventDefault();
+        handoffToAgent(lineBuffer.current ?? '');
+        return;
+      }
+      if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const session = selectActiveSession(
+          useTerminalStore.getState().tabs,
+          useTerminalStore.getState().activeTabId,
+          useSessionStore.getState().agentSessions,
+          useSessionStore.getState().activeSessionId,
+        );
+        if (session?.kind === 'agent') {
+          e.preventDefault();
+          useSessionStore.getState().switchToTerminalSession(tabId);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isActiveTab, tabId, handoffToAgent]);
+
   // DEFCON 3 linked composer (Gary, 2026-11-09 ~08:10 PST —
   // "proceed until complete", SAME composer in both modes):
   // ONE InputArea in the prompt section, shared across
@@ -1388,6 +1576,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           onAcceptSuggestion={acceptGhostSuggestion}
           onInterrupt={handleComposerInterrupt}
           onEof={handleComposerEof}
+          onHandoff={() => handoffToAgent(devInput)}
+          onEscape={() => {
+            if (isAgentSession) {
+              useSessionStore.getState().switchToTerminalSession(tabId);
+            }
+          }}
         />
       </div>
     </div>
@@ -1401,10 +1595,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   //   in both modes (Gary, 2026-11-13 ~02:58 PST) — null when
   //   LuciferAI is off (zero residue); the same words when the
   //   drop is grey. Agent words never depend on LuciferAI. The
-  //   MODE is 'terminal'
-  //   until the mode dropdown pill lands and owns it — there is
-  //   no mode state in the code yet (the pill is designed, not
-  //   built), so nothing here invents one.
+  //   MODE is 'agent' in an agent session, 'terminal' otherwise
+  //   (the mode pill owns the session switch — see
+  //   sessionStore.ts, PILL_SWITCHES_SESSIONS).
   // - The words are TRUE-PLACEHOLDER ghost words (Gary,
   //   2026-11-13 ~02:02 PST — Warp reference): they render
   //   INSIDE the composer as an overlay at the caret's origin,
@@ -1439,7 +1632,54 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   //   anywhere in the extendo prompt area focuses it and the
   //   caret appears), and handlePromptSectionClick below is
   //   unchanged.
-  const hintWords = getPromptHintWords('terminal', luciferAiEnabled, luciferAiSilenced);
+  // The composer is the input at DEFCON 3+ (the prompter) AND in
+  // agent sessions at any level (an agent session has no xterm —
+  // the composer IS its input). Everything below that used to
+  // key on prompterActive alone reads composerIsInput instead.
+  const composerIsInput = prompterActive || isAgentSession;
+  // The agent session's blocks (its first-prompt state for the
+  // ghost words, and its past prompts for Up/Down).
+  const agentBlocksBySession = useSessionStore((s) => s.agentBlocksBySession);
+  const agentBlocks = activeSession?.kind === 'agent'
+    ? agentBlocksBySession[activeSession.id] ?? EMPTY_BLOCKS
+    : EMPTY_BLOCKS;
+  // The live git state for the pill row (and the block stamps):
+  // the active session's cwd (terminal: the tab's live cwd;
+  // agent: the cwd the conversation started in).
+  const activeCwd = isAgentSession ? activeSession?.cwd : tabCwd;
+  const gitStatus = useGitStatus(activeCwd);
+  // The mode pill (Option A — see sessionStore.ts): switch
+  // sessions. Terminal ↔ Agent moves between the most recent
+  // session of each kind, creating an agent session when none
+  // exists. The composer is focused a tick later (the wrapper
+  // mounts on the re-render when the session kind flips).
+  const handleModePill = () => {
+    if (!PILL_SWITCHES_SESSIONS) return;
+    const sessionState = useSessionStore.getState();
+    if (activeSession?.kind === 'agent') {
+      sessionState.switchToTerminalSession(tabId);
+    } else {
+      const recent = sessionState.agentSessions[sessionState.agentSessions.length - 1];
+      if (recent) sessionState.switchToAgentSession(recent.id);
+      else sessionState.createAgentSession({ cwd: tabCwd });
+    }
+    setTimeout(() => focusPrompterComposer(), 0);
+  };
+  // The hint line (Warp §5): what the next keystroke does, for
+  // this session and this draft. The auto-detection verdict is
+  // recomputed with the draft — suggest-only, never a route.
+  const agentPromptDetected = useMemo(
+    () => detectAgentPrompt(devInput).isPrompt,
+    [devInput],
+  );
+  const hintLineText = computeHintLine({
+    sessionKind: isAgentSession ? 'agent' : 'terminal',
+    prompterActive,
+    devMode,
+    draft: devInput.trim(),
+    agentPromptDetected,
+  });
+  const hintWords = getPromptHintWords(isAgentSession ? 'agent' : 'terminal', luciferAiEnabled, luciferAiSilenced);
   const composerHasInput = devInput.length > 0;
   // Whether the true-placeholder ghost words show in the
   // composer (Gary, 2026-11-13 ~02:02 PST — Warp reference):
@@ -1447,8 +1687,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // input empty, and this tab has not had its first prompt
   // yet. The dev bar and below-DEFCON-3 rows keep the static
   // hint span instead (see below) — they never get the overlay.
+  // Agent sessions: gone after the session's first prompt — its
+  // blocks, not the tab's hasPrompted.
+  const sessionHasPrompted = isAgentSession ? agentBlocks.length > 0 : hasPrompted;
   const composerHintPlaceholder =
-    !devMode && prompterActive && hintWords !== null && !composerHasInput && !hasPrompted
+    !devMode && composerIsInput && hintWords !== null && !composerHasInput && !sessionHasPrompted
       ? hintWords
       : null;
 
@@ -1470,7 +1713,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           layer — the darkening blur sits on this root, edge to
           edge, and the terminal box below is gone entirely. At
           DEFCON 1 the black stays exactly as it was. */}
-      <div data-testid="terminal-page" className={`h-full w-full flex overflow-hidden${defconMerge ? ' bg-black/25 backdrop-blur-sm' : devMode ? '' : ' bg-black'}`}>
+      <div data-testid="terminal-page" ref={terminalRootRef} className={`h-full w-full flex overflow-hidden${defconMerge ? ' bg-black/25 backdrop-blur-sm' : devMode ? '' : ' bg-black'}`}>
         {/* Terminal Content (the chats live in the main Sidebar now).
             Non-devmode: the page root above is opaque black, so this
             stays transparent — the black is the page, not a panel. */}
@@ -1567,9 +1810,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               xterm surface below is unmounted, so output
               appears exactly once; see the duplication decision
               in BlockList.tsx). In devmode it stays the capped
-              panel above the live xterm. */}
-          {prompterActive && (
-            <BlockList tabId={tabId} onReinput={(command) => setDevInput(command)} fill={!devMode} />
+              panel above the live xterm.
+              Heavy terminal work (2026-11-13 — the unified
+              feed): agent sessions render the same list at any
+              level (UnifiedFeed — one list, one block model, for
+              both session kinds). An agent session has no xterm,
+              so the list is its feed in both modes. */}
+          {(prompterActive || isAgentSession) && (
+            <UnifiedFeed session={activeSession} tabId={tabId} onReinput={(command) => setDevInput(command)} fill={!devMode || isAgentSession} />
           )}
 
           {/* DEFCON 3 Phase 5 — the xterm surface is UNMOUNTED
@@ -1584,8 +1832,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               surface stays: the war zone keeps the raw stream
               visible, duplication and all (documented devmode
               state, not the settle). Below 3 in non-devmode
-              this is exactly today's surface. */}
-          {!(prompterActive && !devMode) && (
+              this is exactly today's surface. Agent sessions
+              unmount it too, at any level — they have no PTY. */}
+          {!((prompterActive || isAgentSession) && !devMode) && (
           <div className="flex-1 overflow-hidden p-4">
             <div data-testid="prompt-input-wrap"
                  className={defconMerge
@@ -1654,9 +1903,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 a static note instead of the live cwd — the detached
                 bar never reads the terminal's cwd. DEFCON 3: the
                 bar is LINKED (the prompter), so the badge says so
-                and the live cwd shows again. */}
+                and the live cwd shows again. Agent sessions: the
+                header says Agent + the session title + its cwd. */}
             <div className="flex items-center gap-2 px-5 pt-3" data-testid="prompt-section-header">
-              {devMode ? (
+              {isAgentSession ? (
+                <>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Agent</span>
+                  <span className="truncate text-[11px] text-[var(--text-muted)] opacity-70" title={activeSession?.title}>
+                    {activeSession?.title}
+                  </span>
+                  {activeCwd && (
+                    <span data-testid="cwd-chip" className="ml-auto shrink-0 truncate rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)]/50 px-2 py-px font-mono text-[11px] text-[var(--text-secondary)]" title={activeCwd}>
+                      {activeCwd}
+                    </span>
+                  )}
+                </>
+              ) : devMode ? (
                 <>
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Terminal</span>
                   {prompterActive ? (
@@ -1722,8 +1984,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
 
               {/* The STATIC hint words (Gary, 2026-11-12 ~10:00–
                   10:13 PST): this span is the static hint now —
-                  it shows ONLY below DEFCON 3 / in devmode, where
-                  this row is the hint and the input lives
+                  it shows ONLY below DEFCON 3 / in devmode (never
+                  in agent sessions — the overlay shows there),
+                  where this row is the hint and the input lives
                   elsewhere (the xterm above / the dev bar below).
                   At DEFCON 3+ in non-devmode the words do NOT live
                   here anymore: they render INSIDE the composer as
@@ -1739,7 +2002,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   is future design). No dropped-behind span: the
                   ~10:00 rule (words drop behind the cursor,
                   faded, after you type) is gone since ~15:12 PST. */}
-              {hintWords !== null && (!prompterActive || devMode) && (
+              {hintWords !== null && (!composerIsInput || devMode) && (
                 // pointer-events-none (Gary, 2026-11-12 — the
                 // prompt-row click fix): the words are a label,
                 // not a target — a click on them lands on the
@@ -1769,7 +2032,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                   clicking anywhere in the extendo prompt area
                   focuses it and the caret appears (Gary,
                   2026-11-12 ~10:17–10:18 PST). */}
-              {!devMode && prompterActive && (
+              {!devMode && composerIsInput && (
                 <div className="min-w-0 flex-1" data-testid="prompter-composer-wrap" ref={prompterComposerWrapRef}>
                   {renderPrompterComposer(composerHintPlaceholder)}
                 </div>
@@ -1823,6 +2086,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 </Tooltip>
               )}
             </div>
+            {/* The hint line + the pill row (heavy terminal work,
+                2026-11-13 — Warp §5/§4): the hint line teaches the
+                next keystroke; the pill row is the mode pill, the
+                driving-agent pill, the cwd / branch / counts pills
+                and the version pill. Both live in the prompt
+                section, below the input row. */}
+            <HintLine text={hintLineText} />
+            <PillRow
+              sessionKind={isAgentSession ? 'agent' : 'terminal'}
+              sessionTitle={activeSession?.title ?? ''}
+              cwd={activeCwd}
+              gitStatus={gitStatus}
+              onModePill={handleModePill}
+            />
             {/* The non-devmode composer no longer sits below this
                 row — it lives IN the row now (see the
                 prompter-composer-wrap above): one line holds the
@@ -1907,7 +2184,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     LuciferAI is on, the squared bottom-drop
                     section. The rainbow glow still shows either way
                     (platform trait). */}
-                {prompterActive ? renderPrompterComposer(null) : luciferAiEnabled ? (
+                {composerIsInput ? renderPrompterComposer(null) : luciferAiEnabled ? (
                   <div className="rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50">
                     <InputArea
                       input={devInput}
@@ -1917,6 +2194,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                       onHistoryDown={devHistoryDown}
                       isProcessing={devRunning}
                       flat={false}
+                      onHandoff={() => handoffToAgent(devInput)}
                     />
                   </div>
                 ) : (
@@ -1980,6 +2258,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                         onHistoryDown={devHistoryDown}
                         isProcessing={devRunning}
                         flat={true}
+                        onHandoff={() => handoffToAgent(devInput)}
                       />
                     </div>
                   </div>
@@ -1997,8 +2276,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                     LuciferAI states, so at DEFCON 3+ the console
                     does not render at all. Below 3 it stays
                     exactly as it was — the delinked bar's own
-                    output, ON only. */}
-                {luciferAiEnabled && !prompterActive && (
+                    output, ON only. Agent sessions hide it too —
+                    the session's feed is the console. */}
+                {luciferAiEnabled && !prompterActive && !isAgentSession && (
                   <div data-testid="dev-console" className="mt-2 rounded-none border border-[var(--border)] bg-black/30">
                     <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5">
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Dev console — detached output</span>

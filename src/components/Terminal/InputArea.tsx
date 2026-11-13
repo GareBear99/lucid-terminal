@@ -104,9 +104,19 @@ interface InputAreaProps {
     onInterrupt?: () => void;
     /** Ctrl+D (EOF) — same forwarding as onInterrupt. */
     onEof?: () => void;
+    /** ⌘⏎ / Ctrl+⏎ hand-off (heavy terminal work, 2026-11-13):
+     *  send the draft to a new agent conversation (Warp §7).
+     *  Passed by the linked composer and the dev bar; the
+     *  handler lives in Terminal (it owns the session switch). */
+    onHandoff?: () => void;
+    /** Esc in an agent session (heavy terminal work, 2026-11-13):
+     *  back to the terminal session. Passed by the linked
+     *  composer only; in a terminal session Esc belongs to the
+     *  shell and is never intercepted. */
+    onEscape?: () => void;
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, hintPlaceholder = null, onAcceptSuggestion, onInterrupt, onEof }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, hintPlaceholder = null, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape }: InputAreaProps) {
   const editorRef = useRef<any>(null);
   // The ghost remainder (the part after what is typed) — the
   // overlay renders this faded after the input text. Null when
@@ -120,8 +130,8 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
   // Monaco registers its keybindings once, at mount — but the
   // ghost and the handlers change every keystroke. The ref
   // keeps the mounted handlers reading the latest values.
-  const latestRef = useRef({ ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof });
-  latestRef.current = { ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof };
+  const latestRef = useRef({ ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape });
+  latestRef.current = { ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape };
   // True-placeholder ghost words (Gary, 2026-11-13 ~02:02 PST):
   // the overlay shows only while the input is empty — the
   // parent also gates it on the tab's first prompt and the
@@ -348,6 +358,28 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                 }
             );
         }
+        //   ⌘⏎ — hand-off to a new agent conversation (Warp §7).
+        //   CtrlCmd is Cmd on macOS (the hand-off chord) and Ctrl
+        //   elsewhere. Monaco has no default here, so the command
+        //   only fires when the parent passed a handler.
+        if (onHandoff) {
+            editor.addCommand(
+                monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+                () => {
+                    latestRef.current.onHandoff?.();
+                }
+            );
+        }
+        //   Esc — back to the terminal session, agent sessions
+        //   only. Monaco has no default here either.
+        if (onEscape) {
+            editor.addCommand(
+                monaco.KeyCode.Escape,
+                () => {
+                    latestRef.current.onEscape?.();
+                }
+            );
+        }
         //   Right-arrow — accepts the ghost ONLY when the
         // cursor is at the end of the input. onKeyDown, not
         // addCommand: when there is no ghost (or the cursor
@@ -422,6 +454,19 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         if (e.ctrlKey && !e.metaKey && (e.key === 'd' || e.key === 'D')) {
             e.preventDefault();
             onEof?.();
+            return;
+        }
+        // ⌘⏎ / Ctrl+⏎: hand-off to a new agent conversation.
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            onHandoff?.();
+            return;
+        }
+        // Esc: back to the terminal session (agent sessions only
+        // — the parent passes onEscape only then).
+        if (e.key === 'Escape' && onEscape) {
+            e.preventDefault();
+            onEscape();
             return;
         }
         // Tab: accepts the ghost suggestion when one is shown;

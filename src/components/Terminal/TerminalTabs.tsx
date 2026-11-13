@@ -1,6 +1,10 @@
-import { useRef, useState } from 'react';
-import { Plus, X, Terminal, Bell } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus, X, Terminal, Bell, Sparkles } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
+import {
+  useSessionStore,
+  type TerminalSession,
+} from '../../stores/sessionStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
 import type { Notification } from './ErrorNotification';
@@ -58,6 +62,22 @@ export interface TerminalTabsViewProps {
   onToggleNotifications: () => void;
   onDismissNotification: (id: string) => void;
   onClearAllNotifications: () => void;
+  /**
+   * Agent sessions in the stack (heavy terminal work, 2026-11-13
+   * — Warp's sessions stack in a visible list; Lucid's strip
+   * showed terminal tabs only). Optional so existing callers
+   * render the plain strip unchanged. Terminal sessions are the
+   * `tabs` above; these are agent sessions only, rendered after
+   * the tabs, newest last.
+   */
+  sessions?: TerminalSession[];
+  /** The active agent session id (null = the active tab's
+   *  terminal session). */
+  activeSessionId?: string | null;
+  /** Select an agent session. */
+  onSelectSession?: (id: string) => void;
+  /** Close an agent session. */
+  onCloseSession?: (id: string) => void;
 }
 
 export function TerminalTabsView({
@@ -76,6 +96,10 @@ export function TerminalTabsView({
   onToggleNotifications,
   onDismissNotification,
   onClearAllNotifications,
+  sessions = [],
+  activeSessionId = null,
+  onSelectSession,
+  onCloseSession,
 }: TerminalTabsViewProps) {
   const unread = unreadCount(notifications);
   const hasUnreadError = notifications.some((n) => !n.read && n.type === 'error');
@@ -196,6 +220,40 @@ export function TerminalTabsView({
           </div>
         ))}
 
+        {/* Agent sessions (heavy terminal work, 2026-11-13):
+            the stack is tabs then agent sessions, newest last
+            (Warp-style). Same strip, same shape as a tab, with
+            the Sparkles mark and the stack number (⌘N) so the
+            ⌘1–⌘9 switch keys are discoverable. Clicking
+            one switches to it; the X closes it (and its blocks).
+            */}
+        {sessions.map((session, index) => (
+          <div
+            key={session.id}
+            data-testid={`session-tab-${session.id}`}
+            className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] cursor-pointer transition-colors ${
+              session.id === activeSessionId
+                ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
+            }`}
+            onClick={() => onSelectSession?.(session.id)}
+          >
+            <Sparkles size={14} />
+            <span className="text-sm whitespace-nowrap">{session.title}</span>
+            <span className="text-[10px] text-[var(--text-muted)] opacity-70">⌘{tabs.length + index + 1}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseSession?.(session.id);
+              }}
+              aria-label={`Close ${session.title}`}
+              className="p-0.5 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+
         {/* New Tab Button — directly after the last tab */}
         <button
           onClick={onCreateTab}
@@ -294,10 +352,39 @@ interface TerminalTabsProps {
 }
 
 function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange, bloodDropDisabled = false }: TerminalTabsProps) {
-  const { tabs, activeTabId, createTab, closeTab, setActiveTab, updateTabTitle } =
+  const { tabs, activeTabId, createTab, closeTab, updateTabTitle } =
     useTerminalStore();
+  const { agentSessions, activeSessionId, switchToAgentSession, switchToTerminalSession, closeAgentSession } =
+    useSessionStore();
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  // ⌘1–⌘9 switch sessions (Warp §7): the stack order is tabs
+  // then agent sessions. Skipped when focus is in a text field
+  // that is not a composer (renaming a tab, Settings, ...) —
+  // the composer is the one text field the switch works from,
+  // because Warp switches from the prompt too.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > 9) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName;
+        const inComposer = active.closest?.('[data-testid="prompter-composer-wrap"], [data-testid="dev-command-bar"]');
+        if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) && !inComposer) return;
+      }
+      const stack = [...tabs.map((t) => ({ id: t.id, kind: 'terminal' as const })), ...agentSessions.map((s) => ({ id: s.id, kind: 'agent' as const }))];
+      const target = stack[n - 1];
+      if (!target) return;
+      e.preventDefault();
+      if (target.kind === 'agent') switchToAgentSession(target.id);
+      else switchToTerminalSession(target.id);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [tabs, agentSessions, switchToAgentSession, switchToTerminalSession]);
 
   const toggleNotifications = () => {
     if (!notificationsOpen) markAllRead();
@@ -321,12 +408,24 @@ function TerminalTabs({ showBloodDrop = false, bloodDropActive = false, onBloodD
       onCloseTab={closeTab}
       onRenameTab={updateTabTitle}
       onSelectTab={(id) => {
-        setActiveTab(id);
+        // The tab click must leave the agent session, not just move
+        // the terminal tab: switchToTerminalSession sets the tab
+        // active AND clears the agent session (same as the mode
+        // pill, Esc, and the ⌘1-⌘9 path). Plain setActiveTab left
+        // the strip and the content disagreeing - the strip showed
+        // Terminal 1 while the feed, header, pill row, and hint
+        // line stayed on the agent session (found live 2026-11-13
+        // ~05:00 PST, terminal-wave deploy).
+        switchToTerminalSession(id);
         onBloodDropActiveChange?.(false);
       }}
       onToggleNotifications={toggleNotifications}
       onDismissNotification={removeNotification}
       onClearAllNotifications={clearAll}
+      sessions={agentSessions}
+      activeSessionId={activeSessionId}
+      onSelectSession={switchToAgentSession}
+      onCloseSession={closeAgentSession}
     />
   );
 }

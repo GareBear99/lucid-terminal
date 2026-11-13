@@ -25,9 +25,18 @@ import type {
   StartRunParams,
 } from '../lib/llmbuilderApi';
 import type {
+  CreatorBuild,
   SynthDisclaimerChoice,
   SynthVersion,
 } from '../lib/synthDisclaimer';
+import type { SnapshotManifest } from '../lib/snapshotUpdate';
+import type { RawGitStatus } from '../lib/gitStatus';
+import type {
+  SnapshotDownloadProgress,
+  SnapshotDownloadResult,
+  SnapshotManifestFetchWire,
+  SnapshotStatusResult,
+} from '../lib/snapshotFetch';
 
 export interface FileEntry {
   name: string;
@@ -139,10 +148,31 @@ export interface TerminalTab {
   title: string;
   cwd: string;
   isActive: boolean;
+  /** True once the first prompt has been sent to this tab through
+   *  the linked composer (Gary, 2026-11-13 ~02:02 PST — Warp
+   *  reference: after the first prompt to a tab, the ghost words
+   *  are gone for that tab). Per tab, never global; new tabs
+   *  start false. Optional so older tab literals stay valid. */
+  hasPrompted?: boolean;
 }
 
 // Import plugin types for validation and token tracking
 import type { ValidationStep, TokenStats } from './plugin';
+
+/** Git state for a cwd (heavy terminal work, 2026-11-13): the
+ *  branch + change counts Warp's block headers carry. `ahead` /
+ *  `behind` are 0 when there is no upstream. */
+export interface GitStatus {
+  branch: string;
+  ahead: number;
+  behind: number;
+  /** Files with any change (staged, unstaged, untracked). */
+  changedFiles: number;
+  /** Added lines across staged + unstaged diffs. */
+  addedLines: number;
+  /** Deleted lines across staged + unstaged diffs. */
+  deletedLines: number;
+}
 
 export interface TerminalBlock {
   id: string;
@@ -152,6 +182,19 @@ export interface TerminalBlock {
   isComplete: boolean;
   cwd?: string;
   exitCode?: number;
+  /** Which kind of block this is (heavy terminal work, 2026-11-13):
+   *  'command' is a composer-submitted shell command (the default —
+   *  existing blocks carry no kind and read as commands);
+   *  'agent-prompt' / 'agent-response' are the two halves of an
+   *  agent-session turn; 'notice' is a plain note block (e.g. the
+   *  driving-intelligence placeholder in an agent session). The
+   *  feed renders all kinds in one list. */
+  kind?: 'command' | 'agent-prompt' | 'agent-response' | 'notice';
+  /** Git state stamped at submit (heavy terminal work, 2026-11-13):
+   *  the cwd's branch + change counts as the block ran. Undefined
+   *  when the cwd is not a git repo or the lookup failed — never
+   *  faked, never guessed. */
+  gitState?: GitStatus;
   /** DEFCON 3 Phase 2 (Gary, 2026-11-09): how long the block
    *  ran, submit → close (next-prompt detection, see
    *  src/lib/terminalBlocks.ts). Undefined while the block is
@@ -322,6 +365,23 @@ export interface Settings {
   // build yet. null = no version recorded (choice predates the
   // drop-down, or explore was chosen): Iteration 8 is the fallback.
   synthVersion: SynthVersion | null;
+  // Own build (Iteration 8, the creator builder) — the saved build
+  // from the creator builder: version + seed + face colour + choice
+  // (see src/lib/synthDisclaimer.ts, CreatorBuild). null = no own
+  // build created yet: the builder shows instead of a summary.
+  // Missing keys in older persisted settings count as none.
+  synthOwnBuild: CreatorBuild | null;
+  // Demo permanently replaced (Gary, 2026-11-12 ~12:23 PST): true
+  // once the creation build (Iteration 8) exists and is mounted —
+  // the demo is gone for good, one-way, not a toggle back and
+  // forth. This is the Voxel Directory gate: the directory only
+  // exists once this is true (and a creation is saved). It becomes
+  // per-profile when profiles land (splashscreen → profile →
+  // splashscreen → Lucid); until then it is the single implicit
+  // profile's flag. A profile wipe sets it back to false (the synth
+  // goes back to demo). Missing keys in older persisted settings
+  // count as false (demo still there).
+  synthDemoReplaced: boolean;
   // LuciferAI plugin enabled state. Default OFF (false) — see
   // src/lib/luciferAi.ts, the one source of truth: when false the
   // plugin is completely gone — blood drop, heartbeat, Help,
@@ -341,6 +401,17 @@ export interface Settings {
   // older persisted settings count as no choice / ask every time.
   summonVariant: SummonVariant | null;
   summonVariantDontAsk: boolean;
+  // Voxel Directory local file access (Gary, 2026-11-12 ~10:45 PST):
+  // the "do not show again" memory for the Local-tab access ask.
+  // The ask runs every time you go to the Local tab until this is
+  // true; then the Local tab shows without asking. This is the
+  // REMEMBERED grant. The per-entry grant lives in the synth store
+  // (localAccessSessionGranted) and lapses when the overlay closes.
+  // The effective grant is remembered OR session — one source of
+  // truth, read through useVoxelLocalAccessGranted (see
+  // src/stores/synthStore.ts), never per-segment copies. Missing
+  // keys in older persisted settings count as false (ask every time).
+  voxelLocalAccessDontAsk: boolean;
   // Snapshot update alert dismissals (Gary, 2026-11-09 ~14:51 PST):
   // when training is done and a new snapshot is published,
   // everyone's next pull is different and the new snapshot is
@@ -355,8 +426,7 @@ export interface Settings {
   snapshotAlertDismissedVersions: string[];
   // Installed snapshot identity (Gary, 2026-11-09 ~14:51 PST):
   // the version + SHA-256 of the snapshot on this machine.
-  // null = no snapshot installed (no model trained yet — the
-  // honest state today). Written by the snapshot install path
+  // null = no snapshot installed yet (first install). Written by the snapshot install path
   // when it lands; read by the Security tab and by the update
   // check (src/lib/snapshotUpdate.ts). The hash IS the identity:
   // the manifest check compares version AND hash.
@@ -550,6 +620,20 @@ export interface Settings {
   // full secret key also works.
   stripeAccountId: string;
   stripeAccountName: string;
+  /** Kaggle segment (Gary, 2026-11-12): the username of the
+   *  user's Kaggle account, captured when the API key is
+   *  verified with a real GET /api/v1/competitions/list call.
+   *  A public identifier, not a secret — the key itself is
+   *  stored encrypted in secureStorage (kaggle-api-key) and
+   *  never lives in Settings. The username is the account;
+   *  Kaggle's API has no separate account id in this call. */
+  kaggleUsername: string;
+  /** Colab segment (Gary, 2026-11-12): the Google account the
+   *  user's Colab runs under, captured when Colab is linked
+   *  from the Google sign-in already in this tab. Colab has no
+   *  API key — it is a Google account + an interactive Drive
+   *  mount — so this is the account, not a credential. */
+  colabAccountEmail: string;
 }
 
 /** SP balance for the Lucid ping server (Cloudflare Worker).
@@ -981,11 +1065,15 @@ declare global {
         getCwd: (id: string) => Promise<string>;
         executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
       };
+      git: {
+        getStatus: (cwd: string) => Promise<RawGitStatus | null>;
+      };
       ai: {
         chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;
         onStream: (callback: (chunk: string) => void) => () => void;
         onStreamEnd: (callback: (quota?: PingQuota) => void) => () => void;
         onStreamError: (callback: (error: string) => void) => () => void;
+        onSnapshotHit: (callback: (hit: { packetId: string | null; version: string }) => void) => () => void;
 
         cancelStream: () => void;
         hasApiKey: () => Promise<boolean>;
@@ -1145,6 +1233,9 @@ declare global {
         setStripeApiKey: (key: string) => Promise<void>;
         hasStripeApiKey: () => Promise<boolean>;
         deleteStripeApiKey: () => Promise<void>;
+        setKaggleApiKey: (key: string) => Promise<void>;
+        hasKaggleApiKey: () => Promise<boolean>;
+        deleteKaggleApiKey: () => Promise<void>;
         setTotpSecret: (secret: string) => Promise<void>;
         hasTotpSecret: () => Promise<boolean>;
         deleteTotpSecret: () => Promise<void>;
@@ -1224,6 +1315,21 @@ declare global {
         ) => Promise<BrainAnswer | null>;
         onProgress: (
           callback: (event: LlmbuilderProgressEvent) => void,
+        ) => () => void;
+      };
+      // Snapshot manifest fetch + download (Gary, 2026-11-12
+      // ~08:22 PST): the manifest is fetched in the main
+      // process (the renderer's CSP does not allow github.io);
+      // the GGUF downloads there too, hash-verified before
+      // any swap.
+      snapshot: {
+        fetchManifest: () => Promise<SnapshotManifestFetchWire>;
+        download: (
+          manifest: SnapshotManifest,
+        ) => Promise<SnapshotDownloadResult>;
+        getStatus: () => Promise<SnapshotStatusResult>;
+        onDownloadProgress: (
+          callback: (progress: SnapshotDownloadProgress) => void,
         ) => () => void;
       };
     };

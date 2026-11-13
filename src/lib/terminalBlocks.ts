@@ -71,6 +71,23 @@
  * (`prompterActive`). Xterm-typed submits and the delinked
  * dev bar below level 3 create NO blocks — the old paths are
  * untouched.
+ *
+ * EXIT CODES — CAPTURED VIA OPT-IN SHELL INTEGRATION (heavy
+ * terminal work, 2026-11-13). The Phase 2/3 deferral above
+ * still stands for the DEFAULT case: Lucid never touches the
+ * user's shell config, never wraps commands, never reads `$?`
+ * as a command. What changed is the mechanism: an OPT-IN
+ * integration script (scripts/lucid-shell-integration.sh) that
+ * the user sources by hand emits one OSC 133 `D` sequence per
+ * prompt (the exit code of the command just run), and the
+ * renderer parses it out of the PTY stream
+ * (parseOsc133ExitCodes below) before the sanitizer strips the
+ * sequence. Without the script installed, no sequence ever
+ * arrives and `exitCode` stays unwritten — never faked, never
+ * guessed. The sequence uses the ST terminator (`ESC \`), not
+ * BEL: the bell processor strips BEL from every PTY chunk, so
+ * a BEL-terminated sequence would arrive with its terminator
+ * eaten. The parser accepts both terminators anyway.
  */
 
 import type { TerminalBlock } from '../types';
@@ -314,6 +331,33 @@ export function appendBlockOutput(
 export function closeBlock(block: TerminalBlock, now: number): TerminalBlock {
   if (block.isComplete) return block;
   return { ...block, isComplete: true, durationMs: Math.max(0, now - block.timestamp) };
+}
+
+/** OSC 133 shell-integration exit codes (see the header note).
+ *  A complete sequence is `ESC ] 133 ; D ; <code> <terminator>`
+ *  where the terminator is ST (`ESC \`) or BEL (`\x07`). The
+ *  parser is streaming: a sequence split across PTY chunks is
+ *  completed from `pending` (the trailing partial from the
+ *  previous chunk), and a trailing partial is returned as the
+ *  new `pending` — never dropped, never treated as output.
+ *  Codes are returned in arrival order; the caller stamps the
+ *  last one on the current block. */
+const OSC133_D_RE = /\x1b\]133;D;(-?\d+)(?:\x07|\x1b\\)/g;
+const OSC133_D_PARTIAL_RE = /\x1b\]133;D;[^\x07\x1b]*$/;
+
+export function parseOsc133ExitCodes(
+  chunk: string,
+  pending: string,
+): { codes: number[]; pending: string } {
+  const text = pending + chunk;
+  const codes: number[] = [];
+  OSC133_D_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = OSC133_D_RE.exec(text)) !== null) {
+    codes.push(Number(m[1]));
+  }
+  const partial = OSC133_D_PARTIAL_RE.exec(text);
+  return { codes, pending: partial ? partial[0] : '' };
 }
 
 /** A duration for the header: milliseconds under a second,

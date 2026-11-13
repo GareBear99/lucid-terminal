@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { EMPTY_BLOCKS, useHistoryStore } from '../../stores/historyStore';
 import { copyText, formatBlockDuration } from '../../lib/terminalBlocks';
+import { formatGitBranch, formatGitCounts } from '../../lib/gitStatus';
+import type { TerminalBlock } from '../../types';
 
 /** How close to the bottom the feed must be to count as "pinned"
  *  there (and keep following new content) — px. */
@@ -83,16 +85,29 @@ interface BlockListProps {
    *  transparent per the DEFCON 2 merge. Default (devmode):
    *  the capped panel above the live xterm. */
   fill?: boolean;
+  /** The unified feed (heavy terminal work, 2026-11-13): when
+   *  provided, these blocks render instead of the tab's live
+   *  transcript — the same list, the same scroll behaviour, for
+   *  any session kind (terminal or agent). When omitted, the
+   *  tab's blocks read from historyStore as before. */
+  blocks?: TerminalBlock[];
+  /** Empty-state content for a `fill` feed with no blocks (the
+   *  agent intro card). Renders inside the fill container, so
+   *  the prompt stays bottom-pinned. */
+  emptyState?: React.ReactNode;
 }
 
-export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
+export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, emptyState }: BlockListProps) {
   // The feed is the LIVE session's transcript: restored blocks (last
   // session's record — see historyStore) never render here. Showing
   // them would present commands this shell never ran as if they ran
   // now. They still show in the History panel, which is the record.
-  const blocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS).filter(
+  const storeBlocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS).filter(
     (b) => !b.restored,
   );
+  // The unified feed: an explicit list wins (agent sessions),
+  // otherwise the tab's live transcript (terminal sessions).
+  const blocks = blocksProp ?? storeBlocks;
   const [copied, setCopied] = useState<string | null>(null);
 
   // Feed ordering — newest closest to the prompt, like Warp (Gary,
@@ -152,7 +167,9 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
         <div
           data-testid="terminal-blocks"
           className="mx-4 mb-4 mt-4 min-h-0 flex-1 overflow-y-auto rounded-none border-0 bg-transparent"
-        />
+        >
+          {emptyState ?? null}
+        </div>
       );
     }
     return null;
@@ -187,20 +204,45 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
           {index > 0 && (
             <div data-testid="block-divider" className="border-t border-[var(--border)]" aria-hidden="true" />
           )}
+          {/* A notice block is a plain note (the driving-
+              intelligence placeholder in an agent session): no
+              header, no actions — just the text, muted. */}
+          {block.kind === 'notice' ? (
+            <article
+              data-testid="terminal-block"
+              data-block-kind="notice"
+              id={`block-${block.id}`}
+              className="px-3 py-2"
+            >
+              <p className="font-mono text-[12px] leading-[1.5] text-[var(--text-muted)]">
+                {block.output}
+              </p>
+            </article>
+          ) : (
           <article
             data-testid="terminal-block"
+            data-block-kind={block.kind ?? 'command'}
             id={`block-${block.id}`}
             className="px-3 py-2"
           >
-            {/* Header: command + cwd + duration. The cwd is the
-                live cwd stamped at submit; the duration is
-                submit → close (absent while RUNNING). */}
+            {/* Header: command + cwd + duration + exit code + git
+                state. The cwd is the live cwd stamped at submit;
+                the duration is submit → close (absent while
+                RUNNING). The exit code shows only when the
+                opt-in shell integration captured one (see
+                terminalBlocks.ts) — never faked. The git state
+                shows only when the submit-time lookup found a
+                repo. Agent blocks read AGENT, not CMD. */}
             <div
               data-testid="block-header"
               className="flex items-center gap-2 overflow-hidden font-mono text-[11px] text-[var(--text-secondary)]"
             >
               <span className="shrink-0 font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                {block.isComplete ? 'CMD' : 'RUNNING'}
+                {block.kind === 'agent-prompt' || block.kind === 'agent-response'
+                  ? 'AGENT'
+                  : block.isComplete
+                    ? 'CMD'
+                    : 'RUNNING'}
               </span>
               <span className="truncate font-semibold text-[var(--text-primary)]" title={block.command}>
                 {block.command}
@@ -215,6 +257,24 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
                   {formatBlockDuration(block.durationMs)}
                 </span>
               ) : null}
+              {block.exitCode !== undefined && (
+                <span
+                  data-testid="block-exit-code"
+                  title={`Exit code ${block.exitCode}`}
+                  className={`shrink-0 font-semibold ${block.exitCode === 0 ? 'text-[var(--text-muted)]' : 'text-red-400'}`}
+                >
+                  exit {block.exitCode}
+                </span>
+              )}
+              {block.gitState && (
+                <span
+                  data-testid="block-git-state"
+                  title={`${block.gitState.branch} — ${block.gitState.changedFiles} files changed, +${block.gitState.addedLines} -${block.gitState.deletedLines}`}
+                  className="shrink-0 truncate opacity-80"
+                >
+                  {formatGitBranch(block.gitState)} · {formatGitCounts(block.gitState)}
+                </span>
+              )}
               <span className="shrink-0 opacity-70">
                 {new Date(block.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
@@ -260,6 +320,7 @@ export function BlockList({ tabId, onReinput, fill = false }: BlockListProps) {
               </button>
             </div>
           </article>
+          )}
         </div>
       ))}
       </div>

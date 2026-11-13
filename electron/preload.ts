@@ -8,6 +8,13 @@ import type {
 } from '../src/phone/streaming';
 import type { PingQuota, PingServerStatus } from '../src/types';
 import type { BrowserAgentStateSnapshot } from '../src/lib/browserAgent';
+import type { SnapshotManifest } from '../src/lib/snapshotUpdate';
+import type {
+  SnapshotDownloadProgress,
+  SnapshotDownloadResult,
+  SnapshotManifestFetchWire,
+  SnapshotStatusResult,
+} from '../src/lib/snapshotFetch';
 
 /** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
  *  / GoogleDriveAuthRedirect in src/lib/googleDriveAuth.ts. Defined
@@ -141,6 +148,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('terminal:executeCommand', command),
   },
 
+  // Git status (heavy terminal work, 2026-11-13): read-only git
+  // state for a cwd — the branch + change counts for block
+  // headers and the pill row. Null when the cwd is not a repo.
+  git: {
+    getStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
+  },
+
   // AI operations
   ai: {
     chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) =>
@@ -159,6 +173,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const listener = (_: any, error: string) => callback(error);
       ipcRenderer.on('ai:streamError', listener);
       return () => ipcRenderer.removeListener('ai:streamError', listener);
+    },
+    // A snapshot packet answered this reply (0 SP, 0 neurons,
+    // 0 CPU) - the renderer logs the packet-hits ring tick.
+    onSnapshotHit: (callback: (hit: { packetId: string | null; version: string }) => void) => {
+      const listener = (_: any, hit: { packetId: string | null; version: string }) => callback(hit);
+      ipcRenderer.on('ai:snapshotHit', listener);
+      return () => ipcRenderer.removeListener('ai:snapshotHit', listener);
     },
 
     cancelStream: () => ipcRenderer.send('ai:cancelStream'),
@@ -226,6 +247,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setStripeApiKey: (key: string) => ipcRenderer.invoke('settings:setStripeApiKey', key),
     hasStripeApiKey: () => ipcRenderer.invoke('settings:hasStripeApiKey'),
     deleteStripeApiKey: () => ipcRenderer.invoke('settings:deleteStripeApiKey'),
+    setKaggleApiKey: (key: string) => ipcRenderer.invoke('settings:setKaggleApiKey', key),
+    hasKaggleApiKey: () => ipcRenderer.invoke('settings:hasKaggleApiKey'),
+    deleteKaggleApiKey: () => ipcRenderer.invoke('settings:deleteKaggleApiKey'),
     setTotpSecret: (secret: string) => ipcRenderer.invoke('settings:setTotpSecret', secret),
     hasTotpSecret: () => ipcRenderer.invoke('settings:hasTotpSecret'),
     deleteTotpSecret: () => ipcRenderer.invoke('settings:deleteTotpSecret'),
@@ -564,6 +588,27 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     },
   },
 
+  // Snapshot manifest fetch + download (Gary, 2026-11-12
+  // ~08:22 PST): the manifest is fetched in the main
+  // process (the renderer's CSP does not allow github.io);
+  // the GGUF downloads there too, hash-verified before any
+  // swap. Progress arrives on the listener below while the
+  // download runs.
+  snapshot: {
+    fetchManifest: (): Promise<SnapshotManifestFetchWire> =>
+      ipcRenderer.invoke('snapshot:fetchManifest'),
+    download: (manifest: SnapshotManifest): Promise<SnapshotDownloadResult> =>
+      ipcRenderer.invoke('snapshot:download', manifest),
+    getStatus: (): Promise<SnapshotStatusResult> =>
+      ipcRenderer.invoke('snapshot:status'),
+    onDownloadProgress: (callback: (progress: SnapshotDownloadProgress) => void) => {
+      const listener = (_event: unknown, progress: SnapshotDownloadProgress) =>
+        callback(progress);
+      ipcRenderer.on('snapshot:download-progress', listener);
+      return () => ipcRenderer.removeListener('snapshot:download-progress', listener);
+    },
+  },
+
   // Lucid Workflow operations
   lucid: {
     init: () => ipcRenderer.invoke('lucid:init'),
@@ -659,6 +704,9 @@ export interface LucidAPI {
     onCwd: (callback: (id: string, cwd: string) => void) => void;
     getCwd: (id: string) => Promise<string>;
     executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+  };
+  git: {
+    getStatus: (cwd: string) => Promise<import('../src/lib/gitStatus').RawGitStatus | null>;
   };
   ai: {
     chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;
@@ -818,6 +866,9 @@ export interface LucidAPI {
     setStripeApiKey: (key: string) => Promise<void>;
     hasStripeApiKey: () => Promise<boolean>;
     deleteStripeApiKey: () => Promise<void>;
+    setKaggleApiKey: (key: string) => Promise<void>;
+    hasKaggleApiKey: () => Promise<boolean>;
+    deleteKaggleApiKey: () => Promise<void>;
     setTotpSecret: (secret: string) => Promise<void>;
     hasTotpSecret: () => Promise<boolean>;
     deleteTotpSecret: () => Promise<void>;

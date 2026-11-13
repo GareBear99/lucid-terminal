@@ -55,8 +55,10 @@
  * - DELETION LIVES WITHIN THE PROFILE (Gary, 2026-11-12 ~17:36
  *   PST): "profiles should just be create a profile and guest
  *   access as a segregated profile and deletion happens within
- *   the profile". The Profiles screen is just create + guest
- *   access + choose — it has NO delete controls. Deletion is in
+ *   the profile". The Profiles screen is just the created cards
+ *   (their own scrollable area above — clicking a card enters it
+ *   immediately) + guest access + create a profile below, nothing
+ *   else (Gary, 2026-11-13 ~01:31 PST). Deletion is in
  *   the profile's own view: Settings > Profile tab, on the active
  *   profile only. A non-active profile is deleted by entering it
  *   first, then deleting from within.

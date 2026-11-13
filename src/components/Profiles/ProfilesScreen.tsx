@@ -1,14 +1,21 @@
 /**
  * Profiles screen (Gary, 2026-11-12 ~10:48 + 10:52 PST, reaffirmed
- * 12:26 PST): the profile step of startup — splashscreen → profile
- * → splashscreen → Lucid. Clean glass, grey-blackish vanta: pure
- * black + the splash's own mist behind glass cards, no new look
- * invented.
+ * 12:26 PST; redesigned 2026-11-13 ~01:31 PST): the profile step of
+ * startup — splashscreen → profile → splashscreen → Lucid. Clean
+ * glass, grey-blackish vanta: pure black + the splash's own mist
+ * behind glass cards, no new look invented.
  *
- * Create profiles (multiple). Each card shows its verified gates +
- * status (temp / unverified / verified / user). Selecting a profile
- * and entering continues to the second splashscreen (App owns that);
- * this screen only reports the choice through onDone.
+ * Gary, 2026-11-13 ~01:31–01:33 PST: "Lucid should just be guest
+ * access and create profile nothing else" + "then the created cards
+ * should show in their own scrollable area above". So this screen
+ * is ONLY:
+ *   (a) the created profile cards, in their own scrollable area
+ *       ABOVE — clicking a card enters that profile immediately
+ *       (no select-then-enter step, no "Enter Lucid" button);
+ *   (b) below, guest access + create a profile. Nothing else.
+ * Each card shows its verified gates + status (temp / unverified /
+ * verified / user / guest). Creating a profile enters it
+ * immediately, the same way entering as guest does.
  *
  * NO deletion on this screen (Gary, 2026-11-12 ~17:36 PST):
  * "profiles should just be create a profile and guest access as a
@@ -58,12 +65,11 @@ function formatLastActive(lastActiveAt: string | null): string {
 
 function ProfileCard({
   profile,
-  selected,
-  onSelect,
+  onEnter,
 }: {
   profile: Profile;
-  selected: boolean;
-  onSelect: () => void;
+  /** Clicking a card enters that profile immediately. */
+  onEnter: () => void;
 }) {
   const verifiedNames = profile.verifiedGates
     .map((id) => PROFILE_GATES.find((g) => g.id === id)?.label ?? id)
@@ -72,21 +78,16 @@ function ProfileCard({
     <div
       role="button"
       tabIndex={0}
-      aria-pressed={selected}
+      aria-label={`Enter as ${profile.name}`}
       data-testid={`profile-card-${profile.id}`}
-      data-selected={selected ? 'true' : undefined}
-      onClick={onSelect}
+      onClick={onEnter}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onSelect();
+          onEnter();
         }
       }}
-      className={`w-full rounded-xl border px-4 py-3 text-left backdrop-blur transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
-        selected
-          ? 'border-white/40 bg-white/10'
-          : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
-      }`}
+      className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left backdrop-blur transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
     >
       <div className="flex items-center justify-between gap-3">
         <span className="truncate text-base font-medium text-[var(--text-primary)]">
@@ -100,16 +101,16 @@ function ProfileCard({
           {STATUS_LABEL[profile.status]}
         </span>
       </div>
-      <p className="mt-1 text-xs text-[var(--text-muted)]">
+      <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
         {verifiedNames !== ''
           ? `Verified gates: ${verifiedNames}`
           : 'No verified gates yet'}
       </p>
-      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+      <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
         {formatLastActive(profile.lastActiveAt)}
       </p>
       {profile.status === 'guest' && (
-        <p className="mt-0.5 text-xs text-violet-300">
+        <p className="mt-2 text-xs leading-[1.5] text-violet-300">
           Guest — the synth stays in demo mode.
         </p>
       )}
@@ -119,20 +120,17 @@ function ProfileCard({
 
 export function ProfilesScreen({ onDone }: { onDone: (profileId: string) => void }) {
   const profiles = useProfileStore((s) => s.profiles);
-  const activeProfileId = useProfileStore((s) => s.activeProfileId);
   const createProfile = useProfileStore((s) => s.createProfile);
   const createGuestProfile = useProfileStore((s) => s.createGuestProfile);
-  const [selectedId, setSelectedId] = useState<string>(activeProfileId);
   const [name, setName] = useState('');
 
-  const selected = profiles.find((p) => p.id === selectedId) ?? null;
-  const unavailableGates = PROFILE_GATES.filter((g) => !g.available);
-
+  // Creating a profile enters it immediately — the same
+  // create-and-enter shape as entering as guest below.
   const handleCreate = () => {
     const created = createProfile(name);
     if (!created) return;
     setName('');
-    setSelectedId(created.id);
+    onDone(created.id);
   };
 
   // Enter as guest (Gary, 2026-11-12 ~16:41 PST): a guest profile
@@ -141,7 +139,6 @@ export function ProfilesScreen({ onDone }: { onDone: (profileId: string) => void
   // synth vs Iteration 8, but never builds or replaces.
   const handleGuest = () => {
     const guest = createGuestProfile();
-    setSelectedId(guest.id);
     onDone(guest.id);
   };
 
@@ -150,30 +147,37 @@ export function ProfilesScreen({ onDone }: { onDone: (profileId: string) => void
       role="dialog"
       aria-label="Choose a profile"
       data-testid="profiles-screen"
-      className="fixed inset-0 z-[110] overflow-y-auto bg-black"
+      className="fixed inset-0 z-[110] bg-black"
     >
-      <div className="relative isolate flex min-h-full flex-col items-center justify-center px-4 py-10">
+      <div className="relative isolate mx-auto flex h-full w-full max-w-2xl flex-col px-4 py-10">
         <SplashMist />
-        <div className="relative w-full max-w-2xl">
-          <h1 className="text-center text-2xl font-semibold tracking-wide text-[var(--text-primary)]">
-            Profiles
-          </h1>
-          <p className="mt-1 text-center text-sm text-[var(--text-muted)]">
-            Choose a profile to enter Lucid.
-          </p>
+        <h1 className="relative shrink-0 text-center text-2xl font-semibold tracking-wide text-[var(--text-primary)]">
+          Profiles
+        </h1>
 
-          <div className="mt-8 flex flex-col gap-3">
+        {/* Created cards — their own scrollable area above. It
+            takes the free height and scrolls, so the guest +
+            create controls below stay visible no matter how many
+            cards there are. */}
+        <div
+          data-testid="profiles-cards"
+          className="relative mt-8 min-h-0 flex-1 overflow-y-auto"
+        >
+          <div className="flex flex-col gap-3">
             {profiles.map((profile) => (
               <ProfileCard
                 key={profile.id}
                 profile={profile}
-                selected={selected?.id === profile.id}
-                onSelect={() => setSelectedId(profile.id)}
+                onEnter={() => onDone(profile.id)}
               />
             ))}
           </div>
+        </div>
 
-          <div className="mt-6 flex gap-2">
+        {/* Below the cards, and nothing else: create a profile +
+            guest access. */}
+        <div className="relative mt-6 shrink-0">
+          <div className="flex gap-2">
             <input
               type="text"
               value={name}
@@ -196,24 +200,6 @@ export function ProfilesScreen({ onDone }: { onDone: (profileId: string) => void
               Create profile
             </button>
           </div>
-
-          {unavailableGates.length > 0 && (
-            <p className="mt-4 text-center text-xs text-[var(--text-muted)]">
-              {unavailableGates
-                .map((g) => `${g.label} — not yet available`)
-                .join(' · ')}
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={() => selected && onDone(selected.id)}
-            disabled={!selected}
-            data-testid="profile-enter-button"
-            className="mt-6 w-full rounded-lg border border-white/30 bg-white/10 px-4 py-3 text-sm font-semibold text-[var(--text-primary)] hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:opacity-40"
-          >
-            Enter Lucid
-          </button>
 
           <button
             type="button"

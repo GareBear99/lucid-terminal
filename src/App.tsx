@@ -28,12 +28,16 @@ import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
+import { ProfilesScreen } from './components/Profiles/ProfilesScreen';
+import { useProfileStore } from './stores/profileStore';
 import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
 import { View } from './types';
+import { SnapshotUpdateAlertDialog } from './components/Settings/SnapshotUpdateAlert';
+import { useSnapshotUpdateStore } from './stores/snapshotUpdateStore';
 
 function App() {
   const { loadSettings, isLoading, storageDegraded, settings, updateSetting } = useSettingsStore();
@@ -54,6 +58,22 @@ function App() {
   const { notifications, dismissToast } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
   const { currentDir, setCurrentDir } = useFileStore();
+  // Snapshot update alert (Gary, 2026-11-12 ~08:22 PST):
+  // the dialog shows when the launch check (or a manual
+  // check) finds the manifest differs and this version was
+  // not dismissed. The store owns the check + download;
+  // App only renders the dialog and logs that it showed.
+  const snapshotStatus = useSnapshotUpdateStore((s) => s.status);
+  const snapshotManifest = useSnapshotUpdateStore((s) => s.manifest);
+  const snapshotCheckResult = useSnapshotUpdateStore((s) => s.checkResult);
+  useEffect(() => {
+    if (
+      snapshotStatus === 'update-available' &&
+      snapshotCheckResult?.showAlert === true
+    ) {
+      useSnapshotUpdateStore.getState().markAlertShown();
+    }
+  }, [snapshotStatus, snapshotCheckResult]);
 
   const [currentView, setCurrentView] = useState<View>('terminal');
   // The theme is the stored theme everywhere (Gary, 2026-11-09:
@@ -172,11 +192,43 @@ function App() {
     if (!luciferAiSilenced) return;
     if (bloodDropActive) setBloodDropActive(false);
   }, [luciferAiSilenced, bloodDropActive]);
-  // Boot splash: the high-tech intro (smoke -> "Lucid" -> dashboard).
-  // Shows on every launch for now; a "don't show again" setting is a
-  // one-line follow-up. The dashboard mounts underneath, so the splash
-  // fading out is just the overlay going transparent.
-  const [showSplash, setShowSplash] = useState(true);
+  // Boot phases (Gary, 2026-11-12 ~10:52 PST, reaffirmed 12:26 PST):
+  // splashscreen → profile → splashscreen → Lucid, window fullscreen,
+  // clean switch over. The dashboard mounts underneath the first
+  // splash (as before) and stays mounted under the profile step and
+  // the second splash too — the phases are opaque overlays, never an
+  // unmount, so the terminal's always-mounted rule is untouched.
+  // A "don't show again" setting for the splash is a one-line
+  // follow-up — the splash shows on every launch for now.
+  const [bootPhase, setBootPhase] = useState<
+    'splash1' | 'profiles' | 'splash2' | 'lucid'
+  >('splash1');
+  // The boot overlays are one shared fragment (2026-11-13 ~01:34
+  // PST): they render identically while settings are still loading
+  // and after. They used to live only in the main return — while
+  // isLoading the profiles phase was invisible (the branch showed
+  // only the spinner), so on a slow settings load the profile step
+  // never appeared until the load resolved. The boot sequence must
+  // not depend on settings timing: splash → profiles → splash →
+  // Lucid, every launch, loading or not.
+  const bootOverlays = (
+    <>
+      {bootPhase === 'splash1' && (
+        <SplashScreen onDone={() => setBootPhase('profiles')} />
+      )}
+      {bootPhase === 'profiles' && (
+        <ProfilesScreen
+          onDone={(profileId) => {
+            useProfileStore.getState().selectProfile(profileId);
+            setBootPhase('splash2');
+          }}
+        />
+      )}
+      {bootPhase === 'splash2' && (
+        <SplashScreen onDone={() => setBootPhase('lucid')} />
+      )}
+    </>
+  );
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [aiPanelWidth, setAiPanelWidth] = useState(500);
   const [storageBannerDismissed, setStorageBannerDismissed] = useState(false);
@@ -226,6 +278,13 @@ function App() {
     async function init() {
       console.log('[INIT] Loading settings...');
       await loadSettings();
+      // Snapshot manifest check on launch (Gary, 2026-11-12
+      // ~08:22 PST): when the snapshot doesn't match the
+      // manifest, Lucid grabs it directly. Best-effort and
+      // never blocking — a failed check leaves the app
+      // exactly as it was, and the Security tab's "Check
+      // now" re-runs it on demand.
+      void useSnapshotUpdateStore.getState().checkNow();
       void checkModels();
 
       // Initialize the LucidCore workflow (FixNet stats, etc.) at
@@ -295,7 +354,7 @@ function App() {
   if (isLoading) {
     return (
       <>
-        {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
+        {bootOverlays}
         {/* Main screen is always splashscreen misty black (Gary,
             2026-11-07): pure black + the splash's own smoke, behind
             the content — same treatment as the main root below. */}
@@ -328,8 +387,10 @@ function App() {
     // toggle in the Mist section of Settings (default off), so it
     // appears only when the user switches it on.
     <div className="relative isolate h-screen flex flex-col bg-black overflow-hidden">
-      {/* Boot splash - overlays the dashboard until it fades out. */}
-      {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
+      {/* Boot phases - opaque overlays until Lucid is entered. The
+          first splash fades into the profile step, the profile step
+          into the mist splashscreen AGAIN, and that into Lucid. */}
+      {bootOverlays}
       {showSplashMistForView(currentView, settings.filesMist ?? false) && <SplashMist />}
 
       {/* Title Bar */}
@@ -603,6 +664,26 @@ function App() {
           setHelpInitialCategory(null);
         }}
       />
+
+      {/* Snapshot update alert — a new snapshot is required
+          (the manifest differs from the installed snapshot)
+          and this version was not dismissed. "Update
+          snapshot" starts the download → hash verify →
+          flip; "Not now" closes without updating. */}
+      {snapshotStatus === 'update-available' &&
+        snapshotCheckResult?.showAlert === true &&
+        snapshotManifest !== null && (
+          <SnapshotUpdateAlertDialog
+            manifest={snapshotManifest}
+            installedVersion={settings.installedSnapshotVersion ?? null}
+            onUpdate={() =>
+              void useSnapshotUpdateStore.getState().startUpdate()
+            }
+            onDismiss={(dontAsk) =>
+              void useSnapshotUpdateStore.getState().dismiss(dontAsk)
+            }
+          />
+        )}
 
       {/* Error toasts (file, terminal, backend, Monaco fallback).
           Dismissing a toast only hides it from this stack - the

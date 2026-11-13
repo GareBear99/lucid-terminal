@@ -22,6 +22,7 @@ import {
   Lock,
   Unlock,
   Shield,
+  User,
   Volume2,
   Pause,
 } from 'lucide-react';
@@ -54,6 +55,7 @@ import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PermissionsTab } from './PermissionsTab';
 import { SecurityTab } from './SecurityTab';
+import { ProfileTab } from './ProfileTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
 import { PluginsVoiceButton } from './PluginsVoiceButton';
 import { AppearanceVoiceButton } from './AppearanceVoiceButton';
@@ -69,7 +71,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'security';
+export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'security' | 'profile';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
@@ -421,6 +423,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
     { id: 'security', label: 'Security', icon: <Lock size={18} /> },
     { id: 'permissions', label: 'Permissions', icon: <Shield size={18} /> },
+    { id: 'profile', label: 'Profile', icon: <User size={18} /> },
     { id: 'customization', label: 'Customization', icon: <Sliders size={18} /> },
     { id: 'plugins', label: 'Plugins', icon: <Puzzle size={18} /> },
     { id: 'devices', label: 'Devices', icon: <Usb size={18} /> },
@@ -1805,6 +1808,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           )}
           {activeTab === 'permissions' && (<PermissionsTab />)}
           {activeTab === 'security' && (<SecurityTab />)}
+          {activeTab === 'profile' && (<ProfileTab />)}
         </div>
       </div>
 

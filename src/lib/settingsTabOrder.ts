@@ -44,7 +44,10 @@
  *    permissions/denials, ring time + strain).
  * 3. Permissions third — the device permissions (Accessibility,
  *    Screen Recording, Full Disk Access, Microphone, Camera).
- * 4. Everything else keeps its relative order after those three.
+ * 4. Profile fourth — the current profile, its standing, and its
+ *    deletion (Gary, 2026-11-12 ~17:36 PST: deletion happens
+ *    within the profile, so it lives on the Profile tab).
+ * 5. Everything else keeps its relative order after those four.
  */
 export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   'appearance',
@@ -57,6 +60,12 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   // (see resolveSettingsTabOrder), not appended at the end.
   'security',
   'permissions',
+  // Profile (Gary, 2026-11-12 ~17:36 PST) — the current profile
+  // and its deletion. Fourth in the default order, with the other
+  // platform-wide tabs. A stored order that predates it gains it
+  // at this position (see resolveSettingsTabOrder), not appended
+  // at the end.
+  'profile',
   'customization',
   'plugins',
   'devices',

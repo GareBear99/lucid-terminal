@@ -102,14 +102,14 @@ describe('Settings tabs drag-reorder + lock', () => {
     useSettingsStore.setState({ settings: { ...base, settingsTabOrder: stored } });
     renderSettings();
     // A stored order from before the Security tab existed gains
-    // Security second (after Appearance) and Permissions third
-    // (Gary, 2026-11-09 ~15:02 PST: the tabs are ordered
-    // properly now) — resolveSettingsTabOrder places a default
-    // tab missing from the stored order at its default position,
-    // not appended at the end. The stored relative order is
-    // untouched.
+    // Security second (after Appearance), Permissions third and
+    // Profile fourth (Gary, 2026-11-09 ~15:02 PST: the tabs are
+    // ordered properly now) — resolveSettingsTabOrder places a
+    // default tab missing from the stored order at its default
+    // position, not appended at the end. The stored relative
+    // order is untouched.
     expect(tabOrderInDom()).toEqual([
-      'general', 'appearance', 'security', 'permissions', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+      'general', 'appearance', 'security', 'permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
     ]);
   });
 
@@ -122,7 +122,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     fireEvent.dragOver(appearance);
     fireEvent.drop(appearance);
     const expected = [
-      'general', 'appearance', 'security', 'permissions', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+      'general', 'appearance', 'security', 'permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -146,7 +146,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     fireEvent.dragOver(appearance);
     fireEvent.drop(appearance);
     const expected = [
-      'general', 'appearance', 'security', 'permissions', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+      'general', 'appearance', 'security', 'permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -169,7 +169,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     // And the drop commits immediately.
     fireEvent.drop(appearance);
     const expected = [
-      'general', 'appearance', 'security', 'permissions', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
+      'general', 'appearance', 'security', 'permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -204,9 +204,10 @@ describe('Settings tabs drag-reorder + lock', () => {
     }
     // Appearance moves below customization (was a silent no-op:
     // insert-before the next tab is the order you already have).
-    // Security and Permissions stay second and third.
+    // Security, Permissions and Profile stay second, third and
+    // fourth.
     const expected = [
-      'security', 'permissions', 'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general',
+      'security', 'permissions', 'profile', 'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -223,7 +224,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     fireEvent.dragOver(endZone);
     fireEvent.drop(endZone);
     const expected = [
-      'security', 'permissions', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'appearance',
+      'security', 'permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'appearance',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);

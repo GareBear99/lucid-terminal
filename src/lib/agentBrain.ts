@@ -40,10 +40,13 @@
  * - replace / change X with/to Y in a file → multi_edit
  *   (old/new from the quoted strings, or from a
  *   "replace X with Y" / "change X to Y" phrasing)
- * - fix a file → read_file (the read carries the file's
- *   diagnostics — the planner reports what is broken;
- *   repairing it without a model is the Aider slice's
- *   job, #5, not this one's)
+ * - fix a file → read_file + fix_diagnostics (the read
+ *   carries the file's diagnostics; the Aider verify loop
+ *   #5 reflects on them and repairs what has a safe
+ *   automatic fix — what has none is reported, never
+ *   invented)
+ * - show the diff / what changed → view_diff (the whole
+ *   workspace, or one file when named)
  * - chained prompts ("read X and rename Y to Z in it") →
  *   one plan per part, in order (splitChainedCommands)
  *
@@ -245,6 +248,23 @@ export class LocalPlanner implements AgentBrain {
         (matches.length > 0 ? ` Did you mean ${matches.map((m) => `"${m}"`).join(', ')}?` : ''),
     });
 
+    // "show the diff" / "what changed" — the diff tool,
+    // before the intent verbs (the parse would call it a
+    // question; the diff is the useful answer). A file
+    // candidate scopes it to that file; without one the
+    // whole workspace's diff is shown.
+    if (/\bdiff\b|what (did you )?changed|show (me )?(the )?(changes|diff)/i.test(part)) {
+      const file = candidates.length > 0 ? resolveFirst() : null;
+      if (file?.missing) return missingReply(file.missing, file.matches ?? []);
+      return {
+        toolCalls: [
+          file?.path
+            ? { name: 'view_diff', args: { filepath: file.path } }
+            : { name: 'view_diff', args: {} },
+        ],
+      };
+    }
+
     // "where is X defined" / "definition of X" — symbol
     // lookup, before the intent verbs (the parse calls it
     // a question; the file answer is the useful one).
@@ -393,17 +413,24 @@ export class LocalPlanner implements AgentBrain {
 
       case 'fix': {
         // Fix starts from what is broken: the read carries
-        // the file's diagnostics (read_file appends them).
-        // Repairing without a model is the Aider slice's
-        // job (#5) — this slice finds, it does not invent
-        // a fix.
+        // the file's diagnostics (read_file appends them),
+        // then fix_diagnostics reflects on them — the
+        // Aider verify loop (#5): a compiler-named rename,
+        // a unique import, a wrong specifier, an unused
+        // import. What has no safe repair is reported,
+        // never invented.
         const file = resolveFirst();
         if (file.missing) return missingReply(file.missing, file.matches ?? []);
         const target = file.path ?? ctx.activeFilePath;
         if (!target) {
           return { toolCalls: [], reply: 'Which file should I fix? Give me its name or path.' };
         }
-        return { toolCalls: [{ name: 'read_file', args: { filepath: target } }] };
+        return {
+          toolCalls: [
+            { name: 'read_file', args: { filepath: target } },
+            { name: 'fix_diagnostics', args: { filepath: target } },
+          ],
+        };
       }
 
       default:

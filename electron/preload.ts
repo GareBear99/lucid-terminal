@@ -237,6 +237,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // headers and the pill row. Null when the cwd is not a repo.
   git: {
     getStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
+    getDiff: (cwd: string, filepath?: string) => ipcRenderer.invoke('git:diff', cwd, filepath),
   },
 
   // AI operations

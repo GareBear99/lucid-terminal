@@ -168,6 +168,17 @@ export async function runAgentTurnForTab(
             progress.push(`✕ ${event.name} — approval denied, not made.`);
             renderProgress();
             break;
+          case 'verify-start':
+            progress.push(`… verifying ${event.path}`);
+            renderProgress();
+            break;
+          case 'verify-done':
+            progress[progress.length - 1] =
+              event.remaining === 0
+                ? `✓ verified ${event.path} (fixed ${event.fixed})`
+                : `✓ verified ${event.path} (fixed ${event.fixed}, ${event.remaining} remain)`;
+            renderProgress();
+            break;
           case 'reply':
             break;
         }
@@ -183,6 +194,7 @@ export async function runAgentTurnForTab(
       toolCalls: [],
       edits: [],
       diagnostics: [],
+      verifications: [],
       stopped: 'failed',
     };
   } finally {

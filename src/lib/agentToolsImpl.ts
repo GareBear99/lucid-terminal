@@ -21,8 +21,6 @@
  *   `packages/terminal-security/` — shell parsing, privilege
  *   escalation, chaining) + a policy Gary has not set.
  *   A shell tool without that shape is a hole, not a tool.
- * - view_diff — needs a `git diff` runner in main (the
- *   renderer only parses git output — gitStatus.ts).
  * - create_rule_block / request_rule — writes rules to
  *   disk; the rules engine is later work, and guest must
  *   never use them.
@@ -31,6 +29,11 @@
  * - delete / rename — destructive; they land with the
  *   review UI (Zed #6), not before.
  *
+ * Landed in the Aider slice (#5, 2026-11-14): view_diff
+ * (the `git diff` runner in main — electron/ipc/git.ts —
+ * the renderer only parses git output, it never runs git)
+ * and fix_diagnostics (the verify loop — agentVerify.ts).
+ *
  * Every tool runs through the host (agentHost.ts), never
  * through IPC or stores directly — so the loop core stays
  * host-agnostic and the tools stay testable against the
@@ -38,11 +41,14 @@
  * pre-flight (the hook the TS-LSP slice built for exactly
  * this): the edit is checked before it lands, the
  * diagnostics ride in the result, and the edit still
- * lands — the user asked for it; the diagnostics are
- * information, and reflecting on them is the Aider slice
- * (#5). When the engine is unavailable the check is
- * skipped and the result says so (`diagnosticsChecked:
- * false`) — never a faked "clean".
+ * lands — the user asked for it. Reflecting on those
+ * diagnostics is the Aider slice (#5): the loop calls
+ * `fix_diagnostics` after any edit that leaves
+ * diagnostics behind, and the tool's result is marked
+ * `verified: true` so the loop never reflects twice.
+ * When the engine is unavailable the check is skipped
+ * and the result says so (`diagnosticsChecked: false`) —
+ * never a faked "clean".
  */
 
 import type {
@@ -53,6 +59,12 @@ import type {
 } from './agentTools';
 import { executeMultiEdit, EditError, type EditOperation } from './agentMultiEdit';
 import { isWithinWorkspace, resolveAgentPath } from './agentHost';
+import { makeLspVerifyDeps, verifyContent } from './agentVerify';
+
+/** How much of a diff the tool returns (the loop's reply
+ *  cap is 2,000 chars — the diff itself is capped here so
+ *  the brain still sees a useful slice on a re-plan). */
+const MAX_DIFF_CHARS = 20_000;
 
 /** Continue's readFileLimit: refuse a file over half the
  *  context window. The window here is the agent's working
@@ -597,7 +609,6 @@ async function multiEditImpl(
       replace_all: (raw as Record<string, unknown>).replace_all === true,
     });
   }
-  const isOpen = ctx.host.getOpenFiles().some((f) => f.path === path);
   const content = openContent(ctx, path) ?? (await ctx.host.readFile(path).catch(() => null));
   if (content === null) {
     return { ok: false, output: '', error: `Could not read file: ${path}` };
@@ -628,13 +639,7 @@ async function multiEditImpl(
     diagnostics = check.diagnostics;
     diagnosticsChecked = true;
   }
-  if (isOpen) {
-    ctx.host.updateOpenFileContent(path, next);
-    await ctx.host.saveOpenFile(path);
-  } else {
-    await ctx.host.writeFile(path, next);
-  }
-  await ctx.index.indexOne(path);
+  await persistEdit(ctx, path, next);
   const total = applied.reduce((sum, a) => sum + a.replacements, 0);
   const diagnosticsPart = diagnostics.length > 0 ? `\n${formatDiagnostics(diagnostics)}` : '\nDiagnostics: clean.';
   return {
@@ -644,6 +649,152 @@ async function multiEditImpl(
     diagnosticsChecked,
     diagnostics,
   };
+}
+
+/**
+ * Persist edited content the way every edit tool does:
+ * an open file keeps its editor state (content replaced,
+ * saved, dirty flag cleared); a closed file is written
+ * to disk. The index re-reads the file either way, so
+ * the next tool call sees the new content.
+ */
+async function persistEdit(
+  ctx: AgentToolContext,
+  path: string,
+  next: string,
+): Promise<void> {
+  const isOpen = ctx.host.getOpenFiles().some((f) => f.path === path);
+  if (isOpen) {
+    ctx.host.updateOpenFileContent(path, next);
+    await ctx.host.saveOpenFile(path);
+  } else {
+    await ctx.host.writeFile(path, next);
+  }
+  await ctx.index.indexOne(path);
+}
+
+/**
+ * The verify loop's tool (steal #5 — Aider): reflect on
+ * a file's live diagnostics, fix what has a safe
+ * automatic repair, re-check — up to 3 reflections —
+ * and persist the verified content. The result is marked
+ * `verified: true` so the loop never reflects twice on
+ * the same diagnostics. A file with no safe repair is
+ * reported, not guessed at — the diagnostics ride in
+ * the result either way.
+ */
+async function fixDiagnosticsImpl(
+  args: Record<string, unknown>,
+  ctx: AgentToolContext,
+): Promise<AgentToolResult> {
+  const resolved = resolveToolPath(args.filepath, ctx);
+  if ('error' in resolved) return { ok: false, output: '', error: resolved.error };
+  const { path } = resolved;
+  const content = openContent(ctx, path) ?? (await ctx.host.readFile(path).catch(() => null));
+  if (content === null) {
+    return { ok: false, output: '', error: `Could not read file: ${path}` };
+  }
+  if (!isCodeFile(path)) {
+    return {
+      ok: true,
+      output: `${path} is not a TypeScript/JavaScript file — there are no language diagnostics to verify.`,
+      diagnosticsChecked: false,
+      verified: true,
+      verification: { reflections: 0, fixed: 0, remaining: 0 },
+    };
+  }
+  const deps = await makeLspVerifyDeps(path, content, ctx.index, ctx.host);
+  if (!deps) {
+    return {
+      ok: true,
+      output: `${path}: the language engine is unavailable — diagnostics could not be checked, nothing changed.`,
+      diagnosticsChecked: false,
+      verified: true,
+      verification: { reflections: 0, fixed: 0, remaining: 0 },
+    };
+  }
+  const verified = await verifyContent(path, content, deps);
+  const verification = {
+    reflections: verified.reflections,
+    fixed: verified.fixed,
+    remaining: verified.diagnostics.length,
+  };
+  // Persist FIRST, report after — a fix that ends clean
+  // still changed the file, and returning before the
+  // write (the old code did exactly that on the clean
+  // path) would report a fix that never landed.
+  if (verified.fixed > 0) {
+    await persistEdit(ctx, path, verified.content);
+  }
+  const edits =
+    verified.fixed > 0 ? [{ path, kind: 'edited' as const, replacements: verified.fixed }] : undefined;
+  if (verified.diagnostics.length === 0) {
+    return {
+      ok: true,
+      output:
+        verified.fixed > 0
+          ? `Verified ${path}: fixed ${verified.fixed} diagnostic(s) in ${verified.reflections} reflection(s) — clean.`
+          : `Verified ${path}: clean — no diagnostics.`,
+      edits,
+      diagnosticsChecked: true,
+      diagnostics: [],
+      verified: true,
+      verification,
+    };
+  }
+  if (verified.fixed === 0) {
+    return {
+      ok: true,
+      output:
+        `Verified ${path}: no safe automatic repair for the ${verified.diagnostics.length} diagnostic(s) — nothing changed.\n${formatDiagnostics(verified.diagnostics)}`,
+      diagnosticsChecked: true,
+      diagnostics: verified.diagnostics,
+      verified: true,
+      verification,
+    };
+  }
+  return {
+    ok: true,
+    output:
+      `Verified ${path}: fixed ${verified.fixed} diagnostic(s) in ${verified.reflections} reflection(s).\n${formatDiagnostics(verified.diagnostics)}`,
+    edits,
+    diagnosticsChecked: true,
+    diagnostics: verified.diagnostics,
+    verified: true,
+    verification,
+  };
+}
+
+/**
+ * Show what changed in the workspace — the unified diff
+ * against HEAD (staged + unstaged together; an untracked
+ * file shows as a new-file diff). The runner lives in
+ * main (electron/ipc/git.ts — the renderer only parses
+ * git output, it never runs git); the host is the seam,
+ * so tests run against a fake diff.
+ */
+async function viewDiffImpl(
+  args: Record<string, unknown>,
+  ctx: AgentToolContext,
+): Promise<AgentToolResult> {
+  let filepath: string | undefined;
+  if (typeof args.filepath === 'string' && args.filepath) {
+    const resolved = resolveToolPath(args.filepath, ctx);
+    if ('error' in resolved) return { ok: false, output: '', error: resolved.error };
+    filepath = resolved.path;
+  }
+  const diff = await ctx.host.getDiff(ctx.workspaceRoot, filepath);
+  if (diff === null) {
+    return { ok: false, output: '', error: 'Not a git repository (or git is unavailable) in this workspace.' };
+  }
+  if (diff.trim() === '') {
+    return { ok: true, output: filepath ? `No changes in ${filepath}.` : 'No changes in the workspace.' };
+  }
+  const shown =
+    diff.length <= MAX_DIFF_CHARS
+      ? diff
+      : `${diff.slice(0, MAX_DIFF_CHARS)}\n… (diff truncated)`;
+  return { ok: true, output: shown };
 }
 
 /** The built-in tool set, in registration order. */
@@ -807,6 +958,30 @@ export function getBuiltInToolDefinitions(): AgentToolDefinition[] {
         edits: { type: 'array', description: 'Array of {old_string, new_string, replace_all?} operations.', items: { type: 'object' } },
       },
     ),
+    tool(
+      'fix_diagnostics',
+      'Reflect on a file\'s language diagnostics (type errors), fix the ones with a safe automatic repair — a compiler-named rename, a unique import, a wrong module specifier, an unused import — re-check, and repeat up to 3 times. Diagnostics with no safe repair are reported, never guessed at.',
+      'Fix Diagnostics',
+      'verify {{{ filepath }}}',
+      'verifying {{{ filepath }}}',
+      'verified {{{ filepath }}}',
+      false,
+      'allowedWithPermission',
+      ['filepath'],
+      FILEPATH_PROP,
+    ),
+    tool(
+      'view_diff',
+      'Show what changed in the workspace — the unified diff against HEAD (staged and unstaged together; an untracked file shows as a new-file diff). Give a filepath to see only that file\'s diff.',
+      'View Diff',
+      'show the diff',
+      'showing the diff',
+      'showed the diff',
+      true,
+      'allowedWithoutPermission',
+      [],
+      FILEPATH_PROP,
+    ),
   ];
 }
 
@@ -827,6 +1002,8 @@ export function registerBuiltInTools(registry: ToolRegistry): void {
     find_references: findReferencesImpl,
     create_new_file: createNewFileImpl,
     multi_edit: multiEditImpl,
+    fix_diagnostics: fixDiagnosticsImpl,
+    view_diff: viewDiffImpl,
   };
   for (const definition of definitions) {
     const implementation = implementations[definition.function.name];

@@ -1065,7 +1065,7 @@ declare global {
         getCwd: (id: string) => Promise<string>;
         executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
         detach: {
-          dragStart: (tab: import('./detach').DetachedTab, index: number) => void;
+          dragStart: (tab: import('./detach').DetachedTab, index: number, grabOffset?: { x: number; y: number }) => void;
           dragMove: (clientX: number, clientY: number) => void;
           dragEnd: (clientX: number, clientY: number) => void;
           dragCancel: () => void;
@@ -1098,6 +1098,7 @@ declare global {
       };
       git: {
         getStatus: (cwd: string) => Promise<RawGitStatus | null>;
+        getDiff: (cwd: string, filepath?: string) => Promise<string | null>;
       };
       ai: {
         chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;

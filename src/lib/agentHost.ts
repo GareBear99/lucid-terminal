@@ -51,6 +51,12 @@ export interface AgentHost {
   getOpenFiles(): AgentOpenFile[];
   /** The active file's path, or null. */
   getActiveFilePath(): string | null;
+  /** The unified diff of the workspace against HEAD (or
+   *  of one file when given) — the `git diff` runner in
+   *  main (electron/ipc/git.ts). Null when the workspace
+   *  is not a git repository (or git is unavailable);
+   *  '' when there are no changes. */
+  getDiff(cwd: string, filepath?: string): Promise<string | null>;
   /** Open a file in the editor (no-op when already open). */
   openFile(path: string): Promise<boolean>;
   /** Replace an open file's content in the editor store. */
@@ -159,5 +165,8 @@ export const electronAgentHost: AgentHost = {
   },
   async saveOpenFile(path: string): Promise<void> {
     await useFileStore.getState().saveFile(path);
+  },
+  async getDiff(cwd: string, filepath?: string): Promise<string | null> {
+    return window.lucidAPI.git.getDiff(cwd, filepath);
   },
 };

@@ -34,7 +34,12 @@
  *    is a result, not a throw → requires_approval pauses
  *    on the run's approve callback → execute through the
  *    registry (errors come back as context, never thrown)
- *    → edit tools carry their diagnostics in the result.
+ *    → edit tools carry their diagnostics in the result
+ *    → an edit that leaves diagnostics behind is
+ *    VERIFIED (fix_diagnostics — steal #5, Aider):
+ *    reflect, fix, re-check, up to 3 reflections, before
+ *    the next call. A result already marked verified is
+ *    never re-verified.
  * 4. Compose the final reply: one line per tool call
  *    (what it did, or why it did not) + the diagnostics
  *    + the brain's own reply. The run never throws — a
@@ -92,6 +97,9 @@ export interface AgentTurnResult {
   edits: Array<{ path: string; kind: 'created' | 'edited'; replacements: number }>;
   /** Diagnostics the run's edits left behind. */
   diagnostics: Array<{ path: string; line: number; message: string; code?: string | number }>;
+  /** What the verify loop did, per file it verified
+   *  (steal #5 — Aider). */
+  verifications: Array<{ path: string; reflections: number; fixed: number; remaining: number }>;
   /** Why the run stopped: 'done' | 'aborted' | 'max-rounds' | 'failed'. */
   stopped: 'done' | 'aborted' | 'max-rounds' | 'failed';
 }
@@ -102,6 +110,8 @@ export type AgentLoopEvent =
   | { type: 'tool-blocked'; name: string; reason: string }
   | { type: 'approval-requested'; name: string; args: Record<string, unknown> }
   | { type: 'approval-denied'; name: string }
+  | { type: 'verify-start'; path: string }
+  | { type: 'verify-done'; path: string; fixed: number; remaining: number }
   | { type: 'reply'; reply: string };
 
 export interface AgentLoopOptions {
@@ -187,12 +197,14 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
   const records: AgentLoopToolCallRecord[] = [];
   const edits: AgentTurnResult['edits'] = [];
   const diagnostics: AgentTurnResult['diagnostics'] = [];
+  const verifications: AgentTurnResult['verifications'] = [];
 
   const fail = (reply: string): AgentTurnResult => ({
     reply,
     toolCalls: records,
     edits,
     diagnostics,
+    verifications,
     stopped: 'failed',
   });
 
@@ -217,28 +229,18 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     };
     const plan = await brain.plan(prompt, brainContext);
     if (options.signal?.aborted) {
-      return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, stopped: 'aborted' };
+      return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted' };
     }
 
     // 3. Execute the plan, one call at a time, in order.
     //    The planner's calls are sequential by design
     //    (Continue's NO_PARALLEL_TOOL_CALLING rule for
     //    edits — earlier edits can mangle later ones).
-    let rounds = 0;
-    for (const call of plan.toolCalls) {
-      if (options.signal?.aborted) {
-        return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, stopped: 'aborted' };
-      }
-      if (rounds >= maxRounds) {
-        return {
-          reply: 'I stopped after 10 tool calls — the run was getting long. Ask me to continue from here.',
-          toolCalls: records,
-          edits,
-          diagnostics,
-          stopped: 'max-rounds',
-        };
-      }
-      rounds += 1;
+    //    One call, policy first, is the shared path for
+    //    the plan's calls AND the verify step's fix calls
+    //    — a fix is a real tool call (audited, gated,
+    //    shown), never a silent side write.
+    const executeCall = async (call: PlannedToolCall): Promise<AgentLoopToolCallRecord> => {
       const definition = registry.get(call.name);
       const status = definition
         ? renderToolStatus(definition.wouldLikeTo, call.args)
@@ -254,9 +256,10 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
       });
       if (decision.decision === 'blocked') {
         const result: AgentToolResult = { ok: false, output: '', error: decision.reason };
-        records.push({ name: call.name, args: call.args, result, outcome: 'blocked' });
+        const record: AgentLoopToolCallRecord = { name: call.name, args: call.args, result, outcome: 'blocked' };
+        records.push(record);
         onEvent({ type: 'tool-blocked', name: call.name, reason: decision.reason });
-        continue;
+        return record;
       }
       if (decision.decision === 'requires_approval') {
         onEvent({ type: 'approval-requested', name: call.name, args: call.args });
@@ -274,9 +277,10 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
             output: '',
             error: `Approval denied for ${call.name} — the edit was not made.`,
           };
-          records.push({ name: call.name, args: call.args, result, outcome: 'approval-denied' });
+          const record: AgentLoopToolCallRecord = { name: call.name, args: call.args, result, outcome: 'approval-denied' };
+          records.push(record);
           onEvent({ type: 'approval-denied', name: call.name });
-          continue;
+          return record;
         }
       }
 
@@ -288,13 +292,84 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         index,
         signal: options.signal,
       });
-      records.push({ name: call.name, args: call.args, result, outcome: 'allowed' });
+      const record: AgentLoopToolCallRecord = { name: call.name, args: call.args, result, outcome: 'allowed' };
+      records.push(record);
       if (result.edits) edits.push(...result.edits);
       if (result.diagnostics) diagnostics.push(...result.diagnostics);
+      // A verification's numbers land here — whether the
+      // fix call was planned by the brain ('fix X') or
+      // triggered by the verify step after a dirty edit.
+      // The step itself never pushes them again.
+      if (result.verification) {
+        const vPath = typeof call.args.filepath === 'string' ? call.args.filepath : '';
+        if (vPath) verifications.push({ path: vPath, ...result.verification });
+      }
       const doneStatus = definition
         ? renderToolStatus(definition.hasAlready, call.args)
         : `called ${call.name}`;
       onEvent({ type: 'tool-done', name: call.name, status: doneStatus, ok: result.ok });
+      return record;
+    };
+
+    let rounds = 0;
+    for (const call of plan.toolCalls) {
+      if (options.signal?.aborted) {
+        return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted' };
+      }
+      if (rounds >= maxRounds) {
+        return {
+          reply: 'I stopped after 10 tool calls — the run was getting long. Ask me to continue from here.',
+          toolCalls: records,
+          edits,
+          diagnostics,
+          verifications,
+          stopped: 'max-rounds',
+        };
+      }
+      rounds += 1;
+      const record = await executeCall(call);
+
+      // The verify step (steal #5 — Aider): an edit that
+      // leaves diagnostics behind is reflected on, not
+      // merely reported. One fix_diagnostics call per
+      // edited file, through the same policy + registry
+      // path as any call. A result already marked
+      // verified (fix_diagnostics itself) is never
+      // re-verified, or the reflection would run twice
+      // on the same diagnostics.
+      if (
+        record.outcome === 'allowed' &&
+        record.result.ok &&
+        record.result.edits &&
+        record.result.edits.length > 0 &&
+        record.result.diagnostics &&
+        record.result.diagnostics.length > 0 &&
+        !record.result.verified
+      ) {
+        const editedPaths = [...new Set(record.result.edits.map((e) => e.path))];
+        for (const editedPath of editedPaths) {
+          if (options.signal?.aborted) break;
+          onEvent({ type: 'verify-start', path: editedPath });
+          const fix = await executeCall({ name: 'fix_diagnostics', args: { filepath: editedPath } });
+          if (fix.outcome === 'allowed' && fix.result.ok && fix.result.verification) {
+            // The fix call's diagnostics REPLACE the stale
+            // ones for this file — the run reports what is
+            // left, never what was already fixed.
+            for (let i = diagnostics.length - 1; i >= 0; i--) {
+              if (diagnostics[i].path === editedPath) diagnostics.splice(i, 1);
+            }
+            if (fix.result.diagnostics) diagnostics.push(...fix.result.diagnostics);
+          }
+          onEvent({
+            type: 'verify-done',
+            path: editedPath,
+            fixed: fix.result.verification?.fixed ?? 0,
+            remaining:
+              fix.result.verification?.remaining ??
+              (record.result.diagnostics ?? []).filter((d) => d.path === editedPath).length,
+          });
+        }
+      }
     }
 
     // 4. Compose the reply: one line per call + the
@@ -326,6 +401,19 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         lines.push(`✓ ${label}${shown ? `\n${shown}` : ''}`);
       }
     }
+    if (verifications.length > 0) {
+      for (const v of verifications) {
+        if (v.remaining === 0) {
+          lines.push(`Verified ${v.path}: fixed ${v.fixed} diagnostic(s) in ${v.reflections} reflection(s).`);
+        } else if (v.fixed > 0) {
+          lines.push(
+            `Verified ${v.path}: fixed ${v.fixed} diagnostic(s) in ${v.reflections} reflection(s) — ${v.remaining} remain.`,
+          );
+        } else {
+          lines.push(`Verified ${v.path}: no safe automatic repair — ${v.remaining} diagnostic(s) remain.`);
+        }
+      }
+    }
     if (diagnostics.length > 0) {
       lines.push(
         `Diagnostics (${diagnostics.length}):\n${diagnostics
@@ -337,7 +425,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     if (plan.reply) lines.push(plan.reply);
     const reply = lines.length > 0 ? lines.join('\n') : 'Done.';
     onEvent({ type: 'reply', reply });
-    return { reply, toolCalls: records, edits, diagnostics, stopped: 'done' };
+    return { reply, toolCalls: records, edits, diagnostics, verifications, stopped: 'done' };
   } catch (error) {
     // The run never throws — a failure anywhere becomes a
     // reply that says so (Continue's callTool contract, at

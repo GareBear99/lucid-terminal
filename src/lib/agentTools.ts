@@ -95,6 +95,16 @@ export interface AgentToolResult {
   diagnosticsChecked?: boolean;
   /** Diagnostics the edit left behind (empty = clean). */
   diagnostics?: Array<{ path: string; line: number; message: string; code?: string | number }>;
+  /** True when this result's diagnostics were already
+   *  reflected on (the verify loop ran on them) — the
+   *  loop must NOT re-verify a verified result, or the
+   *  reflection would run twice on the same diagnostics
+   *  (steal #5 — Aider). `fix_diagnostics` sets this;
+   *  edit tools do not. */
+  verified?: boolean;
+  /** The verification's own numbers, when this result
+   *  came out of the verify loop (steal #5 — Aider). */
+  verification?: { reflections: number; fixed: number; remaining: number };
 }
 
 export interface AgentEditSummary {

@@ -1244,6 +1244,26 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 </Tooltip>
                 </div>
               </section>
+
+              <section>
+                {/* Code-block colors (Gary, 2026-11-13 ~15:30 PST):
+                    "I dont wanna add the code blocks yet just get the
+                    section ready coming soon in customization". The
+                    ChatGPT purple/pink palette lives here as ONE section
+                    in Customization (not a theme) when it lands — the
+                    apply (O1 strings pink vs green, O2 editor bg, O3
+                    highlighter) is still Gary's call. No coloring is
+                    applied anywhere yet. */}
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Code blocks</h3>
+                  <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                    Coming soon
+                  </span>
+                </div>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                  Code blocks in the editor and chat will take the ChatGPT purple and pink here. Coming soon — no colors are applied anywhere yet.
+                </p>
+              </section>
             </div>
           )}
 

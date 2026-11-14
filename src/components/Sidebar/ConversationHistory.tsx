@@ -8,6 +8,16 @@ interface ConversationHistoryProps {
   onJumpToBlock: (blockId: string) => void;
   onClearHistory?: () => void;
   /**
+   * Whether the panel is minimized to its w-12 tick rail. When the
+   * Sidebar passes this (controlled), the toolbar icon + the panel's
+   * own chevron both drive it, and it survives panel switches —
+   * the collapse lives in Sidebar, not here. When unset, the panel
+   * keeps its own local state (direct renders, e.g. tests).
+   */
+  collapsed?: boolean;
+  /** Called when the collapsed state should change. */
+  onToggleCollapsed?: (collapsed: boolean) => void;
+  /**
    * Expanded panel width in px. When unset the panel keeps its w-80
    * (320px) width. The collapsed tick rail is always w-12 regardless —
    * the width only applies to the expanded list. The Sidebar passes its
@@ -25,8 +35,18 @@ interface HistoryItem {
   type: 'shell' | 'llm' | 'fixnet' | 'system';
 }
 
-export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, width }: ConversationHistoryProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, width, collapsed, onToggleCollapsed }: ConversationHistoryProps) {
+  // Controlled when the Sidebar passes collapsed (the toolbar icon
+  // drives it); local state otherwise (direct renders). Either way
+  // the rail UI is the same — the panel is never unmounted, it just
+  // minimizes to the w-12 rail (Gary, 2026-11-13: minimize, not
+  // delete).
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const isCollapsed = collapsed ?? internalCollapsed;
+  const setIsCollapsed = (value: boolean) => {
+    if (onToggleCollapsed) onToggleCollapsed(value);
+    else setInternalCollapsed(value);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -117,6 +137,7 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
           <button
             onClick={() => setIsCollapsed(false)}
             className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
+            aria-label="Show conversation history"
           >
             <ChevronRight size={20} className="text-[var(--text-muted)]" />
           </button>

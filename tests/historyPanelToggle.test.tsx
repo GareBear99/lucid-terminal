@@ -7,8 +7,15 @@
  * opened the panel, never closed it. Now:
  * - The button is the History button: tooltip "History", aria-label
  *   "History", the lucide History glyph, id 'history'.
- * - A second click CLOSES the panel (minimize is closing it — there
- *   is no separate minimized state). Same for the Explorer button.
+ * - A second click MINIMIZES the panel to its w-12 tick rail —
+ *   ChevronRight at the top ("Show conversation history", click to
+ *   expand back), the chats as ticks down the rail (newest first),
+ *   the chat count at the bottom. The panel is never unmounted by
+ *   the icon (Gary, 2026-11-13: minimize, not delete). Same for the
+ *   Explorer button (its rail has no ticks — files aren't chats).
+ * - The collapse state lives in the Sidebar, so the toolbar icon
+ *   can set it AND it survives panel switches. The panel's own
+ *   chevron ("Collapse sidebar") drives the same state.
  * - The panel docks in the flex row beside the icon bar, never as a
  *   hover overlay.
  * - History order is stable across renders: the list used to call
@@ -90,27 +97,53 @@ describe('History panel toggle (Gary, 2026-11-13)', () => {
     expect(button.getAttribute('aria-label')).toBe('History');
   });
 
-  test('History panel opens by default; a second click on History closes it; a third reopens it', () => {
+  test('History panel opens by default; a second click MINIMIZES it to the tick rail; a third reopens it', () => {
     renderSidebar();
     // Default: the History panel is open (its header shows).
     expect(screen.getByText('History')).toBeTruthy();
     fireEvent.click(historyButton());
-    // Closed: neither panel's header shows — the panel is gone, not
-    // minimized to a rail.
+    // Minimized: the expanded header is gone, but the panel is NOT
+    // unmounted — the w-12 tick rail is there (chevron to expand
+    // back). No chats in this guest render, so the rail is just the
+    // chevron — ticks and the count appear once there are chats.
     expect(screen.queryByText('History')).toBeNull();
-    expect(screen.queryByText('Explorer')).toBeNull();
+    expect(screen.getByLabelText('Show conversation history')).toBeTruthy();
     fireEvent.click(historyButton());
     expect(screen.getByText('History')).toBeTruthy();
   });
 
-  test('Explorer button toggles the same way: open, second click closes', () => {
+  test('Explorer button toggles the same way: open, second click minimizes to its rail', () => {
     renderSidebar();
     fireEvent.click(explorerButton());
     expect(screen.getByText('Explorer')).toBeTruthy();
     expect(screen.queryByText('History')).toBeNull();
     fireEvent.click(explorerButton());
+    // Minimized: the expanded Explorer header is gone, the rail is
+    // there instead.
     expect(screen.queryByText('Explorer')).toBeNull();
+    expect(screen.getByLabelText('Show explorer')).toBeTruthy();
+    fireEvent.click(explorerButton());
+    expect(screen.getByText('Explorer')).toBeTruthy();
+  });
+
+  test('the rail ChevronRight expands the panel back', () => {
+    renderSidebar();
+    fireEvent.click(historyButton());
+    expect(screen.getByLabelText('Show conversation history')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Show conversation history'));
+    expect(screen.getByText('History')).toBeTruthy();
+  });
+
+  test('collapse survives a panel switch: minimize History, switch away, switch back — still minimized', () => {
+    renderSidebar();
+    fireEvent.click(historyButton());
+    expect(screen.getByLabelText('Show conversation history')).toBeTruthy();
+    fireEvent.click(explorerButton());
+    expect(screen.getByText('Explorer')).toBeTruthy();
+    fireEvent.click(historyButton());
+    // Back on History — still the rail, not the expanded panel.
     expect(screen.queryByText('History')).toBeNull();
+    expect(screen.getByLabelText('Show conversation history')).toBeTruthy();
   });
 
   test('switching panels with the buttons: History -> Explorer -> History', () => {
@@ -122,10 +155,12 @@ describe('History panel toggle (Gary, 2026-11-13)', () => {
     expect(screen.queryByText('Explorer')).toBeNull();
   });
 
-  test('Cmd+B from closed reopens History', () => {
+  test('Cmd+B toggles the active panel between expanded and minimized', () => {
     renderSidebar();
-    fireEvent.click(historyButton());
+    expect(screen.getByText('History')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'b', metaKey: true });
     expect(screen.queryByText('History')).toBeNull();
+    expect(screen.getByLabelText('Show conversation history')).toBeTruthy();
     fireEvent.keyDown(window, { key: 'b', metaKey: true });
     expect(screen.getByText('History')).toBeTruthy();
   });

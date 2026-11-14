@@ -21,14 +21,30 @@
  *   commits — the gate silently rejected every natural quick drag
  *   (a real drag takes ~200-400ms), so the icons "didn't move"
  *   (Gary, 2026-11-07, real mouse). REGRESSION: a quick
- *   press-drag-drop with no hold at all commits and stores. A plain
- *   click still activates the icon (covered by the blood-drop
- *   terminal tests) — it can never produce a drop on another slot.
+ *   press-drag-drop with no hold at all commits and stores.
+ * - Drag & drop is pointer events, NOT native HTML5 DnD (Gary,
+ *   2026-11-13): every slot is `draggable={false}` at rest; a drag
+ *   starts only from pointer movement past an 8px threshold. A
+ *   real-mouse press that moves a pixel or two used to start a
+ *   native drag and the browser swallowed the click, so the History
+ *   button only worked on a perfectly still press (agent synthetic
+ *   clicks, zero movement, always worked). The drag-probe in
+ *   ~/workspace/drag-probe/ proved native DnD cannot both let a
+ *   ~5px press click and let slow drags reorder. A plain click —
+ *   and a press that moves a few pixels — still activates the icon
+ *   (the press tests below); a press never produces a drop on
+ *   another slot. Only a deliberate drag reorders, and the click
+ *   after a drag release is swallowed. There is no DataTransfer
+ *   anywhere in this path any more — the dragged id lives in a
+ *   ref, not the event.
  * - The blood drop is LOCKED to the top spot (Gary,
  *   2026-11-07): it always resolves first, can never be moved, no
- *   icon can be inserted before it, and its slot is not draggable
- *   (its click still opens the blood drop terminal). When it becomes
- *   available again it re-inserts at the top.
+ *   icon can be inserted before it, and a press on it never starts
+ *   a drag (its click still opens the blood drop terminal). When it
+ *   becomes available again it re-inserts at the top. (No slot is
+ *   natively draggable at rest any more — see the pointer-events
+ *   note above — but the blood drop is the only one that can never
+ *   start a drag at all.)
  * - The end zone always reserves its height (Gary, 2026-11-07):
  *   it is always h-6, never h-0 when idle. Growing it on drag
  *   start shrank the flex spacer and shifted every icon below the
@@ -243,14 +259,38 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
   let prevLucidAPI: unknown;
 
   /**
-   * Dispatch a drag event that actually carries a pointer position.
-   * jsdom has no DragEvent, so fireEvent.dragOver/drop lose clientY
-   * (the coordinate is silently dropped). A MouseEvent carrying the
-   * same type works instead: React only keys on the event type, and
-   * the handlers read clientY + the target rect from the native event.
+   * Give a slot real geometry (jsdom rects are all zeros): a
+   * 40px-tall slot. Returns a restore function. The midpoint logic
+   * reads the target rect, so a hover at clientY 10 is its upper
+   * half (insert before) and clientY 30 its lower half (insert
+   * after).
    */
-  function dispatchPointerDragEvent(el: HTMLElement, type: 'dragover' | 'drop', clientY: number) {
-    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientY }));
+  function mockSlotRect(el: HTMLElement) {
+    const rect = {
+      top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40,
+      x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect;
+    const origRect = el.getBoundingClientRect.bind(el);
+    el.getBoundingClientRect = () => rect;
+    return () => { el.getBoundingClientRect = origRect; };
+  }
+
+  /**
+   * A deliberate drag: press on `from`, move 20px (past the 8px
+   * threshold), hover `to` at clientY (upper half by default — insert
+   * before), release. The target rect is mocked for the hover so the
+   * midpoint logic has real geometry.
+   */
+  function dragIconTo(from: HTMLElement, to: HTMLElement, clientY = 10) {
+    const restore = mockSlotRect(to);
+    try {
+      fireEvent.pointerDown(from, { button: 0, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 20 });
+      fireEvent.pointerOver(to, { clientY });
+      fireEvent.pointerUp(window, { clientX: 0, clientY: 20 });
+    } finally {
+      restore();
+    }
   }
 
   beforeEach(() => {
@@ -277,6 +317,9 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
         toolbarPlugins: { synth: true, 'ai-chat': true, llmbuilder: true, mouse: true },
         luciferAiEnabled: true,
         toolbarOrder: [],
+        // The Persona Plex test installs the add-on; reset it here
+        // so it doesn't leak into later tests' resolved order.
+        installedAddons: [],
       },
     });
   });
@@ -307,9 +350,8 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
     expect(synth).not.toBeNull();
     expect(terminal).not.toBeNull();
-    fireEvent.dragStart(synth);
-    fireEvent.dragOver(terminal);
-    fireEvent.drop(terminal);
+    // A deliberate drag onto Terminal's upper half — insert before it.
+    dragIconTo(synth, terminal, 10);
     const expected = [
       'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
     ];
@@ -332,10 +374,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     // with a real mouse. A completed drop on a different slot must
     // commit. This test FAILS on the old code (mockSet never called)
     // and PASSES after the fix.
-    fireEvent.mouseDown(synth);
-    fireEvent.dragStart(synth);
-    fireEvent.dragOver(terminal);
-    fireEvent.drop(terminal);
+    dragIconTo(synth, terminal, 10);
     const expected = [
       'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
     ];
@@ -345,31 +384,31 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
   });
 
-  test('a drag after holding still commits — holding is no longer required but harmless', async () => {
-    const base = 1_000_000;
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(base);
+  test('a drag that starts with a small nudge still commits — the nudge is not a drag', async () => {
+    renderSidebar();
+    const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
+    const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
+    const restore = mockSlotRect(terminal);
     try {
-      renderSidebar();
-      const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
-      const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
-      fireEvent.mouseDown(synth);
-      // Hold 600ms, then drag — holding is no longer required, but
-      // a held drag must still commit.
-      nowSpy.mockReturnValue(base + 600);
-      fireEvent.dragStart(synth);
-      nowSpy.mockRestore();
-      fireEvent.dragOver(terminal);
-      fireEvent.drop(terminal);
-      const expected = [
-        'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
-      ];
-      await waitFor(() => {
-        expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
-      });
-      expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
+      fireEvent.pointerDown(synth, { button: 0, clientX: 0, clientY: 0 });
+      // Nudge 2px — below the 8px threshold, still a press, not a drag.
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 2 });
+      expect(document.querySelector('.opacity-40')).toBeNull();
+      // Then move past the threshold — now it is a drag.
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 20 });
+      expect(synth.className).toContain('opacity-40');
+      fireEvent.pointerOver(terminal, { clientY: 10 });
+      fireEvent.pointerUp(window, { clientX: 0, clientY: 20 });
     } finally {
-      nowSpy.mockRestore();
+      restore();
     }
+    const expected = [
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
+    });
+    expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
   });
 
   test('the drop indicator is solid during a drag — a drop always sticks (no dimmed hold state)', async () => {
@@ -378,16 +417,21 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
     expect(synth).not.toBeNull();
     expect(terminal).not.toBeNull();
-    fireEvent.mouseDown(synth);
-    fireEvent.dragStart(synth);
-    fireEvent.dragOver(terminal);
-    // The accent line renders solid — there is no dimmed "not ready
-    // yet" state any more, because a drop always commits now.
-    const line = terminal.querySelector('[class*="h-0.5"]') as HTMLElement | null;
-    expect(line).not.toBeNull();
-    expect(line?.className).not.toContain('opacity-40');
-    // And the drop commits immediately.
-    fireEvent.drop(terminal);
+    fireEvent.pointerDown(synth, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(window, { clientX: 0, clientY: 20 });
+    const restore = mockSlotRect(terminal);
+    try {
+      fireEvent.pointerOver(terminal, { clientY: 10 });
+      // The accent line renders solid — there is no dimmed "not ready
+      // yet" state any more, because a drop always commits now.
+      const line = terminal.querySelector('[class*="h-0.5"]') as HTMLElement | null;
+      expect(line).not.toBeNull();
+      expect(line?.className).not.toContain('opacity-40');
+      // And the drop commits immediately.
+      fireEvent.pointerUp(window, { clientX: 0, clientY: 20 });
+    } finally {
+      restore();
+    }
     const expected = [
       'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
     ];
@@ -406,23 +450,15 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     // Give the target real geometry (jsdom rects are all zeros):
     // a 40px-tall slot, pointer at clientY 30 — in its lower half,
     // so the drop lands AFTER it.
-    const rect = {
-      top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40,
-      x: 0, y: 0, toJSON: () => ({}),
-    } as DOMRect;
-    const origRect = settings.getBoundingClientRect.bind(settings);
-    settings.getBoundingClientRect = () => rect;
+    const restore = mockSlotRect(settings);
     try {
-      fireEvent.mouseDown(forge);
-      fireEvent.dragStart(forge);
-      // jsdom has no DragEvent, so fireEvent.dragOver/drop lose
-      // clientY. Dispatch a MouseEvent carrying the same type
-      // instead — React only keys on the event type, and the
-      // handlers read clientY + the target rect from it.
-      dispatchPointerDragEvent(settings, 'dragover', 30);
-      dispatchPointerDragEvent(settings, 'drop', 30);
+      // A deliberate drag onto Settings' lower half — insert after it.
+      fireEvent.pointerDown(forge, { button: 0, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 20 });
+      fireEvent.pointerOver(settings, { clientY: 30 });
+      fireEvent.pointerUp(window, { clientX: 0, clientY: 20 });
     } finally {
-      settings.getBoundingClientRect = origRect;
+      restore();
     }
     // Forge and Settings swap (was a silent no-op: insert-before
     // the next icon is the order you already have).
@@ -435,43 +471,11 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
   });
 
-  test('the drop reads the dragged id from a real DataTransfer (the production path)', async () => {
-    // jsdom has no DataTransfer, so the other drag tests only
-    // exercise the dragged-id state fallback. The production Electron
-    // build uses dataTransfer.getData — exercise that path with a
-    // mock DataTransfer, so a regression in the getData wiring is
-    // caught here instead of live.
-    renderSidebar();
-    const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
-    const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
-    expect(synth).not.toBeNull();
-    expect(terminal).not.toBeNull();
-    const store: Record<string, string> = {};
-    const dataTransfer = {
-      setData: vi.fn((format: string, value: string) => { store[format] = value; }),
-      getData: vi.fn((format: string) => store[format] ?? ''),
-      effectAllowed: 'uninitialized' as DataTransfer['effectAllowed'],
-      dropEffect: 'none' as DataTransfer['dropEffect'],
-      files: [] as unknown as FileList,
-      items: [] as unknown as DataTransferItemList,
-      types: [] as readonly string[],
-      clearData: vi.fn(),
-      setDragImage: vi.fn(),
-    } as unknown as DataTransfer;
-    fireEvent.dragStart(synth, { dataTransfer });
-    fireEvent.dragOver(terminal, { dataTransfer });
-    fireEvent.drop(terminal, { dataTransfer });
-    const expected = [
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
-    ];
-    await waitFor(() => {
-      expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
-    });
-    // The dragstart stored the id and the drop read it back.
-    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', 'synth');
-    expect(dataTransfer.getData).toHaveBeenCalledWith('text/plain');
-    expect(useSettingsStore.getState().settings.toolbarOrder).toEqual(expected);
-  });
+  // NOTE: the old "drop reads the dragged id from a real
+  // DataTransfer" test is gone with the native-DnD path — there is
+  // no DataTransfer anywhere in the pointer-events reorder (the
+  // dragged id lives in a ref, not the event). The drag tests above
+  // exercise the commit path instead.
 
   test('the Persona Plex button appears only while Persona Plex is installed', () => {
     // Not installed in the default test settings: no icon.
@@ -535,24 +539,35 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(document.querySelector('[data-toolbar-icon="llmbuilder"]')).not.toBeNull();
   });
 
-  test('the blood drop is locked to the top spot — first icon, and not draggable (Gary 2026-11-07)', () => {
+  test('the blood drop is locked to the top spot — first icon, and a press on it never starts a drag (Gary 2026-11-07)', () => {
     renderSidebar();
     // The first icon in the bar is the blood drop (Help).
     const icons = Array.from(document.querySelectorAll('[data-toolbar-icon]')) as HTMLElement[];
     const iconIds = icons.map((el) => el.getAttribute('data-toolbar-icon'));
     expect(iconIds[0]).toBe('help');
-    // Its slot is NOT draggable — the user can't even start dragging
-    // it — while the other icons are.
+    // No slot is natively draggable at rest — a drag starts only
+    // from pointer movement past the threshold.
     const help = document.querySelector('[data-toolbar-icon="help"]') as HTMLElement;
     expect(help.getAttribute('draggable')).toBe('false');
     const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
-    expect(terminal.getAttribute('draggable')).toBe('true');
+    expect(terminal.getAttribute('draggable')).toBe('false');
     const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
-    expect(synth.getAttribute('draggable')).toBe('true');
+    expect(synth.getAttribute('draggable')).toBe('false');
     // But the click still works — the blood drop still opens the
     // blood drop terminal. (The button inside the slot keeps its
     // onClick; only the drag is disabled.)
     expect(help.querySelector('button')).not.toBeNull();
+    // A press on Help that moves past the threshold does NOT start a
+    // drag — the blood drop never moves.
+    fireEvent.pointerDown(help, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(window, { clientX: 0, clientY: 20 });
+    expect(document.querySelector('.opacity-40')).toBeNull();
+    fireEvent.pointerUp(window, { clientX: 0, clientY: 20 });
+    // The same press on Terminal DOES start one (the drag visual).
+    fireEvent.pointerDown(terminal, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(window, { clientX: 0, clientY: 20 });
+    expect(terminal.className).toContain('opacity-40');
+    fireEvent.pointerUp(window, { clientX: 0, clientY: 20 });
   });
 
   test('REGRESSION (Gary, 2026-11-07): the end zone always reserves its height — no layout shift on drag start', () => {
@@ -570,10 +585,128 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     // while the top ones (above the spacer) worked. With the height
     // reserved, the end zone is unchanged by the drag start.
     const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
-    fireEvent.mouseDown(synth);
-    fireEvent.dragStart(synth);
+    fireEvent.pointerDown(synth, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(window, { clientX: 0, clientY: 20 });
     expect(endZone.className).toContain('h-6');
     expect(endZone.className).not.toContain('h-0');
+    fireEvent.pointerUp(window, { clientX: 0, clientY: 20 });
+  });
+
+  // A press with movement still toggles the panel (Gary, 2026-11-13).
+  // The old native-DnD slots swallowed the click on any press that
+  // moved past the browser's ~4px drag threshold, so the History
+  // button only worked on a perfectly still press. With pointer
+  // events, a press that never moves past the 8px threshold is a
+  // click, whatever small movement it had.
+  function historySlot() {
+    return document.querySelector('[data-toolbar-icon="history"]') as HTMLElement;
+  }
+
+  test('a press that moves 2px still toggles History to its rail (no reorder)', () => {
+    renderSidebar();
+    expect(screen.getByText('History')).toBeTruthy();
+    const history = historySlot();
+    fireEvent.pointerDown(history, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(window, { clientX: 0, clientY: 2 });
+    fireEvent.pointerUp(window, { clientX: 0, clientY: 2 });
+    fireEvent.click(history.querySelector('button') as HTMLElement);
+    // Minimized to the rail, not unmounted.
+    expect(screen.queryByText('History')).toBeNull();
+    expect(document.querySelector('[aria-label="Show conversation history"]')).not.toBeNull();
+    // And a press never reorders.
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  test('a press that moves 5px still toggles History to its rail (the Gary regression)', () => {
+    // 5px is past the browser's native drag threshold (~4px) — the
+    // old code started a native drag here and swallowed the click.
+    // With pointer events the 8px threshold has not been crossed,
+    // so the click fires.
+    renderSidebar();
+    expect(screen.getByText('History')).toBeTruthy();
+    const history = historySlot();
+    fireEvent.pointerDown(history, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(window, { clientX: 0, clientY: 5 });
+    fireEvent.pointerUp(window, { clientX: 0, clientY: 5 });
+    fireEvent.click(history.querySelector('button') as HTMLElement);
+    expect(screen.queryByText('History')).toBeNull();
+    expect(document.querySelector('[aria-label="Show conversation history"]')).not.toBeNull();
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  test('a press that moves past the threshold starts a drag — the click after release is swallowed, the reorder commits', async () => {
+    const onViewChange = vi.fn();
+    render(
+      <Sidebar
+        width={250}
+        onWidthChange={vi.fn()}
+        currentView="terminal"
+        onViewChange={onViewChange}
+        showAI={false}
+        onToggleAI={vi.fn()}
+        onOpenBloodDrop={vi.fn()}
+        onToggleForge={vi.fn()}
+      />,
+    );
+    const synth = document.querySelector('[data-toolbar-icon="synth"]') as HTMLElement;
+    const terminal = document.querySelector('[data-toolbar-icon="terminal"]') as HTMLElement;
+    dragIconTo(synth, terminal, 10);
+    const expected = [
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
+    ];
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
+    });
+    // The click that follows the drag release is swallowed — the
+    // Synth view does not open. (Re-query after the reorder: the
+    // store update re-rendered the rail.)
+    const synthButton = document.querySelector('[data-toolbar-icon="synth"] button') as HTMLElement;
+    fireEvent.click(synthButton);
+    expect(onViewChange).not.toHaveBeenCalled();
+  });
+
+  // Editor second-click falls back to Terminal (Gary, 2026-11-13):
+  // when you click OFF a toolbar tab icon and there is nowhere to
+  // go, it defaults to the Terminal page. (Synth/Forge/Settings/
+  // Persona Plex already had this fallback in their toggle fns —
+  // see synthToggle/settingsToggle/forgePersonaPlexToggle tests.)
+  function renderSidebarAt(view: 'terminal' | 'editor', onViewChange: (v: string) => void) {
+    return render(
+      <Sidebar
+        width={250}
+        onWidthChange={vi.fn()}
+        currentView={view}
+        onViewChange={onViewChange}
+        showAI={false}
+        onToggleAI={vi.fn()}
+        onOpenBloodDrop={vi.fn()}
+        onToggleForge={vi.fn()}
+      />,
+    );
+  }
+
+  test('Editor second click deactivates and lands on the Terminal page', () => {
+    const onViewChange = vi.fn();
+    renderSidebarAt('editor', onViewChange);
+    const editor = document.querySelector('[data-toolbar-icon="editor"] button') as HTMLElement;
+    fireEvent.click(editor);
+    expect(onViewChange).toHaveBeenCalledWith('terminal');
+  });
+
+  test('Editor click from Terminal opens the Editor', () => {
+    const onViewChange = vi.fn();
+    renderSidebarAt('terminal', onViewChange);
+    const editor = document.querySelector('[data-toolbar-icon="editor"] button') as HTMLElement;
+    fireEvent.click(editor);
+    expect(onViewChange).toHaveBeenCalledWith('editor');
+  });
+
+  test('Terminal click while already there stays on Terminal', () => {
+    const onViewChange = vi.fn();
+    renderSidebarAt('terminal', onViewChange);
+    const terminal = document.querySelector('[data-toolbar-icon="terminal"] button') as HTMLElement;
+    fireEvent.click(terminal);
+    expect(onViewChange).toHaveBeenCalledWith('terminal');
   });
 });
 

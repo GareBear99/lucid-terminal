@@ -1,4 +1,4 @@
-import { useEffect, useState, Fragment, type DragEvent as ReactDragEvent } from 'react';
+import { useEffect, useRef, useState, Fragment } from 'react';
 import {
   FolderOpen,
   Terminal,
@@ -74,12 +74,36 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // Sidebar panel: the file Explorer or History. History used to live
   // inside the Terminal view; it is a main-sidebar panel now, on the
   // History button under the Explorer button. Default is History —
-  // it was visible by default before the move. Null = no panel open
-  // (Gary, 2026-11-13: a second click on the rail button closes the
-  // panel — minimize is closing it, there is no separate minimized
-  // state).
-  type SidebarPanel = 'explorer' | 'history' | null;
+  // it was visible by default before the move. There is NO closed
+  // state: a second click on the rail button MINIMIZES the panel to
+  // its w-12 rail, it never deletes it off Lucid (Gary, 2026-11-13
+  // ~16:24 PST: "why isnt it minimized it deletes it" / "we
+  // specifically said not to do that"). The old null state (added
+  // 2026-11-13, unmounting the panel on second click) was the bug.
+  type SidebarPanel = 'explorer' | 'history';
   const [activePanel, setActivePanel] = useState<SidebarPanel>('history');
+  // Collapsed (minimized) per panel — the w-12 rail instead of the
+  // expanded panel. This lives HERE, not inside the panel content,
+  // so the toolbar icon can set it AND it survives panel switches
+  // (the old local useState inside ConversationHistory reset on
+  // every switch, and the rail icon couldn't touch it at all).
+  const [collapsedPanels, setCollapsedPanels] = useState<{ history: boolean; explorer: boolean }>({
+    history: false,
+    explorer: false,
+  });
+  // Toggle a panel from its toolbar button: pressing the open
+  // panel's button minimizes it to its rail; pressing it while
+  // minimized expands it back. Switching to a different panel shows
+  // it in whatever collapsed state it was left in — the collapse
+  // SURVIVES panel switches (it lives here, not in the panel
+  // content). Never unmounts the panel.
+  const togglePanel = (panel: 'history' | 'explorer') => {
+    if (activePanel !== panel) {
+      setActivePanel(panel);
+    } else {
+      setCollapsedPanels((prev) => ({ ...prev, [panel]: !prev[panel] }));
+    }
+  };
   // Expanded chats width in px (w-80 = 320, the History's standard
   // width). The collapsed tick rail stays w-12 regardless; the resize
   // handle adjusts this while the chats panel is active.
@@ -148,20 +172,44 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   const toolbarOrder = resolveToolbarOrder(storedToolbarOrder, availableToolbarIcons);
   const [draggedToolbarIcon, setDraggedToolbarIcon] = useState<string | null>(null);
   const [dropToolbarTarget, setDropToolbarTarget] = useState<string | null>(null);
+  // Pointer-drag state (refs, not state — the press is tracked
+  // without re-rendering on every move; the state above only drives
+  // the drop indicator + the dragged opacity).
+  // press: the slot the pointer went down on + where. dragging: a
+  // drag is in progress (movement passed the threshold).
+  // justDragged: set on a drag release so the click that follows a
+  // same-slot release is swallowed (a drag is not a click); cleared
+  // on the next press. dropTarget: the commit form of the drop
+  // target — {targetId, insertAfter} or null for no target — kept
+  // in a ref so the pointerup handler reads the CURRENT target
+  // instead of the stale closure from press time.
+  const dragPressRef = useRef<{ id: string; x: number; y: number } | null>(null);
+  const draggingToolbarRef = useRef(false);
+  const justDraggedRef = useRef(false);
+  const dropTargetRef = useRef<{ targetId: string | null; insertAfter: boolean } | null>(null);
+  const dragListenersRef = useRef<{
+    move: (e: PointerEvent) => void;
+    up: (e: PointerEvent) => void;
+  } | null>(null);
   // Drag-reorder (Gary, 2026-11-06; the 500ms hold gate was REMOVED
   // 2026-11-07): a completed drag onto a different slot commits on
-  // drop. There used to be a 500ms press-and-hold gate at the drop —
-  // the drop only committed once the press had lasted 500ms — but a
-  // natural drag takes ~200-400ms total, so the gate silently
-  // rejected the overwhelmingly common gesture and the icons "didn't
-  // move" (Gary, 2026-11-07, real mouse). The gate is gone because a
-  // completed drop on a different slot is already unambiguous: a
-  // plain click can never produce a drop on another slot (no
-  // dragstart, no drop), so it still activates the icon's normal
-  // action and never reorders. The drag itself starts on movement
-  // (see toolbarIconSlot); gating dragstart instead killed the drag
-  // for the whole press whenever the user moved before the hold was
-  // done, so a normal press-and-drag never reordered at all.
+  // drop. The old 500ms press-and-hold gate silently rejected every
+  // natural quick drag (~200-400ms), so the icons "didn't move"
+  // (Gary, 2026-11-07, real mouse) — the gate is gone, a completed
+  // drop on a different slot always commits.
+  // The reorder runs on POINTER events, not native HTML5 drag-and-
+  // drop (Gary, 2026-11-13). Native DnD broke real presses: the
+  // slots were draggable, so a normal press that moved a few pixels
+  // fired dragstart and the click never ran — the panel didn't
+  // toggle for Gary, while agent clicks (zero movement) always
+  // worked. Threshold-gating the draggable attribute does NOT fix
+  // it: measured in real Chromium (2026-11-13, Playwright probe),
+  // the browser decides drag-or-click ONCE, when movement crosses
+  // its ~4px hysteresis — arming draggable after that never starts
+  // a drag, so slow drags silently did nothing. Pointer events own
+  // the threshold instead: a press is a click until it has moved
+  // DRAG_START_THRESHOLD_PX, then it is a drag. A 5px press still
+  // toggles; a deliberate drag still reorders.
   // Whether the drop will land AFTER the hovered icon (the pointer
   // is in its lower half) rather than before it. A drag DOWN onto
   // the icon immediately below the dragged one lands after it (they
@@ -169,6 +217,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // before the next icon is the order you already have — which
   // reads as "the icons don't move". The accent line renders below
   // the target when this is true, above it otherwise.
+  // A normal press moves 1-5px; a deliberate drag moves 20px+ (a
+  // slot is ~40px tall). 8px sits between them with margin on both
+  // sides.
+  const DRAG_START_THRESHOLD_PX = 8;
   const [dropToolbarInsertAfter, setDropToolbarInsertAfter] = useState(false);
 
   // Where the drop lands relative to the target slot: the pointer's
@@ -176,42 +228,105 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // half -> before it. No usable geometry (e.g. jsdom, where rects
   // are all zeros) -> before it, the long-standing behaviour, so
   // existing tests keep passing unchanged.
-  const dropInsertAfterFromEvent = (e: ReactDragEvent): boolean => {
+  const dropInsertAfterFromPointerEvent = (e: React.PointerEvent): boolean => {
     const target = e.currentTarget as HTMLElement | null;
     const rect = target?.getBoundingClientRect?.();
     if (!rect || rect.height <= 0) return false;
     return e.clientY > rect.top + rect.height / 2;
   };
 
-  // Drop: move the dragged icon to the target and STORE the new order
-  // immediately — one updateSetting call persists it (settings IPC)
-  // and updates the store state, so the new order survives a reload
-  // (updated AND stored, not updated-only). A completed drop on a
-  // different slot always commits — there is no hold gate here any
-  // more (see above): the 500ms gate silently rejected every natural
-  // quick drag, so the icons "didn't move".
-  const handleToolbarDrop = async (
-    e: ReactDragEvent,
+  // Commit a completed drop: move the dragged icon to the target
+  // and STORE the new order immediately — one updateSetting call
+  // persists it (settings IPC) and updates the store state, so the
+  // new order survives a reload (updated AND stored, not
+  // updated-only). A completed drop on a different slot always
+  // commits — there is no hold gate here any more: the 500ms gate
+  // silently rejected every natural quick drag, so the icons
+  // "didn't move".
+  const commitToolbarDrop = async (
+    draggedId: string | null,
     targetId: string | null,
     insertAfter: boolean,
   ) => {
-    e.preventDefault();
-    const fromData = e.dataTransfer?.getData('text/plain') || undefined;
-    const draggedId = fromData ?? draggedToolbarIcon;
-    setDropToolbarInsertAfter(false);
-    setDraggedToolbarIcon(null);
-    setDropToolbarTarget(null);
     if (!draggedId || draggedId === targetId) return;
     const next = moveToolbarIcon(toolbarOrder, draggedId, targetId, insertAfter);
     if (next.join(',') === toolbarOrder.join(',')) return;
     await updateSetting('toolbarOrder', [...next]);
   };
 
-  const handleToolbarDragEnd = () => {
+  // Clear the drag state (indicator + dragged opacity + target).
+  const clearToolbarDragState = () => {
     setDropToolbarInsertAfter(false);
     setDraggedToolbarIcon(null);
     setDropToolbarTarget(null);
+    dropTargetRef.current = null;
   };
+
+  // Set the drop target during a drag, in both forms: the display
+  // target (drives the accent line; the end zone shows as 'end')
+  // and the commit target (null = append at the very bottom).
+  const setToolbarDropTarget = (targetId: string | null, insertAfter: boolean) => {
+    setDropToolbarTarget(targetId ?? 'end');
+    setDropToolbarInsertAfter(insertAfter);
+    dropTargetRef.current = { targetId, insertAfter };
+  };
+
+  // Pointer-press tracking for a slot (see toolbarIconSlot). A press
+  // is a click until it moves past DRAG_START_THRESHOLD_PX — then
+  // it becomes a drag. Primary button only; the blood drop ('help')
+  // is never draggable, so its press is never tracked.
+  const startToolbarDragPress = (id: string, e: React.PointerEvent) => {
+    if (e.button !== 0 || id === 'help') return;
+    justDraggedRef.current = false;
+    dragPressRef.current = { id, x: e.clientX, y: e.clientY };
+    const onMove = (ev: PointerEvent) => {
+      const press = dragPressRef.current;
+      if (!press) return;
+      if (!draggingToolbarRef.current) {
+        const moved = Math.max(Math.abs(ev.clientX - press.x), Math.abs(ev.clientY - press.y));
+        if (moved <= DRAG_START_THRESHOLD_PX) return;
+        draggingToolbarRef.current = true;
+        setDraggedToolbarIcon(press.id);
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      dragListenersRef.current = null;
+      const press = dragPressRef.current;
+      dragPressRef.current = null;
+      if (!draggingToolbarRef.current) return; // plain press — the button's click fires normally
+      draggingToolbarRef.current = false;
+      const target = dropTargetRef.current;
+      clearToolbarDragState();
+      // A drag release is not a click: swallow the click that
+      // follows a same-slot release (mousedown + mouseup on one
+      // slot still produces a click). A release over another slot
+      // produces no button click anyway — the flag is cleared on
+      // the next press, so it can never leak into a later click.
+      justDraggedRef.current = true;
+      if (press && target) {
+        void commitToolbarDrop(press.id, target.targetId, target.insertAfter);
+      }
+    };
+    dragListenersRef.current = { move: onMove, up: onUp };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  // If the Sidebar unmounts mid-press, drop the window listeners.
+  useEffect(() => {
+    return () => {
+      const listeners = dragListenersRef.current;
+      if (!listeners) return;
+      window.removeEventListener('pointermove', listeners.move);
+      window.removeEventListener('pointerup', listeners.up);
+      window.removeEventListener('pointercancel', listeners.up);
+      dragListenersRef.current = null;
+    };
+  }, []);
 
   // The button for one toolbar icon id. Core icons switch views or
   // sidebar panels; plugin icons come from the enabled plugins. The
@@ -243,7 +358,14 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         return {
           tooltip: 'Editor',
           button: (
-            <button onClick={() => onViewChange('editor')} className={btnClass(currentView === 'editor')}>
+            // Second click deactivates: nowhere to go, so land on the
+            // Terminal page (Gary, 2026-11-13 ~16:31 PST: "default
+            // when clicked off a tab icon in toolbar and no where to
+            // go like in files tabs case it should go to the
+            // terminal icons page"). Terminal is the default/home
+            // landing — the same fallback the Synth/Forge/Settings/
+            // Persona Plex toggles already use in App.tsx.
+            <button onClick={() => onViewChange(currentView === 'editor' ? 'terminal' : 'editor')} className={btnClass(currentView === 'editor')}>
               <FileCode size={20} />
             </button>
           ),
@@ -252,7 +374,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         return {
           tooltip: 'Explorer',
           button: (
-            <button onClick={() => setActivePanel(activePanel === 'explorer' ? null : 'explorer')} className={btnClass(activePanel === 'explorer')} aria-label="Explorer">
+            <button onClick={() => togglePanel('explorer')} className={btnClass(activePanel === 'explorer')} aria-label="Explorer">
               <FolderOpen size={20} />
             </button>
           ),
@@ -262,7 +384,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           tooltip: 'History',
           shortcut: 'Cmd+B',
           button: (
-            <button onClick={() => setActivePanel(activePanel === 'history' ? null : 'history')} className={btnClass(activePanel === 'history')} aria-label="History">
+            <button onClick={() => togglePanel('history')} className={btnClass(activePanel === 'history')} aria-label="History">
               <History size={20} />
             </button>
           ),
@@ -332,7 +454,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     }
   };
 
-  // One draggable icon slot. The drag handle is the whole slot; the
+  // One toolbar icon slot. The drag handle is the whole slot; the
   // accent line shows where a dropped icon will land — above the
   // hovered icon when the pointer is in its upper half (insert
   // before it), below it when the pointer is in its lower half
@@ -354,30 +476,28 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
       <div
         data-toolbar-icon={id}
         className={`relative ${isDragging ? 'opacity-40' : ''}`}
-        draggable={id !== 'help'}
-        onDragStart={(e) => {
-          // The drag starts on movement. A plain click (or an
-          // accidental nudge) never reorders — it produces no drop
-          // on another slot, and still activates the icon on
-          // release. dataTransfer is null in jsdom (no
-          // DataTransfer); the dragged id also lives in state, so
-          // the drop falls back.
-          if (e.dataTransfer) {
-            e.dataTransfer.setData('text/plain', id);
-            e.dataTransfer.effectAllowed = 'move';
-          }
-          setDraggedToolbarIcon(id);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-          setDropToolbarTarget(id);
+        // NOT draggable: native HTML5 drag-and-drop is gone — a
+        // draggable slot fired dragstart on a normal press and the
+        // click never ran (Gary, 2026-11-13). The slot is never
+        // draggable; the drag starts on pointer movement past the
+        // threshold instead (see startToolbarDragPress).
+        draggable={false}
+        onPointerDown={(e) => startToolbarDragPress(id, e)}
+        onPointerOver={(e) => {
+          if (!draggingToolbarRef.current) return;
           // Midpoint-aware drop: the pointer's half of the target
           // decides whether the icon lands before or after it.
-          setDropToolbarInsertAfter(dropInsertAfterFromEvent(e));
+          setToolbarDropTarget(id, dropInsertAfterFromPointerEvent(e));
         }}
-        onDrop={(e) => handleToolbarDrop(e, id, dropInsertAfterFromEvent(e))}
-        onDragEnd={handleToolbarDragEnd}
+        onClickCapture={(e) => {
+          // Swallow the click that follows a drag release on this
+          // slot — a drag is not a click (see startToolbarDragPress).
+          if (justDraggedRef.current) {
+            justDraggedRef.current = false;
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
       >
         {isDropTarget && (
           <div className={`absolute ${dropToolbarInsertAfter ? '-bottom-0.5' : '-top-0.5'} left-1 right-1 h-0.5 rounded bg-[var(--accent)]`} aria-hidden="true" />
@@ -389,20 +509,26 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     );
   };
 
-  // Cmd+B / Ctrl+B toggles the History panel. This was the History
-  // toggle inside the Terminal; the panel lives here now, so the
-  // shortcut lives here too (one listener, not one per terminal tab).
-  // Closed -> History; History -> Explorer; Explorer -> History.
+  // Cmd+B / Ctrl+B toggles the active panel between expanded and
+  // minimized — the same as pressing its toolbar icon. This was the
+  // History toggle inside the Terminal; the panel lives here now, so
+  // the shortcut lives here too (one listener, not one per terminal
+  // tab). It never deletes the panel: the old cycle (History ->
+  // Explorer -> History, via a null closed state) unmounted the
+  // panel, which Gary corrected (2026-11-13: minimize, not delete).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault();
-        setActivePanel((prev) => (prev === null ? 'history' : prev === 'history' ? 'explorer' : 'history'));
+        setCollapsedPanels((prev) => ({
+          ...prev,
+          [activePanel]: !prev[activePanel],
+        }));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [activePanel]);
 
   // Jump to a block in the terminal. The block elements only exist
   // while the Terminal view is mounted — if the user is in the Synth,
@@ -523,7 +649,15 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           bottom to put it last. A drop on a different slot STORES
           the new order immediately (updated AND stored). A plain
           click still activates the icon — it never reorders. */}
-      <div className="w-12 h-full bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-2 gap-1">
+      <div
+        className="w-12 h-full bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-2 gap-1"
+        onPointerLeave={() => {
+          // Leaving the rail mid-drag clears the drop target —
+          // dropping outside the rail is a no-op, not a reorder.
+          if (!draggingToolbarRef.current) return;
+          clearToolbarDragState();
+        }}
+      >
         {toolbarOrder.map((entry, entryIdx) => {
           if (entry === 'spacer') {
             // The flexible gap — a drop target (dropping on it puts the
@@ -534,13 +668,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
                 key="spacer"
                 data-toolbar-icon="spacer"
                 className="relative flex-1 w-full"
-                onDragOver={(e) => {
-                  if (!draggedToolbarIcon) return;
-                  e.preventDefault();
-                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-                  setDropToolbarTarget('spacer');
+                onPointerOver={() => {
+                  if (!draggingToolbarRef.current) return;
+                  setToolbarDropTarget('spacer', true);
                 }}
-                onDrop={(e) => handleToolbarDrop(e, 'spacer', true)}
               >
                 {isDropTarget && (
                   <div className="absolute top-0 left-1 right-1 h-0.5 rounded bg-[var(--accent)]" aria-hidden="true" />
@@ -578,13 +709,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           className={`w-full shrink-0 h-6 ${
             dropToolbarTarget === 'end' ? 'bg-[var(--bg-tertiary)]' : ''
           }`}
-          onDragOver={(e) => {
-            if (!draggedToolbarIcon) return;
-            e.preventDefault();
-            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-            setDropToolbarTarget('end');
+          onPointerOver={() => {
+            if (!draggingToolbarRef.current) return;
+            setToolbarDropTarget(null, true);
           }}
-          onDrop={(e) => handleToolbarDrop(e, null, true)}
           aria-hidden="true"
         />
       </div>
@@ -592,9 +720,27 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
       {/* Sidebar panel — Explorer or History, docked in the flex row
           beside the icon bar (never a hover overlay). One at a time;
           the icon bar's Explorer / History buttons switch between
-          them, and a second click on the open panel's button closes
-          it (activePanel null) — the panel is gone, not minimized. */}
-      {activePanel === 'explorer' ? (
+          them, and a second click on the open panel's button
+          MINIMIZES it to its w-12 rail — the panel is never deleted
+          (Gary, 2026-11-13: minimize, not delete). The collapse
+          state lives in Sidebar so it survives panel switches. */}
+      {activePanel === 'explorer' && collapsedPanels.explorer && (
+        // Minimized Explorer: the same w-12 rail shape as History's
+        // collapsed rail — a chevron to expand back. (Explorer has
+        // no chat ticks; the rail just holds the panel's place.)
+        <div className="h-full w-12 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-3">
+          <Tooltip content="Show explorer" placement="right">
+            <button
+              onClick={() => setCollapsedPanels((prev) => ({ ...prev, explorer: false }))}
+              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
+              aria-label="Show explorer"
+            >
+              <ChevronRight size={20} className="text-[var(--text-muted)]" />
+            </button>
+          </Tooltip>
+        </div>
+      )}
+      {activePanel === 'explorer' && !collapsedPanels.explorer && (
       <div
         className="h-full bg-[var(--bg-primary)] border-r border-[var(--border)] flex flex-col"
         style={{ width: width - 48 }}
@@ -703,20 +849,26 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           )}
         </div>
       </div>
-      ) : activePanel === 'history' ? (
+      )}
+      {activePanel === 'history' && (
         <ConversationHistory
           blocks={historyBlocks}
           onJumpToBlock={handleJumpToBlock}
           onClearHistory={handleClearHistory}
           width={historyWidth}
+          collapsed={collapsedPanels.history}
+          onToggleCollapsed={(collapsed) =>
+            setCollapsedPanels((prev) => ({ ...prev, history: collapsed }))
+          }
         />
-      ) : null}
+      )}
 
       {/* Resize Handle — resizes whichever panel is active: the
           Explorer (the sidebar width, 200–400) or History (the
           history width, 240–480; default 320 = w-80). The collapsed
-          tick rail is fixed w-12. No panel open -> no handle. */}
-      {activePanel !== null && (
+          rails are fixed w-12, so the handle does nothing visible
+          while a panel is minimized. There is always a panel open,
+          so the handle is always here. */}
       <div
         className="w-1 resize-handle"
         onMouseDown={(e) => {
@@ -743,7 +895,6 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           document.addEventListener('mouseup', onMouseUp);
         }}
       />
-      )}
     </div>
   );
 }

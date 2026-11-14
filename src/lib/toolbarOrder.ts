@@ -69,6 +69,7 @@ export type ToolbarIconId =
   | 'editor'
   | 'explorer'
   | 'history'
+  | 'docs'
   | 'synth'
   | 'help'
   | 'ai-chat'
@@ -87,6 +88,7 @@ export const DEFAULT_TOOLBAR_ORDER: ToolbarIconId[] = [
   'editor',
   'explorer',
   'history',
+  'docs',
   'spacer',
   'synth',
   'ai-chat',

@@ -15,8 +15,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { registerComposerInlineCompletions, type InlineOffer } from '../../lib/composerInlineProvider';
 import { getComposerStructureIdentifiers } from '../../lib/treeSitter';
-import { verifyIdentifiers } from '../../lib/tsLanguageService';
-import { getPatternIndex } from '../../lib/codePatterns';
+import { getEngineClient } from '../../lib/engineClient';
 
 // How long to wait for Monaco (bundled locally with the app) before giving
 // up and rendering a plain textarea. Without this the prompt sits on
@@ -520,9 +519,12 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     // candidates through unchanged while it is
                     // not — the ghost degrades to tree-sitter,
                     // it never goes silent because the
-                    // fact-checker is not up yet.
+                    // fact-checker is not up yet. The check goes
+                    // through the engine client (Kite mapping
+                    // #2 — the client split), not the service
+                    // module directly.
                     structureIdentifiers: activeFilePath
-                        ? verifyIdentifiers(
+                        ? getEngineClient().verifyIdentifiers(
                             activeFilePath,
                             getComposerStructureIdentifiers(activeFilePath),
                           )
@@ -530,13 +532,14 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     // Steal #7 — the patterns the user's own open
                     // files actually repeat (repeated lines and
                     // identifier chains), from the lazy in-memory
-                    // index: built on first use, re-extracted only
-                    // for changed files, never written to disk
-                    // (guest-safe). The gate is the verified
-                    // structure list above — a pattern whose
-                    // leading identifier is not in it is not
-                    // offered (see completePattern).
-                    patterns: getPatternIndex().sync(
+                    // index, through the engine client (Kite
+                    // mapping #2): built on first use,
+                    // re-extracted only for changed files, never
+                    // written to disk (guest-safe). The gate is
+                    // the verified structure list above — a
+                    // pattern whose leading identifier is not in
+                    // it is not offered (see completePattern).
+                    patterns: getEngineClient().getPatterns(
                         useFileStore.getState().openFiles.map((f) => ({
                             path: f.path,
                             content: f.content,

@@ -56,6 +56,7 @@
  */
 
 import { applyEditOperation, EditError, type EditOperation } from './agentMultiEdit';
+import { getEngineClient } from './engineClient';
 
 /** Aider's number — three reflections, then stop. */
 export const MAX_REFLECTIONS = 3;
@@ -412,11 +413,11 @@ export async function verifyContent(
 }
 
 /**
- * The real deps: the TS-LSP engine (dynamic import — this
- * module never pulls the compiler in statically) + the
- * loop's index + host. Returns null when the engine is
- * unavailable — the caller reports "diagnostics
- * unavailable" instead of faking a clean check.
+ * The real deps: the engine client (Kite mapping #2 — the
+ * client split; the client never pulls the compiler in
+ * statically) + the loop's index + host. Returns null when
+ * the engine is unavailable — the caller reports
+ * "diagnostics unavailable" instead of faking a clean check.
  */
 export async function makeLspVerifyDeps(
   path: string,
@@ -425,13 +426,13 @@ export async function makeLspVerifyDeps(
   host: { readFile: (path: string) => Promise<string> },
 ): Promise<VerifyDeps | null> {
   try {
-    const lsp = await import('./tsLanguageService');
-    const ready = await lsp.ensureTsLsp();
+    const client = getEngineClient();
+    const ready = await client.ensureReady();
     if (!ready) return null;
-    lsp.openDocument(path, content);
+    client.openDocument(path, content);
     return {
       checkEdit: (checkPath: string, checkContent: string) => {
-        const result = lsp.checkEdit(checkPath, checkContent);
+        const result = client.checkEdit(checkPath, checkContent);
         return {
           clean: result.clean,
           diagnostics: result.diagnostics.map((d) => ({
@@ -452,7 +453,7 @@ export async function makeLspVerifyDeps(
         }
       },
       openDocument: (docPath: string, docContent: string) => {
-        lsp.openDocument(docPath, docContent);
+        client.openDocument(docPath, docContent);
       },
     };
   } catch {

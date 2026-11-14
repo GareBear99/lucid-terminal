@@ -10,22 +10,11 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useToastStore } from '../../stores/toastStore';
 import {
   dropFileTreesExcept,
-  getIdentifiersAtPosition,
   updateFileTree,
 } from '../../lib/treeSitter';
 import { registerEditorLspProviders } from '../../lib/editorLspProvider';
-import { getPatternIndex } from '../../lib/codePatterns';
-import {
-  changeDocument,
-  dropDocumentsExcept,
-  ensureTsLsp,
-  getCompletions,
-  getDiagnostics,
-  getHover,
-  getSignatureHelp,
-  openDocument,
-  resolveCompletion,
-} from '../../lib/tsLanguageService';
+import { getEngineClient } from '../../lib/engineClient';
+import { publishDocsCursor, republishDocsCursor } from '../../lib/docsCursor';
 import { lspDiagnosticToMonacoMarker, monacoToLsp } from '../../lib/tsLspContract';
 
 function CodeEditor() {
@@ -68,9 +57,43 @@ function CodeEditor() {
   // clone publishes on a 50 ms debounce and triggers on a
   // 200 ms one; 150 ms is the middle of that range).
   const lspDisposers = useRef<Array<() => void>>([]);
+  // The engine client (Kite mapping #2 — the client split):
+  // the single surface for the TS language service, the
+  // tree-sitter structure and the Tabnine patterns. The
+  // editor talks to the engine through it, never directly.
+  const engineClient = getEngineClient();
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const diagnosticsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Docs panel cursor (Kite mapping #4 — the sidebar
+  // pattern): publish the cursor position + the word at it
+  // so the docs panel can show the symbol under it.
+  // Debounced 150 ms (the diagnostics cadence); the bus
+  // dedups (same file + line + word publishes nothing), so
+  // moving within a word is silent. The fallback textarea
+  // has no word-at-position API, so it does not publish —
+  // the panel follows the Monaco cursor only.
+  const docsCursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const publishCurrentCursor = () => {
+    const editor = editorRef.current;
+    const path = useFileStore.getState().activeFilePath;
+    if (!editor || !path) return;
+    const position = editor.getPosition?.();
+    if (!position) return;
+    const model = editor.getModel?.();
+    const word = model?.getWordAtPosition?.(position)?.word ?? null;
+    publishDocsCursor({
+      path,
+      lineNumber: position.lineNumber,
+      column: position.column,
+      word,
+    });
+  };
+  const scheduleDocsCursorPublish = () => {
+    if (docsCursorTimerRef.current) clearTimeout(docsCursorTimerRef.current);
+    docsCursorTimerRef.current = setTimeout(publishCurrentCursor, 150);
+  };
 
   // Diagnostics for the active file, debounced 150 ms after
   // the last edit (or the last file switch). Reads the
@@ -85,7 +108,7 @@ function CodeEditor() {
       if (!path || !editor || !monaco) return;
       const model = editor.getModel?.();
       if (!model) return;
-      const diagnostics = getDiagnostics(path);
+      const diagnostics = engineClient.getDiagnostics(path);
       monaco.editor.setModelMarkers(
         model,
         'ts-lsp',
@@ -102,7 +125,7 @@ function CodeEditor() {
     const file = useFileStore.getState().openFiles.find((f) => f.path === activeFilePath);
     if (file) {
       void updateFileTree(file.path, file.content || '');
-      openDocument(file.path, file.content || '');
+      engineClient.openDocument(file.path, file.content || '');
       scheduleDiagnostics();
     }
   }, [activeFilePath]);
@@ -111,7 +134,7 @@ function CodeEditor() {
   // (guest: parse in memory, persist nothing).
   useEffect(() => {
     dropFileTreesExcept(openFiles.map((f) => f.path));
-    dropDocumentsExcept(openFiles.map((f) => f.path));
+    engineClient.dropDocumentsExcept(openFiles.map((f) => f.path));
   }, [openFiles]);
 
   // Dispose the LSP providers on unmount.
@@ -120,6 +143,7 @@ function CodeEditor() {
     return () => {
       for (const dispose of disposers) dispose();
       if (diagnosticsTimerRef.current) clearTimeout(diagnosticsTimerRef.current);
+      if (docsCursorTimerRef.current) clearTimeout(docsCursorTimerRef.current);
     };
   }, []);
 
@@ -167,7 +191,13 @@ function CodeEditor() {
     monacoReady.current = true;
     editorRef.current = _editor;
     monacoRef.current = monaco;
-    void ensureTsLsp().then(() => scheduleDiagnostics());
+    void engineClient.ensureReady().then(() => {
+      scheduleDiagnostics();
+      // The engine just became ready — re-publish the cursor
+      // so the docs panel re-asks even though the cursor did
+      // not move.
+      republishDocsCursor();
+    });
     const activePath = () => useFileStore.getState().activeFilePath;
     const registerFor = (languageId: string) =>
       registerEditorLspProviders(monaco, languageId, {
@@ -175,47 +205,63 @@ function CodeEditor() {
           const path = activePath();
           if (!path) return null;
           return (
-            getCompletions(path, monacoToLsp({ lineNumber, column }))?.items ?? null
+            engineClient.getCompletions(path, monacoToLsp({ lineNumber, column }))?.items ?? null
           );
         },
         resolveCompletion: (item) => {
           const path = activePath();
-          return path ? resolveCompletion(path, item) : null;
+          return path ? engineClient.resolveCompletion(path, item) : null;
         },
         getStructureIdentifiers: (lineNumber, column) => {
           const path = activePath();
-          return path ? getIdentifiersAtPosition(path, lineNumber, column) : [];
+          return path ? engineClient.getStructureIdentifiers(path, lineNumber, column) : [];
         },
         // Steal #7 — Tabnine patterns: the repeated lines
         // and identifier chains from the user's own open
-        // files, offered for the line prefix typed so far.
-        // The shared lazy index syncs from the file store
-        // (in-memory only, never persisted — guest-safe);
-        // the provider sorts the patterns last and dedupes
-        // them against the LSP items, so a verified symbol
-        // always wins over a repeated idiom.
+        // files, offered for the line prefix typed so far,
+        // through the engine client (the shared lazy index
+        // syncs from the file store — in-memory only, never
+        // persisted, guest-safe). The provider sorts the
+        // patterns last and dedupes them against the LSP
+        // items, so a verified symbol always wins over a
+        // repeated idiom.
         getPatternCompletions: (linePrefix) => {
-          const index = getPatternIndex();
-          index.sync(
+          return engineClient.getPatternCompletions(
             useFileStore.getState().openFiles.map((f) => ({
               path: f.path,
               content: f.content,
             })),
+            linePrefix,
+            5,
           );
-          return index.match(linePrefix, 5).map((p) => p.text);
         },
         getHover: (lineNumber, column) => {
           const path = activePath();
-          return path ? getHover(path, monacoToLsp({ lineNumber, column })) : null;
+          return path ? engineClient.getHover(path, monacoToLsp({ lineNumber, column })) : null;
         },
         getSignatureHelp: (lineNumber, column, _triggerCharacter) => {
           const path = activePath();
           return path
-            ? getSignatureHelp(path, monacoToLsp({ lineNumber, column }))
+            ? engineClient.getSignatureHelp(path, monacoToLsp({ lineNumber, column }))
             : null;
         },
       });
     lspDisposers.current.push(registerFor('typescript'), registerFor('javascript'));
+    // The docs-panel cursor: every move republishes
+    // (debounced), and the mount publishes once for the file
+    // the editor just opened. The listener's dispose rides
+    // with the provider disposers — same unmount.
+    const cursorDisposable = _editor.onDidChangeCursorPosition?.(scheduleDocsCursorPublish);
+    if (cursorDisposable) {
+      lspDisposers.current.push(() => {
+        try {
+          cursorDisposable.dispose();
+        } catch {
+          // Already disposed — not an error.
+        }
+      });
+    }
+    publishCurrentCursor();
     scheduleDiagnostics();
   };
 
@@ -366,7 +412,7 @@ function CodeEditor() {
                 onChange={(e) => {
                   updateFileContent(activeFile.path, e.target.value);
                   void updateFileTree(activeFile.path, e.target.value);
-                  changeDocument(activeFile.path, e.target.value);
+                  engineClient.changeDocument(activeFile.path, e.target.value);
                   scheduleDiagnostics();
                 }}
                 spellCheck={false}
@@ -386,7 +432,7 @@ function CodeEditor() {
               onChange={(value) => {
                 updateFileContent(activeFile.path, value || '');
                 void updateFileTree(activeFile.path, value || '');
-                changeDocument(activeFile.path, value || '');
+                engineClient.changeDocument(activeFile.path, value || '');
                 scheduleDiagnostics();
               }}
               options={{

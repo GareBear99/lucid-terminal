@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, Fragment } from 'react';
 import {
   FolderOpen,
+  BookOpen,
   Terminal,
   Settings,
   FileCode,
@@ -27,6 +28,7 @@ import { enabledToolbarPlugins } from '../../data/toolbarPlugins';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { resolveToolbarOrder, moveToolbarIcon } from '../../lib/toolbarOrder';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
+import { DocsPanel } from '../Sidebar/DocsPanel';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { View, FileEntry } from '../../types';
 
@@ -76,7 +78,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     renameItem,
   } = useFileStore();
 
-  // Sidebar panel: the file Explorer or History. History used to live
+  // Sidebar panel: the file Explorer, History, or Docs (the docs
+  // panel — Kite mapping #4, the sidebar pattern — shows the
+  // documentation for the symbol under the editor's cursor).
+  // History used to live
   // inside the Terminal view; it is a main-sidebar panel now, on the
   // History button under the Explorer button. Default is History —
   // it was visible by default before the move. There is NO closed
@@ -85,16 +90,17 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // ~16:24 PST: "why isnt it minimized it deletes it" / "we
   // specifically said not to do that"). The old null state (added
   // 2026-11-13, unmounting the panel on second click) was the bug.
-  type SidebarPanel = 'explorer' | 'history';
+  type SidebarPanel = 'explorer' | 'history' | 'docs';
   const [activePanel, setActivePanel] = useState<SidebarPanel>('history');
   // Collapsed (minimized) per panel — the w-12 rail instead of the
   // expanded panel. This lives HERE, not inside the panel content,
   // so the toolbar icon can set it AND it survives panel switches
   // (the old local useState inside ConversationHistory reset on
   // every switch, and the rail icon couldn't touch it at all).
-  const [collapsedPanels, setCollapsedPanels] = useState<{ history: boolean; explorer: boolean }>({
+  const [collapsedPanels, setCollapsedPanels] = useState<{ history: boolean; explorer: boolean; docs: boolean }>({
     history: false,
     explorer: false,
+    docs: false,
   });
   // Toggle a panel from its toolbar button: pressing the open
   // panel's button minimizes it to its rail; pressing it while
@@ -102,7 +108,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // it in whatever collapsed state it was left in — the collapse
   // SURVIVES panel switches (it lives here, not in the panel
   // content). Never unmounts the panel.
-  const togglePanel = (panel: 'history' | 'explorer') => {
+  const togglePanel = (panel: 'history' | 'explorer' | 'docs') => {
     if (activePanel !== panel) {
       setActivePanel(panel);
     } else {
@@ -170,6 +176,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     'editor',
     'explorer',
     'history',
+    'docs',
     ...enabledPlugins.map((p) => p.id),
     ...(personaPlexInstalled ? ['persona-plex'] : []),
     'settings',
@@ -391,6 +398,15 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           button: (
             <button onClick={() => togglePanel('history')} className={btnClass(activePanel === 'history')} aria-label="History">
               <History size={20} />
+            </button>
+          ),
+        };
+      case 'docs':
+        return {
+          tooltip: 'Docs',
+          button: (
+            <button onClick={() => togglePanel('docs')} className={btnClass(activePanel === 'docs')} aria-label="Docs">
+              <BookOpen size={20} />
             </button>
           ),
         };
@@ -840,6 +856,22 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           </Tooltip>
         </div>
       )}
+      {activePanel === 'docs' && collapsedPanels.docs && (
+        // Minimized Docs: the same w-12 rail shape as Explorer's
+        // collapsed rail — a chevron to expand back. (Docs has
+        // no chat ticks; the rail just holds the panel's place.)
+        <div className="h-full w-12 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col items-center py-3">
+          <Tooltip content="Show docs" placement="right">
+            <button
+              onClick={() => setCollapsedPanels((prev) => ({ ...prev, docs: false }))}
+              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
+              aria-label="Show docs"
+            >
+              <ChevronRight size={20} className="text-[var(--text-muted)]" />
+            </button>
+          </Tooltip>
+        </div>
+      )}
       {activePanel === 'explorer' && !collapsedPanels.explorer && (
       <div
         className="h-full bg-[var(--bg-primary)] border-r border-[var(--border)] flex flex-col"
@@ -979,10 +1011,45 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           }
         />
       )}
+      {activePanel === 'docs' && !collapsedPanels.docs && (
+      <div
+        className="h-full bg-[var(--bg-primary)] border-r border-[var(--border)] flex flex-col"
+        style={{ width: width - 48 }}
+      >
+        {/* Header — the same shape as the Explorer's. */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
+          <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
+            Docs
+          </span>
+          <div className="flex items-center gap-1">
+            {/* Minimize — the dash collapses Docs to its w-12
+                rail, the same minimize as the other panels,
+                never a close or delete. The rail's chevron
+                and the toolbar Docs icon bring it back. */}
+            <Tooltip content="Minimize docs">
+              <button
+                onClick={() => setCollapsedPanels((prev) => ({ ...prev, docs: true }))}
+                className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                aria-label="Minimize docs"
+              >
+                <Minus size={14} />
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* The docs for the symbol under the editor's cursor —
+            a reader of the engine, never a writer. */}
+        <div className="flex-1 overflow-y-auto">
+          <DocsPanel />
+        </div>
+      </div>
+      )}
 
       {/* Resize Handle — resizes whichever panel is active: the
-          Explorer (the sidebar width, 200–400) or History (the
-          history width, 240–480; default 320 = w-80). The collapsed
+          Explorer or Docs (the sidebar width, 200–400) or
+          History (the history width, 240–480; default 320 =
+          w-80). The collapsed
           rails are fixed w-12, so the handle does nothing visible
           while a panel is minimized. There is always a panel open,
           so the handle is always here. */}

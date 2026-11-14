@@ -60,6 +60,7 @@ import type {
 import { executeMultiEdit, EditError, type EditOperation } from './agentMultiEdit';
 import { isWithinWorkspace, resolveAgentPath } from './agentHost';
 import { makeLspVerifyDeps, verifyContent } from './agentVerify';
+import { getEngineClient } from './engineClient';
 
 /** How much of a diff the tool returns (the loop's reply
  *  cap is 2,000 chars — the diff itself is capped here so
@@ -128,20 +129,20 @@ async function lspFor(path: string, content: string): Promise<{
 } | null> {
   if (!isCodeFile(path)) return null;
   try {
-    const lsp = await import('./tsLanguageService');
-    const ready = await lsp.ensureTsLsp();
+    const client = getEngineClient();
+    const ready = await client.ensureReady();
     if (!ready) return null;
-    lsp.openDocument(path, content);
+    client.openDocument(path, content);
     return {
       checked: true,
-      diagnostics: lsp.getDiagnostics(path).map((d) => ({
+      diagnostics: client.getDiagnostics(path).map((d) => ({
         path,
         line: d.range.start.line + 1,
         message: d.message,
         code: d.code,
       })),
       checkEdit: (newContent: string) => {
-        const result = lsp.checkEdit(path, newContent);
+        const result = client.checkEdit(path, newContent);
         return {
           clean: result.clean,
           diagnostics: result.diagnostics.map((d) => ({
@@ -397,11 +398,11 @@ async function findSymbolImpl(
       } as Record<number, string>
     )[kind] ?? `Symbol(${kind})`;
   try {
-    const lsp = await import('./tsLanguageService');
-    if (lsp.isTsLspReady()) {
+    const client = getEngineClient();
+    if (client.isReady()) {
       for (const open of ctx.host.getOpenFiles()) {
         if (!isCodeFile(open.path)) continue;
-        for (const symbol of lsp.getDocumentSymbols(open.path)) {
+        for (const symbol of client.getDocumentSymbols(open.path)) {
           const walk = (s: typeof symbol) => {
             if (s.name === name || s.name.toLowerCase().startsWith(name.toLowerCase())) {
               found.set(`${open.path}:${s.selectionRange.start.line + 1}`, {
@@ -484,10 +485,10 @@ async function goToDefinitionImpl(
     return { ok: true, output: `Symbol "${symbol}" does not occur in ${path}.` };
   }
   try {
-    const lsp = await import('./tsLanguageService');
-    if (await lsp.ensureTsLsp()) {
-      lsp.openDocument(path, content);
-      const locations = lsp.getDefinition(path, { line: position.line, character: position.character });
+    const client = getEngineClient();
+    if (await client.ensureReady()) {
+      client.openDocument(path, content);
+      const locations = client.getDefinition(path, { line: position.line, character: position.character });
       if (locations.length > 0) {
         return {
           ok: true,
@@ -529,10 +530,10 @@ async function findReferencesImpl(
     return { ok: true, output: `Symbol "${symbol}" does not occur in ${path}.` };
   }
   try {
-    const lsp = await import('./tsLanguageService');
-    if (await lsp.ensureTsLsp()) {
-      lsp.openDocument(path, content);
-      const locations = lsp.getReferences(path, { line: position.line, character: position.character });
+    const client = getEngineClient();
+    if (await client.ensureReady()) {
+      client.openDocument(path, content);
+      const locations = client.getReferences(path, { line: position.line, character: position.character });
       if (locations.length > 0) {
         return {
           ok: true,

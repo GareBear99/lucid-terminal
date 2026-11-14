@@ -49,7 +49,7 @@ import Sidebar from '../src/components/Layout/Sidebar';
 import { useSettingsStore } from '../src/stores/settingsStore';
 
 const AVAILABLE = [
-  'terminal', 'editor', 'explorer', 'chats',
+  'terminal', 'editor', 'explorer', 'history',
   'synth', 'help', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
 ];
 
@@ -61,26 +61,26 @@ describe('resolveToolbarOrder', () => {
   });
 
   test('a stored order is respected as-is — except the blood drop, which is pinned to the top', () => {
-    const stored = ['settings', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex'];
+    const stored = ['settings', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex'];
     // Every entry keeps its relative order, but 'help' (the blood
     // drop, locked to the top spot) moves from index 7 to index 0.
     // 'mouse' is available but not stored, so it is inserted before
     // Settings, landing right after the pinned blood drop.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'mouse', 'settings', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex',
+      'help', 'mouse', 'settings', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex',
     ]);
   });
 
   test('the blood drop always resolves first (locked to the top spot, Gary 2026-11-07)', () => {
     // Help buried in the middle of a stored order comes to the front.
-    const stored = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings'];
+    const stored = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
     ]);
     // Help at the very end of a stored order also comes to the front.
-    const storedEnd = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'help'];
+    const storedEnd = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'help'];
     expect(resolveToolbarOrder(storedEnd, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
     ]);
   });
 
@@ -88,37 +88,49 @@ describe('resolveToolbarOrder', () => {
     // Stored while LuciferAI was off (no Help in the stored order);
     // now available again — it re-inserts at the top, not before
     // Settings where a newly-available icon would otherwise land.
-    const stored = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'settings'];
+    const stored = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
     ]);
   });
 
   test('an available icon missing from the stored order is inserted before Settings', () => {
-    const stored = ['terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'settings'];
+    const stored = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'settings'];
     // 'help', 'ai-chat', 'llmbuilder', 'mouse' and 'persona-plex' are available but not stored.
     // They are inserted before Settings — then the blood drop is
     // pinned to the top spot, so it ends up first.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
     ]);
   });
 
   test('stale/unknown ids are dropped and duplicates keep the first', () => {
-    const stored = ['terminal', 'terminal', 'nope', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'settings'];
+    const stored = ['terminal', 'terminal', 'nope', 'editor', 'explorer', 'history', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual(DEFAULT_TOOLBAR_ORDER);
+  });
+
+  test("legacy 'chats' id maps to 'history' in its stored position", () => {
+    // The History button's id was 'chats' until the 2026-11-13 rename
+    // (Gary: the button should say History). A stored order from
+    // before then still carries 'chats' — it resolves to 'history'
+    // in the same slot instead of dropping out and re-appearing
+    // before Settings.
+    const stored = ['help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'settings'];
+    expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+    ]);
   });
 
   test('unavailable icons are excluded from the render order', () => {
     // Only the core icons + Settings are available (no plugins).
-    const available = ['terminal', 'editor', 'explorer', 'chats', 'settings'];
+    const available = ['terminal', 'editor', 'explorer', 'history', 'settings'];
     expect(resolveToolbarOrder([], available)).toEqual([
-      'terminal', 'editor', 'explorer', 'chats', 'spacer', 'settings',
+      'terminal', 'editor', 'explorer', 'history', 'spacer', 'settings',
     ]);
   });
 
   test('a stored order without the spacer gets it back before the first plugin', () => {
-    const stored = ['terminal', 'editor', 'explorer', 'chats', 'synth', 'help', 'ai-chat', 'llmbuilder', 'settings'];
+    const stored = ['terminal', 'editor', 'explorer', 'history', 'synth', 'help', 'ai-chat', 'llmbuilder', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual(DEFAULT_TOOLBAR_ORDER);
   });
 });
@@ -128,13 +140,13 @@ describe('moveToolbarIcon', () => {
 
   test('move before a target', () => {
     expect(moveToolbarIcon(order, 'synth', 'terminal', false)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
     ]);
   });
 
   test('move after a target (drop on the spacer)', () => {
     expect(moveToolbarIcon(order, 'terminal', 'spacer', true)).toEqual([
-      'help', 'editor', 'explorer', 'chats', 'spacer', 'terminal', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'editor', 'explorer', 'history', 'spacer', 'terminal', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
     ]);
   });
 
@@ -146,19 +158,19 @@ describe('moveToolbarIcon', () => {
     // longer immediately before Settings — Mouse and Persona Plex sit
     // between — but the drop still lands after Settings.)
     expect(moveToolbarIcon(order, 'llmbuilder', 'settings', true)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'mouse', 'persona-plex', 'settings', 'llmbuilder',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'mouse', 'persona-plex', 'settings', 'llmbuilder',
     ]);
   });
 
   test('move to the very end (end zone, null target)', () => {
     expect(moveToolbarIcon(order, 'terminal', null, true)).toEqual([
-      'help', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings', 'terminal',
+      'help', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings', 'terminal',
     ]);
   });
 
   test('move across the spacer', () => {
     expect(moveToolbarIcon(order, 'settings', 'editor', false)).toEqual([
-      'help', 'terminal', 'settings', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex',
+      'help', 'terminal', 'settings', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex',
     ]);
   });
 
@@ -167,7 +179,7 @@ describe('moveToolbarIcon', () => {
     expect(moveToolbarIcon(order, 'spacer', 'terminal', false)).toEqual(order);
     expect(moveToolbarIcon(order, 'nope', 'terminal', false)).toEqual(order);
     expect(moveToolbarIcon(order, 'terminal', 'nope', false)).toEqual([
-      'help', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings', 'terminal',
+      'help', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings', 'terminal',
     ]);
   });
 
@@ -184,15 +196,15 @@ describe('moveToolbarIcon', () => {
     // Dropping Synth onto Help (insert before) lands it right AFTER
     // Help instead — at index 1, never index 0.
     expect(moveToolbarIcon(order, 'synth', 'help', false)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
     ]);
     // Dropping Terminal onto Help (insert before) also lands after it.
     expect(moveToolbarIcon(order, 'terminal', 'help', false)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
     ]);
     // Dropping onto Help with insertAfter lands after it too.
     expect(moveToolbarIcon(order, 'synth', 'help', true)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
     ]);
   });
 
@@ -207,7 +219,7 @@ describe('persistence round-trip', () => {
   test('a stored order reloads to the same order', () => {
     // Help is first (locked to the top spot), so the stored order
     // reloads unchanged.
-    const stored = ['help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings'];
+    const stored = ['help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings'];
     // Resolving the stored order (as a reload would) returns it unchanged.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual(stored);
     // And after a move, the moved order also reloads unchanged.
@@ -219,9 +231,9 @@ describe('persistence round-trip', () => {
     // A stored order saved before the lock (Help in the middle)
     // reloads with Help moved to the top — the lock, not the
     // stored position, wins.
-    const stored = ['synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings'];
+    const stored = ['synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
     ]);
   });
 });
@@ -255,11 +267,14 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     };
     mockSet.mockClear();
     // All plugin buttons on, LuciferAI enabled, default order.
+    // (Mouse is enabled here explicitly: it defaults OFF — Gary,
+    // 2026-11-12 ~12:37 PST — and these drag tests exercise the
+    // full toolbar, not the default.)
     const base = useSettingsStore.getState().settings;
     useSettingsStore.setState({
       settings: {
         ...base,
-        toolbarPlugins: { synth: true, 'ai-chat': true, llmbuilder: true },
+        toolbarPlugins: { synth: true, 'ai-chat': true, llmbuilder: true, mouse: true },
         luciferAiEnabled: true,
         toolbarOrder: [],
       },
@@ -296,7 +311,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     fireEvent.dragOver(terminal);
     fireEvent.drop(terminal);
     const expected = [
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -322,7 +337,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     fireEvent.dragOver(terminal);
     fireEvent.drop(terminal);
     const expected = [
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -346,7 +361,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
       fireEvent.dragOver(terminal);
       fireEvent.drop(terminal);
       const expected = [
-        'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
+        'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
       ];
       await waitFor(() => {
         expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -374,7 +389,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     // And the drop commits immediately.
     fireEvent.drop(terminal);
     const expected = [
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -412,7 +427,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     // Forge and Settings swap (was a silent no-op: insert-before
     // the next icon is the order you already have).
     const expected = [
-      'help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'ai-chat', 'mouse', 'settings', 'llmbuilder',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'mouse', 'settings', 'llmbuilder',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);
@@ -447,7 +462,7 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     fireEvent.dragOver(terminal, { dataTransfer });
     fireEvent.drop(terminal, { dataTransfer });
     const expected = [
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'settings',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('toolbarOrder', expected);

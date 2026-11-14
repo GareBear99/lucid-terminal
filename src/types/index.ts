@@ -511,7 +511,7 @@ export interface Settings {
   toolbarPlugins: Record<string, boolean>;
   // Toolbar icon order — the drag-reorderable order of the icon bar
   // (Gary, 2026-11-06): an array of icon ids ('terminal', 'editor',
-  // 'explorer', 'chats', 'synth', 'ai-chat', 'llmbuilder', 'settings')
+  // 'explorer', 'history', 'synth', 'ai-chat', 'llmbuilder', 'settings')
   // plus the 'spacer' gap entry (see src/lib/toolbarOrder.ts). Written
   // IMMEDIATELY on drop (updated AND stored, not updated-only) via
   // updateSetting, and loaded on startup. Empty = the default order.

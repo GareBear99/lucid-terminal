@@ -8,7 +8,7 @@
  * settings store and resolved here.
  *
  * The order is an array of icon ids plus one layout entry:
- * - core icons: 'terminal' | 'editor' | 'explorer' | 'chats' | 'settings'
+ * - core icons: 'terminal' | 'editor' | 'explorer' | 'history' | 'settings'
  * - plugin icons: the plugin's stable id — 'synth' | 'help' (the
  *   blood drop, which opens the Help modal) | 'ai-chat' |
  *   'llmbuilder' (the Forge plugin's id; its button action is 'forge') |
@@ -68,7 +68,7 @@ export type ToolbarIconId =
   | 'terminal'
   | 'editor'
   | 'explorer'
-  | 'chats'
+  | 'history'
   | 'synth'
   | 'help'
   | 'ai-chat'
@@ -86,7 +86,7 @@ export const DEFAULT_TOOLBAR_ORDER: ToolbarIconId[] = [
   'terminal',
   'editor',
   'explorer',
-  'chats',
+  'history',
   'spacer',
   'synth',
   'ai-chat',
@@ -127,8 +127,14 @@ export function resolveToolbarOrder(
   available: readonly string[],
 ): ToolbarIconId[] {
   const availableSet = new Set(available);
-  const raw: readonly string[] =
-    stored && stored.length > 0 ? stored : DEFAULT_TOOLBAR_ORDER;
+  // Legacy id (Gary, 2026-11-13): the History button's id was 'chats'
+  // until the rename — a stored order from before then still carries
+  // it. Map it to 'history' so the icon keeps its stored position
+  // instead of dropping out and re-appearing before Settings.
+  const raw: readonly string[] = (stored && stored.length > 0
+    ? stored
+    : DEFAULT_TOOLBAR_ORDER
+  ).map((id) => (id === 'chats' ? 'history' : id));
 
   // Keep only available icons + the spacer, deduped (first wins).
   const seen = new Set<string>();

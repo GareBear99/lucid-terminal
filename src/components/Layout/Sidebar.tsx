@@ -4,7 +4,7 @@ import {
   Terminal,
   Settings,
   FileCode,
-  FileText,
+  History,
   ChevronRight,
   ChevronDown,
   File,
@@ -71,11 +71,14 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     createFolder,
   } = useFileStore();
 
-  // Sidebar panel: the file Explorer or the chats (History). The chats
-  // used to live inside the Terminal view; they are a main-sidebar
-  // panel now, on the paper button under the Explorer button. Default
-  // is the chats — the History was visible by default before the move.
-  type SidebarPanel = 'explorer' | 'history';
+  // Sidebar panel: the file Explorer or History. History used to live
+  // inside the Terminal view; it is a main-sidebar panel now, on the
+  // History button under the Explorer button. Default is History —
+  // it was visible by default before the move. Null = no panel open
+  // (Gary, 2026-11-13: a second click on the rail button closes the
+  // panel — minimize is closing it, there is no separate minimized
+  // state).
+  type SidebarPanel = 'explorer' | 'history' | null;
   const [activePanel, setActivePanel] = useState<SidebarPanel>('history');
   // Expanded chats width in px (w-80 = 320, the History's standard
   // width). The collapsed tick rail stays w-12 regardless; the resize
@@ -137,7 +140,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     'terminal',
     'editor',
     'explorer',
-    'chats',
+    'history',
     ...enabledPlugins.map((p) => p.id),
     ...(personaPlexInstalled ? ['persona-plex'] : []),
     'settings',
@@ -249,18 +252,18 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         return {
           tooltip: 'Explorer',
           button: (
-            <button onClick={() => setActivePanel('explorer')} className={btnClass(activePanel === 'explorer')} aria-label="Explorer">
+            <button onClick={() => setActivePanel(activePanel === 'explorer' ? null : 'explorer')} className={btnClass(activePanel === 'explorer')} aria-label="Explorer">
               <FolderOpen size={20} />
             </button>
           ),
         };
-      case 'chats':
+      case 'history':
         return {
-          tooltip: 'Chats',
+          tooltip: 'History',
           shortcut: 'Cmd+B',
           button: (
-            <button onClick={() => setActivePanel('history')} className={btnClass(activePanel === 'history')} aria-label="Chats">
-              <FileText size={20} />
+            <button onClick={() => setActivePanel(activePanel === 'history' ? null : 'history')} className={btnClass(activePanel === 'history')} aria-label="History">
+              <History size={20} />
             </button>
           ),
         };
@@ -386,14 +389,15 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     );
   };
 
-  // Cmd+B / Ctrl+B toggles the chats panel. This was the History
+  // Cmd+B / Ctrl+B toggles the History panel. This was the History
   // toggle inside the Terminal; the panel lives here now, so the
   // shortcut lives here too (one listener, not one per terminal tab).
+  // Closed -> History; History -> Explorer; Explorer -> History.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault();
-        setActivePanel((prev) => (prev === 'history' ? 'explorer' : 'history'));
+        setActivePanel((prev) => (prev === null ? 'history' : prev === 'history' ? 'explorer' : 'history'));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -585,8 +589,11 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         />
       </div>
 
-      {/* Sidebar panel — Explorer or chats. One at a time; the icon
-          bar's Explorer / paper buttons switch between them. */}
+      {/* Sidebar panel — Explorer or History, docked in the flex row
+          beside the icon bar (never a hover overlay). One at a time;
+          the icon bar's Explorer / History buttons switch between
+          them, and a second click on the open panel's button closes
+          it (activePanel null) — the panel is gone, not minimized. */}
       {activePanel === 'explorer' ? (
       <div
         className="h-full bg-[var(--bg-primary)] border-r border-[var(--border)] flex flex-col"
@@ -675,7 +682,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
                 <span className="truncate">{currentDir}</span>
               </div>
               {entries.length === 0 && !error && !isLoading ? (
-                <p className="px-3 py-2 text-xs text-[var(--text-muted)]">Folder is empty</p>
+                <p className="px-3 py-2 text-xs leading-[1.5] text-[var(--text-muted)]">Folder is empty</p>
               ) : (
                 renderFileTree(entries)
               )}
@@ -683,7 +690,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center p-4">
               <FolderOpen size={32} className="text-[var(--text-muted)] mb-2" />
-              <p className="text-sm text-[var(--text-muted)] mb-3">No folder open</p>
+              <p className="text-sm leading-[1.5] text-[var(--text-muted)] mb-3">No folder open</p>
               <Tooltip content="Open Folder">
                 <button
                   onClick={handleOpenDirectory}
@@ -696,19 +703,20 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           )}
         </div>
       </div>
-      ) : (
+      ) : activePanel === 'history' ? (
         <ConversationHistory
           blocks={historyBlocks}
           onJumpToBlock={handleJumpToBlock}
           onClearHistory={handleClearHistory}
           width={historyWidth}
         />
-      )}
+      ) : null}
 
       {/* Resize Handle — resizes whichever panel is active: the
-          Explorer (the sidebar width, 200–400) or the chats (the
+          Explorer (the sidebar width, 200–400) or History (the
           history width, 240–480; default 320 = w-80). The collapsed
-          tick rail is fixed w-12. */}
+          tick rail is fixed w-12. No panel open -> no handle. */}
+      {activePanel !== null && (
       <div
         className="w-1 resize-handle"
         onMouseDown={(e) => {
@@ -735,6 +743,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           document.addEventListener('mouseup', onMouseUp);
         }}
       />
+      )}
     </div>
   );
 }

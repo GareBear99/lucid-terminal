@@ -232,7 +232,10 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
           </div>
         ) : (
           <div className="py-2">
-            {filteredItems.reverse().map((item) => (
+            {/* Newest first: reverse a COPY — reverse() mutates in
+                place, and reversing the filtered array itself flipped
+                the history order on every render. */}
+            {[...filteredItems].reverse().map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleItemClick(item)}

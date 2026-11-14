@@ -26,6 +26,14 @@ export interface HintLineInput {
   /** The auto-detection verdict for the draft (see
    *  src/lib/agentPromptDetect.ts). */
   agentPromptDetected: boolean;
+  /** The classifier verdict (see src/lib/inputClassifier.ts).
+   *  Optional — when absent, the line behaves as before
+   *  (agentPromptDetected only). */
+  verdict?: 'shell' | 'agent' | 'unsure';
+  /** True when terminal is locked for this tab: the
+   *  classifier will not auto-flip to agent, so the hint
+   *  says so and points at the explicit switches. */
+  locked?: boolean;
 }
 
 /** The hint line text for this context, or null when there is
@@ -33,12 +41,17 @@ export interface HintLineInput {
  *  least the hand-off or the way back; null is the escape hatch
  *  for a future context with no keys). */
 export function computeHintLine(input: HintLineInput): string | null {
-  const { sessionKind, prompterActive, devMode, draft, agentPromptDetected } = input;
+  const { sessionKind, prompterActive, devMode, draft, agentPromptDetected, verdict, locked } = input;
 
   // Agent sessions: the only way out is Esc, and history walks
   // past prompts. The hand-off is meaningless here — you are
-  // already in an agent conversation.
+  // already in an agent conversation. When the draft looks
+  // like a shell command, the classifier is about to flip the
+  // tab back to terminal (and lock it) — the hint says so.
   if (sessionKind === 'agent') {
+    if (draft && verdict === 'shell') {
+      return 'looks like a command — esc back to terminal';
+    }
     return 'esc back to terminal · ↑ past prompts';
   }
 
@@ -46,7 +59,20 @@ export function computeHintLine(input: HintLineInput): string | null {
   // replaces the default line — it is the one moment the hint
   // changes with what is typed.
   if (draft && agentPromptDetected) {
+    // Locked terminal: the classifier will NOT flip it for
+    // you — the hint points at the explicit switches (pill,
+    // /agent) instead of promising a flip.
+    if (locked) {
+      return 'looks like a prompt — pill or /agent to send to agent';
+    }
     return 'looks like a prompt — ⌘⏎ send to agent';
+  }
+
+  // Terminal sessions, draft present but the classifier is
+  // UNSURE: do not flip, show the call, let the user decide
+  // (Gary, 2026-11-14 ~03:30 PST).
+  if (draft && verdict === 'unsure') {
+    return 'not sure yet — ⌘⏎ send to agent, or keep typing';
   }
 
   // Terminal sessions, composer is the input (DEFCON 3+ in either

@@ -19,10 +19,12 @@ import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, dropPendingEscape,
 import {
   useSessionStore,
   getTabMode,
+  getTerminalLocked,
   selectAgentPromptHistory,
 } from '../../stores/sessionStore';
 import { computeHintLine } from '../../lib/hintLine';
-import { detectAgentPrompt } from '../../lib/agentPromptDetect';
+import { classifyInput } from '../../lib/inputClassifier';
+import { parseAgentInput } from '../../lib/inputParse';
 import { getCachedGitStatus, useGitStatus } from '../../lib/useGitStatus';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
 import { getPromptHintWords } from '../../lib/promptHintWords';
@@ -861,6 +863,28 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       return;
     }
 
+    // /agent — the explicit mode switch (Gary, 2026-11-13
+    // ~14:54 PST): flips THIS tab's picker Terminal ↔ Agent.
+    // Top of the router order: it is handled here, never
+    // routed to the LuciferAI plugin (the old default case
+    // swallowed it). Pure toggle for now — /agent takes no
+    // arguments (Q5 open); which driving agent the picker
+    // selects is step 3. A flip to terminal LOCKS terminal
+    // (the store does that); a flip to agent unlocks it.
+    if (parsed.type === 'agent') {
+      const next = useSessionStore.getState().toggleTabMode(tabId);
+      if (next === null) {
+        await write('Agent mode needs a profile — guests stay terminal-only.');
+        return;
+      }
+      await write(
+        next === 'agent'
+          ? 'Agent mode — the prompt goes to the agent in this tab. Esc or /agent flips back to terminal.'
+          : 'Terminal mode — the prompt goes to the shell. Locked: the classifier will not flip it back to agent until you flip it yourself (pill or /agent).',
+      );
+      return;
+    }
+
     // DEFCON — Lucid-local, works with LuciferAI on or off, in
     // devmode or not (the levels take effect in NON-devmode —
     // Gary, 2026-11-09 ~04:24 PST — but the command is how Gary
@@ -1074,7 +1098,6 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         case 'github':
         case 'env':
         case 'daemon':
-        case 'agent':
         case 'build':
         case 'create':
         case 'unknown':
@@ -1201,6 +1224,13 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // re-renders; devRunning below drives the glow.
     if (composerRunningRef.current) return;
     composerRunningRef.current = true;
+    // /agent is the explicit switch (top of the router order):
+    // it flips the mode from EITHER mode — it must be caught
+    // before the agent-mode branch below, or the flip would be
+    // swallowed as a prompt. It falls through to the slash
+    // handling below (openBlock + runSlashCommand), which owns
+    // the flip and its confirmation line.
+    const isAgentToggle = trimmed === '/agent' || trimmed.startsWith('/agent ');
     // Agent mode (heavy terminal work, 2026-11-13; REBUILT
     // 2026-11-13 ~08:21 PST per Gary — Warp's in-tab agent
     // flow): the composer is a prompt input, not a shell input
@@ -1212,10 +1242,30 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // words are gone after the tab's first prompt, shell or
     // agent); no devHistory (the tab's past agent prompts are
     // its blocks).
-    if (isAgentMode) {
+    if (isAgentMode && !isAgentToggle) {
       agentHistoryIdx.current = null;
       useTerminalStore.getState().markTabPrompted(tabId);
-      useSessionStore.getState().submitAgentPrompt(tabId, trimmed, tabCwd);
+      // The parse runs at submit: instant replies (greetings /
+      // canned questions) and context answers (questions about
+      // the tab's own recent work) cost no model call — they
+      // are answered from the dictionaries and the tab's own
+      // blocks. Anything else goes to the driving intelligence
+      // (the existing placeholder path until step 3 lands).
+      const blocks = useHistoryStore.getState().blocksByTab[tabId] ?? EMPTY_BLOCKS;
+      let lastBlock: TerminalBlock | null = null;
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (b.kind === undefined || b.kind === 'command') {
+          lastBlock = b;
+          break;
+        }
+      }
+      const parse = parseAgentInput(trimmed, { lastBlock });
+      if (parse.route === 'instant-reply' || parse.route === 'context-answer') {
+        useSessionStore.getState().submitAgentReply(tabId, trimmed, parse.reply ?? '', tabCwd);
+      } else {
+        useSessionStore.getState().submitAgentPrompt(tabId, trimmed, tabCwd);
+      }
       setDevInput('');
       composerRunningRef.current = false;
       return;
@@ -1730,19 +1780,67 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     useSessionStore.getState().toggleTabMode(tabId);
     setTimeout(() => focusPrompterComposer(), 0);
   };
+  // The classifier (Warp-like parsing, 2026-11-14): the
+  // draft is classified as you type — normalize → detect →
+  // question guard → intent + file extraction (rule path) →
+  // pill context → route. It runs in microseconds (pure
+  // string work) and never blocks the composer. The verdict
+  // drives the hint line; `shouldAutoFlip` drives the effect
+  // below. The last block's kind arms the agent follow-up
+  // allowlist ("yes" / "continue" after an agent block).
+  const classification = useMemo(() => {
+    const blocks = useHistoryStore.getState().blocksByTab[tabId] ?? EMPTY_BLOCKS;
+    const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : undefined;
+    const session = useSessionStore.getState();
+    return classifyInput(devInput, {
+      mode: isAgentMode ? 'agent' : 'terminal',
+      locked: getTerminalLocked(session.terminalLocked, tabId),
+      lastManualModeSetAt: session.lastManualModeSetAt[tabId],
+      commandHistory,
+      agentPromptHistory: selectAgentPromptHistory(
+        useHistoryStore.getState().blocksByTab,
+        tabId,
+      ),
+      lastBlockKind: lastBlock?.kind ?? null,
+      guestActive: useHistoryStore.getState().guestSessionActive,
+    });
+  }, [devInput, isAgentMode, tabId, commandHistory]);
+
+  // Auto-flip (Warp-like classifier, 2026-11-14): the
+  // classifier flips the tab's mode as you type — terminal ↔
+  // agent. The flip TO terminal locks terminal (the store
+  // does that on the set); the flip to agent only happens
+  // when terminal is unlocked. Unsure never flips; the hint
+  // line shows the call instead. The ref fires once per
+  // verdict — the flip changes the mode, so the next
+  // classification no longer asks for the same flip, and the
+  // effect can never loop. The 250 ms post-manual suppression
+  // lives inside shouldAutoFlip. The detached dev bar does
+  // not auto-flip (composerIsInput is false there) — only the
+  // linked composer, the live input, flips.
+  const lastAutoFlipRef = useRef('');
+  useEffect(() => {
+    if (!isActiveTab || !composerIsInput) return;
+    if (!classification.shouldAutoFlip || !classification.flipTo) return;
+    const key = `${classification.flipTo}:${classification.source}:${devInput}`;
+    if (lastAutoFlipRef.current === key) return;
+    lastAutoFlipRef.current = key;
+    useSessionStore.getState().setTabMode(tabId, classification.flipTo);
+  }, [classification, devInput, isActiveTab, composerIsInput, tabId]);
+
   // The hint line (Warp §5): what the next keystroke does, for
-  // this session and this draft. The auto-detection verdict is
-  // recomputed with the draft — suggest-only, never a route.
-  const agentPromptDetected = useMemo(
-    () => detectAgentPrompt(devInput).isPrompt,
-    [devInput],
-  );
+  // this session and this draft. The classifier verdict is
+  // recomputed with the draft — the hint shows the call when
+  // the classifier is unsure or terminal is locked, and the
+  // auto-flip (above) acts on a firm verdict.
   const hintLineText = computeHintLine({
     sessionKind: isAgentMode ? 'agent' : 'terminal',
     prompterActive,
     devMode,
     draft: devInput.trim(),
-    agentPromptDetected,
+    agentPromptDetected: classification.isPrompt,
+    verdict: classification.verdict,
+    locked: classification.pillContext.locked,
   });
   const hintWords = getPromptHintWords(isAgentMode ? 'agent' : 'terminal', luciferAiEnabled, luciferAiSilenced);
   const composerHasInput = devInput.length > 0;

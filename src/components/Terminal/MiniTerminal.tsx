@@ -418,6 +418,22 @@ export default function MiniTerminal() {
         openBlock(tabId, trimmed);
         if (parseCommand(trimmed).type === 'defcon') {
           await runMiniDefconCommand(tabId, trimmed);
+        } else if (parseCommand(trimmed).type === 'agent') {
+          // /agent flips the tab's mode (Gary, 2026-11-13
+          // ~14:54 PST) — the same explicit switch as the pill
+          // in this window. The detached composer itself stays
+          // terminal-only; the flip takes effect when the tab
+          // remounts in the main window (and the lock rule
+          // applies there). Pure toggle, no arguments (Q5 open).
+          const next = useSessionStore.getState().toggleTabMode(tabId);
+          miniWriteLines(
+            tabId,
+            next === 'agent'
+              ? 'Agent mode — the prompt goes to the agent when this tab pops back into the main window. Esc or /agent flips back to terminal.'
+              : next === 'terminal'
+                ? 'Terminal mode — the prompt goes to the shell. Locked: the classifier will not flip it back to agent until you flip it yourself (pill or /agent).'
+                : 'Agent mode needs a profile — guests stay terminal-only.',
+          );
         } else {
           miniWriteLines(tabId, SLASH_NOT_HERE_NOTE);
         }
@@ -447,17 +463,19 @@ export default function MiniTerminal() {
   const ghostSuggestion = prompterActive ? computeGhostSuggestion(devInput, commandHistory) : null;
 
   // Hint line (Warp §5, same as Terminal.tsx): what the next
-  // keystroke does, for this terminal session and draft.
-  const agentPromptDetected = useMemo(
-    () => detectAgentPrompt(devInput).isPrompt,
-    [devInput],
-  );
+  // keystroke does, for this terminal session and draft. The
+  // detector is the upgraded classifier (quote-aware,
+  // ladders, one-offs) — but a detached window is terminal
+  // mode only (see handleComposerSubmit above), so there is
+  // no auto-flip here: the verdict only informs the hint.
+  const detection = useMemo(() => detectAgentPrompt(devInput), [devInput]);
   const hintLineText = computeHintLine({
     sessionKind: 'terminal',
     prompterActive,
     devMode,
     draft: devInput.trim(),
-    agentPromptDetected,
+    agentPromptDetected: detection.isPrompt,
+    verdict: detection.verdict,
   });
   const acceptGhostSuggestion = () => {
     if (ghostSuggestion) setDevInput(ghostSuggestion);

@@ -220,7 +220,10 @@ describe('computeGhostSuggestion — the pure suggestion rule', () => {
   });
 
   test('slash lines complete the command word from known slash names', () => {
-    expect(computeGhostSuggestion('/fi', [])).toBe('/fix');
+    // '/file' sorts before '/fix' in the alphabetically-sorted
+    // SLASH_COMMAND_NAMES (sweep fix 2 follow-on, 2026-11-14), so
+    // it is the first match for '/fi' now.
+    expect(computeGhostSuggestion('/fi', [])).toBe('/file');
     expect(computeGhostSuggestion('/fixn', [])).toBe('/fixnet');
     expect(computeGhostSuggestion('/defco', [])).toBe('/defcon');
     expect(computeGhostSuggestion('/devm', [])).toBe('/devmode');
@@ -327,7 +330,8 @@ describe('DEFCON 3 composer — ghost suggestion + Tab completion', () => {
     await renderPrompter();
     typeInComposer('/fi');
     const ghost = screen.getByTestId('composer-ghost-suggestion');
-    expect(ghost.textContent).toBe('/fix');
+    // '/file' is the first alphabetical match for '/fi' now.
+    expect(ghost.textContent).toBe('/file');
   });
 
   test('Right-arrow accepts the ghost when the cursor is at the end', async () => {
@@ -364,7 +368,7 @@ describe('DEFCON 3 composer — ghost suggestion + Tab completion', () => {
     await renderPrompter();
     typeInComposer('/fi');
     fireEvent.keyDown(composerInput(), { key: 'Tab' });
-    expect(composerInput().value).toBe('/fix');
+    expect(composerInput().value).toBe('/file');
     expect(writeMock).not.toHaveBeenCalled();
     expect(blocks()).toHaveLength(0);
   });

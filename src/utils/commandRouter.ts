@@ -35,6 +35,11 @@ export type CommandType =
   | 'agent'
   | 'devmode'
   | 'defcon'
+  | 'split'
+  | 'unsplit'
+  | 'file'
+  | 'open'
+  | 'new'
   | 'shell'
   | 'unknown';
 
@@ -91,6 +96,11 @@ export const SLASH_COMMAND_NAMES: string[] = [
     ...LUCIFERAI_COMMANDS,
     'defcon',
     'devmode',
+    'split',
+    'unsplit',
+    'file',
+    'open',
+    'new',
     'browser',
     'install',
     'github',
@@ -436,6 +446,85 @@ function parseSlashCommand(input: string): ParsedCommand {
     };
   }
 
+  // Split panes (sweep fix 2 follow-on, 2026-11-14) — `/split`
+  // and `/unsplit`. Lucid-local, like devmode and defcon: they
+  // touch layout only, so they run with LuciferAI on or off,
+  // silenced or not, and in guest. /split splits the active
+  // tab (the same action as the toggle pill, the strip split
+  // button and ⌘D); /unsplit closes every pane except the
+  // focused one. Neither takes arguments.
+  if (command === 'split') {
+    return {
+      type: 'split',
+      command: 'split',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  if (command === 'unsplit') {
+    return {
+      type: 'unsplit',
+      command: 'unsplit',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  // File commands (sweep fix 2 follow-on, 2026-11-14 — Gary:
+  // "just the basic ones — /file opens the file page, etc").
+  // Lucid-local, like /split: they touch the Files tab and the
+  // editor only, so they run with LuciferAI on or off,
+  // silenced or not, and in guest (guest files are session-only,
+  // dropped on exit — the blank-slate rule is untouched).
+  // Paths resolve against the Files tab's root
+  // (fileStore.currentDir — home at startup, or the workspace
+  // folder the user picked); absolute paths are used as given.
+  // /file takes no argument; /open and /new take one path.
+  // Paths with spaces do not parse — args are whitespace-split,
+  // like every other slash command.
+  // /delete was in the first draft and DROPPED by Gary
+  // (~14:17 PST) — there is no delete slash command. /rename
+  // was dropped the same way (~14:20 PST) — there is no rename
+  // slash command either. The Files tab's inline rename is
+  // untouched: this is only about the slash words.
+  if (command === 'file') {
+    return {
+      type: 'file',
+      command: 'file',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  if (command === 'open') {
+    return {
+      type: 'open',
+      command: 'open',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
+  if (command === 'new') {
+    return {
+      type: 'new',
+      command: 'new',
+      args,
+      raw: input,
+      isSlashCommand: true,
+      shouldShowHelp: false
+    };
+  }
+
   // Agent command (explicit)
   if (command === 'agent' || command === 'ai' || command === 'ask') {
     return {
@@ -500,6 +589,16 @@ export function getCommandDescription(type: CommandType): string {
       return 'Toggling dev mode...';
     case 'defcon':
       return 'Reading or setting the DEFCON level...';
+    case 'split':
+      return 'Splitting the terminal...';
+    case 'unsplit':
+      return 'Closing the extra panes...';
+    case 'file':
+      return 'Opening the Files page...';
+    case 'open':
+      return 'Opening the file in the editor...';
+    case 'new':
+      return 'Creating the file...';
     case 'shell':
       return 'Executing shell command...';
     default:
@@ -531,6 +630,11 @@ export function getCommandExamples(prefix: string): string[] {
     '/history',
     '/devmode on',
     '/defcon',
+    '/split',
+    '/unsplit',
+    '/file',
+    '/open <file>',
+    '/new <file>',
     '/agent explain Docker containers'
   ];
 

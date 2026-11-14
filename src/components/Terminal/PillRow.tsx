@@ -37,6 +37,19 @@
  *   header and the app status bar. The header is settled and
  *   not redesigned; this pill earns its place as the copyable
  *   one.)
+ * - Split pill (button, sweep fix 2 follow-on, 2026-11-14):
+ *   toggles the split panes for this tab — "Split" when
+ *   single-pane, "Unsplit" + active styling while a split is
+ *   visible. Click splits the active tab (the same action as
+ *   the tab-strip split button / ⌘D) or, when split, closes
+ *   every pane except the focused one (each closed pane's PTY
+ *   is destroyed, the same as closePane). The pill is a third
+ *   way to do the same thing, not a replacement: splitting
+ *   from the button or ⌘D lights the pill, because both read
+ *   the same split store. Main window only — the parent passes
+ *   no handler in a detached window, so no pill renders there.
+ *   Works in guest exactly like the strip button (plain
+ *   terminal panes, session-only, dropped on exit).
  * - Branch + counts pills (labels): the live git state for the
  *   active cwd. They render only when the cwd is a repo.
  * - Version pill (label): the app version.
@@ -77,6 +90,14 @@ interface PillRowProps {
   onPickDrivingAgent?: (value: string) => void;
   /** Guest: no picker — the pill stays the base label. */
   drivingAgentPickerDisabled?: boolean;
+  /** A split is visible for this tab (more than one pane) —
+   *  the split pill renders "Unsplit" + active styling. */
+  splitVisible?: boolean;
+  /** Toggle the split for this tab (split when single-pane,
+   *  unsplit when split). Absent = no split pill — the parent
+   *  passes no handler in a detached window, where splits
+   *  do not exist. */
+  onToggleSplit?: () => void;
 }
 
 const PILL_CLASS =
@@ -92,6 +113,8 @@ export function PillRow({
   drivingAgentValue = '',
   onPickDrivingAgent,
   drivingAgentPickerDisabled = false,
+  splitVisible = false,
+  onToggleSplit,
 }: PillRowProps) {
   const [copiedCwd, setCopiedCwd] = useState(false);
 
@@ -164,6 +187,26 @@ export function PillRow({
         >
           {DRIVING_AGENT_BASE_MODEL}
         </span>
+      )}
+      {onToggleSplit && (
+        <button
+          type="button"
+          data-testid="split-toggle-pill"
+          onClick={onToggleSplit}
+          title={
+            splitVisible
+              ? 'Unsplit — close the extra panes, back to one terminal'
+              : 'Split terminal (⌘D)'
+          }
+          aria-label={splitVisible ? 'Unsplit panes' : 'Split panes'}
+          className={
+            splitVisible
+              ? `${PILL_CLASS} border-[rgba(88,166,255,0.85)] bg-white/10 text-[var(--text-primary)]`
+              : `${PILL_CLASS} hover:bg-white/10 hover:text-[var(--text-primary)]`
+          }
+        >
+          {splitVisible ? 'Unsplit' : 'Split'}
+        </button>
       )}
       {cwd && (
         <button

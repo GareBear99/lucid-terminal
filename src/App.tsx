@@ -636,7 +636,7 @@ function App() {
                               className={`h-full ${visible ? (isSplitVisible ? 'block min-w-0' : 'block') : 'hidden'}`}
                               style={isSplitVisible && visible && size !== undefined ? { flex: `1 1 ${size}%` } : undefined}
                             >
-                              <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
+                              <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} onOpenFiles={() => setCurrentView('editor')} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
                             </div>
                             {showDivider && group && (
                               <SplitDivider groupId={group.id} boundary={paneIndex} />

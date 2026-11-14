@@ -92,6 +92,15 @@ export interface SplitPaneState {
    * closeTab.
    */
   closePane: (tabId: string) => void;
+  /**
+   * Unsplit a tab's group: close every pane in the group except
+   * this one (each closed pane's PTY is destroyed, the same as
+   * closePane — there is no pane-hiding that keeps PTYs alive).
+   * The survivor becomes a normal tab again. A tab in no group
+   * is a no-op, never an error. Focus stays on this tab: no
+   * closed pane was active, so closePane never moves it.
+   */
+  unsplitTab: (tabId: string) => void;
   /** Focus a pane — the tab strip's setActiveTab. */
   focusPane: (tabId: string) => void;
   /** Set a group's widths (divider drag). Length must match the
@@ -265,6 +274,17 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     // takes the focus instead).
     useTerminalStore.getState().closeTab(tabId);
     if (nextActive) useTerminalStore.getState().setActiveTab(nextActive);
+  },
+
+  unsplitTab: (tabId) => {
+    const group = findGroupForTab(get().groups, tabId);
+    if (!group) return;
+    // Snapshot the membership: each closePane mutates the group
+    // (removing its tab, dissolving it at one pane left), so the
+    // loop reads the original list, not the shrinking one.
+    for (const id of [...group.tabIds]) {
+      if (id !== tabId) get().closePane(id);
+    }
   },
 
   focusPane: (tabId) => {

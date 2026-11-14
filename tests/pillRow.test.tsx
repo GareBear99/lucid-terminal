@@ -24,6 +24,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { PillRow } from '../src/components/Terminal/PillRow';
 import { APP_VERSION } from '../src/lib/appVersion';
 import { DRIVING_AGENT_BASE_MODEL } from '../src/stores/sessionStore';
+import type { DrivingAgentPickerOption } from '../src/lib/drivingAgents';
 import type { GitStatus } from '../src/types';
 
 const noop = () => undefined;
@@ -42,6 +43,11 @@ function renderRow(props: {
   cwd?: string;
   gitStatus?: GitStatus | null;
   modePillDisabled?: boolean;
+  drivingAgentOptions?: DrivingAgentPickerOption[];
+  drivingAgentValue?: string;
+  drivingAgentPickerDisabled?: boolean;
+  splitVisible?: boolean;
+  onToggleSplit?: () => void;
 }) {
   return renderToStaticMarkup(
     React.createElement(PillRow, {
@@ -50,6 +56,11 @@ function renderRow(props: {
       gitStatus: props.gitStatus,
       onModePill: noop,
       modePillDisabled: props.modePillDisabled,
+      drivingAgentOptions: props.drivingAgentOptions,
+      drivingAgentValue: props.drivingAgentValue,
+      drivingAgentPickerDisabled: props.drivingAgentPickerDisabled,
+      splitVisible: props.splitVisible,
+      onToggleSplit: props.onToggleSplit,
     }),
   );
 }
@@ -94,6 +105,33 @@ describe('PillRow', () => {
     expect(html).not.toMatch(/<button[^>]*data-testid="driving-agent-pill"/);
   });
 
+  it('becomes a select once a driving-agent tab is added — the base + the tab, with its state', () => {
+    const html = renderRow({
+      drivingAgentOptions: [
+        { value: '', label: 'LLMBuilder (base)', title: 'The local base.' },
+        { value: 't-ship', label: 'Ship — Starship (not detected)', title: 'No starship detected.' },
+      ],
+    });
+    expect(html).toContain('data-testid="driving-agent-pill"');
+    expect(html).toMatch(/<select[^>]*data-testid="driving-agent-pill"/);
+    expect(html).toContain('LLMBuilder (base)');
+    expect(html).toContain('Ship — Starship (not detected)');
+    expect(html).not.toMatch(/<button[^>]*data-testid="driving-agent-pill"/);
+  });
+
+  it('stays a label in guest even with tabs added — guests have no driving intelligence to pick', () => {
+    const html = renderRow({
+      drivingAgentOptions: [
+        { value: '', label: 'LLMBuilder (base)', title: 'The local base.' },
+        { value: 't-ship', label: 'Ship — Starship (not detected)', title: 'No starship detected.' },
+      ],
+      drivingAgentPickerDisabled: true,
+    });
+    expect(html).toContain('data-testid="driving-agent-pill"');
+    expect(html).toContain(DRIVING_AGENT_BASE_MODEL);
+    expect(html).not.toContain('<select');
+  });
+
   it('shows the version pill with the app version', () => {
     const html = renderRow({});
     expect(html).toContain('data-testid="version-pill"');
@@ -123,5 +161,36 @@ describe('PillRow', () => {
     expect(renderRow({ cwd: '/tmp', gitStatus: null })).not.toContain('git-branch-pill');
     expect(renderRow({ cwd: '/tmp' })).not.toContain('git-branch-pill');
     expect(renderRow({ cwd: '/tmp', gitStatus: null })).not.toContain('git-counts-pill');
+  });
+
+  it('shows no split pill without a toggle handler (detached windows)', () => {
+    expect(renderRow({})).not.toContain('split-toggle-pill');
+    expect(renderRow({ splitVisible: true })).not.toContain('split-toggle-pill');
+  });
+
+  it('shows the split pill as "Split", plain, when single-pane', () => {
+    const html = renderRow({ onToggleSplit: noop, splitVisible: false });
+    expect(html).toContain('data-testid="split-toggle-pill"');
+    expect(html).toMatch(/<button[^>]*data-testid="split-toggle-pill"/);
+    expect(html).toContain('>Split<');
+    expect(html).not.toContain('>Unsplit<');
+    expect(html).toContain('Split terminal (⌘D)');
+    expect(html).toContain('aria-label="Split panes"');
+    expect(html).not.toContain('rgba(88,166,255,0.85)');
+  });
+
+  it('shows the split pill as "Unsplit" + active styling while a split is visible', () => {
+    const html = renderRow({ onToggleSplit: noop, splitVisible: true });
+    expect(html).toContain('data-testid="split-toggle-pill"');
+    expect(html).toContain('>Unsplit<');
+    expect(html).not.toContain('>Split<');
+    expect(html).toContain('Unsplit — close the extra panes, back to one terminal');
+    expect(html).toContain('aria-label="Unsplit panes"');
+    // The active styling echoes the split group's blue underline
+    // in the tab strip (TerminalTabs.tsx): the focused pane's
+    // full-strength blue.
+    expect(html).toContain('border-[rgba(88,166,255,0.85)]');
+    expect(html).toContain('bg-white/10');
+    expect(html).toContain('text-[var(--text-primary)]');
   });
 });

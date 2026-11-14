@@ -8,6 +8,8 @@ import { useAIStore } from '../../stores/aiStore';
 import { useHistoryStore, EMPTY_BLOCKS } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
 import { usePlanStore } from '../../stores/planStore';
+import { useSplitPaneStore, getVisibleTabIds } from '../../stores/splitPaneStore';
+import { useFileStore } from '../../stores/fileStore';
 import { useProfileStore } from '../../stores/profileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useHornWiggleStore } from '../../stores/hornWiggleStore';
@@ -60,6 +62,10 @@ interface TerminalProps {
   onOpenSynth?: () => void;
   /** Open the Forge (the Homunculi roster). */
   onOpenForge?: () => void;
+  /** Open the Files page (the Editor view — the Files screen).
+   * The /file slash command calls this; /open and /new call it
+   * too, so the file they open is visible. */
+  onOpenFiles?: () => void;
   /** Whether the prompt blood drop (LuciferAI silencer) reads as ON
    * — LuciferAI speaking, not silenced. */
   luciferToggleActive?: boolean;
@@ -97,7 +103,7 @@ interface TerminalProps {
  * MODE keeps the frosted glass. The bar is the frame, not the
  * terminal.
  */
-function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleActive, onToggleLuciferAi }: TerminalProps) {
+function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, luciferToggleActive, onToggleLuciferAi }: TerminalProps) {
   const { settings, hasApiKey } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
@@ -841,6 +847,108 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       }
       console.log('[Planning] Opening planning panel');
       setShowPlanningPanel(true);
+      return;
+    }
+
+    // /split / /unsplit (sweep fix 2 follow-on, 2026-11-14) —
+    // the slash commands for the split panes. Lucid-local, like
+    // /devmode and /defcon: they touch layout only, so they run
+    // with LuciferAI on or off, silenced or not, and in guest
+    // (plain terminal panes, session-only, dropped on exit —
+    // the split store's guest veil handles that). /split splits
+    // the active tab (the same action as the toggle pill, the
+    // strip split button and ⌘D); already split, it splits the
+    // focused pane again. /unsplit closes every pane except the
+    // focused one (each closed pane's PTY is destroyed, the
+    // same as closePane); not split, it is a no-op, never an
+    // error. In a detached window neither runs — MiniTerminal
+    // answers every other slash with the not-here note.
+    if (parsed.type === 'split') {
+      const newId = await useSplitPaneStore.getState().splitTab(tabId);
+      if (newId === null) {
+        await write('No terminal tab to split.');
+        return;
+      }
+      await write('Split — two terminals side by side. /unsplit closes the extra panes.');
+      return;
+    }
+    if (parsed.type === 'unsplit') {
+      const wasSplit =
+        getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1;
+      useSplitPaneStore.getState().unsplitTab(tabId);
+      await write(
+        wasSplit
+          ? 'Unsplit — back to one terminal.'
+          : 'Already one terminal — nothing to unsplit.',
+      );
+      return;
+    }
+
+    // File commands (sweep fix 2 follow-on, 2026-11-14 — Gary:
+    // "just the basic ones — /file opens the file page, etc").
+    // Lucid-local, like /split: they run with LuciferAI on or
+    // off, silenced or not, and in guest (the Files tab's
+    // create/delete are allowed in guest; guest files are
+    // session-only and dropped on exit — the blank-slate rule
+    // is untouched). In a detached window none of them run —
+    // MiniTerminal answers every other slash with the not-here
+    // note. Errors go to the feed with `write`, the same
+    // one-line shape as /plan's bad-input errors.
+    //
+    // Paths resolve against the Files tab's root
+    // (fileStore.currentDir — home at startup, or the workspace
+    // folder the user picked); absolute paths are used as
+    // given. The tab's own cwd is only the fallback when the
+    // Files tab has never loaded (currentDir empty — App seeds
+    // it at startup, so this is belt-and-braces, never the
+    // norm). Paths with spaces do not parse — args are
+    // whitespace-split, like every other slash command.
+    const resolveFileArg = (arg: string): string => {
+      if (arg.startsWith('/')) return arg;
+      const root =
+        useFileStore.getState().currentDir ||
+        useTerminalStore.getState().tabs.find((t) => t.id === tabId)?.cwd ||
+        '';
+      return root ? `${root}/${arg}` : arg;
+    };
+    if (parsed.type === 'file') {
+      // No argument. Already on the Files page, the view
+      // switch is a no-op — never an error. No feed line:
+      // the view switch IS the feedback (same as /plan,
+      // which opens its panel silently).
+      onOpenFiles?.();
+      return;
+    }
+    if (parsed.type === 'open') {
+      const arg = parsed.args[0];
+      if (!arg) {
+        await write('Usage: /open <file>');
+        return;
+      }
+      const ok = await useFileStore.getState().openFile(resolveFileArg(arg));
+      if (!ok) {
+        const detail = useFileStore.getState().error;
+        await write(`Could not open "${arg}"${detail ? ` — ${detail}` : '.'}`);
+        return;
+      }
+      onOpenFiles?.();
+      return;
+    }
+    if (parsed.type === 'new') {
+      const arg = parsed.args[0];
+      if (!arg) {
+        await write('Usage: /new <file>');
+        return;
+      }
+      // Files create, matched exactly (Sidebar
+      // handleCreateFile → fileStore.createFile → fs:createFile
+      // → writeFile): no existence check — an existing file is
+      // truncated to empty and opened. That is the Files
+      // behaviour, not a /new invention; the truncation is the
+      // caller's choice, and the file opens in the editor
+      // either way (createFile opens it).
+      await useFileStore.getState().createFile(resolveFileArg(arg));
+      onOpenFiles?.();
       return;
     }
 
@@ -1800,6 +1908,24 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     useSessionStore.getState().toggleTabMode(tabId);
     setTimeout(() => focusPrompterComposer(), 0);
   };
+  // The split pill (sweep fix 2 follow-on, 2026-11-14): it
+  // toggles this tab's split — split when single-pane, unsplit
+  // when split (close every pane except the focused one, each
+  // closed pane's PTY destroyed, the same as closePane). It
+  // reads the same split store as the strip split button and
+  // ⌘D, so splitting from either lights the pill. Main window
+  // only — MiniTerminal passes no handler, so no pill renders
+  // in a detached window. Works in guest like the strip button
+  // (plain terminal panes, session-only, dropped on exit).
+  const splitGroups = useSplitPaneStore((s) => s.groups);
+  const splitVisible = getVisibleTabIds(splitGroups, tabId).length > 1;
+  const handleToggleSplit = () => {
+    if (getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1) {
+      useSplitPaneStore.getState().unsplitTab(tabId);
+    } else {
+      void useSplitPaneStore.getState().splitTab(tabId);
+    }
+  };
   // The classifier (Warp-like parsing, 2026-11-14): the
   // draft is classified as you type — normalize → detect →
   // question guard → intent + file extraction (rule path) →
@@ -2311,6 +2437,8 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                 )
               }
               drivingAgentPickerDisabled={isGuest}
+              splitVisible={splitVisible}
+              onToggleSplit={handleToggleSplit}
             />
             {/* The non-devmode composer no longer sits below this
                 row — it lives IN the row now (see the

@@ -79,7 +79,17 @@ describe('requiresLuciferAI — the rule', () => {
   });
 
   test('Lucid-local slash commands do NOT need the plugin', () => {
-    for (const name of ['fix', 'fixnet', 'workflow', 'history']) {
+    for (const name of [
+      'fix',
+      'fixnet',
+      'workflow',
+      'history',
+      'split',
+      'unsplit',
+      'file',
+      'open',
+      'new',
+    ]) {
       expect(requiresLuciferAI(entry(name))).toBe(false);
     }
   });
@@ -143,12 +153,13 @@ describe('requiresLuciferAI — the rule', () => {
   });
 
   test('searchCommandCatalogue hides LuciferAI entries while disabled', () => {
-    // 89 entries with the plugin on; 56 without it (43 shell +
+    // 94 entries with the plugin on; 61 without it (43 shell +
     // 4 Lucid-local singles + 6 FixNet phrases + browser diagnose
-    // + workflow status + history + clear history).
-    expect(searchCommandCatalogue('').length).toBe(89);
-    expect(searchCommandCatalogue('', true).length).toBe(89);
-    expect(searchCommandCatalogue('', false).length).toBe(56);
+    // + workflow status + history + clear history + 5 Lucid-local
+    // help commands: split, unsplit, file, open, new).
+    expect(searchCommandCatalogue('').length).toBe(94);
+    expect(searchCommandCatalogue('', true).length).toBe(94);
+    expect(searchCommandCatalogue('', false).length).toBe(61);
     expect(searchCommandCatalogue('llm', false)).toEqual([]);
     expect(searchCommandCatalogue('llm', true).map((e) => e.name)).toContain(
       'llm list',
@@ -207,7 +218,8 @@ describe('Terminal tab Commands section', () => {
     const codes = codeTexts(container);
     // Every plugin LuciferAI entry, by its slash syntax chip.
     // (The Lucid-local slash commands — /fix, /fixnet, /workflow,
-    // /history and the FixNet phrases — DO show while disabled.)
+    // /history, /split, /unsplit, /file, /open, /new and
+    // the FixNet phrases — DO show while disabled.)
     for (const syntax of [
       '/help',
       '/plan',
@@ -263,6 +275,8 @@ describe('Terminal tab Commands section', () => {
       'FixNet Commands',
       'Workflow & System',
       'Browser',
+      'Files',
+      'Split Panes',
     ]);
   });
 

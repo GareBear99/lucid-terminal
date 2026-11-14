@@ -295,7 +295,10 @@ export function searchCommandCatalogue(
  *   history — all main-process, no plugin.
  * - Help-only entries (kind 'lucid': github, env, install,
  *   daemon, ...) are plugin commands documented in Help; typed
- *   as `/github`, `/install`, ... they hit the plugin path.
+ *   as `/github`, `/install`, ... they hit the plugin path —
+ *   EXCEPT the Lucid-local ones (split panes, file commands),
+ *   which Terminal.tsx handles itself and which run with the
+ *   plugin off.
  * - Multi-word commands stay only when they run locally: the
  *   FixNet phrases run the local orchestrator, `browser diagnose`
  *   reads the local browser service, `workflow status` reads
@@ -303,9 +306,30 @@ export function searchCommandCatalogue(
  *   and clear Lucid's own conversation history. `llm ...` needs
  *   the plugin like bare `/llm` does.
  */
+/**
+ * Lucid-local commands documented in Help but handled in
+ * Terminal.tsx, not by the plugin: /split and /unsplit (split
+ * panes, sweep fix 2 follow-on) and /file /open /new (file
+ * commands). They run with LuciferAI off, so the
+ * Settings panel lists them while disabled — the same rule as
+ * the Lucid-local singles below. (Gary, 2026-11-07: the panel
+ * lists only what the terminal will actually run.)
+ */
+const LUCID_LOCAL_HELP_COMMANDS = [
+  'split',
+  'unsplit',
+  'file',
+  'open',
+  'new',
+];
+
 export function requiresLuciferAI(entry: CommandCatalogueEntry): boolean {
   if (entry.kind === 'shell') return false;
-  if (entry.kind === 'lucid') return true;
+  if (entry.kind === 'lucid') {
+    // Help-only entries are plugin commands — except the
+    // Lucid-local ones, which Terminal.tsx handles itself.
+    return !LUCID_LOCAL_HELP_COMMANDS.includes(entry.name);
+  }
   if (entry.kind === 'luciferai') {
     // The Lucid-local single words run without the plugin.
     return !['fix', 'fixnet', 'workflow', 'history'].includes(entry.name);

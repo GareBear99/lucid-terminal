@@ -3,6 +3,7 @@ import { Plus, X, Terminal, Bell, Columns2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSplitPaneStore, findGroupForTab } from '../../stores/splitPaneStore';
+import { useHistoryStore } from '../../stores/historyStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
 import type { Notification } from './ErrorNotification';
@@ -38,6 +39,19 @@ import { useTerminalTabDrag } from '../../lib/tabDrag';
  * tab, so there are no agent rows, no stack numbers for agent
  * sessions, nothing to select but tabs. ⌘1–⌘9 switch tabs.
  */
+/**
+ * A close the strip is asking about before it happens
+ * (Gary, 2026-11-14): the detached tab x asks resnap-vs-close
+ * every time, and the main-window x asks before closing a
+ * USED tab. `kind` picks the question and the buttons.
+ */
+export type TabCloseAskKind = 'detached' | 'used';
+export interface TabCloseAsk {
+  tabId: string;
+  title: string;
+  kind: TabCloseAskKind;
+}
+
 export interface TerminalTabsViewProps {
   tabs: TerminalTab[];
   activeTabId: string | null;
@@ -45,6 +59,25 @@ export interface TerminalTabsViewProps {
   notificationsOpen: boolean;
   onCreateTab: () => void;
   onCloseTab: (id: string) => void;
+  /**
+   * A pending close ask (Gary, 2026-11-14): the dialog the
+   * strip shows before a close it was told to ask about.
+   * Detached tabs ask resnap-vs-close-session every time;
+   * used tabs in the main window ask close-vs-keep. Null
+   * means no ask is showing. The container owns the state;
+   * the view only renders it.
+   */
+  closeAsk?: TabCloseAsk | null;
+  /** Detached ask: resnap the tab back to the main window. */
+  onCloseAskResnap?: () => void;
+  /** Detached ask: close the tab's session (destroy the PTY). */
+  onCloseAskCloseSession?: () => void;
+  /** Used-tab ask: close the tab (destroy the PTY / close the pane). */
+  onCloseAskCloseTab?: () => void;
+  /** Used-tab ask: keep the tab open. */
+  onCloseAskKeepTab?: () => void;
+  /** Backdrop / Escape: dismiss the ask — keep the tab, do nothing. */
+  onDismissCloseAsk?: () => void;
   /**
    * Split panes (2026-11-14, sweep fix 2): split the active tab
    * vertically — a fresh tab (its own PTY) beside it. Shown only
@@ -102,6 +135,12 @@ export function TerminalTabsView({
   notificationsOpen,
   onCreateTab,
   onCloseTab,
+  closeAsk = null,
+  onCloseAskResnap,
+  onCloseAskCloseSession,
+  onCloseAskCloseTab,
+  onCloseAskKeepTab,
+  onDismissCloseAsk,
   onSplitTab,
   showSplitButton = false,
   splitGroupTabIds = [],
@@ -117,6 +156,17 @@ export function TerminalTabsView({
 }: TerminalTabsViewProps) {
   const unread = unreadCount(notifications);
   const hasUnreadError = notifications.some((n) => !n.read && n.type === 'error');
+
+  // Close ask: Escape dismisses — keep the tab, do nothing
+  // (never a destructive default).
+  useEffect(() => {
+    if (!closeAsk) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onDismissCloseAsk?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [closeAsk, onDismissCloseAsk]);
 
   // Inline rename: double-clicking a tab swaps its label for a text
   // field with the current name selected. Enter or clicking away
@@ -418,6 +468,80 @@ export function TerminalTabsView({
           )}
         </div>
       )}
+      {/* Close ask (Gary, 2026-11-14) — the dialog pattern
+          from LocalAccessPromptDialog: role="dialog",
+          aria-modal, fixed inset-0 z-60 backdrop, w-96 card,
+          buttons row with the secondary + primary classes.
+          No "do not ask again": Gary said the detached ask
+          happens EVERY time. Backdrop click dismisses — keep
+          the tab, do nothing. */}
+      {closeAsk &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Close "${closeAsk.title}"?`}
+            data-testid="tab-close-ask"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
+            onClick={() => onDismissCloseAsk?.()}
+          >
+            <div
+              className="w-96 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                {`Close "${closeAsk.title}"?`}
+              </h3>
+              <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
+                {closeAsk.kind === 'detached'
+                  ? `Resnap "${closeAsk.title}" back to the main window, or close its session? Resnapping keeps the session and its history. Closing the session destroys it — it cannot be brought back.`
+                  : `"${closeAsk.title}" has run commands — closing it destroys its session and its history. Close the tab, or keep it?`}
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                {closeAsk.kind === 'detached' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onCloseAskCloseSession?.()}
+                      data-testid="tab-close-ask-close-session"
+                      className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-white/10"
+                    >
+                      Close session
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCloseAskResnap?.()}
+                      data-testid="tab-close-ask-resnap"
+                      className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      Resnap
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onCloseAskKeepTab?.()}
+                      data-testid="tab-close-ask-keep-tab"
+                      className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-white/10"
+                    >
+                      Keep tab
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCloseAskCloseTab?.()}
+                      data-testid="tab-close-ask-close-tab"
+                      className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      Close tab
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -443,28 +567,86 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
-  // The tab x in a DETACHED window resnaps the tab into the main
-  // window (Gary, 2026-11-14 — "pressing X on an external tab
-  // should always resnap it not erase its history"): the same
-  // pop-in path as the pop-in button, PTY and history intact,
-  // never closeTab (which destroys the PTY). In the main window
-  // the x still closes the tab. The red window X is untouched —
-  // this is only the tab's own x in the strip. If the tab is the
-  // last one in the detached window, the window closes once it
-  // leaves, exactly like pop-in today.
+  // Close asks (Gary, 2026-11-14): the strip asks before two
+  // closes it used to do silently. The container owns the
+  // pending ask; the view only renders it.
+  const [closeAsk, setCloseAsk] = useState<TabCloseAsk | null>(null);
+
+  // A tab is USED when it has run at least one command: it has
+  // blocks in its feed (historyStore.blocksByTab — a block is
+  // created with isComplete: false at submit, so a command
+  // still running already has its block), or its hasPrompted
+  // flag is set (the first composer prompt — covers a tab
+  // whose history was cleared after running commands). Read
+  // at click time from the stores, no subscription. Honest
+  // limit: raw xterm input in devmode creates no block and
+  // sets no flag, so a devmode tab used only through the raw
+  // xterm reads as unused — the code tracks no per-tab xterm
+  // activity to read.
+  const isTabUsed = (tab: TerminalTab): boolean =>
+    (useHistoryStore.getState().blocksByTab[tab.id]?.length ?? 0) > 0 ||
+    tab.hasPrompted === true;
+
   const handleCloseTab = (id: string) => {
     if (!detachedWindow) {
-      // Split panes (2026-11-14): closing a pane's tab closes
-      // just that pane (and dissolves the group at one pane
-      // left); a tab in no group closes exactly like closeTab.
+      // Main window: a USED tab asks first (Gary, 2026-11-14 —
+      // close it and lose its session, or keep it?). An unused
+      // tab closes silently, exactly as today — and a used PANE
+      // tab asks too, then closePane runs on confirm (the group
+      // dissolves at one pane left, as the split slice defines).
+      // Split panes: closing a pane's tab closes just that
+      // pane; a tab in no group closes exactly like closeTab.
+      const tab = tabs.find((t) => t.id === id);
+      if (tab && isTabUsed(tab)) {
+        setCloseAsk({ tabId: id, title: tab.title, kind: 'used' });
+        return;
+      }
       useSplitPaneStore.getState().closePane(id);
       return;
     }
+    // Detached window: the tab x asks EVERY time (Gary,
+    // 2026-11-14 — "a popup asks, every time — resnap it, or
+    // close its session?"). The old always-resnap rule is gone:
+    // resnap is now one of the two choices, not the behaviour.
+    // The red window X is untouched — it still pops every tab
+    // it still owned back to main.
     const tab = tabs.find((t) => t.id === id);
+    if (!tab) return;
+    setCloseAsk({ tabId: id, title: tab.title, kind: 'detached' });
+  };
+
+  // Close-ask answers. Dismiss (backdrop / Escape) keeps the
+  // tab in both cases — never a destructive default.
+  const handleCloseAskResnap = () => {
+    const ask = closeAsk;
+    setCloseAsk(null);
+    if (!ask) return;
+    const tab = tabs.find((t) => t.id === ask.tabId);
     if (!tab) return;
     const detach = window.lucidAPI?.terminal?.detach;
     if (!detach) return;
     void detach.popIn(toDetachedTab(tab));
+  };
+  const handleCloseAskCloseSession = () => {
+    const ask = closeAsk;
+    setCloseAsk(null);
+    if (!ask) return;
+    // closeTab destroys the PTY and tells main
+    // (notifyTabClosed) so the number is freed there — the
+    // path the detached branch deliberately never called
+    // before. The tab leaves this window; the last tab out
+    // closes the window (MiniTerminal's empty-tabs effect),
+    // exactly like pop-in today.
+    useTerminalStore.getState().closeTab(ask.tabId);
+  };
+  const handleCloseAskCloseTab = () => {
+    const ask = closeAsk;
+    setCloseAsk(null);
+    if (!ask) return;
+    useSplitPaneStore.getState().closePane(ask.tabId);
+  };
+  const handleCloseAskKeepTab = () => {
+    setCloseAsk(null);
   };
 
   // ⌘1–⌘9 switch tabs (Warp §7): the strip is tabs only, so
@@ -536,6 +718,12 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
       }}
       splitGroupTabIds={activeTabId ? (findGroupForTab(splitGroups, activeTabId)?.tabIds ?? []) : []}
       onCloseTab={handleCloseTab}
+      closeAsk={closeAsk}
+      onCloseAskResnap={handleCloseAskResnap}
+      onCloseAskCloseSession={handleCloseAskCloseSession}
+      onCloseAskCloseTab={handleCloseAskCloseTab}
+      onCloseAskKeepTab={handleCloseAskKeepTab}
+      onDismissCloseAsk={() => setCloseAsk(null)}
       onRenameTab={updateTabTitle}
       onSelectTab={(id) => {
         // Plain setActiveTab: the mode is per-tab, so

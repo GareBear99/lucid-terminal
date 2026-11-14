@@ -122,6 +122,59 @@ export const helpCategories: HelpCategory[] = [
     ]
   },
   {
+    id: 'split',
+    title: 'Split Panes',
+    description: 'Two terminals side by side in one window',
+    icon: '🪟',
+    color: '#58a6ff',
+    commands: [
+      {
+        name: 'split',
+        syntax: '/split',
+        description: 'Split the active tab into two side-by-side terminals',
+        examples: ['/split'],
+        tags: ['terminal', 'split', 'panes']
+      },
+      {
+        name: 'unsplit',
+        syntax: '/unsplit',
+        description: 'Close the extra panes and return to one terminal',
+        examples: ['/unsplit'],
+        tags: ['terminal', 'split', 'panes']
+      }
+    ]
+  },
+  {
+    id: 'files',
+    title: 'Files',
+    description: 'Open and create files',
+    icon: '📁',
+    color: '#58a6ff',
+    commands: [
+      {
+        name: 'file',
+        syntax: '/file',
+        description: 'Open the Files page',
+        examples: ['/file'],
+        tags: ['terminal', 'files', 'editor']
+      },
+      {
+        name: 'open',
+        syntax: '/open <file>',
+        description: 'Open a file in the editor',
+        examples: ['/open notes.txt'],
+        tags: ['terminal', 'files', 'editor']
+      },
+      {
+        name: 'new',
+        syntax: '/new <file>',
+        description: 'Create a new empty file and open it in the editor',
+        examples: ['/new notes.txt'],
+        tags: ['terminal', 'files', 'editor']
+      }
+    ]
+  },
+  {
     id: 'fixnet',
     title: 'FixNet Commands',
     description: 'Offline-first error fixing, local-only (no sync yet)',

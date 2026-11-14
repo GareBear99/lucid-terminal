@@ -13,7 +13,19 @@ import {
   getIdentifiersAtPosition,
   updateFileTree,
 } from '../../lib/treeSitter';
-import { registerEditorStructureCompletions } from '../../lib/editorInlineProvider';
+import { registerEditorLspProviders } from '../../lib/editorLspProvider';
+import {
+  changeDocument,
+  dropDocumentsExcept,
+  ensureTsLsp,
+  getCompletions,
+  getDiagnostics,
+  getHover,
+  getSignatureHelp,
+  openDocument,
+  resolveCompletion,
+} from '../../lib/tsLanguageService';
+import { lspDiagnosticToMonacoMarker, monacoToLsp } from '../../lib/tsLspContract';
 
 function CodeEditor() {
   const { openFiles, activeFilePath, setActiveFile, closeFileWithConfirm, detachFile, updateFileContent, saveFile } =
@@ -41,31 +53,72 @@ function CodeEditor() {
 
   // Tree-sitter live structure (steal #2 — 2026-11-14): one live
   // tree per open file, re-parsed incrementally on every edit.
-  // The structure feeds the editor's completion provider (in-scope
-  // identifiers at the cursor) and the composer's ghost. All
-  // in-memory, dropped when the file closes; a dead engine just
-  // means no structure, never an error.
-  const structureDisposers = useRef<Array<() => void>>([]);
+  // The structure feeds the composer's ghost and is the LSP
+  // provider's fallback when the engine is dead. All in-memory,
+  // dropped when the file closes; a dead engine just means no
+  // structure, never an error.
+  //
+  // TypeScript language service (steal #3 — 2026-11-14): the
+  // fact-checker. One in-memory document per open file; the
+  // engine loads lazily (typescript-lsp + the lib bundle, ~12
+  // MB on first use, never on startup), and every provider
+  // falls back to tree-sitter until it is ready. Diagnostics
+  // land as Monaco markers 150 ms after the last edit (the
+  // clone publishes on a 50 ms debounce and triggers on a
+  // 200 ms one; 150 ms is the middle of that range).
+  const lspDisposers = useRef<Array<() => void>>([]);
+  const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
+  const diagnosticsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Build the tree when the active file changes (open / switch);
-  // edits go through onChange below. A no-op when the engine is
-  // not ready yet or the file is not TS/JS.
+  // Diagnostics for the active file, debounced 150 ms after
+  // the last edit (or the last file switch). Reads the
+  // current active file at fire time, so a switch mid-timer
+  // never markers the wrong model.
+  const scheduleDiagnostics = () => {
+    if (diagnosticsTimerRef.current) clearTimeout(diagnosticsTimerRef.current);
+    diagnosticsTimerRef.current = setTimeout(() => {
+      const path = useFileStore.getState().activeFilePath;
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      if (!path || !editor || !monaco) return;
+      const model = editor.getModel?.();
+      if (!model) return;
+      const diagnostics = getDiagnostics(path);
+      monaco.editor.setModelMarkers(
+        model,
+        'ts-lsp',
+        diagnostics.map(lspDiagnosticToMonacoMarker),
+      );
+    }, 150);
+  };
+
+  // Build the tree and open the LSP document when the active
+  // file changes (open / switch); edits go through onChange
+  // below. A no-op when the engine is not ready yet or the
+  // file is not TS/JS.
   useEffect(() => {
     const file = useFileStore.getState().openFiles.find((f) => f.path === activeFilePath);
-    if (file) void updateFileTree(file.path, file.content || '');
+    if (file) {
+      void updateFileTree(file.path, file.content || '');
+      openDocument(file.path, file.content || '');
+      scheduleDiagnostics();
+    }
   }, [activeFilePath]);
 
-  // Drop trees for files that closed (guest: parse in memory,
-  // persist nothing).
+  // Drop trees and LSP documents for files that closed
+  // (guest: parse in memory, persist nothing).
   useEffect(() => {
     dropFileTreesExcept(openFiles.map((f) => f.path));
+    dropDocumentsExcept(openFiles.map((f) => f.path));
   }, [openFiles]);
 
-  // Dispose the structure providers on unmount.
+  // Dispose the LSP providers on unmount.
   useEffect(() => {
-    const disposers = structureDisposers.current;
+    const disposers = lspDisposers.current;
     return () => {
       for (const dispose of disposers) dispose();
+      if (diagnosticsTimerRef.current) clearTimeout(diagnosticsTimerRef.current);
     };
   }, []);
 
@@ -104,20 +157,47 @@ function CodeEditor() {
   }, []);
 
   // Monaco mounted — the fallback is no longer needed. Register
-  // the tree-sitter structure provider (steal #2): in-scope
-  // identifiers at the cursor for TS/JS. Disposed on unmount.
+  // the LSP providers (steal #3): typed completions with docs
+  // and auto-imports, hover, and signature help for TS/JS, with
+  // the tree-sitter structure as the fallback when the engine
+  // is dead. Disposed on unmount. The engine warms in the
+  // background — nothing here blocks on it.
   const handleEditorDidMount = (_editor: any, monaco: any) => {
     monacoReady.current = true;
+    editorRef.current = _editor;
+    monacoRef.current = monaco;
+    void ensureTsLsp().then(() => scheduleDiagnostics());
+    const activePath = () => useFileStore.getState().activeFilePath;
     const registerFor = (languageId: string) =>
-      registerEditorStructureCompletions(monaco, languageId, {
-        getIdentifiersAtPosition: (lineNumber, column) => {
-          const activeFilePath = useFileStore.getState().activeFilePath;
-          return activeFilePath
-            ? getIdentifiersAtPosition(activeFilePath, lineNumber, column)
-            : [];
+      registerEditorLspProviders(monaco, languageId, {
+        getCompletions: (lineNumber, column) => {
+          const path = activePath();
+          if (!path) return null;
+          return (
+            getCompletions(path, monacoToLsp({ lineNumber, column }))?.items ?? null
+          );
+        },
+        resolveCompletion: (item) => {
+          const path = activePath();
+          return path ? resolveCompletion(path, item) : null;
+        },
+        getStructureIdentifiers: (lineNumber, column) => {
+          const path = activePath();
+          return path ? getIdentifiersAtPosition(path, lineNumber, column) : [];
+        },
+        getHover: (lineNumber, column) => {
+          const path = activePath();
+          return path ? getHover(path, monacoToLsp({ lineNumber, column })) : null;
+        },
+        getSignatureHelp: (lineNumber, column, _triggerCharacter) => {
+          const path = activePath();
+          return path
+            ? getSignatureHelp(path, monacoToLsp({ lineNumber, column }))
+            : null;
         },
       });
-    structureDisposers.current.push(registerFor('typescript'), registerFor('javascript'));
+    lspDisposers.current.push(registerFor('typescript'), registerFor('javascript'));
+    scheduleDiagnostics();
   };
 
   // Determine language from file extension
@@ -267,6 +347,8 @@ function CodeEditor() {
                 onChange={(e) => {
                   updateFileContent(activeFile.path, e.target.value);
                   void updateFileTree(activeFile.path, e.target.value);
+                  changeDocument(activeFile.path, e.target.value);
+                  scheduleDiagnostics();
                 }}
                 spellCheck={false}
                 placeholder="Plain text editing — Monaco unavailable"
@@ -285,6 +367,8 @@ function CodeEditor() {
               onChange={(value) => {
                 updateFileContent(activeFile.path, value || '');
                 void updateFileTree(activeFile.path, value || '');
+                changeDocument(activeFile.path, value || '');
+                scheduleDiagnostics();
               }}
               options={{
                 fontFamily: settings.fontFamily,

@@ -15,6 +15,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { registerComposerInlineCompletions, type InlineOffer } from '../../lib/composerInlineProvider';
 import { getComposerStructureIdentifiers } from '../../lib/treeSitter';
+import { verifyIdentifiers } from '../../lib/tsLanguageService';
 
 // How long to wait for Monaco (bundled locally with the app) before giving
 // up and rendering a plain textarea. Without this the prompt sits on
@@ -508,8 +509,22 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     // ready yet, and the provider degrades to
                     // history / slash / files without them.
                     cwd: activeTab?.cwd,
+                    // Steal #3 — the fact-checker verifies the
+                    // structure identifiers before the ghost
+                    // offers them: a name the language service
+                    // cannot resolve at the end of the file is
+                    // dropped (a made-up name, a keyword, a
+                    // primitive). The verify is synchronous once
+                    // the engine is loaded, and passes the
+                    // candidates through unchanged while it is
+                    // not — the ghost degrades to tree-sitter,
+                    // it never goes silent because the
+                    // fact-checker is not up yet.
                     structureIdentifiers: activeFilePath
-                        ? getComposerStructureIdentifiers(activeFilePath)
+                        ? verifyIdentifiers(
+                            activeFilePath,
+                            getComposerStructureIdentifiers(activeFilePath),
+                          )
                         : [],
                 };
             },

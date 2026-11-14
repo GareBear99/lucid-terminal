@@ -6,6 +6,8 @@ import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useHistoryStore, EMPTY_BLOCKS } from '../../stores/historyStore';
+import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
+import { useProfileStore } from '../../stores/profileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
@@ -196,8 +198,8 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // the trailing partial of a sequence split across PTY chunks.
   const osc133PendingRef = useRef('');
   // Agent-mode composer history index (Up/Down walk this tab's
-  // past agent prompts — separate from the shell devHistory
-  // index, so the two histories never contaminate each other).
+  // past agent prompts — separate from the global command
+  // history walk, so the two histories never contaminate each other).
   const agentHistoryIdx = useRef<number | null>(null);
   const prompterActiveRef = useRef(false);
   useEffect(() => {
@@ -296,8 +298,39 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // Detached dev-bar input + its own submitted-line history
   // (Up/Down), separate from the shell's history.
   const [devInput, setDevInput] = useState('');
-  const [devHistory, setDevHistory] = useState<string[]>([]);
+  // Global command history (Gary, 2026-11-14 — up-arrow, global
+  // and not per tab): the list lives in commandHistoryStore,
+  // scoped to the active profile. The walk position and the
+  // saved draft belong to THIS composer's input line, so they
+  // stay per-component refs — a global walk index would restore
+  // another tab's draft into this composer on Down-past-newest.
   const devHistoryIdx = useRef<number | null>(null);
+  const devHistoryDraft = useRef<string | null>(null);
+  // The store's list, subscribed so the ghost suggestion
+  // recomputes when history changes (submit, cross-window
+  // sync, profile switch).
+  const commandHistory = useCommandHistoryStore((s) => s.entries);
+  /** Reset the history walk (submit, mode flip): the index and
+   *  the saved draft go, the input is the submitter's to set. */
+  const resetHistoryWalk = () => {
+    devHistoryIdx.current = null;
+    devHistoryDraft.current = null;
+  };
+  /** Cancel the history walk (Esc, terminal mode — Gary,
+   *  2026-11-14): restore the draft the walk started from and
+   *  reset the index. No-op when no walk is active. */
+  const cancelHistoryWalk = () => {
+    if (devHistoryIdx.current === null) return;
+    devHistoryIdx.current = null;
+    setDevInput(devHistoryDraft.current ?? '');
+    devHistoryDraft.current = null;
+  };
+  // Load the active profile's command history on mount (no-op
+  // when already loaded for this profile — the Profiles screen
+  // also loads it via selectProfile).
+  useEffect(() => {
+    useCommandHistoryStore.getState().switchProfile(useProfileStore.getState().activeProfileId);
+  }, []);
   // Dev console lines — the detached bar's own output. Never the
   // terminal screen.
   const [devLines, setDevLines] = useState<string[]>([]);
@@ -1112,8 +1145,8 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   const handleDevSubmit = async (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) return;
-    setDevHistory((prev) => [...prev, trimmed].slice(-100));
-    devHistoryIdx.current = null;
+    useCommandHistoryStore.getState().append(trimmed);
+    resetHistoryWalk();
     setDevInput('');
     setDevRunning(true);
     try {
@@ -1193,8 +1226,8 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     // accepted submit marks — an empty line or a dropped
     // concurrent submit never reaches this line.
     useTerminalStore.getState().markTabPrompted(tabId);
-    setDevHistory((prev) => [...prev, trimmed].slice(-100));
-    devHistoryIdx.current = null;
+    useCommandHistoryStore.getState().append(trimmed);
+    resetHistoryWalk();
     setDevInput('');
     setDevRunning(true);
     try {
@@ -1229,15 +1262,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
 
   // DEFCON 3 Phase 3 — the rest of the prompter: ghost
   // suggestion, Ctrl+C / Ctrl+D forwarding.
-  // The ghost comes from the composer's own submitted history
-  // (devHistory prefix match) and from known slash-command
-  // names — see src/lib/prompterSuggestions.ts. Computed only
-  // while the prompter is active: the delinked bar below level
-  // 3 gets no ghost. Accepting it sets the input to the full
-  // suggestion; the InputArea sync moves the cursor to the end.
+  // The ghost comes from the GLOBAL submitted history
+  // (commandHistoryStore prefix match) and from known
+  // slash-command names — see src/lib/prompterSuggestions.ts.
+  // Computed only while the prompter is active: the delinked
+  // bar below level 3 gets no ghost. Accepting it sets the
+  // input to the full suggestion; the InputArea sync moves the
+  // cursor to the end.
   // Agent mode suggests from this tab's OWN past agent prompts
   // (reversed to chronological order — computeGhostSuggestion
-  // walks from the newest), never the shell's devHistory.
+  // walks from the newest), never the shell's command history.
   const ghostSuggestion = useMemo(
     () => {
       if (!prompterActive && !isAgentMode) return null;
@@ -1248,9 +1282,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         );
         return computeGhostSuggestion(devInput, [...prompts].reverse());
       }
-      return computeGhostSuggestion(devInput, devHistory);
+      return computeGhostSuggestion(devInput, commandHistory);
     },
-    [prompterActive, isAgentMode, tabId, devInput, devHistory],
+    [prompterActive, isAgentMode, tabId, devInput, commandHistory],
   );
   const acceptGhostSuggestion = useCallback(() => {
     if (ghostSuggestion) setDevInput(ghostSuggestion);
@@ -1270,10 +1304,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     ptyWrite('\x04');
   }, [ptyWrite]);
 
-  // Dev-bar history: Up/Down walk submitted lines, like the shell.
+  // History walk: Up/Down walk the GLOBAL submitted lines
+  // (commandHistoryStore — every tab's commands, oldest →
+  // newest), like the shell. The walk is position-based
+  // (readline semantics): Up from a fresh draft saves the
+  // draft and shows the newest entry; Down past the newest
+  // restores the saved draft (today this cleared to '' — the
+  // draft is the user's to keep). Editing a recalled entry
+  // keeps the walk position; submitting appends as a new
+  // newest entry and resets the walk.
   const devHistoryUp = () => {
     // Agent mode walks this tab's past agent prompts (most
-    // recent first), not the shell's devHistory.
+    // recent first), not the global command history.
     if (isAgentMode) {
       const prompts = selectAgentPromptHistory(
         useHistoryStore.getState().blocksByTab,
@@ -1287,12 +1329,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       setDevInput(prompts[idx]);
       return;
     }
-    if (devHistory.length === 0) return;
-    const idx = devHistoryIdx.current === null
-      ? devHistory.length - 1
-      : Math.max(0, devHistoryIdx.current - 1);
-    devHistoryIdx.current = idx;
-    setDevInput(devHistory[idx]);
+    const entries = useCommandHistoryStore.getState().entries;
+    if (entries.length === 0) return;
+    if (devHistoryIdx.current === null) {
+      // First step of a fresh walk: save the draft, show the
+      // newest entry.
+      devHistoryDraft.current = devInput;
+      devHistoryIdx.current = entries.length - 1;
+    } else {
+      // The list may have grown since the walk started
+      // (cross-window sync) — clamp, never overshoot.
+      devHistoryIdx.current = Math.max(
+        0,
+        Math.min(devHistoryIdx.current - 1, entries.length - 1),
+      );
+    }
+    setDevInput(entries[devHistoryIdx.current]);
   };
   const devHistoryDown = () => {
     // Agent mode walks back down this tab's past agent prompts;
@@ -1314,13 +1366,29 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
       return;
     }
     if (devHistoryIdx.current === null) return;
+    const entries = useCommandHistoryStore.getState().entries;
     const idx = devHistoryIdx.current + 1;
-    if (idx >= devHistory.length) {
-      devHistoryIdx.current = null;
-      setDevInput('');
+    if (idx >= entries.length) {
+      // Past the newest: the walk ends and the saved draft
+      // comes back (never '' — the draft is the user's).
+      cancelHistoryWalk();
     } else {
       devHistoryIdx.current = idx;
-      setDevInput(devHistory[idx]);
+      setDevInput(entries[idx]);
+    }
+  };
+
+  // Esc from the composer (Gary, 2026-11-14 — decision 5):
+  // agent mode flips back to terminal; terminal mode cancels
+  // the history walk (restores the draft, resets the index).
+  // Below DEFCON 3 there is no composer, so Esc still belongs
+  // to the shell there — this handler only ever runs where a
+  // composer exists.
+  const handleComposerEscape = () => {
+    if (isAgentMode) {
+      useSessionStore.getState().setTabMode(tabId, 'terminal');
+    } else {
+      cancelHistoryWalk();
     }
   };
 
@@ -1589,11 +1657,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           onInterrupt={handleComposerInterrupt}
           onEof={handleComposerEof}
           onHandoff={() => handoffToAgent(devInput)}
-          onEscape={() => {
-            if (isAgentMode) {
-              useSessionStore.getState().setTabMode(tabId, 'terminal');
-            }
-          }}
+          onEscape={handleComposerEscape}
         />
       </div>
     </div>
@@ -2201,6 +2265,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                       isProcessing={devRunning}
                       flat={false}
                       onHandoff={() => handoffToAgent(devInput)}
+                      onEscape={handleComposerEscape}
                     />
                   </div>
                 ) : (
@@ -2265,6 +2330,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
                         isProcessing={devRunning}
                         flat={true}
                         onHandoff={() => handoffToAgent(devInput)}
+                        onEscape={handleComposerEscape}
                       />
                     </div>
                   </div>

@@ -130,8 +130,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
   // Monaco registers its keybindings once, at mount — but the
   // ghost and the handlers change every keystroke. The ref
   // keeps the mounted handlers reading the latest values.
-  const latestRef = useRef({ ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape });
-  latestRef.current = { ghostSuggestion, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape };
+  // The history handlers and onSubmit ride the same ref:
+  // without it the mounted Up/Down/Enter commands keep
+  // calling the first render's closures — the history as it
+  // was at mount (empty), so Up did nothing until a remount
+  // (Gary, 2026-11-14 — the stale-closure fix).
+  const latestRef = useRef({ ghostSuggestion, onSubmit, onHistoryUp, onHistoryDown, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape });
+  latestRef.current = { ghostSuggestion, onSubmit, onHistoryUp, onHistoryDown, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape };
   // True-placeholder ghost words (Gary, 2026-11-13 ~02:02 PST):
   // the overlay shows only while the input is empty — the
   // parent also gates it on the tab's first prompt and the
@@ -287,7 +292,9 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             () => {
                 const value = editor.getValue().trim();
                 if (value) {
-                    onSubmit(value);
+                    // Routed through latestRef (above): the mounted
+                    // command calls the CURRENT submit handler.
+                    latestRef.current.onSubmit(value);
                 }
             }
         );
@@ -295,14 +302,18 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         editor.addCommand(
             monaco.KeyCode.UpArrow,
             () => {
-                onHistoryUp();
+                // Routed through latestRef (above): the mounted
+                // command calls the CURRENT history handler.
+                latestRef.current.onHistoryUp();
             }
         );
         
         editor.addCommand(
             monaco.KeyCode.DownArrow,
             () => {
-                onHistoryDown();
+                // Routed through latestRef (above): the mounted
+                // command calls the CURRENT history handler.
+                latestRef.current.onHistoryDown();
             }
         );
         
@@ -462,8 +473,9 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             onHandoff?.();
             return;
         }
-        // Esc: back to the terminal session (agent sessions only
-        // — the parent passes onEscape only then).
+        // Esc: agent mode flips back to terminal; terminal mode
+        // cancels the history walk (Gary, 2026-11-14). The parent
+        // passes onEscape in both modes now.
         if (e.key === 'Escape' && onEscape) {
             e.preventDefault();
             onEscape();

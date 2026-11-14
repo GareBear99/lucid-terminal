@@ -73,6 +73,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { EMPTY_BLOCKS, useHistoryStore } from '../../stores/historyStore';
+import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
 import { isGuestProfile, useProfileStore } from '../../stores/profileStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useDetachPushListeners } from '../../lib/detachPushListeners';
@@ -265,8 +266,32 @@ export default function MiniTerminal() {
 
   // --- DEFCON 3 prompter: the linked composer ---
   const [devInput, setDevInput] = useState('');
-  const [devHistory, setDevHistory] = useState<string[]>([]);
+  // Global command history (Gary, 2026-11-14 — up-arrow, global
+  // and not per tab): the list lives in commandHistoryStore,
+  // scoped to the active profile. The walk position and the
+  // saved draft belong to THIS composer's input line, so they
+  // stay per-component refs — same shape as Terminal.tsx.
   const devHistoryIdx = useRef<number | null>(null);
+  const devHistoryDraft = useRef<string | null>(null);
+  // The store's list, subscribed so the ghost suggestion
+  // recomputes when history changes (submit, cross-window
+  // sync, profile switch).
+  const commandHistory = useCommandHistoryStore((s) => s.entries);
+  /** Reset the history walk (submit): the index and the saved
+   *  draft go, the input is the submitter's to set. */
+  const resetHistoryWalk = () => {
+    devHistoryIdx.current = null;
+    devHistoryDraft.current = null;
+  };
+  /** Cancel the history walk (Esc, terminal mode — Gary,
+   *  2026-11-14): restore the draft the walk started from and
+   *  reset the index. No-op when no walk is active. */
+  const cancelHistoryWalk = () => {
+    if (devHistoryIdx.current === null) return;
+    devHistoryIdx.current = null;
+    setDevInput(devHistoryDraft.current ?? '');
+    devHistoryDraft.current = null;
+  };
   const [devRunning, setDevRunning] = useState(false);
   const composerRunningRef = useRef(false);
   const prompterComposerWrapRef = useRef<HTMLDivElement | null>(null);
@@ -381,8 +406,8 @@ export default function MiniTerminal() {
     // runs: the ghost words are gone for this tab after its
     // first prompt.
     useTerminalStore.getState().markTabPrompted(tabId);
-    setDevHistory((prev) => [...prev, trimmed].slice(-100));
-    devHistoryIdx.current = null;
+    useCommandHistoryStore.getState().append(trimmed);
+    resetHistoryWalk();
     setDevInput('');
     setDevRunning(true);
     try {
@@ -415,11 +440,11 @@ export default function MiniTerminal() {
 
   // DEFCON 3 Phase 3 — the rest of the prompter: ghost
   // suggestion, Ctrl+C / Ctrl+D forwarding. The ghost comes
-  // from the composer's own submitted history (devHistory
+  // from the GLOBAL submitted history (commandHistoryStore
   // prefix match) and from known slash-command names — see
   // src/lib/prompterSuggestions.ts. Computed only while the
   // prompter is active: below level 3 there is no composer.
-  const ghostSuggestion = prompterActive ? computeGhostSuggestion(devInput, devHistory) : null;
+  const ghostSuggestion = prompterActive ? computeGhostSuggestion(devInput, commandHistory) : null;
 
   // Hint line (Warp §5, same as Terminal.tsx): what the next
   // keystroke does, for this terminal session and draft.
@@ -451,24 +476,35 @@ export default function MiniTerminal() {
     if (tabId) ptyWrite(tabId, '\x04');
   };
 
+  // History walk: Up/Down walk the GLOBAL submitted lines
+  // (commandHistoryStore), like the shell — position-based
+  // (readline semantics): Up from a fresh draft saves the
+  // draft and shows the newest entry; Down past the newest
+  // restores the saved draft (never ''). Same shape as
+  // Terminal.tsx's terminal-mode walk.
   const devHistoryUp = () => {
-    if (devHistory.length === 0) return;
-    const idx =
-      devHistoryIdx.current === null
-        ? devHistory.length - 1
-        : Math.max(0, devHistoryIdx.current - 1);
-    devHistoryIdx.current = idx;
-    setDevInput(devHistory[idx]);
+    const entries = useCommandHistoryStore.getState().entries;
+    if (entries.length === 0) return;
+    if (devHistoryIdx.current === null) {
+      devHistoryDraft.current = devInput;
+      devHistoryIdx.current = entries.length - 1;
+    } else {
+      devHistoryIdx.current = Math.max(
+        0,
+        Math.min(devHistoryIdx.current - 1, entries.length - 1),
+      );
+    }
+    setDevInput(entries[devHistoryIdx.current]);
   };
   const devHistoryDown = () => {
     if (devHistoryIdx.current === null) return;
+    const entries = useCommandHistoryStore.getState().entries;
     const idx = devHistoryIdx.current + 1;
-    if (idx >= devHistory.length) {
-      devHistoryIdx.current = null;
-      setDevInput('');
+    if (idx >= entries.length) {
+      cancelHistoryWalk();
     } else {
       devHistoryIdx.current = idx;
-      setDevInput(devHistory[idx]);
+      setDevInput(entries[idx]);
     }
   };
 
@@ -529,6 +565,11 @@ export default function MiniTerminal() {
           onAcceptSuggestion={acceptGhostSuggestion}
           onInterrupt={handleComposerInterrupt}
           onEof={handleComposerEof}
+          // Esc cancels the history walk (Gary, 2026-11-14):
+          // restores the draft, resets the index. No-op when
+          // no walk is active. No agent mode here — terminal
+          // mode only.
+          onEscape={cancelHistoryWalk}
         />
       </div>
     </div>
@@ -587,8 +628,12 @@ export default function MiniTerminal() {
   useEffect(() => {
     void useSettingsStore.getState().loadSettings();
     const profileState = useProfileStore.getState();
+    // Global command history: load the active profile's list
+    // (no-op when already loaded for this profile).
+    useCommandHistoryStore.getState().switchProfile(profileState.activeProfileId);
     if (isGuestProfile(profileState.profiles.find((p) => p.id === profileState.activeProfileId))) {
       useHistoryStore.getState().enterGuestSession();
+      useCommandHistoryStore.getState().enterGuestSession();
     }
     const onChanged = window.lucidAPI?.settings?.onChanged?.((key) => {
       if (

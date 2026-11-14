@@ -7,9 +7,9 @@
  * suggestion in the composer, accepted with Right-arrow or Tab.
  * Two sources only, both already in the codebase — nothing new is
  * built to supply them:
- *   (a) the composer's own submitted history (`devHistory` in
- *       Terminal.tsx) — most-recent-first prefix match, case
- *       sensitive like the shell's own history;
+ *   (a) the GLOBAL submitted history (commandHistoryStore in
+ *       src/stores/commandHistoryStore.ts) — most-recent-first
+ *       prefix match, case sensitive like the shell's own history;
  *   (b) known slash-command names — the `SLASH_COMMAND_NAMES`
  *       surface in src/utils/commandRouter.ts, the same list
  *       `findClosestCommand` draws its typo suggestions from

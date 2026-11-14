@@ -12,6 +12,7 @@ import {
   RefreshCw,
   FolderPlus,
   FilePlus,
+  Minus,
   Pencil,
   Trash2,
   X,
@@ -872,6 +873,23 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
                 className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               >
                 <RefreshCw size={14} />
+              </button>
+            </Tooltip>
+            {/* Minimize (Gary, 2026-11-14 ~03:00 PST): the dash
+                collapses the Explorer to its w-12 rail - the
+                same minimize as the other panels, never a
+                close or delete. The Minus glyph is the
+                codebase's minimize mark (AIChat "Minimize
+                chats", TitleBar window minimize). The rail's
+                chevron and the toolbar Explorer icon bring
+                it back (togglePanel). */}
+            <Tooltip content="Minimize explorer">
+              <button
+                onClick={() => setCollapsedPanels((prev) => ({ ...prev, explorer: true }))}
+                className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                aria-label="Minimize explorer"
+              >
+                <Minus size={14} />
               </button>
             </Tooltip>
           </div>

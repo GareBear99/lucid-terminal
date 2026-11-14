@@ -53,11 +53,19 @@
  * owner's blocks (historyStore's guestStash). setTabMode
  * refuses 'agent' while a guest is veiled in.
  *
- * The driving intelligence itself is NOT here (step 3 of the
- * endgame order). submitAgentPrompt records the prompt as a
- * block in the tab's feed and appends a notice block saying so,
- * honestly — the prompt is kept, nothing is run, nothing is
- * faked.
+ * The driving loop IS here now (steal #4 — Continue,
+ * 2026-11-14): submitAgentPrompt records the prompt as a
+ * block in the tab's feed, and Terminal.tsx kicks off
+ * runAgentTurnForTab (src/lib/agentSession.ts) right after
+ * — the loop plans the prompt into tool calls, runs them
+ * through the registry + policy gate, and lands the result
+ * as an `agent-response` block in the same feed. The
+ * "driving intelligence isn't built yet" notice is gone
+ * with the placeholder it described: the loop is built,
+ * and its brain today is the local planner (a
+ * deterministic rule-based planner — no model, no
+ * network). The driving-intelligence brain (dissection
+ * D4) plugs into the same AgentBrain seam when it lands.
  */
 
 import { create } from 'zustand';
@@ -74,12 +82,6 @@ export type TabMode = 'terminal' | 'agent';
  *  driving-agent pill shows this until the driving
  *  intelligence lands (step 3) and owns the picker. */
 export const DRIVING_AGENT_BASE_MODEL = 'LLMBuilder';
-
-/** The notice a tab's agent mode carries until the driving
- *  intelligence lands (step 3): the prompt is recorded, nothing
- *  is run, nothing is faked. */
-export const AGENT_NOT_BUILT_NOTICE =
-  'The driving intelligence isn\u2019t built yet — this conversation is a placeholder for it (step 3). Your prompt is recorded here; nothing was run.';
 
 export interface SessionState {
   /** The mode of each tab. Absent = 'terminal'. */
@@ -109,11 +111,13 @@ export interface SessionState {
   setTabMode: (tabId: string, mode: TabMode) => TabMode | null;
   /** Flip a tab's mode. Same refusal as setTabMode. */
   toggleTabMode: (tabId: string) => TabMode | null;
-  /** Submit a prompt to a tab in agent mode: the prompt block
-   *  plus the driving-intelligence notice, appended to the
-   *  tab's own feed (historyStore) like any other block — one
-   *  memory per tab. Returns false on an empty prompt or while
-   *  a guest session is veiled in. */
+  /** Submit a prompt to a tab in agent mode: the prompt
+   *  block, appended to the tab's own feed (historyStore)
+   *  like any other block — one memory per tab. The loop
+   *  runs separately (runAgentTurnForTab, called by
+   *  Terminal.tsx right after this) and lands its result
+   *  as an `agent-response` block. Returns false on an
+   *  empty prompt or while a guest session is veiled in. */
   submitAgentPrompt: (tabId: string, prompt: string, cwd?: string) => boolean;
   /** Submit a prompt to a tab in agent mode with an instant
    *  reply (greetings / canned questions / context answers):
@@ -201,20 +205,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       cwd,
       kind: 'agent-prompt',
     };
-    const noticeBlock: TerminalBlock = {
-      id: newBlockId(now + 1),
-      command: '',
-      output: AGENT_NOT_BUILT_NOTICE,
-      timestamp: now + 1,
-      isComplete: true,
-      cwd,
-      kind: 'notice',
-    };
     // One memory per tab: the prompt lands in the tab's own
     // feed (historyStore) like any other block — it persists,
     // shows in History, and the guest veil stashes it with the
-    // rest of the owner's blocks.
-    useHistoryStore.getState().setBlocks(tabId, (prev) => [...prev, promptBlock, noticeBlock]);
+    // rest of the owner's blocks. The loop's result lands as
+    // a separate `agent-response` block (runAgentTurnForTab).
+    useHistoryStore.getState().setBlocks(tabId, (prev) => [...prev, promptBlock]);
     return true;
   },
 

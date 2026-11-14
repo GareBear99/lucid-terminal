@@ -25,6 +25,7 @@ import {
 import { computeHintLine } from '../../lib/hintLine';
 import { classifyInput } from '../../lib/inputClassifier';
 import { parseAgentInput } from '../../lib/inputParse';
+import { runAgentTurnForTab } from '../../lib/agentSession';
 import { getCachedGitStatus, useGitStatus } from '../../lib/useGitStatus';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
 import { getPromptHintWords } from '../../lib/promptHintWords';
@@ -1265,6 +1266,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
         useSessionStore.getState().submitAgentReply(tabId, trimmed, parse.reply ?? '', tabCwd);
       } else {
         useSessionStore.getState().submitAgentPrompt(tabId, trimmed, tabCwd);
+        // The loop runs the prompt (steal #4 — Continue):
+        // plan → tool calls → verify → the result lands as
+        // an `agent-response` block in this tab's feed.
+        // Fire-and-forget — the run updates its own block.
+        void runAgentTurnForTab(tabId, trimmed, tabCwd);
       }
       setDevInput('');
       composerRunningRef.current = false;
@@ -1594,6 +1600,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
     if (firstPrompt) {
       const cwd = useTerminalStore.getState().tabs.find((t) => t.id === tabId)?.cwd;
       useSessionStore.getState().submitAgentPrompt(tabId, firstPrompt, cwd);
+      // The hand-off's first prompt runs the loop too
+      // (steal #4) — same path as a composer submit.
+      void runAgentTurnForTab(tabId, firstPrompt, cwd);
       // The hand-off's first prompt IS the tab's first prompt —
       // the ghost words are gone for the tab from here.
       useTerminalStore.getState().markTabPrompted(tabId);

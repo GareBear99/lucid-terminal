@@ -127,7 +127,16 @@ export const useFileStore = create<FileState>((set, get) => ({
   activeFilePath: null,
   isLoading: false,
   error: null,
-  recentWorkspaces: JSON.parse(localStorage.getItem('recentWorkspaces') || '[]'),
+  // Guarded: the agent chain (Settings > Agent Permissions
+  // imports the tool registry, which imports the file store)
+  // must load in a node test environment too, where there is
+  // no localStorage at all. Same guard the permission store
+  // uses — a missing store reads as "no recent workspaces",
+  // never a crash at import time.
+  recentWorkspaces:
+    typeof localStorage === 'undefined'
+      ? []
+      : JSON.parse(localStorage.getItem('recentWorkspaces') || '[]'),
 
   clearError: () => {
     set({ error: null });

@@ -22,6 +22,7 @@ import {
   Lock,
   Unlock,
   Shield,
+  ShieldCheck,
   User,
   Volume2,
   Pause,
@@ -54,6 +55,7 @@ import { Toggle } from './Toggle';
 import { DaemonLogViewer } from '../Daemon/DaemonLogViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PermissionsTab } from './PermissionsTab';
+import { AgentPermissionsTab } from './AgentPermissionsTab';
 import { SecurityTab } from './SecurityTab';
 import { ProfileTab } from './ProfileTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
@@ -71,7 +73,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'security' | 'profile';
+export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'agent-permissions' | 'security' | 'profile';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
@@ -423,6 +425,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
     { id: 'security', label: 'Security', icon: <Lock size={18} /> },
     { id: 'permissions', label: 'Permissions', icon: <Shield size={18} /> },
+    { id: 'agent-permissions', label: 'Agent Permissions', icon: <ShieldCheck size={18} /> },
     { id: 'profile', label: 'Profile', icon: <User size={18} /> },
     { id: 'customization', label: 'Customization', icon: <Sliders size={18} /> },
     { id: 'plugins', label: 'Plugins', icon: <Puzzle size={18} /> },
@@ -688,7 +691,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   ) : (
                     <Lock size={14} className="text-[var(--text-muted)]" aria-label="Full Glass locked" />
                   )}
-                  <span className="text-xs text-[var(--text-muted)]">Referral + purchase tier reward</span>
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">Referral + purchase tier reward</span>
                 </div>
                 <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Frosted glass throughout. Unlocks with referrals and an active purchase tier.
@@ -709,7 +712,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       style={{ backgroundColor: fullGlassTheme.colors.accent }}
                     />
                   </div>
-                  <div className="text-xs text-[var(--text-secondary)] space-y-1 mb-3">
+                  <div className="text-xs leading-[1.5] text-[var(--text-secondary)] space-y-1 mb-3">
                     <div>Referrals: {settings.referralCount} / {fullGlassTheme.unlock?.referralsRequired ?? 1} {settings.referralCount >= (fullGlassTheme.unlock?.referralsRequired ?? 1) ? '✓' : ''}</div>
                     <div>Purchase tier: {settings.purchaseTierActive ? 'Active ✓' : 'Not active'}</div>
                   </div>
@@ -755,7 +758,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   ) : (
                     <Lock size={14} className="text-[var(--text-muted)]" aria-label="All Black locked" />
                   )}
-                  <span className="text-xs text-[var(--text-muted)]">First referral reward</span>
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">First referral reward</span>
                 </div>
                 <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Pure black throughout. Unlocks with your first referral.
@@ -776,7 +779,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       style={{ backgroundColor: allBlackTheme.colors.accent }}
                     />
                   </div>
-                  <div className="text-xs text-[var(--text-secondary)] space-y-1 mb-3">
+                  <div className="text-xs leading-[1.5] text-[var(--text-secondary)] space-y-1 mb-3">
                     <div>Referrals: {settings.referralCount} / {allBlackTheme.unlock?.referralsRequired ?? 1} {settings.referralCount >= (allBlackTheme.unlock?.referralsRequired ?? 1) ? '✓' : ''}</div>
                   </div>
                   {isThemeUnlocked(allBlackTheme, settings) ? (
@@ -810,14 +813,14 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               <section data-testid="mist-section">
                 <div className="flex items-center gap-2 mb-3">
                   <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Mist</h3>
-                  <span className="text-xs text-[var(--text-muted)]">Splash mist, per surface</span>
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">Splash mist, per surface</span>
                 </div>
                 <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   The splashscreen mist, surface by surface. Each toggle is off by default — the surface shows its solid theme until its mist is switched on.
                 </p>
                 <div className="flex items-center gap-3">
                   <Tooltip content="Show the splash mist on the Files screen">
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex items-center gap-2 cursor-pointer py-1">
                       <Toggle
                         checked={settings.filesMist ?? false}
                         onChange={(checked) => updateSetting('filesMist', checked)}
@@ -930,7 +933,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     step={1000}
                   />
 </Tooltip>
-                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-1">Number of lines to keep in history</p>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">Number of lines to keep in history</p>
               </section>
 
               <section>
@@ -1076,7 +1079,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 </Tooltip>
                   <span className="text-sm w-8">{settings.aiTemperature}</span>
                 </div>
-                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-1">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">
                   Lower = more focused, Higher = more creative
                 </p>
               </section>
@@ -1192,7 +1195,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 </Tooltip>
                   <span className="text-sm w-10">{settings.gazeSensitivity ?? 50}%</span>
                 </div>
-                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-1">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">
                   How focused the Sentinel face&rsquo;s eyes are on the cursor. Low = the eyes stay wandering and only glance toward it; high = they track it closely and lock on quickly. Applies right away, no restart needed.
                 </p>
               </section>
@@ -1321,7 +1324,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                         The plugin itself — local AI backend, command passes, FixNet. The Synth shell and blood drop above are its surfaces.
                       </span>
-                      <label className="flex items-center gap-2 cursor-pointer mt-3">
+                      <label className="flex items-center gap-2 cursor-pointer mt-3 py-1">
                         <Toggle
                           checked={luciferAiEnabled}
                           onChange={(checked) => updateSetting('luciferAiEnabled', checked)}
@@ -1378,7 +1381,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Custom plugins</h3>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   User-registered plugins (see src/data/customPlugins.ts). A plugin appears here once it is registered — give it an id, a name, a description and an icon (a lucide icon, an emoji, or an image file/URL).
                 </p>
                 <div className="space-y-3">
@@ -1423,7 +1426,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Add-ons</h3>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Installed on demand — nothing is pre-installed, except Android Connect, which is installed automatically with the Devices anchor plugin, and Segments, installed automatically with the Modules anchor plugin. Installable add-ons install from here; an installed add-on gets a Settings button that opens its settings.
                 </p>
                 <div className="space-y-3">
@@ -1502,7 +1505,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Detected devices</h3>
                   <DevicesVoiceButton />
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Detection only — Lucid lists and identifies devices. It never controls them or talks to them. USB via system_profiler, Android via adb, plus this Mac itself.
                 </p>
                 <div className="flex items-center gap-2 mb-3">
@@ -1564,7 +1567,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Add-ons</h3>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
                   Android Connect is installed automatically with the Devices anchor plugin — it is how Android devices are detected.
                 </p>
                 <div className="space-y-3">
@@ -1739,7 +1742,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
                   Run on startup
                 </h3>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer py-1">
                   <Toggle
                     checked={runOnStartup === true}
                     onChange={(checked) => void setRunOnStartup(checked)}
@@ -1791,7 +1794,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
                   Dev mode
                 </h3>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer py-1">
                   <Toggle
                     checked={settings.devMode === true}
                     onChange={(checked) => updateSetting('devMode', checked)}
@@ -1827,6 +1830,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
             </div>
           )}
           {activeTab === 'permissions' && (<PermissionsTab />)}
+          {activeTab === 'agent-permissions' && (<AgentPermissionsTab />)}
           {activeTab === 'security' && (<SecurityTab />)}
           {activeTab === 'profile' && (<ProfileTab />)}
         </div>

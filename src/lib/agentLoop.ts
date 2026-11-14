@@ -53,8 +53,15 @@
  * "requires_approval", the loop asks, and with no
  * approval UI yet the answer is denied — the run reports
  * it honestly instead of writing. The Keep/Reject review
- * UI (Zed #6) is the approval surface this pauses for;
- * the pause machinery is already here, the button is not.
+ * UI (Zed #6, agentReview.ts) is the approval surface
+ * this pauses for: the terminal path passes
+ * autoApproveWrites: false and an `approve` callback
+ * wired to the review UI, so every write is shown with
+ * its diff before it lands; the permission model
+ * (agentPermissions.ts) is the escape hatch — a tool set
+ * to 'auto' runs without review. Direct runAgentTurn
+ * callers keep the old default (logged-in auto-approves)
+ * unless they pass otherwise.
  *
  * Re-planning: this slice plans ONCE per prompt. After
  * the tool results come back, the loop does not ask the
@@ -73,6 +80,7 @@ import { LocalPlanner } from './agentBrain';
 import { electronAgentHost, type AgentHost } from './agentHost';
 import { AgentFileIndex } from './agentIndex';
 import { decideToolPolicy } from './agentPolicy';
+import type { AgentPermissionSet } from './agentPermissions';
 import { registerBuiltInTools } from './agentToolsImpl';
 import {
   renderToolStatus,
@@ -114,6 +122,18 @@ export type AgentLoopEvent =
   | { type: 'verify-done'; path: string; fixed: number; remaining: number }
   | { type: 'reply'; reply: string };
 
+/** What the loop hands the approval callback alongside
+ *  the call (steal #6 — Zed): the rendered wouldLikeTo
+ *  line is the review's summary, and the diagnostics are
+ *  the reason a verify-step fix call is proposed. */
+export interface AgentApprovalDetail {
+  /** The rendered wouldLikeTo line ("edit src/app.ts"). */
+  summary: string;
+  /** Diagnostics the call is about (the verify step's fix
+   *  calls only) — the review shows them as the reason. */
+  diagnostics?: Array<{ path: string; line: number; message: string; code?: string | number }>;
+}
+
 export interface AgentLoopOptions {
   prompt: string;
   workspaceRoot: string;
@@ -131,12 +151,19 @@ export interface AgentLoopOptions {
   /** Write tools run without pausing (default: true for
    *  logged-in runs, false for guest — see the header). */
   autoApproveWrites?: boolean;
+  /** The permission set the gate consults (steal #6 —
+   *  Zed). When absent, every tool runs at its default
+   *  (readonly 'auto', write 'ask'). */
+  permissions?: AgentPermissionSet;
   /** Approval callback, called when the gate says a write
    *  needs approval and autoApproveWrites is false.
    *  Return true to run it, false to refuse. When absent,
    *  the answer is false (deny) — the run reports the
-   *  refusal instead of writing. */
-  approve?: (call: PlannedToolCall) => Promise<boolean>;
+   *  refusal instead of writing. The second argument is
+   *  the review detail (steal #6 — Zed): the rendered
+   *  summary line, plus the diagnostics for a verify-step
+   *  fix call. */
+  approve?: (call: PlannedToolCall, detail?: AgentApprovalDetail) => Promise<boolean>;
   maxRounds?: number;
   signal?: AbortSignal;
   onEvent?: (event: AgentLoopEvent) => void;
@@ -240,7 +267,10 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     //    the plan's calls AND the verify step's fix calls
     //    — a fix is a real tool call (audited, gated,
     //    shown), never a silent side write.
-    const executeCall = async (call: PlannedToolCall): Promise<AgentLoopToolCallRecord> => {
+    const executeCall = async (
+      call: PlannedToolCall,
+      approvalDetail?: { diagnostics?: AgentApprovalDetail['diagnostics'] },
+    ): Promise<AgentLoopToolCallRecord> => {
       const definition = registry.get(call.name);
       const status = definition
         ? renderToolStatus(definition.wouldLikeTo, call.args)
@@ -253,6 +283,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         cwd,
         isGuest,
         autoApproveWrites,
+        permissions: options.permissions,
       });
       if (decision.decision === 'blocked') {
         const result: AgentToolResult = { ok: false, output: '', error: decision.reason };
@@ -266,7 +297,13 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         let approved = false;
         if (options.approve) {
           try {
-            approved = await options.approve(call);
+            // The review detail rides along (steal #6 — Zed):
+            // the rendered summary for every call, plus the
+            // diagnostics when this is a verify-step fix call.
+            approved = await options.approve(call, {
+              summary: status,
+              diagnostics: approvalDetail?.diagnostics,
+            });
           } catch {
             approved = false;
           }
@@ -350,7 +387,17 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         for (const editedPath of editedPaths) {
           if (options.signal?.aborted) break;
           onEvent({ type: 'verify-start', path: editedPath });
-          const fix = await executeCall({ name: 'fix_diagnostics', args: { filepath: editedPath } });
+          // The fix call carries the diagnostics it is about
+          // (steal #6 — Zed): the review shows them as the
+          // reason, so the user can judge the fix before it
+          // runs — the diagnostics are what the fix proposes
+          // to repair.
+          const fix = await executeCall(
+            { name: 'fix_diagnostics', args: { filepath: editedPath } },
+            {
+              diagnostics: (record.result.diagnostics ?? []).filter((d) => d.path === editedPath),
+            },
+          );
           if (fix.outcome === 'allowed' && fix.result.ok && fix.result.verification) {
             // The fix call's diagnostics REPLACE the stale
             // ones for this file — the run reports what is
@@ -425,7 +472,20 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     if (plan.reply) lines.push(plan.reply);
     const reply = lines.length > 0 ? lines.join('\n') : 'Done.';
     onEvent({ type: 'reply', reply });
-    return { reply, toolCalls: records, edits, diagnostics, verifications, stopped: 'done' };
+    // A stop that lands during the last call (e.g. while the
+    // run is paused on a review) never reaches the next
+    // iteration's signal check — without this the run would
+    // report 'done' for work it never finished. The reply
+    // already says what happened (the denial line); the
+    // stopped value says the run itself was cut short.
+    return {
+      reply,
+      toolCalls: records,
+      edits,
+      diagnostics,
+      verifications,
+      stopped: options.signal?.aborted ? 'aborted' : 'done',
+    };
   } catch (error) {
     // The run never throws — a failure anywhere becomes a
     // reply that says so (Continue's callTool contract, at

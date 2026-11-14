@@ -60,6 +60,12 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   // (see resolveSettingsTabOrder), not appended at the end.
   'security',
   'permissions',
+  // Agent Permissions (steal #6 — Zed) — what the agent may do
+  // unsupervised, per tool and per path rule. Right after the
+  // device-permissions tab: the two permission surfaces sit
+  // together. A stored order that predates it gains it here
+  // (see resolveSettingsTabOrder), not appended at the end.
+  'agent-permissions',
   // Profile (Gary, 2026-11-12 ~17:36 PST) — the current profile
   // and its deletion. Fourth in the default order, with the other
   // platform-wide tabs. A stored order that predates it gains it

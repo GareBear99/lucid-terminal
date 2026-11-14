@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { EMPTY_BLOCKS, useHistoryStore } from '../../stores/historyStore';
 import { copyText, formatBlockDuration } from '../../lib/terminalBlocks';
 import { formatGitBranch, formatGitCounts } from '../../lib/gitStatus';
+import { AgentReviewBlock } from './AgentReviewBlock';
 import type { TerminalBlock } from '../../types';
 
 /** How close to the bottom the feed must be to count as "pinned"
@@ -105,8 +106,9 @@ export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, 
   const storeBlocks = useHistoryStore((s) => s.blocksByTab[tabId] ?? EMPTY_BLOCKS).filter(
     (b) => !b.restored,
   );
-  // The unified feed: an explicit list wins (agent sessions),
-  // otherwise the tab's live transcript (terminal sessions).
+  // The unified feed: an explicit list wins (the History panel
+  // — the record, restored blocks included), otherwise the
+  // tab's live transcript (terminal sessions).
   const blocks = blocksProp ?? storeBlocks;
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -204,10 +206,18 @@ export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, 
           {index > 0 && (
             <div data-testid="block-divider" className="border-t border-[var(--border)]" aria-hidden="true" />
           )}
-          {/* A notice block is a plain note (the driving-
+          {/* A review block is the Keep/Reject surface
+              (steal #6 — Zed): the diff preview + the
+              decision buttons, rendered by its own
+              component. It stays in the feed as the record
+              of the decision (and of the checkpoint it can
+              revert to). */}
+          {block.kind === 'agent-review' && block.review ? (
+            <AgentReviewBlock block={block} />
+          ) : block.kind === 'notice' ? (
+            /* A notice block is a plain note (the driving-
               intelligence placeholder in an agent session): no
-              header, no actions — just the text, muted. */}
-          {block.kind === 'notice' ? (
+              header, no actions — just the text, muted. */
             <article
               data-testid="terminal-block"
               data-block-kind="notice"

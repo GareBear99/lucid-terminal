@@ -43,6 +43,10 @@ export interface AgentHost {
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
   createFile(path: string, content?: string): Promise<void>;
+  /** Delete a file. Only the checkpoint revert uses this
+   *  (restoring a file that did not exist before a kept
+   *  create) — no agent TOOL deletes, ever (steal #6). */
+  deleteFile(path: string): Promise<void>;
   /** Create a directory (parents included). */
   createDir(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
@@ -136,6 +140,9 @@ export const electronAgentHost: AgentHost = {
     // opens in the editor (and the tree refreshes) the same
     // way a user-created file does.
     await useFileStore.getState().createFile(path, content);
+  },
+  async deleteFile(path: string): Promise<void> {
+    await window.lucidAPI.fs.delete(path);
   },
   async createDir(path: string): Promise<void> {
     await window.lucidAPI.fs.createDir(path);

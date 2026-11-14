@@ -174,6 +174,65 @@ export interface GitStatus {
   deletedLines: number;
 }
 
+/** One changed region in an agent review (steal #6 — Zed):
+ *  the removed lines (what the file has now) + the added
+ *  lines (what it would have) + a few context lines around
+ *  them. `line` is the 1-based line of the region in the
+ *  file BEFORE the edit. `note` carries a caveat the
+ *  previewer knows (e.g. a replace_all that touches more
+ *  places than the one shown). */
+export interface AgentReviewHunk {
+  line: number;
+  before: string[];
+  removed: string[];
+  added: string[];
+  after: string[];
+  note?: string;
+}
+
+/** One diagnostic, in the review's shape (the same shape
+ *  AgentToolResult.diagnostics carries). */
+export interface AgentReviewDiagnostic {
+  path: string;
+  line: number;
+  message: string;
+  code?: string | number;
+}
+
+/** The review data an 'agent-review' block carries (steal
+ *  #6 — Zed). `status` is the decision: 'pending' while
+ *  the run waits on the user, then the decision taken.
+ *  `checkpointId` is set once the edit is kept — the
+ *  checkpoint holds the file's content before the edit,
+ *  and `checkpointReverted` flips when the user reverts
+ *  to it. */
+export interface AgentReviewBlockData {
+  requestId: string;
+  runId: string;
+  toolName: string;
+  /** The rendered wouldLikeTo line ("edit src/app.ts"). */
+  summary: string;
+  /** The file the edit touches (undefined for a call with
+   *  no single file). */
+  filepath?: string;
+  hunks: AgentReviewHunk[];
+  /** Diagnostics the call is about (fix_diagnostics) —
+   *  the reason the fix is proposed. */
+  diagnostics?: AgentReviewDiagnostic[];
+  /** What went wrong computing the preview, when the
+   *  preview could not be built (the edit does not match
+   *  the file any more, the args are malformed) — the
+   *  review still shows, and the user can reject it. */
+  previewError?: string;
+  status: 'pending' | 'kept' | 'rejected' | 'kept-all' | 'rejected-all';
+  checkpointId?: string;
+  checkpointReverted?: boolean;
+  /** A note on the decision (e.g. the run ended while the
+   *  review was pending — the answer was a refusal, not a
+   *  choice). */
+  note?: string;
+}
+
 export interface TerminalBlock {
   id: string;
   command: string;
@@ -187,9 +246,17 @@ export interface TerminalBlock {
    *  existing blocks carry no kind and read as commands);
    *  'agent-prompt' / 'agent-response' are the two halves of an
    *  agent-session turn; 'notice' is a plain note block (e.g. the
-   *  driving-intelligence placeholder in an agent session). The
-   *  feed renders all kinds in one list. */
-  kind?: 'command' | 'agent-prompt' | 'agent-response' | 'notice';
+   *  driving-intelligence placeholder in an agent session);
+   *  'agent-review' is a Keep/Reject review of one edit the agent
+   *  wants to make (steal #6 — Zed): the diff preview + the
+   *  decision buttons live in `review`. The feed renders all
+   *  kinds in one list. */
+  kind?: 'command' | 'agent-prompt' | 'agent-response' | 'notice' | 'agent-review';
+  /** The review data, for 'agent-review' blocks only (steal #6
+   *  — Zed): the proposed edit's diff, the decision state, and
+   *  the checkpoint the decision can revert to. Undefined for
+   *  every other kind. */
+  review?: AgentReviewBlockData;
   /** Git state stamped at submit (heavy terminal work, 2026-11-13):
    *  the cwd's branch + change counts as the block ran. Undefined
    *  when the cwd is not a git repo or the lookup failed — never

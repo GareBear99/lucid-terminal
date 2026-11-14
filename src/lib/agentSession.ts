@@ -36,9 +36,12 @@
 
 import type { AgentBrain } from './agentBrain';
 import type { AgentHost } from './agentHost';
+import { electronAgentHost } from './agentHost';
 import type { AgentFileIndex } from './agentIndex';
 import { dropAgentIndex, runAgentTurn, type AgentTurnResult } from './agentLoop';
+import { cancelAgentReviewsForRun, requestAgentReview } from './agentReview';
 import type { ToolRegistry } from './agentTools';
+import { useAgentPermissionStore } from '../stores/agentPermissionStore';
 import { useFileStore } from '../stores/fileStore';
 import { useHistoryStore } from '../stores/historyStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -56,6 +59,20 @@ export function isAgentRunInFlight(tabId: string): boolean {
  *  runs finish on their own). */
 export function resetAgentSessionForTests(): void {
   inFlight.clear();
+}
+
+/** Stop the in-flight run for a tab, if any — aborts the
+ *  loop's signal, so a review the run is paused on resolves
+ *  as denied (the run's finally cancels any review still
+ *  pending). False when no run is in flight for the tab.
+ *  The Terminal's Stop button is owed on top of this — the
+ *  run's in-flight state is module-level, not reactive, so
+ *  the button needs a reactive signal first. */
+export function stopAgentRun(tabId: string): boolean {
+  const controller = inFlight.get(tabId);
+  if (!controller) return false;
+  controller.abort();
+  return true;
 }
 
 export interface AgentTabRunOverrides {
@@ -117,6 +134,11 @@ export async function runAgentTurnForTab(
   const controller = new AbortController();
   inFlight.set(tabId, controller);
 
+  // The run id ties the run's reviews + checkpoints
+  // together (Keep All / Reject All + revert are per-run).
+  const runId = `agent-run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const sessionHost = overrides.host ?? electronAgentHost;
+
   const now = Date.now();
   const responseBlockId = newBlockId(now);
   appendBlock(tabId, {
@@ -140,11 +162,31 @@ export async function runAgentTurnForTab(
       workspaceRoot,
       cwd: tabCwd ?? workspaceRoot,
       isGuest: false,
-      host: overrides.host,
+      host: sessionHost,
       brain: overrides.brain,
       registry: overrides.registry,
       index: overrides.index,
-      autoApproveWrites: overrides.autoApproveWrites,
+      // The review UI (steal #6 — Zed) is the approval
+      // surface: every write pauses for Keep/Reject, with
+      // its diff, before it lands. The old default
+      // (logged-in auto-approves) is deliberately NOT
+      // taken here — the permission model is the escape
+      // hatch (a tool set to 'auto' skips the review).
+      // An explicit override still wins (tests / a future
+      // auto-run mode pass autoApproveWrites: true).
+      autoApproveWrites: overrides.autoApproveWrites ?? false,
+      permissions: useAgentPermissionStore.getState().getPermissionSet(),
+      approve: (call, detail) =>
+        requestAgentReview({
+          runId,
+          tabId,
+          call,
+          detail,
+          host: sessionHost,
+          workspaceRoot,
+          cwd: tabCwd ?? workspaceRoot,
+          signal: controller.signal,
+        }),
       signal: controller.signal,
       onEvent: (event) => {
         switch (event.type) {
@@ -199,6 +241,10 @@ export async function runAgentTurnForTab(
     };
   } finally {
     inFlight.delete(tabId);
+    // A review still pending when the run ends (the tab
+    // closed, the run aborted) must not linger as pending
+    // in the feed — it is resolved as denied.
+    cancelAgentReviewsForRun(runId);
   }
 }
 

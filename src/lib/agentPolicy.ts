@@ -26,16 +26,20 @@
  * 4. A path argument matching the denied list (secrets,
  *    keys, credentials — Continue's `ignore.ts` security
  *    list, same patterns as the index) → blocked.
- * 5. Readonly tool → allowed (auto-run, no approval).
- * 6. Write tool, guest → requires_approval (the loop asks;
- *    with no approval UI yet the answer is "denied" — the
- *    review UI lands with the Zed slice, #6; until then a
- *    guest write is asked and refused, never silently
- *    auto-run and never silently dropped).
- * 7. Write tool, logged-in → requires_approval UNLESS the
- *    run was started with autoApproveWrites (Agent mode is
- *    the opt-in: the user flipped the pill and asked for
- *    the job — the loop's default for a logged-in run).
+ * 5. The permission model (steal #6 — Zed): a 'deny'
+ *    rule or per-tool 'deny' → blocked; an 'auto' rule or
+ *    per-tool 'auto' → allowed. Steps 3–4 are hardcoded
+ *    safety and always win over permissions — no rule or
+ *    override can open a denied path.
+ * 6. Permission 'ask' (the default for write tools):
+ *    guest → requires_approval (a guest write is asked,
+ *    and with no approval UI the answer is denied — the
+ *    review UI is the surface that answers); logged-in →
+ *    requires_approval UNLESS the run was started with
+ *    autoApproveWrites (Agent mode is the opt-in: the user
+ *    flipped the pill and asked for the job — the loop's
+ *    default for a logged-in run; the terminal path passes
+ *    false, so every write is reviewed).
  *
  * The gate never reads the file itself and never writes
  * anything. It returns a decision + a human reason; the
@@ -45,6 +49,7 @@
 import type { AgentToolDefinition } from './agentTools';
 import { isWithinWorkspace, resolveAgentPath } from './agentHost';
 import { isDeniedPath } from './agentIndex';
+import { resolveToolPermission, type AgentPermissionSet } from './agentPermissions';
 
 export type PolicyDecisionKind = 'allowed' | 'requires_approval' | 'blocked';
 
@@ -62,8 +67,12 @@ export interface PolicyContext {
    *  allowed without pausing (logged-in Agent mode — the
    *  user flipped the pill and asked). Guest runs never
    *  set this (a guest write is always asked, and asked
-   *  means denied until the review UI lands). */
+   *  means denied until the review UI answers). */
   autoApproveWrites: boolean;
+  /** The permission set the gate consults (steal #6 —
+   *  Zed). When absent, every tool runs at its default
+   *  (readonly 'auto', write 'ask'). */
+  permissions?: AgentPermissionSet;
 }
 
 /** The argument keys that carry a file path (checked
@@ -111,13 +120,26 @@ export function decideToolPolicy(
     }
   }
 
-  // Readonly tools run without asking.
-  if (tool.readonly) {
+  // The permission model (steal #6 — Zed): deny beats
+  // everything below; auto allows; ask falls through to
+  // the run's approval mode. The path checks above are
+  // hardcoded safety and already ran — no permission can
+  // reopen a path they blocked.
+  const permission = resolveToolPermission(tool, args, ctx.permissions ?? { tools: {}, rules: [] }, (value) =>
+    resolveAgentPath(value, ctx.cwd, ctx.workspaceRoot),
+  );
+  if (permission === 'deny') {
+    return {
+      decision: 'blocked',
+      reason: `Tool ${tool.function.name} is denied by your agent permissions`,
+    };
+  }
+  if (permission === 'auto') {
     return { decision: 'allowed', reason: 'Allowed' };
   }
 
-  // Write tools: guest always asks (and the answer, with
-  // no approval UI yet, is denied — see agentLoop.ts).
+  // 'ask': guest always asks (and the answer, with no
+  // approval UI yet, is denied — see agentLoop.ts).
   if (ctx.isGuest) {
     return {
       decision: 'requires_approval',

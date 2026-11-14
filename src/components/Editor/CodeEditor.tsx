@@ -14,6 +14,7 @@ import {
   updateFileTree,
 } from '../../lib/treeSitter';
 import { registerEditorLspProviders } from '../../lib/editorLspProvider';
+import { getPatternIndex } from '../../lib/codePatterns';
 import {
   changeDocument,
   dropDocumentsExcept,
@@ -184,6 +185,24 @@ function CodeEditor() {
         getStructureIdentifiers: (lineNumber, column) => {
           const path = activePath();
           return path ? getIdentifiersAtPosition(path, lineNumber, column) : [];
+        },
+        // Steal #7 — Tabnine patterns: the repeated lines
+        // and identifier chains from the user's own open
+        // files, offered for the line prefix typed so far.
+        // The shared lazy index syncs from the file store
+        // (in-memory only, never persisted — guest-safe);
+        // the provider sorts the patterns last and dedupes
+        // them against the LSP items, so a verified symbol
+        // always wins over a repeated idiom.
+        getPatternCompletions: (linePrefix) => {
+          const index = getPatternIndex();
+          index.sync(
+            useFileStore.getState().openFiles.map((f) => ({
+              path: f.path,
+              content: f.content,
+            })),
+          );
+          return index.match(linePrefix, 5).map((p) => p.text);
         },
         getHover: (lineNumber, column) => {
           const path = activePath();

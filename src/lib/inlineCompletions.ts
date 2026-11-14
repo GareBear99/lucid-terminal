@@ -22,6 +22,14 @@
  *   4. structure — the draft's last token completed to an
  *      identifier the live tree-sitter structure says is in
  *      scope in the file being edited (steal #2).
+ *   5. pattern — the draft's last token completed to a
+ *      repeated shape the user's own open files actually
+ *      contain (steal #7): a repeated line, or a repeated
+ *      identifier chain. The weakest signal — a repeated
+ *      idiom, not an exact fact — so it fires only when
+ *      nothing more exact does, and its leading identifier
+ *      must be in the verified structure list (the TS-LSP
+ *      gate, steal #3) when that list is non-empty.
  *
  * Silence rules (the ghost never fires):
  *   - empty or multi-line draft (the composer is one line);
@@ -41,9 +49,10 @@
  */
 
 import { computeGhostSuggestion } from './prompterSuggestions';
+import { completePattern, type CodePattern } from './codePatterns';
 import { completeStructureIdentifier } from './structureCompletions';
 
-export type InlineCompletionSource = 'history' | 'slash' | 'file' | 'structure';
+export type InlineCompletionSource = 'history' | 'slash' | 'file' | 'structure' | 'pattern';
 
 /** The cheap local context the engine reads — all in-memory. */
 export interface InlineCompletionContext {
@@ -71,6 +80,14 @@ export interface InlineCompletionContext {
    *  composer works without it (bare tokens still complete to
    *  basenames). */
   cwd?: string;
+  /** Repeated shapes from the user's own open files (steal
+   *  #7 — the lazy pattern index's merged list). Optional:
+   *  the engine may not have indexed anything yet, and the
+   *  provider degrades to history / slash / file / structure
+   *  without it. The gate for a pattern is the verified
+   *  structureIdentifiers list above — a pattern whose
+   *  leading identifier is not in it is not offered. */
+  patterns?: CodePattern[];
 }
 
 export interface InlineCompletion {
@@ -107,6 +124,18 @@ export function computeInlineCompletion(
     ctx.structureIdentifiers ?? [],
   );
   if (structure) return { text: structure, source: 'structure' };
+  // Pattern last: a repeated idiom from the user's own code
+  // is the weakest signal — it fires only when nothing more
+  // exact does, and its leading identifier must be in the
+  // verified structure list (the TS-LSP gate) when that list
+  // is non-empty. The offered text is verbatim from the
+  // user's files either way — a pattern cannot invent a name.
+  const pattern = completePattern(
+    draft,
+    ctx.patterns ?? [],
+    ctx.structureIdentifiers,
+  );
+  if (pattern) return { text: pattern, source: 'pattern' };
   return null;
 }
 

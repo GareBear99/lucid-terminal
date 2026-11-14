@@ -28,6 +28,14 @@
  *     character ('.', '"', "'", '/', '@', '<' — the clone's
  *     trigger set) the word is empty and the service's list is
  *     returned unfiltered (member completions after a dot).
+ *   - after the LSP items, pattern suggestions (steal #7 —
+ *     Tabnine, patterns only) are appended for the line
+ *     prefix typed so far: repeated lines and identifier
+ *     chains from the user's own open files, Snippet kind,
+ *     sortText `zz-pattern-…` (they sort last), deduped
+ *     against the LSP labels. The text is verbatim from the
+ *     user's files — a pattern cannot invent a name — and a
+ *     verified LSP symbol always wins over a repeated idiom.
  *   - resolveCompletionItem fills in the docs (JSDoc) and the
  *     auto-import edits (the import statement for the current
  *     file only — the clone's rule) from completionEntryDetails.
@@ -51,6 +59,7 @@
 import {
   lspRangeToMonaco,
   lspKindToMonacoKind,
+  MONACO_COMPLETION_ITEM_KIND,
   LspCompletionItemKind,
   type LspCompletionItem,
   type LspHover,
@@ -71,6 +80,14 @@ export interface EditorLspProviderOptions {
   /** Tree-sitter identifiers in scope at a Monaco position —
    *  the fallback when the engine is unavailable. */
   getStructureIdentifiers: (lineNumber: number, column: number) => string[];
+  /** Repeated shapes from the user's own open files (steal
+   *  #7 — Tabnine patterns): the full pattern texts whose
+   *  start matches the line prefix the user has typed, or an
+   *  empty list. Optional: the provider works without it, and
+   *  the patterns are suggestions only — they sort after the
+   *  LSP items and are deduped against them, so a verified
+   *  symbol always wins over a repeated idiom. */
+  getPatternCompletions?: (linePrefix: string) => string[];
   /** LSP hover at a Monaco position, or null. */
   getHover: (lineNumber: number, column: number) => LspHover | null;
   /** LSP signature help at a Monaco position, or null. */
@@ -83,7 +100,7 @@ export interface EditorLspProviderOptions {
 
 type MonacoLike = {
   languages?: {
-    CompletionItemKind?: { Variable: number; Function: number; Class: number };
+    CompletionItemKind?: { Variable: number; Function: number; Class: number; Snippet?: number };
     registerCompletionItemProvider: (
       languageSelector: string,
       provider: Record<string, unknown>,
@@ -110,6 +127,10 @@ type ModelLike = {
     lineNumber: number;
     column: number;
   }) => WordInfo;
+  /** The line's text (Monaco's getLineContent) — optional:
+   *  the test stubs have no model lines, and the provider
+   *  falls back to the word at the cursor without it. */
+  getLineContent?: (lineNumber: number) => string;
 };
 
 const registrations = new WeakMap<object, Map<string, () => void>>();
@@ -161,6 +182,10 @@ export function registerEditorLspProviders(
   // the fallback (the test stubs have no languages).
   const variableKind =
     kinds?.Variable ?? lspKindToMonacoKind(LspCompletionItemKind.Variable);
+  // Pattern suggestions are snippet-shaped (a whole line or
+  // chain to insert) — Snippet kind, same preference rule.
+  const snippetKind =
+    kinds?.Snippet ?? MONACO_COMPLETION_ITEM_KIND.Snippet;
 
   const wordRange = (
     position: { lineNumber: number; column: number },
@@ -191,6 +216,58 @@ export function registerEditorLspProviders(
         const triggered = !!context?.triggerCharacter && COMPLETION_TRIGGERS.has(context.triggerCharacter);
         if (word.length < 2 && !triggered) return { suggestions: [] };
         const range = wordRange(position, wordInfo);
+        // Tabnine patterns (steal #7): the repeated shapes
+        // from the user's own open files, offered for the
+        // line prefix typed so far — after the LSP items (or
+        // after the structure names when the engine is dead).
+        // The prefix is the line from its first
+        // non-whitespace character to the cursor, and the
+        // range replaces exactly that prefix, so accepting a
+        // pattern swaps what was typed for the whole shape.
+        // Without getLineContent (the test stubs) the word
+        // is the prefix and the range is the word range.
+        // Patterns sort last ('zz-pattern-…') and are
+        // deduped against the labels already offered — a
+        // verified symbol always wins over a repeated idiom.
+        const patternSuggestions = (
+          existing: MonacoSuggestion[],
+        ): MonacoSuggestion[] => {
+          if (!opts.getPatternCompletions) return [];
+          const hasLine = typeof model.getLineContent === 'function';
+          const upToCursor = hasLine
+            ? (model.getLineContent!(position.lineNumber) ?? '').slice(
+                0,
+                position.column - 1,
+              )
+            : word;
+          const firstNonWs = upToCursor.search(/\S/);
+          const prefix = firstNonWs === -1 ? '' : upToCursor.slice(firstNonWs);
+          if (prefix.length < 2) return [];
+          const seen = new Set(existing.map((s) => s.label));
+          const out: MonacoSuggestion[] = [];
+          for (const [i, text] of opts
+            .getPatternCompletions(prefix)
+            .entries()) {
+            if (text.length <= prefix.length || seen.has(text)) continue;
+            seen.add(text);
+            out.push({
+              label: text.length > 100 ? `${text.slice(0, 97)}…` : text,
+              kind: snippetKind,
+              detail: 'Pattern',
+              sortText: `zz-pattern-${i}`,
+              insertText: text,
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: hasLine
+                  ? firstNonWs + 1
+                  : (wordInfo?.startColumn ?? position.column),
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+              },
+            });
+          }
+          return out;
+        };
         const lspItems = opts.getCompletions(position.lineNumber, position.column);
         if (lspItems === null) {
           // Engine dead — fall back to tree-sitter structure
@@ -216,6 +293,7 @@ export function registerEditorLspProviders(
               });
             }
           }
+          suggestions.push(...patternSuggestions(suggestions));
           return { suggestions };
         }
         const suggestions: MonacoSuggestion[] = [];
@@ -237,6 +315,7 @@ export function registerEditorLspProviders(
             __lspItem: item,
           });
         }
+        suggestions.push(...patternSuggestions(suggestions));
         return { suggestions };
       } catch {
         // Kite's failure mode — a dead engine returns no

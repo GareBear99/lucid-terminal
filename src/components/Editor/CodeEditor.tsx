@@ -10,7 +10,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useToastStore } from '../../stores/toastStore';
 
 function CodeEditor() {
-  const { openFiles, activeFilePath, setActiveFile, closeFile, detachFile, updateFileContent, saveFile } =
+  const { openFiles, activeFilePath, setActiveFile, closeFileWithConfirm, detachFile, updateFileContent, saveFile } =
     useFileStore();
   const fileStripRef = useRef<HTMLDivElement | null>(null);
   // Files detach (Gary, 2026-11-09): the same drag-out as
@@ -183,7 +183,7 @@ function CodeEditor() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeFile(file.path);
+                    closeFileWithConfirm(file.path);
                   }}
                   className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
                 >

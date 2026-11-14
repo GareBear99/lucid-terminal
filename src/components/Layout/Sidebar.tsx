@@ -12,6 +12,8 @@ import {
   RefreshCw,
   FolderPlus,
   FilePlus,
+  Pencil,
+  Trash2,
   X,
   Users,
 } from 'lucide-react';
@@ -69,6 +71,8 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     refreshDir,
     createFile,
     createFolder,
+    deleteItem,
+    renameItem,
   } = useFileStore();
 
   // Sidebar panel: the file Explorer or History. History used to live
@@ -555,6 +559,27 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   const [isCreatingFile, setIsCreatingFile] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
 
+  // Inline rename (Gary, 2026-11-13): window.prompt shows no dialog
+  // and returns null immediately in this Electron build (the main
+  // process has no custom dialog handler; window.confirm works,
+  // window.prompt does not), so Rename silently did nothing. The
+  // rename is an input in the tree row instead — same Enter-to-
+  // confirm / Escape-to-cancel shape as the New File input above.
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameName, setRenameName] = useState('');
+
+  // Explorer context menu (right-click on a tree item): the item under
+  // the cursor + where the menu opens. Null = closed. Delete and
+  // Rename both confirm before acting — delete on a directory is a
+  // recursive rm -rf in fs:delete, so it never runs without a confirm.
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    path: string;
+    name: string;
+    isDirectory: boolean;
+  } | null>(null);
+
   const handleOpenDirectory = async () => {
     const dir = await window.lucidAPI.fs.selectDirectory();
     // Track + diagnose the folder picker: WHEN it opened
@@ -572,7 +597,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
 
   const handleCreateFile = async () => {
     if (!newItemName || !currentDir) return;
-    const path = `${currentDir}\\${newItemName}`;
+    const path = `${currentDir}/${newItemName}`;
     await createFile(path);
     setNewItemName('');
     setIsCreatingFile(false);
@@ -580,10 +605,56 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
 
   const handleCreateFolder = async () => {
     if (!newItemName || !currentDir) return;
-    const path = `${currentDir}\\${newItemName}`;
+    const path = `${currentDir}/${newItemName}`;
     await createFolder(path);
     setNewItemName('');
     setIsCreatingFolder(false);
+  };
+
+  const handleDeleteContextItem = async () => {
+    if (!contextMenu) return;
+    const { path, name, isDirectory } = contextMenu;
+    setContextMenu(null);
+    const label = isDirectory
+      ? `folder "${name}" and everything inside it`
+      : `file "${name}"`;
+    if (!confirm(`Delete ${label}?\n\nThis cannot be undone.`)) return;
+    await deleteItem(path);
+  };
+
+  // Rename opens the inline input (no window.prompt — see the note
+  // on the renamingPath state above). Enter confirms, Escape cancels.
+  const handleRenameContextItem = () => {
+    if (!contextMenu) return;
+    const { path, name } = contextMenu;
+    setContextMenu(null);
+    setRenamingPath(path);
+    setRenameName(name);
+  };
+
+  const handleConfirmRename = async () => {
+    if (!renamingPath) return;
+    const oldName = renamingPath.split('/').pop() ?? renamingPath;
+    if (!renameName || renameName === oldName) {
+      setRenamingPath(null);
+      setRenameName('');
+      return;
+    }
+    if (renameName.includes('/') || renameName.includes('\\')) {
+      alert('A file or folder name cannot contain / or \\.');
+      return;
+    }
+    const slash = renamingPath.lastIndexOf('/');
+    const newPath = slash >= 0 ? `${renamingPath.slice(0, slash)}/${renameName}` : renameName;
+    const path = renamingPath;
+    setRenamingPath(null);
+    setRenameName('');
+    await renameItem(path, newPath);
+  };
+
+  const handleCancelRename = () => {
+    setRenamingPath(null);
+    setRenameName('');
   };
 
 
@@ -611,6 +682,14 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           onContextMenu={(e) => {
             e.preventDefault();
             selectPath(item.path);
+            // Clamp so the menu never opens off-screen.
+            setContextMenu({
+              x: Math.min(e.clientX, window.innerWidth - 180),
+              y: Math.min(e.clientY, window.innerHeight - 100),
+              path: item.path,
+              name: item.name,
+              isDirectory: item.isDirectory,
+            });
           }}
         >
           {item.isDirectory ? (
@@ -628,7 +707,27 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
               <File size={14} className="text-[var(--text-muted)] flex-shrink-0" />
             </>
           )}
-          <span className="truncate text-[var(--text-primary)]">{item.name}</span>
+          {renamingPath === item.path ? (
+            <input
+              type="text"
+              className="input text-xs h-6 flex-1 min-w-0"
+              placeholder="Rename to..."
+              aria-label="Rename file or folder"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  void handleConfirmRename();
+                } else if (e.key === 'Escape') {
+                  handleCancelRename();
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+            />
+          ) : (
+            <span className="truncate text-[var(--text-primary)]">{item.name}</span>
+          )}
         </div>
         {item.isDirectory && expandedDirs.has(item.path) && item.children && (
           <div>
@@ -895,6 +994,40 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           document.addEventListener('mouseup', onMouseUp);
         }}
       />
+
+      {/* Explorer context menu — Delete / Rename for the right-clicked
+          tree item. Fixed overlay: any click outside closes it. */}
+      {contextMenu && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed w-44 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] py-1 shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={handleRenameContextItem}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] text-left"
+            >
+              <Pencil size={14} className="text-[var(--text-muted)]" />
+              Rename
+            </button>
+            <button
+              onClick={handleDeleteContextItem}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--bg-tertiary)] text-left"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

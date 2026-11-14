@@ -6,9 +6,11 @@ import { useToastStore } from './toastStore';
 /**
  * Clean an error for display. IPC errors wrap the underlying Node error
  * ("Failed to read directory: Error: ENOENT: ..."); drop the redundant
- * "Error: " markers so the UI reads cleanly.
+ * "Error: " markers so the UI reads cleanly. Exported: the Voxel
+ * Directory's Local tab (VoxelFileBrowser) shows read failures the
+ * same way — one cleaner, not a copy.
  */
-function errorMessage(error: unknown): string {
+export function errorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   return raw
     .replace(/Error:\s*/g, '')
@@ -79,12 +81,24 @@ interface FileState {
   openFile: (path: string) => Promise<boolean>;
   closeFile: (path: string) => void;
   /**
+   * Close a file from the UI: if it has unsaved changes, ask first
+   * (Discard / Cancel) instead of silently dropping them. Clean files
+   * close immediately. Conservative default — a Save / Discard / Cancel
+   * prompt is Gary's call (Files scope Q3); until then the confirm
+   * tells the user to save first if they want to keep the edits.
+   * Internal callers that already handled the content (deleteItem —
+   * the file is gone; detachFile — the content moved) use closeFile
+   * directly and never go through this.
+   */
+  closeFileWithConfirm: (path: string) => void;
+  /**
    * Detach (Gary, 2026-11-09): drop the file from THIS window's
    * editor WITHOUT touching disk — the file's content (including
    * unsaved edits) transfers to a detached window. The opposite
    * of closeFile only in that the content is handed over, not
-   * dropped: closeFile also drops dirty content silently, so the
-   * detach caller must move the snapshot first.
+   * dropped: closeFile drops dirty content, so the
+   * detach caller must move the snapshot first — and the tab X
+   * must use closeFileWithConfirm, never closeFile directly.
    */
   detachFile: (path: string) => void;
   /**
@@ -276,6 +290,18 @@ export const useFileStore = create<FileState>((set, get) => ({
     });
   },
 
+  closeFileWithConfirm: (path) => {
+    const file = get().openFiles.find((f) => f.path === path);
+    if (!file) return;
+    if (file.isDirty) {
+      const discard = window.confirm(
+        `"${file.name}" has unsaved changes. Discard them?\n\nSave the file first if you want to keep your changes.`
+      );
+      if (!discard) return;
+    }
+    get().closeFile(path);
+  },
+
   detachFile: (path) => {
     // Same removal as closeFile, but the content is handed to a
     // detached window by the caller (files:detach) — nothing is
@@ -379,6 +405,20 @@ export const useFileStore = create<FileState>((set, get) => ({
       await window.lucidAPI.fs.delete(path);
       // Close file if it's open
       get().closeFile(path);
+      // Prune expanded dirs: the deleted folder (and anything inside
+      // it) no longer exists. Leaving it in expandedDirs makes the
+      // post-delete refresh re-read the dead path and fire a spurious
+      // "Could not open folder" toast (live-verified 2026-11-13:
+      // deleting an expanded folder flashed the error even though the
+      // delete itself worked).
+      set((state) => {
+        const next = new Set(state.expandedDirs);
+        next.delete(path);
+        for (const p of [...next]) {
+          if (p.startsWith(`${path}/`)) next.delete(p);
+        }
+        return { expandedDirs: next };
+      });
       await get().refreshDir();
     } catch (error) {
       const message = errorMessage(error);
@@ -399,6 +439,18 @@ export const useFileStore = create<FileState>((set, get) => ({
         ),
         activeFilePath: state.activeFilePath === oldPath ? newPath : state.activeFilePath,
       }));
+      // Remap expanded dirs onto the new path: a renamed folder keeps
+      // its expansion — otherwise the refresh re-reads the old (dead)
+      // path and fires the same spurious "Could not open folder" toast.
+      set((state) => {
+        const next = new Set<string>();
+        for (const p of state.expandedDirs) {
+          if (p === oldPath) next.add(newPath);
+          else if (p.startsWith(`${oldPath}/`)) next.add(newPath + p.slice(oldPath.length));
+          else next.add(p);
+        }
+        return { expandedDirs: next };
+      });
       await get().refreshDir();
     } catch (error) {
       const message = errorMessage(error);

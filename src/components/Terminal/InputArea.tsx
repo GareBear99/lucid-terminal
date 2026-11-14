@@ -10,6 +10,9 @@ import {
   useDraggableInputHeight,
 } from '../../lib/inputHeight';
 import { useToastStore } from '../../stores/toastStore';
+import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
+import { useFileStore } from '../../stores/fileStore';
+import { registerComposerInlineCompletions, type InlineOffer } from '../../lib/composerInlineProvider';
 
 // How long to wait for Monaco (bundled locally with the app) before giving
 // up and rendering a plain textarea. Without this the prompt sits on
@@ -114,10 +117,24 @@ interface InputAreaProps {
      *  composer only; in a terminal session Esc belongs to the
      *  shell and is never intercepted. */
     onEscape?: () => void;
+  /**
+   * Which mode the composer is in, for the inline-completion
+   * provider (ghost answers, steal #1 — 2026-11-14): terminal
+   * mode completes from command history + slash names + open
+   * files; agent mode defers to the parent's ghost (the tab's
+   * own agent prompts) and the provider stays silent. Defaults
+   * to 'terminal' — the delinked/dev bars and the detached
+   * window are terminal input.
+   */
+  completionMode?: 'terminal' | 'agent';
 }
 
-export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, hintPlaceholder = null, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape }: InputAreaProps) {
+export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, hintPlaceholder = null, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape, completionMode = 'terminal' }: InputAreaProps) {
   const editorRef = useRef<any>(null);
+  /** The inline-completion provider's live offer (the ghost the
+   *  user can accept with Tab / Right-arrow). Stashed by the
+   *  provider, read by the mounted key handlers. */
+  const inlineOfferRef = useRef<InlineOffer | null>(null);
   // The ghost remainder (the part after what is typed) — the
   // overlay renders this faded after the input text. Null when
   // there is no ghost, or the ghost is not a completion of the
@@ -135,8 +152,8 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
   // calling the first render's closures — the history as it
   // was at mount (empty), so Up did nothing until a remount
   // (Gary, 2026-11-14 — the stale-closure fix).
-  const latestRef = useRef({ ghostSuggestion, onSubmit, onHistoryUp, onHistoryDown, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape });
-  latestRef.current = { ghostSuggestion, onSubmit, onHistoryUp, onHistoryDown, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape };
+  const latestRef = useRef({ ghostSuggestion, onSubmit, onHistoryUp, onHistoryDown, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape, setInput, completionMode });
+  latestRef.current = { ghostSuggestion, onSubmit, onHistoryUp, onHistoryDown, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape, setInput, completionMode };
   // True-placeholder ghost words (Gary, 2026-11-13 ~02:02 PST):
   // the overlay shows only while the input is empty — the
   // parent also gates it on the tab's first prompt and the
@@ -331,6 +348,23 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             editor.addCommand(
                 monaco.KeyCode.Tab,
                 () => {
+                    // Inline-completion offer first (Monaco-native
+                    // ghost, steal #1 — 2026-11-14): the provider
+                    // stashes its live offer in inlineOfferRef.
+                    // It is valid while it still completes the
+                    // current input — the user may have typed
+                    // along it since it was offered (forward
+                    // stability), so the check is the prefix rule,
+                    // not an exact match. Then the parent's overlay
+                    // ghost. Otherwise SWALLOWED — Tab never goes
+                    // to the shell and never inserts a tab
+                    // character into the command.
+                    const current = editor.getValue();
+                    const offer = inlineOfferRef.current;
+                    if (offer && offer.text.length > current.length && offer.text.startsWith(current)) {
+                        latestRef.current.setInput(offer.text);
+                        return;
+                    }
                     if (latestRef.current.ghostSuggestion) {
                         latestRef.current.onAcceptSuggestion?.();
                     }
@@ -405,18 +439,29 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         if (typeof editor.onKeyDown === 'function') {
             const keyDownDisposable = editor.onKeyDown((e: any) => {
                 if (e.keyCode !== monaco.KeyCode.RightArrow) return;
-                const suggestion = latestRef.current.ghostSuggestion;
-                if (!suggestion) return;
                 const model = editor.getModel();
                 const pos = editor.getPosition();
                 if (!model || !pos) return;
                 const atEnd =
                     pos.lineNumber === model.getLineCount() &&
                     pos.column === model.getLineMaxColumn(pos.lineNumber);
-                if (atEnd) {
+                if (!atEnd) return;
+                // The ghost to accept: the provider's live offer
+                // first (valid while it still completes the
+                // current input), then the parent's overlay ghost.
+                // Either way Right-arrow accepts only at the end
+                // of the input.
+                const current = editor.getValue();
+                const offer = inlineOfferRef.current;
+                if (offer && offer.text.length > current.length && offer.text.startsWith(current)) {
                     e.preventDefault();
-                    latestRef.current.onAcceptSuggestion?.();
+                    latestRef.current.setInput(offer.text);
+                    return;
                 }
+                const suggestion = latestRef.current.ghostSuggestion;
+                if (!suggestion) return;
+                e.preventDefault();
+                latestRef.current.onAcceptSuggestion?.();
             });
             editorDisposers.current.push(() => keyDownDisposable.dispose());
         }
@@ -429,6 +474,27 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             });
             editorDisposers.current.push(() => scrollDisposable.dispose());
         }
+        
+        // Monaco inline completions (ghost answers, steal #1 —
+        // 2026-11-14): a real ghost after the caret, computed
+        // locally from history / slash names / open files. The
+        // provider is the composer's inline source; the parent's
+        // overlay ghost is the fallback (the plain textarea when
+        // Monaco fails) — the provider stays silent while the
+        // parent has a ghost, so the two never double-render.
+        // Guarded: a stubbed monaco without `languages` (tests)
+        // registers nothing, so the mount never fails on it.
+        // Disposed on unmount with the other editor listeners.
+        const disposeInlineProvider = registerComposerInlineCompletions(monaco, {
+            getContext: () => ({
+                history: useCommandHistoryStore.getState().entries,
+                openFiles: useFileStore.getState().openFiles.map((f) => ({ path: f.path, name: f.name })),
+                mode: latestRef.current.completionMode,
+                parentGhost: latestRef.current.ghostSuggestion ?? null,
+            }),
+            offerRef: inlineOfferRef,
+        });
+        editorDisposers.current.push(disposeInlineProvider);
         
         // Focus editor
         editor.focus();
@@ -607,6 +673,21 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     acceptSuggestionOnEnter: 'off',
                     tabCompletion: 'off',
                     wordBasedSuggestions: 'off',
+                    // Monaco inline completions (ghost answers,
+                    // steal #1): the provider registered at mount
+                    // offers the ghost and the editor renders it
+                    // after the caret. prefix mode: the ghost
+                    // only shows when the typed text is a prefix
+                    // of the suggestion. No toolbar in a one-line
+                    // prompt; the suggest widget stays off
+                    // (quickSuggestions false above).
+                    inlineSuggest: {
+                        enabled: true,
+                        mode: 'prefix',
+                        showToolbar: 'never',
+                        suppressSuggestions: true,
+                        minShowDelay: 0,
+                    },
                     contextmenu: false,
                     renderLineHighlight: 'none',
                     overviewRulerLanes: 0,

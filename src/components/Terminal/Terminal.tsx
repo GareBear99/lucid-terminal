@@ -1703,6 +1703,11 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           showDragHandle={devMode}
           ghostSuggestion={ghostSuggestion}
           hintPlaceholder={hintPlaceholder}
+          // Ghost answers (steal #1 — 2026-11-14): the inline
+          // provider completes in terminal mode; agent mode
+          // defers to the parent's ghost (the tab's own agent
+          // prompts) and the provider stays silent.
+          completionMode={isAgentMode ? 'agent' : 'terminal'}
           onAcceptSuggestion={acceptGhostSuggestion}
           onInterrupt={handleComposerInterrupt}
           onEof={handleComposerEof}

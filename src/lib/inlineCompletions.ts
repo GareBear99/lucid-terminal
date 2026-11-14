@@ -18,7 +18,10 @@
  *      the same rule the overlay uses);
  *   2. slash names — `/fi` -> `/fix` (the command word only);
  *   3. open files — the draft's last token completed to an open
- *      file's path or basename (the tab's file context).
+ *      file's path or basename (the tab's file context);
+ *   4. structure — the draft's last token completed to an
+ *      identifier the live tree-sitter structure says is in
+ *      scope in the file being edited (steal #2).
  *
  * Silence rules (the ghost never fires):
  *   - empty or multi-line draft (the composer is one line);
@@ -38,8 +41,9 @@
  */
 
 import { computeGhostSuggestion } from './prompterSuggestions';
+import { completeStructureIdentifier } from './structureCompletions';
 
-export type InlineCompletionSource = 'history' | 'slash' | 'file';
+export type InlineCompletionSource = 'history' | 'slash' | 'file' | 'structure';
 
 /** The cheap local context the engine reads — all in-memory. */
 export interface InlineCompletionContext {
@@ -54,6 +58,19 @@ export interface InlineCompletionContext {
   /** The parent overlay's ghost for this draft, if any — the
    *  provider stays silent while it is set. */
   parentGhost: string | null;
+  /** Identifiers the live tree-sitter structure says are in
+   *  scope in the file being edited (steal #2 — top-level
+   *  definitions + imports for the composer). Optional: the
+   *  engine may not be ready yet, and the provider degrades to
+   *  history / slash / files without it. */
+  structureIdentifiers?: string[];
+  /** The active terminal tab's cwd (steal #2). A relative token
+   *  with a `/` is resolved against it before matching the open
+   *  files' absolute paths — without it, `src/com` could never
+   *  match `/Users/gary/…/src/components/…`. Optional: the
+   *  composer works without it (bare tokens still complete to
+   *  basenames). */
+  cwd?: string;
 }
 
 export interface InlineCompletion {
@@ -79,8 +96,17 @@ export function computeInlineCompletion(
   if (ghost) {
     return { text: ghost, source: draft.startsWith('/') ? 'slash' : 'history' };
   }
-  const file = completeOpenFile(draft, ctx.openFiles);
+  const file = completeOpenFile(draft, ctx.openFiles, ctx.cwd);
   if (file) return { text: file, source: 'file' };
+  // Structure last: identifiers from the file being edited are
+  // the weakest signal in a shell prompt (a command is not code),
+  // but they are exactly what the composer could not offer before
+  // — completing a symbol name the user is about to type.
+  const structure = completeStructureIdentifier(
+    draft,
+    ctx.structureIdentifiers ?? [],
+  );
+  if (structure) return { text: structure, source: 'structure' };
   return null;
 }
 
@@ -96,6 +122,13 @@ export function computeInlineCompletion(
  * file in tab order wins — cycling through multiple matches is
  * later work (an Explicit trigger / Alt+]/[).
  *
+ * A relative token with a `/` is resolved against `cwd` first
+ * (`src/com` in `/Users/gary/lucid-terminal` becomes
+ * `/Users/gary/lucid-terminal/src/com`) — without the cwd, a
+ * relative token could never match an absolute path. An absolute
+ * token is used as-is. When no cwd is given, only absolute tokens
+ * match by path (bare tokens still match by basename).
+ *
  * Returns null when there is nothing to complete: no token, a
  * single-character token (that would ghost everywhere), a token
  * that is already a complete path/name, or no open file that
@@ -104,6 +137,7 @@ export function computeInlineCompletion(
 export function completeOpenFile(
   draft: string,
   openFiles: ReadonlyArray<{ path: string; name: string }>,
+  cwd?: string,
 ): string | null {
   const tokenMatch = draft.match(/(\S+)$/);
   if (!tokenMatch) return null;
@@ -114,7 +148,11 @@ export function completeOpenFile(
   const head = draft.slice(0, draft.length - token.length);
   for (const file of openFiles) {
     if (token.includes('/')) {
-      if (file.path.length > token.length && file.path.startsWith(token)) {
+      const resolved =
+        token.startsWith('/') || !cwd
+          ? token
+          : `${cwd.replace(/\/$/, '')}/${token}`;
+      if (file.path.length > resolved.length && file.path.startsWith(resolved)) {
         return head + file.path;
       }
     } else if (file.name.length > token.length && file.name.startsWith(token)) {

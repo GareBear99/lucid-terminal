@@ -12,7 +12,9 @@ import {
 import { useToastStore } from '../../stores/toastStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
 import { useFileStore } from '../../stores/fileStore';
+import { useTerminalStore } from '../../stores/terminalStore';
 import { registerComposerInlineCompletions, type InlineOffer } from '../../lib/composerInlineProvider';
+import { getComposerStructureIdentifiers } from '../../lib/treeSitter';
 
 // How long to wait for Monaco (bundled locally with the app) before giving
 // up and rendering a plain textarea. Without this the prompt sits on
@@ -486,12 +488,31 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         // registers nothing, so the mount never fails on it.
         // Disposed on unmount with the other editor listeners.
         const disposeInlineProvider = registerComposerInlineCompletions(monaco, {
-            getContext: () => ({
-                history: useCommandHistoryStore.getState().entries,
-                openFiles: useFileStore.getState().openFiles.map((f) => ({ path: f.path, name: f.name })),
-                mode: latestRef.current.completionMode,
-                parentGhost: latestRef.current.ghostSuggestion ?? null,
-            }),
+            getContext: () => {
+                const terminalState = useTerminalStore.getState();
+                const activeTab = terminalState.tabs.find(
+                    (t) => t.id === terminalState.activeTabId,
+                );
+                const activeFilePath = useFileStore.getState().activeFilePath;
+                return {
+                    history: useCommandHistoryStore.getState().entries,
+                    openFiles: useFileStore.getState().openFiles.map((f) => ({ path: f.path, name: f.name })),
+                    mode: latestRef.current.completionMode,
+                    parentGhost: latestRef.current.ghostSuggestion ?? null,
+                    // Steal #2 - the live tree-sitter structure feeds
+                    // the ghost (top-level definitions + imports of
+                    // the file being edited), and the active tab's
+                    // cwd lets a relative `src/com` token resolve
+                    // against the open files' absolute paths.
+                    // Both are best-effort: the engine may not be
+                    // ready yet, and the provider degrades to
+                    // history / slash / files without them.
+                    cwd: activeTab?.cwd,
+                    structureIdentifiers: activeFilePath
+                        ? getComposerStructureIdentifiers(activeFilePath)
+                        : [],
+                };
+            },
             offerRef: inlineOfferRef,
         });
         editorDisposers.current.push(disposeInlineProvider);

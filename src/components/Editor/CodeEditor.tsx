@@ -8,6 +8,12 @@ import { useFileStore } from '../../stores/fileStore';
 import { useFileTabDrag } from '../../lib/tabDrag';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useToastStore } from '../../stores/toastStore';
+import {
+  dropFileTreesExcept,
+  getIdentifiersAtPosition,
+  updateFileTree,
+} from '../../lib/treeSitter';
+import { registerEditorStructureCompletions } from '../../lib/editorInlineProvider';
 
 function CodeEditor() {
   const { openFiles, activeFilePath, setActiveFile, closeFileWithConfirm, detachFile, updateFileContent, saveFile } =
@@ -32,6 +38,36 @@ function CodeEditor() {
   const { settings, currentTheme } = useSettingsStore();
 
   const activeFile = openFiles.find((f) => f.path === activeFilePath);
+
+  // Tree-sitter live structure (steal #2 — 2026-11-14): one live
+  // tree per open file, re-parsed incrementally on every edit.
+  // The structure feeds the editor's completion provider (in-scope
+  // identifiers at the cursor) and the composer's ghost. All
+  // in-memory, dropped when the file closes; a dead engine just
+  // means no structure, never an error.
+  const structureDisposers = useRef<Array<() => void>>([]);
+
+  // Build the tree when the active file changes (open / switch);
+  // edits go through onChange below. A no-op when the engine is
+  // not ready yet or the file is not TS/JS.
+  useEffect(() => {
+    const file = useFileStore.getState().openFiles.find((f) => f.path === activeFilePath);
+    if (file) void updateFileTree(file.path, file.content || '');
+  }, [activeFilePath]);
+
+  // Drop trees for files that closed (guest: parse in memory,
+  // persist nothing).
+  useEffect(() => {
+    dropFileTreesExcept(openFiles.map((f) => f.path));
+  }, [openFiles]);
+
+  // Dispose the structure providers on unmount.
+  useEffect(() => {
+    const disposers = structureDisposers.current;
+    return () => {
+      for (const dispose of disposers) dispose();
+    };
+  }, []);
 
   // Monaco fallback: if the editor never loads, the view used to sit on
   // "Loading..." forever with no way to type. Fall back to a plain
@@ -67,9 +103,21 @@ function CodeEditor() {
     };
   }, []);
 
-  // Monaco mounted — the fallback is no longer needed.
-  const handleEditorDidMount = () => {
+  // Monaco mounted — the fallback is no longer needed. Register
+  // the tree-sitter structure provider (steal #2): in-scope
+  // identifiers at the cursor for TS/JS. Disposed on unmount.
+  const handleEditorDidMount = (_editor: any, monaco: any) => {
     monacoReady.current = true;
+    const registerFor = (languageId: string) =>
+      registerEditorStructureCompletions(monaco, languageId, {
+        getIdentifiersAtPosition: (lineNumber, column) => {
+          const activeFilePath = useFileStore.getState().activeFilePath;
+          return activeFilePath
+            ? getIdentifiersAtPosition(activeFilePath, lineNumber, column)
+            : [];
+        },
+      });
+    structureDisposers.current.push(registerFor('typescript'), registerFor('javascript'));
   };
 
   // Determine language from file extension
@@ -216,7 +264,10 @@ function CodeEditor() {
               <textarea
                 aria-label="Plain text editor (Monaco unavailable)"
                 value={activeFile.content || ''}
-                onChange={(e) => updateFileContent(activeFile.path, e.target.value)}
+                onChange={(e) => {
+                  updateFileContent(activeFile.path, e.target.value);
+                  void updateFileTree(activeFile.path, e.target.value);
+                }}
                 spellCheck={false}
                 placeholder="Plain text editing — Monaco unavailable"
                 className="w-full h-full bg-transparent text-[var(--text-primary)] font-mono text-sm p-3 outline-none resize-none overflow-auto whitespace-pre"
@@ -231,7 +282,10 @@ function CodeEditor() {
               loading="" // Disable default loading text to see if it's Monaco
               theme={getEditorTheme()}
               onMount={handleEditorDidMount}
-              onChange={(value) => updateFileContent(activeFile.path, value || '')}
+              onChange={(value) => {
+                updateFileContent(activeFile.path, value || '');
+                void updateFileTree(activeFile.path, value || '');
+              }}
               options={{
                 fontFamily: settings.fontFamily,
                 fontSize: settings.fontSize,

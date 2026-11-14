@@ -115,6 +115,8 @@ const defaultSettings: Settings = {
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
   copilots: [],
+  drivingAgentTabs: [],
+  activeDrivingAgentTabId: null,
   pingServerEnabled: false,
   pingServerEndpoint: 'http://127.0.0.1:8787',
   pingServerUserId: '',

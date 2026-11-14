@@ -43,6 +43,12 @@ import { cancelAgentReviewsForRun, requestAgentReview } from './agentReview';
 import type { ToolRegistry } from './agentTools';
 import { useAgentPermissionStore } from '../stores/agentPermissionStore';
 import { useFileStore } from '../stores/fileStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import {
+  liveDrivingAgentDetection,
+  resolveActiveDrivingAgent,
+  type ResolvedDrivingAgent,
+} from './drivingAgents';
 import { useHistoryStore } from '../stores/historyStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { newBlockId } from './terminalBlocks';
@@ -81,6 +87,10 @@ export interface AgentTabRunOverrides {
   registry?: ToolRegistry;
   index?: AgentFileIndex;
   autoApproveWrites?: boolean;
+  /** The driving agent the run is under (default: the
+   *  LLMBuilder tab's pick — resolved from Settings).
+   *  Tests pass it explicitly. */
+  drivingAgent?: ResolvedDrivingAgent;
 }
 
 function tabExists(tabId: string): boolean {
@@ -131,6 +141,19 @@ export async function runAgentTurnForTab(
   }
 
   const tabCwd = cwd ?? useTerminalStore.getState().tabs.find((t) => t.id === tabId)?.cwd;
+
+  // The driving agent gates the pass (the picker): the
+  // LLMBuilder tab's pick, resolved from Settings. An
+  // explicit override (tests) runs as given.
+  const tabSettings = useSettingsStore.getState().settings;
+  const drivingAgent: ResolvedDrivingAgent =
+    overrides.drivingAgent ??
+    resolveActiveDrivingAgent(
+      tabSettings.drivingAgentTabs,
+      tabSettings.activeDrivingAgentTabId,
+      liveDrivingAgentDetection(useSettingsStore.getState().hasApiKey, tabSettings.aiModel),
+    );
+
   const controller = new AbortController();
   inFlight.set(tabId, controller);
 
@@ -164,6 +187,7 @@ export async function runAgentTurnForTab(
       isGuest: false,
       host: sessionHost,
       brain: overrides.brain,
+      drivingAgent,
       registry: overrides.registry,
       index: overrides.index,
       // The review UI (steal #6 — Zed) is the approval
@@ -238,6 +262,7 @@ export async function runAgentTurnForTab(
       diagnostics: [],
       verifications: [],
       stopped: 'failed',
+      drivingAgent: drivingAgent.agent,
     };
   } finally {
     inFlight.delete(tabId);

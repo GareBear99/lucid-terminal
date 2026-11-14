@@ -26,6 +26,10 @@ import { computeHintLine } from '../../lib/hintLine';
 import { classifyInput } from '../../lib/inputClassifier';
 import { parseAgentInput } from '../../lib/inputParse';
 import { runAgentTurnForTab } from '../../lib/agentSession';
+import {
+  drivingAgentPickerOptions,
+  liveDrivingAgentDetection,
+} from '../../lib/drivingAgents';
 import { getCachedGitStatus, useGitStatus } from '../../lib/useGitStatus';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
 import { getPromptHintWords } from '../../lib/promptHintWords';
@@ -93,7 +97,7 @@ interface TerminalProps {
  * terminal.
  */
 function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleActive, onToggleLuciferAi }: TerminalProps) {
-  const { settings } = useSettingsStore();
+  const { settings, hasApiKey } = useSettingsStore();
   // The LuciferAI disable rule (Gary, 2026-11-05): when this is
   // false the plugin is completely gone. Every gate below reads
   // this value, never the raw setting (missing key = OFF — see
@@ -2281,6 +2285,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
               gitStatus={gitStatus}
               onModePill={handleModePill}
               modePillDisabled={isGuest}
+              drivingAgentOptions={drivingAgentPickerOptions(
+                settings.drivingAgentTabs,
+                liveDrivingAgentDetection(hasApiKey, settings.aiModel),
+              )}
+              drivingAgentValue={settings.activeDrivingAgentTabId ?? ''}
+              onPickDrivingAgent={(value) =>
+                void useSettingsStore.getState().updateSetting(
+                  'activeDrivingAgentTabId',
+                  value === '' ? null : value,
+                )
+              }
+              drivingAgentPickerDisabled={isGuest}
             />
             {/* The non-devmode composer no longer sits below this
                 row — it lives IN the row now (see the

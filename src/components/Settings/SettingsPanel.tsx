@@ -30,8 +30,16 @@ import {
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
 import { themes, fullGlassTheme, allBlackTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
-import { Theme, type CopilotModelId } from '../../types';
+import { Theme, type CopilotModelId, type DrivingAgentId } from '../../types';
 import { COPILOT_MODELS, copilotModelLabel, newCopilotId } from '../../lib/copilotModels';
+import {
+  DRIVING_AGENTS,
+  detectDrivingAgent,
+  drivingAgentLabel,
+  drivingAgentPickerOptions,
+  liveDrivingAgentDetection,
+  newDrivingAgentTabId,
+} from '../../lib/drivingAgents';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
 import { ModulesTab } from '../Modules/ModulesTab';
@@ -83,6 +91,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     setTheme,
     setCustomTheme,
     updateSetting,
+    updateSettings,
     hasApiKey,
     setApiKey,
     deleteApiKey,
@@ -140,6 +149,15 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   const [copilotNameInput, setCopilotNameInput] = useState('');
   const [copilotModelInput, setCopilotModelInput] = useState<CopilotModelId>('local-planner');
   const [copilotKeyInput, setCopilotKeyInput] = useState('');
+  // Driving-agent tabs (Gary, 2026-11-13 ~12:27 PST): the add
+  // form for the LLMBuilder tab's picker — a name + a driving
+  // agent per tab, as many as desired, no cap. The ARC Server
+  // agent takes an endpoint (Gary's example: "from lets say
+  // arc server input"); the other agents need nothing typed.
+  const [drivingAgentTabNameInput, setDrivingAgentTabNameInput] = useState('');
+  const [drivingAgentTabAgentInput, setDrivingAgentTabAgentInput] =
+    useState<DrivingAgentId>('llmbuilder');
+  const [drivingAgentTabEndpointInput, setDrivingAgentTabEndpointInput] = useState('');
   const [pingTesting, setPingTesting] = useState(false);
   const [pingTestResult, setPingTestResult] = useState<string | null>(null);
   const [commandFilter, setCommandFilter] = useState('');
@@ -1185,6 +1203,169 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   The key is stored encrypted in the OS keychain, like the API key. The Copilot
                   connection itself lands in a later build — a Copilot copilot with a saved key
                   still shows as not connected yet, and never runs as the local planner.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Driving agent tabs</h3>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
+                  The driving agents the LLMBuilder tab can pick from — add as many as you like.
+                  The pick is what allows each tool call: the copilot tab&apos;s dropdown picks the
+                  brain that does the work, this picker picks the base underneath that allows the
+                  pass. The base runs today; a starship shows when one is detected; a Tier 5 model
+                  needs your API key; an ARC Server needs its endpoint. An agent that cannot run
+                  yet answers as not connected, never as another agent.
+                </p>
+                {settings.drivingAgentTabs.length > 0 && (
+                  <ul className="space-y-2 mb-3">
+                    {settings.drivingAgentTabs.map((tab) => {
+                      const state = detectDrivingAgent(
+                        tab.agent,
+                        liveDrivingAgentDetection(hasApiKey, settings.aiModel),
+                        tab.endpoint,
+                      );
+                      const stateLabel = !state.detected
+                        ? 'Not detected'
+                        : !state.canRun
+                          ? 'Not connected yet'
+                          : 'Ready';
+                      return (
+                        <li
+                          key={tab.id}
+                          data-testid="driving-agent-settings-row"
+                          className="flex items-center gap-3 px-3 py-2 bg-[var(--bg-tertiary)] rounded-md"
+                        >
+                          <span className="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]">
+                            {tab.name}
+                          </span>
+                          <span className="shrink-0 text-xs text-[var(--text-muted)]">
+                            {drivingAgentLabel(tab.agent)}
+                          </span>
+                          <span
+                            className="shrink-0 text-xs text-[var(--text-muted)]"
+                            title={state.detail}
+                          >
+                            {stateLabel}
+                          </span>
+                          <Tooltip content={`Remove ${tab.name}`}>
+                            <button
+                              onClick={() => {
+                                const tabs = settings.drivingAgentTabs.filter(
+                                  (t) => t.id !== tab.id,
+                                );
+                                if (settings.activeDrivingAgentTabId === tab.id) {
+                                  void updateSettings({
+                                    drivingAgentTabs: tabs,
+                                    activeDrivingAgentTabId: null,
+                                  });
+                                } else {
+                                  void updateSetting('drivingAgentTabs', tabs);
+                                }
+                              }}
+                              className="btn btn-danger"
+                            >
+                              <Trash2 size={16} />
+                              Remove
+                            </button>
+                          </Tooltip>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    className="input flex-1"
+                    placeholder="Driving agent tab name"
+                    value={drivingAgentTabNameInput}
+                    onChange={(e) => setDrivingAgentTabNameInput(e.target.value)}
+                  />
+                  <select
+                    className="input"
+                    aria-label="Driving agent"
+                    value={drivingAgentTabAgentInput}
+                    onChange={(e) =>
+                      setDrivingAgentTabAgentInput(e.target.value as DrivingAgentId)
+                    }
+                  >
+                    {DRIVING_AGENTS.map((agent) => (
+                      <option key={agent.id} value={agent.id} title={agent.hint}>
+                        {agent.label}
+                      </option>
+                    ))}
+                  </select>
+                  {drivingAgentTabAgentInput === 'arc-server' && (
+                    <input
+                      type="text"
+                      className="input flex-1"
+                      placeholder="http://127.0.0.1:8080"
+                      aria-label="ARC Server endpoint"
+                      value={drivingAgentTabEndpointInput}
+                      onChange={(e) => setDrivingAgentTabEndpointInput(e.target.value)}
+                    />
+                  )}
+                  <Tooltip content="Add this driving agent tab">
+                    <button
+                      data-testid="driving-agent-add"
+                      disabled={
+                        !drivingAgentTabNameInput.trim() ||
+                        (drivingAgentTabAgentInput === 'arc-server' &&
+                          !drivingAgentTabEndpointInput.trim())
+                      }
+                      onClick={() => {
+                        const name = drivingAgentTabNameInput.trim();
+                        if (!name) return;
+                        const endpoint = drivingAgentTabEndpointInput.trim();
+                        if (drivingAgentTabAgentInput === 'arc-server' && !endpoint) return;
+                        void updateSetting('drivingAgentTabs', [
+                          ...settings.drivingAgentTabs,
+                          {
+                            id: newDrivingAgentTabId(),
+                            name,
+                            agent: drivingAgentTabAgentInput,
+                            ...(drivingAgentTabAgentInput === 'arc-server'
+                              ? { endpoint }
+                              : {}),
+                          },
+                        ]);
+                        setDrivingAgentTabNameInput('');
+                        setDrivingAgentTabEndpointInput('');
+                      }}
+                      className="btn btn-primary"
+                    >
+                      Add
+                    </button>
+                  </Tooltip>
+                </div>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">
+                  Active driving agent
+                </label>
+                <select
+                  className="input w-full"
+                  data-testid="driving-agent-picker"
+                  aria-label="Active driving agent"
+                  value={settings.activeDrivingAgentTabId ?? ''}
+                  onChange={(e) =>
+                    void updateSetting(
+                      'activeDrivingAgentTabId',
+                      e.target.value === '' ? null : e.target.value,
+                    )
+                  }
+                >
+                  {drivingAgentPickerOptions(
+                    settings.drivingAgentTabs,
+                    liveDrivingAgentDetection(hasApiKey, settings.aiModel),
+                  ).map((option) => (
+                    <option key={option.value || 'base'} value={option.value} title={option.title}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">
+                  No tab picked means the base (LLMBuilder) — the run keeps working. A tab whose
+                  agent is not detected or not connected yet shows its state here, and a run under
+                  it answers as not ready instead of running as another agent.
                 </p>
               </section>
 

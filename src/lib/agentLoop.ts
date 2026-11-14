@@ -80,6 +80,7 @@ import { LocalPlanner } from './agentBrain';
 import { electronAgentHost, type AgentHost } from './agentHost';
 import { AgentFileIndex } from './agentIndex';
 import { decideToolPolicy } from './agentPolicy';
+import { drivingAgentNotReadyReply, type ResolvedDrivingAgent } from './drivingAgents';
 import type { AgentPermissionSet } from './agentPermissions';
 import { registerBuiltInTools } from './agentToolsImpl';
 import {
@@ -87,6 +88,7 @@ import {
   ToolRegistry,
   type AgentToolResult,
 } from './agentTools';
+import type { DrivingAgentId } from '../types';
 
 export interface AgentLoopToolCallRecord {
   name: string;
@@ -110,6 +112,10 @@ export interface AgentTurnResult {
   verifications: Array<{ path: string; reflections: number; fixed: number; remaining: number }>;
   /** Why the run stopped: 'done' | 'aborted' | 'max-rounds' | 'failed'. */
   stopped: 'done' | 'aborted' | 'max-rounds' | 'failed';
+  /** The driving agent the run was under (the LLMBuilder
+   *  tab's pick — the base when none was picked). The feed
+   *  can show which agent allowed the pass. */
+  drivingAgent: DrivingAgentId;
 }
 
 export type AgentLoopEvent =
@@ -141,6 +147,12 @@ export interface AgentLoopOptions {
   isGuest?: boolean;
   /** The brain (default: the local planner). */
   brain?: AgentBrain;
+  /** The driving agent the run is under (the LLMBuilder
+   *  tab's pick — the caller resolves it from Settings).
+   *  When absent, the base (LLMBuilder). A picked agent
+   *  that cannot run yet answers as not-ready before the
+   *  index builds — the loop never plans under it. */
+  drivingAgent?: ResolvedDrivingAgent;
   /** The registry (default: the process singleton with
    *  the built-in tools). */
   registry?: ToolRegistry;
@@ -226,6 +238,19 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
   const diagnostics: AgentTurnResult['diagnostics'] = [];
   const verifications: AgentTurnResult['verifications'] = [];
 
+  // The driving agent gates the pass (the picker): the
+  // base when the caller picked nothing. A picked agent
+  // that cannot run yet answers as not-ready below and
+  // runs NO tools — the index never builds, the brain
+  // never plans. Never silently as another agent.
+  const drivingAgent: ResolvedDrivingAgent = options.drivingAgent ?? {
+    tab: null,
+    agent: 'llmbuilder',
+    label: 'LLMBuilder',
+    canRun: true,
+    notReadyReason: null,
+  };
+
   const fail = (reply: string): AgentTurnResult => ({
     reply,
     toolCalls: records,
@@ -233,7 +258,12 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     diagnostics,
     verifications,
     stopped: 'failed',
+    drivingAgent: drivingAgent.agent,
   });
+
+  if (!drivingAgent.canRun) {
+    return fail(drivingAgentNotReadyReply(drivingAgent));
+  }
 
   try {
     // 1. The index: build once, refresh after — the loop's
@@ -256,7 +286,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     };
     const plan = await brain.plan(prompt, brainContext);
     if (options.signal?.aborted) {
-      return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted' };
+      return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted', drivingAgent: drivingAgent.agent };
     }
 
     // 3. Execute the plan, one call at a time, in order.
@@ -284,6 +314,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         isGuest,
         autoApproveWrites,
         permissions: options.permissions,
+        drivingAgent: drivingAgent.agent,
       });
       if (decision.decision === 'blocked') {
         const result: AgentToolResult = { ok: false, output: '', error: decision.reason };
@@ -351,7 +382,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     let rounds = 0;
     for (const call of plan.toolCalls) {
       if (options.signal?.aborted) {
-        return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted' };
+        return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted', drivingAgent: drivingAgent.agent };
       }
       if (rounds >= maxRounds) {
         return {
@@ -361,6 +392,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
           diagnostics,
           verifications,
           stopped: 'max-rounds',
+          drivingAgent: drivingAgent.agent,
         };
       }
       rounds += 1;
@@ -485,6 +517,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
       diagnostics,
       verifications,
       stopped: options.signal?.aborted ? 'aborted' : 'done',
+      drivingAgent: drivingAgent.agent,
     };
   } catch (error) {
     // The run never throws — a failure anywhere becomes a

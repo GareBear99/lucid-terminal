@@ -47,6 +47,12 @@ import {
   createReviewRequest,
 } from './agentReview';
 import { useAgentPermissionStore } from '../stores/agentPermissionStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import {
+  liveDrivingAgentDetection,
+  resolveActiveDrivingAgent,
+  type ResolvedDrivingAgent,
+} from './drivingAgents';
 import type { AgentReviewBlockData } from '../types';
 import type { CopilotConfig } from '../types';
 
@@ -71,6 +77,10 @@ export interface CopilotRunInput {
   host?: AgentHost;
   /** The brain (default: resolved from the copilot's model). */
   brain?: AgentBrain;
+  /** The driving agent the run is under (default: the
+   *  LLMBuilder tab's pick — resolved from Settings).
+   *  Tests pass it explicitly. */
+  drivingAgent?: ResolvedDrivingAgent;
   signal?: AbortSignal;
   onEvent?: (event: AgentLoopEvent) => void;
   /** A review card the tab should show (the run pauses on it). */
@@ -103,6 +113,21 @@ export async function runCopilotTurn(input: CopilotRunInput): Promise<AgentTurnR
     .slice(2, 8)}`;
   const host = input.host ?? electronAgentHost;
 
+  // The driving agent underneath is the LLMBuilder tab's
+  // pick (the picker) — the same one the terminal runs
+  // under. The copilot's dropdown picks the brain (the
+  // copilot); the picker picks the base underneath that
+  // allows the pass. An explicit override (tests) runs
+  // as given.
+  const settings = useSettingsStore.getState().settings;
+  const drivingAgent: ResolvedDrivingAgent =
+    input.drivingAgent ??
+    resolveActiveDrivingAgent(
+      settings.drivingAgentTabs,
+      settings.activeDrivingAgentTabId,
+      liveDrivingAgentDetection(useSettingsStore.getState().hasApiKey, settings.aiModel),
+    );
+
   // The model decides the brain. Only the local planner has a
   // brain in this slice — a GitHub Copilot copilot with a saved
   // key is still not connected (no Copilot client — D9), so it
@@ -121,6 +146,7 @@ export async function runCopilotTurn(input: CopilotRunInput): Promise<AgentTurnR
       diagnostics: [],
       verifications: [],
       stopped: 'failed',
+      drivingAgent: drivingAgent.agent,
     };
   }
 
@@ -132,6 +158,7 @@ export async function runCopilotTurn(input: CopilotRunInput): Promise<AgentTurnR
       isGuest: input.isGuest,
       brain,
       host,
+      drivingAgent,
       // Every write is reviewed, logged-in or guest — the
       // review card is the answer.
       autoApproveWrites: false,

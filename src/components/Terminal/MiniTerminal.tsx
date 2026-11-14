@@ -93,6 +93,10 @@ import {
   isDefconLevel,
 } from '../../lib/defcon';
 import { isLuciferAiEnabled, isLuciferAiSilenced } from '../../lib/luciferAi';
+import {
+  drivingAgentPickerOptions,
+  liveDrivingAgentDetection,
+} from '../../lib/drivingAgents';
 import { getPromptHintWords } from '../../lib/promptHintWords';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
 import { computeHintLine } from '../../lib/hintLine';
@@ -143,6 +147,7 @@ export default function MiniTerminal() {
   // reads the global level (it reads the store directly); the
   // floor touches rendering only, never the global level.
   const settings = useSettingsStore((s) => s.settings);
+  const hasApiKey = useSettingsStore((s) => s.hasApiKey);
   const defconLevel = settings.defconLevel ?? DEFCON_DEFAULT;
   const effectiveDefconLevel = Math.max(defconLevel, 2) as 2 | 3;
   const defconMerge = defconMergeActive(effectiveDefconLevel);
@@ -1127,6 +1132,18 @@ export default function MiniTerminal() {
                 gitStatus={gitStatus}
                 onModePill={handleModePill}
                 modePillDisabled={isGuest}
+                drivingAgentOptions={drivingAgentPickerOptions(
+                  settings.drivingAgentTabs,
+                  liveDrivingAgentDetection(hasApiKey, settings.aiModel),
+                )}
+                drivingAgentValue={settings.activeDrivingAgentTabId ?? ''}
+                onPickDrivingAgent={(value) =>
+                  void useSettingsStore.getState().updateSetting(
+                    'activeDrivingAgentTabId',
+                    value === '' ? null : value,
+                  )
+                }
+                drivingAgentPickerDisabled={isGuest}
               />
             </div>
           )}

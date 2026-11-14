@@ -382,6 +382,24 @@ export interface CopilotConfig {
   model: CopilotModelId;
 }
 
+// Driving agents (Gary, 2026-11-13 ~12:27 PST): the LLMBuilder
+// tab picks a driving agent from the driving-agent tabs added
+// in Settings > AI. 'llmbuilder' is the local base (always
+// here); 'starship' is a starship when one is detected;
+// 'tier5' is the external API model configured in Settings >
+// AI; 'arc-server' is a driving agent served from an ARC
+// Server endpoint the tab carries. Keep in sync with the
+// catalogue in src/lib/drivingAgents.ts.
+export type DrivingAgentId = 'llmbuilder' | 'starship' | 'tier5' | 'arc-server';
+
+export interface DrivingAgentTabConfig {
+  id: string;
+  name: string;
+  agent: DrivingAgentId;
+  /** ARC Server endpoint — only for agent 'arc-server'. */
+  endpoint?: string;
+}
+
 export interface Settings {
   theme: string;
   customTheme: Theme | null;
@@ -409,6 +427,15 @@ export interface Settings {
   // picks its own model; the list starts empty (the tab's empty
   // state points at Settings > AI to add the first one).
   copilots: CopilotConfig[];
+  // Driving-agent tabs (Gary, 2026-11-13 ~12:27 PST): the
+  // LLMBuilder tab picks a driving agent from these — add as
+  // many as desired in Settings > AI, no cap, the same input
+  // as the copilots. The list starts empty (the base runs
+  // until one is picked). `activeDrivingAgentTabId` is the
+  // pick — null = the base (LLMBuilder). A stale id (the tab
+  // was removed) resolves to the base, never an error.
+  drivingAgentTabs: DrivingAgentTabConfig[];
+  activeDrivingAgentTabId: string | null;
   terminalPolicy: 'ask' | 'auto' | 'deny';
   // Validation display (Warp-style)
   showValidationSteps: boolean;

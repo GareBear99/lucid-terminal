@@ -47,6 +47,7 @@
  */
 
 import type { AgentToolDefinition } from './agentTools';
+import type { DrivingAgentId } from '../types';
 import { isWithinWorkspace, resolveAgentPath } from './agentHost';
 import { isDeniedPath } from './agentIndex';
 import { resolveToolPermission, type AgentPermissionSet } from './agentPermissions';
@@ -63,6 +64,14 @@ export interface PolicyContext {
   workspaceRoot: string;
   cwd: string;
   isGuest: boolean;
+  /** The driving agent the run is under (steal #3's picker —
+   *  the LLMBuilder tab's pick). Attribution only: the gate's
+   *  rules are agent-independent — a denied path is denied
+   *  under every agent, and no agent can reopen one. The
+   *  agent's can-run check is the loop's front door
+   *  (agentLoop.ts): an agent that cannot run yet never
+   *  reaches this gate at all. */
+  drivingAgent?: DrivingAgentId;
   /** The run's approval mode: when true, write tools are
    *  allowed without pausing (logged-in Agent mode — the
    *  user flipped the pill and asked). Guest runs never

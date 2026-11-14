@@ -23,10 +23,15 @@
  *   itself; this is only the visible state.
  *   Later, a side arrow can be configurable (Gary, same
  *   message) — not built yet.
- * - Driving-agent pill (label, not a button): the base/default
- *   driving model. The picker lands with the driving
- *   intelligence (step 3) — a button with nothing behind it
- *   would be a dead toggle.
+ * - Driving-agent pill: the base/default driving model — a
+ *   label while no driving-agent tabs are added in Settings >
+ *   AI, the picker (a select) once there is a choice to make
+ *   (step 3 — the driving intelligence owns the picker now).
+ *   The picker lists the base + the added tabs, each with
+ *   its detection state in the label, and writes the pick to
+ *   Settings (the parent owns the selection). In guest it
+ *   stays the label: guests have no driving intelligence to
+ *   pick, and the pick is the owner's persisted setting.
  * - Cwd pill (button): the tab's cwd — click copies
  *   it. (Known wart: the cwd also shows in the prompt-section
  *   header and the app status bar. The header is settled and
@@ -45,6 +50,7 @@
 import { useState } from 'react';
 import { APP_VERSION } from '../../lib/appVersion';
 import { DRIVING_AGENT_BASE_MODEL } from '../../stores/sessionStore';
+import type { DrivingAgentPickerOption } from '../../lib/drivingAgents';
 import { formatGitBranch, formatGitCounts } from '../../lib/gitStatus';
 import { copyText } from '../../lib/terminalBlocks';
 import type { GitStatus } from '../../types';
@@ -61,12 +67,32 @@ interface PillRowProps {
   /** Guest build: the pill is disabled (greyed, not clickable).
    *  Guests stay terminal-only; agent mode needs a profile. */
   modePillDisabled?: boolean;
+  /** The driving-agent picker options (the base + the
+   *  driving-agent tabs added in Settings > AI). Absent =
+   *  no tabs added — the pill is the base label, as before. */
+  drivingAgentOptions?: DrivingAgentPickerOption[];
+  /** The picked option's value ('' = the base). */
+  drivingAgentValue?: string;
+  /** The pick changed (writes Settings — the parent owns it). */
+  onPickDrivingAgent?: (value: string) => void;
+  /** Guest: no picker — the pill stays the base label. */
+  drivingAgentPickerDisabled?: boolean;
 }
 
 const PILL_CLASS =
   'shrink-0 truncate rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)]/50 px-2 py-px font-mono text-[11px] text-[var(--text-secondary)]';
 
-export function PillRow({ mode, cwd, gitStatus, onModePill, modePillDisabled = false }: PillRowProps) {
+export function PillRow({
+  mode,
+  cwd,
+  gitStatus,
+  onModePill,
+  modePillDisabled = false,
+  drivingAgentOptions,
+  drivingAgentValue = '',
+  onPickDrivingAgent,
+  drivingAgentPickerDisabled = false,
+}: PillRowProps) {
   const [copiedCwd, setCopiedCwd] = useState(false);
 
   const handleCopyCwd = async () => {
@@ -76,6 +102,16 @@ export function PillRow({ mode, cwd, gitStatus, onModePill, modePillDisabled = f
       setTimeout(() => setCopiedCwd((cur) => (cur ? false : cur)), 2000);
     }
   };
+
+  // The picker shows only when there is a choice to make
+  // (the base + at least one added tab) — a one-option
+  // select would be a dead control. Otherwise the pill is
+  // the base label, as before. In guest it is always the
+  // label: guests have no driving intelligence to pick.
+  const pickerOptions = drivingAgentOptions ?? [];
+  const showDrivingAgentPicker =
+    !drivingAgentPickerDisabled && pickerOptions.length > 1;
+  const pickedOption = pickerOptions.find((o) => o.value === drivingAgentValue);
 
   return (
     <div
@@ -103,13 +139,32 @@ export function PillRow({ mode, cwd, gitStatus, onModePill, modePillDisabled = f
       >
         {mode === 'agent' ? 'Agent' : 'Terminal'} ↕
       </button>
-      <span
-        data-testid="driving-agent-pill"
-        title={`Driving model — ${DRIVING_AGENT_BASE_MODEL} (base)`}
-        className={PILL_CLASS}
-      >
-        {DRIVING_AGENT_BASE_MODEL}
-      </span>
+      {showDrivingAgentPicker ? (
+        <select
+          data-testid="driving-agent-pill"
+          aria-label="Driving agent"
+          value={drivingAgentValue}
+          onChange={(e) => onPickDrivingAgent?.(e.target.value)}
+          title={
+            pickedOption?.title ?? `Driving model — ${DRIVING_AGENT_BASE_MODEL} (base)`
+          }
+          className={`${PILL_CLASS} max-w-56 cursor-pointer`}
+        >
+          {pickerOptions.map((option) => (
+            <option key={option.value || 'base'} value={option.value} title={option.title}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span
+          data-testid="driving-agent-pill"
+          title={`Driving model — ${DRIVING_AGENT_BASE_MODEL} (base)`}
+          className={PILL_CLASS}
+        >
+          {DRIVING_AGENT_BASE_MODEL}
+        </span>
+      )}
       {cwd && (
         <button
           type="button"

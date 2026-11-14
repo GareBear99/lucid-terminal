@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Plus, X, Terminal, Bell } from 'lucide-react';
+import { Plus, X, Terminal, Bell, Columns2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useSplitPaneStore, findGroupForTab } from '../../stores/splitPaneStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
 import type { Notification } from './ErrorNotification';
@@ -44,6 +45,20 @@ export interface TerminalTabsViewProps {
   notificationsOpen: boolean;
   onCreateTab: () => void;
   onCloseTab: (id: string) => void;
+  /**
+   * Split panes (2026-11-14, sweep fix 2): split the active tab
+   * vertically — a fresh tab (its own PTY) beside it. Shown only
+   * in the main window; detached windows render one tab and show
+   * no split control.
+   */
+  onSplitTab?: () => void;
+  showSplitButton?: boolean;
+  /**
+   * Tabs in the active tab's split group (empty when unsplit):
+   * members other than the focused pane get a dim blue underline
+   * so the strip shows which tabs are panes of the active split.
+   */
+  splitGroupTabIds?: string[];
   onRenameTab: (id: string, title: string) => void;
   onSelectTab: (id: string) => void;
   /**
@@ -87,6 +102,9 @@ export function TerminalTabsView({
   notificationsOpen,
   onCreateTab,
   onCloseTab,
+  onSplitTab,
+  showSplitButton = false,
+  splitGroupTabIds = [],
   onRenameTab,
   onSelectTab,
   showBloodDrop = false,
@@ -239,10 +257,13 @@ export function TerminalTabsView({
             key={tab.id}
             data-testid={`tab-${tab.id}`}
             data-tab-id={tab.id}
+            data-split-group={splitGroupTabIds.includes(tab.id) ? 'true' : undefined}
             className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] cursor-pointer transition-colors ${
               tab.id === activeTabId
                 ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
+                : splitGroupTabIds.includes(tab.id)
+                  ? 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.4)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
             }${tab.id === drag.draggingTabId ? ' opacity-40' : ''}`}
             onClick={() => onSelectTab(tab.id)}
             onPointerDown={(e) => drag.onTabPointerDown(tab, index, e)}
@@ -306,6 +327,23 @@ export function TerminalTabsView({
         >
           <Plus size={18} />
         </button>
+
+        {/* Split Button — split panes (2026-11-14, sweep fix 2):
+            splits the ACTIVE tab vertically, a fresh tab (its own
+            PTY) beside it. Main window only: detached windows
+            render one tab and show no split control. Same key as
+            the button: ⌘D (iTerm2's vertical-split key). */}
+        {showSplitButton && (
+          <button
+            onClick={onSplitTab}
+            data-testid="split-terminal"
+            className="h-9 px-3 shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors"
+            title="Split terminal (⌘D)"
+            aria-label="Split terminal"
+          >
+            <Columns2 size={18} />
+          </button>
+        )}
       </div>
 
       {/* Divider - mirrors the line that separates the plugin icons
@@ -399,8 +437,9 @@ interface TerminalTabsProps {
 }
 
 function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange, bloodDropDisabled = false }: TerminalTabsProps) {
-  const { tabs, activeTabId, createTab, closeTab, updateTabTitle, setActiveTab } =
+  const { tabs, activeTabId, createTab, updateTabTitle, setActiveTab } =
     useTerminalStore();
+  const splitGroups = useSplitPaneStore((s) => s.groups);
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -415,7 +454,10 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   // leaves, exactly like pop-in today.
   const handleCloseTab = (id: string) => {
     if (!detachedWindow) {
-      closeTab(id);
+      // Split panes (2026-11-14): closing a pane's tab closes
+      // just that pane (and dissolves the group at one pane
+      // left); a tab in no group closes exactly like closeTab.
+      useSplitPaneStore.getState().closePane(id);
       return;
     }
     const tab = tabs.find((t) => t.id === id);
@@ -433,6 +475,25 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
+      // ⌘D — split the active tab (2026-11-14, sweep fix 2):
+      // iTerm2's vertical-split key. Plain Cmd+D only (no shift
+      // — Cmd+Shift+D is the future horizontal split's key).
+      // Skipped in EVERY text field including the composer:
+      // Monaco owns Cmd+D there (add selection to next find
+      // match), and the strip's split button always works.
+      // Skipped in detached windows — split is main-window only.
+      if ((e.key === 'd' || e.key === 'D') && !e.shiftKey && !e.altKey) {
+        if (detachedWindow) return;
+        const active = document.activeElement as HTMLElement | null;
+        if (active) {
+          const tag = active.tagName;
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) return;
+        }
+        if (!activeTabId) return;
+        e.preventDefault();
+        void useSplitPaneStore.getState().splitTab(activeTabId);
+        return;
+      }
       const n = Number(e.key);
       if (!Number.isInteger(n) || n < 1 || n > 9) return;
       const active = document.activeElement as HTMLElement | null;
@@ -448,7 +509,7 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [tabs, setActiveTab]);
+  }, [tabs, setActiveTab, detachedWindow, activeTabId]);
 
   const toggleNotifications = () => {
     if (!notificationsOpen) markAllRead();
@@ -469,6 +530,11 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
         void createTab(undefined, { detached: detachedWindow });
         onBloodDropActiveChange?.(false);
       }}
+      showSplitButton={!detachedWindow}
+      onSplitTab={() => {
+        if (activeTabId) void useSplitPaneStore.getState().splitTab(activeTabId);
+      }}
+      splitGroupTabIds={activeTabId ? (findGroupForTab(splitGroups, activeTabId)?.tabIds ?? []) : []}
       onCloseTab={handleCloseTab}
       onRenameTab={updateTabTitle}
       onSelectTab={(id) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { Fragment, useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { useForgeStore } from './stores/forgeStore';
 import { isLuciferAiEnabled, isLuciferAiSilenced } from './lib/luciferAi';
@@ -33,6 +33,8 @@ import { ProfilesScreen } from './components/Profiles/ProfilesScreen';
 import { useProfileStore } from './stores/profileStore';
 import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
+import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, orderTabsForRender } from './stores/splitPaneStore';
+import { SplitDivider } from './components/Terminal/SplitDivider';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
@@ -58,6 +60,18 @@ function App() {
   const luciferAiSilenced = isLuciferAiSilenced(settings);
   const { notifications, dismissToast } = useToastStore();
   const { tabs, activeTabId, createTab } = useTerminalStore();
+  // Split panes (2026-11-14, sweep fix 2): which tabs the terminal
+  // view shows (the active tab's whole group when split, else just
+  // the active tab) and their render order (group order first — a
+  // group's order is the split order, which can differ from strip
+  // order when a middle pane is split again). With no split these
+  // are the single active tab / the strip order, so the render is
+  // exactly as before.
+  const splitGroups = useSplitPaneStore((s) => s.groups);
+  const visibleTabIds = getVisibleTabIds(splitGroups, activeTabId);
+  const visibleTabIdSet = new Set(visibleTabIds);
+  const isSplitVisible = visibleTabIds.length > 1;
+  const renderTabs = orderTabsForRender(tabs, splitGroups, activeTabId);
   // Tab detach + remount pushes (Gary, 2026-11-09): tabs/files
   // returning to the main window land here.
   useDetachPushListeners();
@@ -584,8 +598,11 @@ function App() {
 
                   {/* Terminal Container */}
                   <div className="flex-1 flex overflow-hidden">
-                    {/* Terminal */}
-                    <div className="flex-1 overflow-hidden">
+                    {/* Terminal — split panes (2026-11-14): the inner
+                        container is a flex row only while a split is
+                        visible; otherwise it renders exactly as
+                        before (one visible tab, the rest hidden). */}
+                    <div className={`flex-1 overflow-hidden${isSplitVisible ? ' flex' : ''}`}>
                       {bloodDropActive && luciferAiEnabled ? (
                         // Blood drop tab selected: the blood drop panel,
                         // not a terminal. The terminals stay mounted
@@ -603,14 +620,30 @@ function App() {
                         <LuciferAITabPanel />
                       ) : (
                         <>
-                      {tabs.map((tab) => (
-                        <div
-                          key={tab.id}
-                          className={`h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
-                        >
-                          <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
-                        </div>
-                      ))}
+                      {renderTabs.map((tab, renderIndex) => {
+                        const visible = visibleTabIdSet.has(tab.id);
+                        const group = visible ? findGroupForTab(splitGroups, tab.id) : null;
+                        const paneIndex = group ? group.tabIds.indexOf(tab.id) : -1;
+                        const size = group && paneIndex >= 0 ? group.sizes[paneIndex] : undefined;
+                        // A divider follows every visible pane except
+                        // the last one — between it and the next
+                        // visible pane.
+                        const nextTab = renderTabs[renderIndex + 1];
+                        const showDivider = visible && !!nextTab && visibleTabIdSet.has(nextTab.id);
+                        return (
+                          <Fragment key={tab.id}>
+                            <div
+                              className={`h-full ${visible ? (isSplitVisible ? 'block min-w-0' : 'block') : 'hidden'}`}
+                              style={isSplitVisible && visible && size !== undefined ? { flex: `1 1 ${size}%` } : undefined}
+                            >
+                              <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
+                            </div>
+                            {showDivider && group && (
+                              <SplitDivider groupId={group.id} boundary={paneIndex} />
+                            )}
+                          </Fragment>
+                        );
+                      })}
                       {tabs.length === 0 && (
                         <EmptyTerminalState
                           onCreateTerminal={() => createTab()}

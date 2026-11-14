@@ -1897,7 +1897,19 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
           layer — the darkening blur sits on this root, edge to
           edge, and the terminal box below is gone entirely. At
           DEFCON 1 the black stays exactly as it was. */}
-      <div data-testid="terminal-page" ref={terminalRootRef} className={`h-full w-full flex overflow-hidden${defconMerge ? ' bg-black/25 backdrop-blur-sm' : devMode ? '' : ' bg-black'}`}>
+      <div data-testid="terminal-page" ref={terminalRootRef}
+        onMouseDown={() => {
+          // Split panes (2026-11-14, sweep fix 2): focus follows the
+          // clicked pane — a mousedown anywhere in a visible-but-
+          // inactive pane makes it the active tab, so its composer /
+          // xterm take input. A no-op for the already-active tab,
+          // and a no-op with a single tab (it is active). Hidden
+          // tabs cannot be mousedowned (display:none).
+          if (useTerminalStore.getState().activeTabId !== tabId) {
+            useTerminalStore.getState().setActiveTab(tabId);
+          }
+        }}
+        className={`h-full w-full flex overflow-hidden${defconMerge ? ' bg-black/25 backdrop-blur-sm' : devMode ? '' : ' bg-black'}`}>
         {/* Terminal Content (the chats live in the main Sidebar now).
             Non-devmode: the page root above is opaque black, so this
             stays transparent — the black is the page, not a panel. */}

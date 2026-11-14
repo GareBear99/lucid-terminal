@@ -101,6 +101,7 @@ import { create } from 'zustand';
 import { useAIStore } from './aiStore';
 import { clearPersistedHistory, useHistoryStore } from './historyStore';
 import { clearProfileCommandHistory, useCommandHistoryStore } from './commandHistoryStore';
+import { clearProfilePlans, usePlanStore } from './planStore';
 import { useCopilotStore } from './copilotStore';
 import { useSettingsStore } from './settingsStore';
 import { wipeProfileSynth } from './synthStore';
@@ -361,6 +362,7 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         useAIStore.getState().resetGuestSession();
         useHistoryStore.getState().resetGuestSession();
         useCommandHistoryStore.getState().resetGuestSession();
+        usePlanStore.getState().resetGuestSession();
         useCopilotStore.getState().resetGuestSession();
       }
       return profile;
@@ -384,8 +386,8 @@ export const useProfileStore = create<ProfileState>((set, get) => {
       // shows NO saved data — no LLMBuilder memory, no
       // driving-intelligence memory, no chat memory, no history.
       // The veil lives in aiStore / historyStore /
-      // commandHistoryStore / copilotStore: entering veils the owner's sessions
-      // + blocks + command list in memory (never deleted, never
+      // commandHistoryStore / planStore / copilotStore: entering veils the owner's sessions
+      // + blocks + command list + plans in memory (never deleted, never
       // persisted over), leaving restores them exactly.
       // Guest-to-guest (a fresh guest replacing the old one) keeps
       // the veil on.
@@ -393,21 +395,25 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         useAIStore.getState().enterGuestSession();
         useHistoryStore.getState().enterGuestSession();
         useCommandHistoryStore.getState().enterGuestSession();
+        usePlanStore.getState().enterGuestSession();
         useCopilotStore.getState().enterGuestSession();
       } else if (wasGuest && !isGuest) {
         useAIStore.getState().exitGuestSession();
         useHistoryStore.getState().exitGuestSession();
         useCommandHistoryStore.getState().exitGuestSession();
+        usePlanStore.getState().exitGuestSession();
         useCopilotStore.getState().exitGuestSession();
         // The guest is gone: load the target profile's command
         // list (no-op when it is the profile the guest veiled
         // in from — exit already restored that list).
         useCommandHistoryStore.getState().switchProfile(id);
+        usePlanStore.getState().switchProfile(id);
       } else {
         // Non-guest → non-guest (includes the boot Profiles
         // screen re-selecting the active profile): load that
         // profile's command list.
         useCommandHistoryStore.getState().switchProfile(id);
+        usePlanStore.getState().switchProfile(id);
       }
       return true;
     },
@@ -470,6 +476,7 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         }
         clearPersistedHistory();
         clearProfileCommandHistory(profileId);
+        clearProfilePlans(profileId);
       }
       if (profileId === DEFAULT_PROFILE_ID) {
         // The implicit profile cannot be deleted — wiping it resets

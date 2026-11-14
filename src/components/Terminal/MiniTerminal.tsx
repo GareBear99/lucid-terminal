@@ -74,6 +74,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { EMPTY_BLOCKS, useHistoryStore } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
+import { usePlanStore } from '../../stores/planStore';
 import { useCopilotStore } from '../../stores/copilotStore';
 import { isGuestProfile, useProfileStore } from '../../stores/profileStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
@@ -655,9 +656,11 @@ export default function MiniTerminal() {
     // Global command history: load the active profile's list
     // (no-op when already loaded for this profile).
     useCommandHistoryStore.getState().switchProfile(profileState.activeProfileId);
+    usePlanStore.getState().switchProfile(profileState.activeProfileId);
     if (isGuestProfile(profileState.profiles.find((p) => p.id === profileState.activeProfileId))) {
       useHistoryStore.getState().enterGuestSession();
       useCommandHistoryStore.getState().enterGuestSession();
+      usePlanStore.getState().enterGuestSession();
       useCopilotStore.getState().enterGuestSession();
     }
     const onChanged = window.lucidAPI?.settings?.onChanged?.((key) => {

@@ -7,6 +7,7 @@ import { useLoadingStore } from '../../stores/loadingStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useHistoryStore, EMPTY_BLOCKS } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
+import { usePlanStore } from '../../stores/planStore';
 import { useProfileStore } from '../../stores/profileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
 import { useHornWiggleStore } from '../../stores/hornWiggleStore';
@@ -337,6 +338,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, luciferToggleAc
   // also loads it via selectProfile).
   useEffect(() => {
     useCommandHistoryStore.getState().switchProfile(useProfileStore.getState().activeProfileId);
+    usePlanStore.getState().switchProfile(useProfileStore.getState().activeProfileId);
   }, []);
   // Dev console lines — the detached bar's own output. Never the
   // terminal screen.

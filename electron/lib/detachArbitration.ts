@@ -106,3 +106,139 @@ export function insertionIndexFor(pointX: number, bar: ScreenBar): number {
 export function outsideDistance(p: ScreenPoint, bounds: { x: number; y: number; width: number; height: number }): number {
   return distanceToRect(p, bounds);
 }
+
+export interface DetachSpawnInput {
+  /** Last persisted bounds for this tab/file, if any. */
+  stored: { x: number; y: number; width: number; height: number } | null;
+  /** The drop point in screen coords (the drag-out point), or null
+   *  when this is a restore rather than a drag-out. */
+  dropPoint: ScreenPoint | null;
+  /** Offset from the drop point to the window's top-left — the
+   *  grab offset, so the tab stays under the pointer. Defaults
+   *  to centring the window on the drop point. */
+  spawnOffset?: ScreenPoint | null;
+  /** Default bounds when nothing is stored and there is no drop point. */
+  defaultBounds: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Where a detached window spawns (Gary, 2026-11-14 — the
+ * drag-out glitch: a tab pulled out must appear under the
+ * cursor, not at a remembered spot).
+ *
+ * A drag-out ALWAYS spawns at the drop point — stored bounds
+ * never override it. Stored bounds are only a fallback for a
+ * restore with no drop point (no caller passes null today;
+ * both terminal and files detaches always carry the point).
+ * The caller clamps the result onto the display and enforces
+ * the minimum size; this function is pure rect math.
+ */
+export function resolveDetachSpawnBounds(input: DetachSpawnInput): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const { stored, dropPoint, defaultBounds } = input;
+  if (dropPoint) {
+    const w = defaultBounds.width;
+    const h = defaultBounds.height;
+    const off = input.spawnOffset ?? { x: w / 2, y: h / 2 };
+    return {
+      x: Math.round(dropPoint.x - off.x),
+      y: Math.round(dropPoint.y - off.y),
+      width: w,
+      height: h,
+    };
+  }
+  if (stored) return { ...stored };
+  return { ...defaultBounds };
+}
+
+/**
+ * Where a detached window goes while the drag is still running:
+ * the same offset from the pointer it had at detach, so the tab
+ * stays under the pointer until the drop. The caller clamps the
+ * result onto the display.
+ */
+export function followOrigin(point: ScreenPoint, followOffset: ScreenPoint): ScreenPoint {
+  return { x: Math.round(point.x - followOffset.x), y: Math.round(point.y - followOffset.y) };
+}
+
+/**
+ * Whether a main-side poll point may drive a drag session
+ * (Gary, 2026-11-14 — round 2: the poll reads the REAL cursor,
+ * which is only the drag pointer when the renderer is silent).
+ *
+ * The incident: a test drag was live while Gary moved his real
+ * mouse, and the poll fed his cursor into the session while the
+ * renderer's drag-move stream fed the dispatched pointer — the
+ * detached window teleported between two pointers thousands of
+ * pixels apart. One stream must win:
+ *
+ * - While the renderer reports moves (silentMs at or under the
+ *   threshold), the poll is redundant and must not drive
+ *   anything — the drag-move stream is the pointer.
+ * - Once the renderer has been silent past the threshold, the
+ *   poll is the only signal left (the edge-crossing fallback:
+ *   capture failed, the renderer went quiet, the real cursor is
+ *   the pointer) — but a poll point is only accepted when it
+ *   agrees with the last authoritative point within the
+ *   tolerance. A far jump means the real cursor is NOT the drag
+ *   pointer (a leaked session while Gary works elsewhere), so
+ *   the point is dropped and the window never chases it. A null
+ *   last point means no move ever arrived — the poll is the only
+ *   signal there is, so it is accepted.
+ *
+ * The tolerance covers a fast flick during the silence gap
+ * (4500 px/s × ~130 ms ≈ 600 px) with margin, and still
+ * rejects incident-scale jumps (~2400 px).
+ */
+export function shouldAcceptPollPoint(input: {
+  /** ms since the renderer's last drag event. */
+  silentMs: number;
+  /** Renderer silence that hands the poll the wheel. */
+  silenceThresholdMs: number;
+  /** The poll's screen point (the real cursor). */
+  point: ScreenPoint;
+  /** The last point the authoritative stream drove, or null. */
+  lastPoint: ScreenPoint | null;
+  /** Max jump from the last authoritative point a poll point may make. */
+  tolerancePx: number;
+}): boolean {
+  if (input.silentMs <= input.silenceThresholdMs) return false;
+  if (!input.lastPoint) return true;
+  const dx = input.point.x - input.lastPoint.x;
+  const dy = input.point.y - input.lastPoint.y;
+  return Math.hypot(dx, dy) <= input.tolerancePx;
+}
+
+/**
+ * Where a dragged detached window goes while the drag is still
+ * running (Gary, 2026-11-14 — round 2: the old workArea clamp
+ * forced the WHOLE window on-screen, so at the bottom/left edge
+ * the window jumped to the middle of the screen instead of
+ * staying under the cursor — the tab was hundreds of pixels from
+ * the pointer at the very moment it detached).
+ *
+ * The tab must stay under the pointer: only keep a visible strip
+ * of the window on-screen (so it stays grabbable and the drop
+ * lands where the cursor is), never shove the whole window in.
+ * Mid-screen this is a no-op — the window moves 1:1 with the
+ * pointer exactly as before.
+ */
+export function clampDragFollowOrigin(
+  origin: ScreenPoint,
+  size: { width: number; height: number },
+  area: { x: number; y: number; width: number; height: number },
+  minVisiblePx: number,
+): ScreenPoint {
+  const minX = area.x - (size.width - minVisiblePx);
+  const maxX = area.x + area.width - minVisiblePx;
+  const minY = area.y - (size.height - minVisiblePx);
+  const maxY = area.y + area.height - minVisiblePx;
+  return {
+    x: Math.round(Math.min(Math.max(origin.x, minX), maxX)),
+    y: Math.round(Math.min(Math.max(origin.y, minY), maxY)),
+  };
+}

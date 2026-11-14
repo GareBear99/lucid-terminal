@@ -27,7 +27,7 @@ import {
   DETACH_TERMINAL_DEFAULT_BOUNDS,
   DETACH_FILES_DEFAULT_BOUNDS,
 } from '../services/terminalDetachWindow';
-import { pickDropTarget, insertionIndexFor, outsideDistance, ScreenBar } from '../lib/detachArbitration';
+import { pickDropTarget, insertionIndexFor, outsideDistance, followOrigin, shouldAcceptPollPoint, clampDragFollowOrigin, ScreenBar } from '../lib/detachArbitration';
 import type { BarRectReport, DetachedTab, DetachedFile, DetachResult } from '../../src/types/detach';
 
 /**
@@ -72,6 +72,38 @@ export const DRAG_POLL_MS = 33;
  *  perfectly still for 10 s only loses the remount for that one
  *  drag, never the tab. */
 export const DRAG_STALE_MS = 10_000;
+/** Round 2 (Gary, 2026-11-14): renderer silence that hands the
+ *  fallback poll the wheel. Pointermove fires at 60–120 Hz
+ *  during a real drag, so 100 ms of silence is 6+ missed frames
+ *  — the renderer is genuinely not reporting. While moves flow,
+ *  the poll must not drive the session at all: it reads the REAL
+ *  cursor, which is a different pointer from a dispatched drag,
+ *  and feeding both teleports the detached window between them. */
+export const DRAG_POLL_FALLBACK_SILENCE_MS = 100;
+/** Round 2: max jump a fallback poll point may make from the
+ *  last authoritative point. Covers a fast flick during the
+ *  silence gap (4500 px/s × ~130 ms ≈ 600 px) with margin, and
+ *  still rejects incident-scale jumps (~2400 px in the 01:39
+ *  glitch — Gary's cursor vs the dispatched pointer). */
+export const DRAG_POLL_FALLBACK_TOLERANCE_PX = 768;
+/** Round 2 (Gary, 2026-11-14): how much of a dragged detached
+ *  window must stay on-screen — the strip plus a bite of the
+ *  terminal, so the window stays grabbable after the drop. The
+ *  follow clamps to this strip only; the whole window is never
+ *  forced on-screen, so the tab stays under the pointer at the
+ *  edges instead of the window jumping to the middle. */
+export const DRAG_FOLLOW_MIN_VISIBLE_PX = 100;
+
+/**
+ * Where the dragged tab sits in a fresh detached window
+ * (Gary, 2026-11-14 — the follow offset): MiniTerminal's
+ * chrome is h-9 (36px) and its strip has no blood-drop tab,
+ * so the first (only) tab starts at the strip's left edge,
+ * 36px below the window's top edge. The grab offset the
+ * renderer reports is tab-relative, so the window offset that
+ * keeps the tab under the pointer is grab + this.
+ */
+export const DETACHED_TAB_STRIP_OFFSET = { x: 0, y: 36 };
 
 interface MainWindowAccess {
   getMainWindow: () => BrowserWindow | null;
@@ -87,6 +119,13 @@ interface DragSession {
   ownerWindowId: number;
   /** The window this drag created, if the tab has been detached. */
   detachedWindowId: number | null;
+  /** Pointer position within the dragged tab at grab (renderer),
+   *  or null when the renderer did not report one. */
+  grabOffset: { x: number; y: number } | null;
+  /** Offset from the pointer to the detached window's top-left
+   *  that keeps the tab under the pointer (grab + strip offset,
+   *  or window-centre when no grab was reported). */
+  followOffset: { x: number; y: number };
   candidateWindowId: number | null;
   holdTimer: ReturnType<typeof setTimeout> | null;
   detectedWindowId: number | null;
@@ -272,7 +311,10 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
 
   /** Fire the detach: create the detached window at the drop
    *  point, re-target the PTY owner to it, and tell the source
-   *  to drop the tab. The PTY itself never moves. */
+   *  to drop the tab. The PTY itself never moves. The window
+   *  spawns with the tab under the pointer (spawnOffset =
+   *  followOffset) and keeps following the pointer until the
+   *  drop — see followDetachedWindow in handleDragPoint. */
   function fireDetach(session: DragSession, point: { x: number; y: number }): void {
     const sourceWin = windowById(session.sourceWindowId);
     if (!sourceWin) {
@@ -287,6 +329,7 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
         mini: 'terminal',
         query: `tab=${encodeURIComponent(tab.id)}`,
         dropPoint: point,
+        spawnOffset: session.followOffset,
         defaultBounds: DETACH_TERMINAL_DEFAULT_BOUNDS,
         onClosed: () => handleDetachedWindowClosed(win, 'terminal'),
       });
@@ -342,6 +385,36 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
         deliverFileToMainWindow(file);
       }
     }
+  }
+
+  /**
+   * Move the detached window so the tab stays under the pointer
+   * (Gary, 2026-11-14 — the window tracks the cursor until the
+   * drop instead of sitting where it spawned). The offset is
+   * the one the window spawned with, so the window moves 1:1
+   * with the pointer, never jumping. Round 2: the clamp keeps
+   * only a visible strip of the window on-screen (the old
+   * whole-window workArea clamp shoved it to the middle of the
+   * screen at the bottom/left edge — the tab landed hundreds of
+   * pixels from the pointer at the very moment it detached).
+   * No-op when the window is already there — a still pointer
+   * costs no setBounds.
+   */
+  function followDetachedWindow(session: DragSession, point: { x: number; y: number }): void {
+    if (session.detachedWindowId === null) return;
+    const win = windowById(session.detachedWindowId);
+    if (!win) return;
+    const b = win.getBounds();
+    const origin = followOrigin(point, session.followOffset);
+    const area = screen.getDisplayNearestPoint(point).workArea;
+    const { x, y } = clampDragFollowOrigin(
+      origin,
+      { width: b.width, height: b.height },
+      area,
+      DRAG_FOLLOW_MIN_VISIBLE_PX,
+    );
+    if (x === b.x && y === b.y) return;
+    win.setBounds({ x, y, width: b.width, height: b.height });
   }
 
   function runArbitration(session: DragSession, point: { x: number; y: number }): void {
@@ -438,6 +511,9 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
     const fired = session.detachedWindowId === null && outside > DETACH_THRESHOLD_PX;
     if (fired) fireDetach(session, point);
     runArbitration(session, point);
+    // Once detached the window follows the pointer until the
+    // drop — same point, same offset as the spawn, so no jump.
+    followDetachedWindow(session, point);
     return { outside, fired };
   }
 
@@ -469,11 +545,24 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
    * nothing. It logs only when the cursor is actually out of
    * the window (or it fires) — inside-window poll points are
    * redundant with the drag-move lines.
+   *
+   * Round 2 (Gary, 2026-11-14 — the 01:39 glitch): the poll
+   * reads the REAL cursor, so it only drives the session when
+   * the renderer is silent (shouldAcceptPollPoint): while
+   * drag-move events flow, the poll is gated off entirely — a
+   * dispatched drag's pointer and Gary's real cursor are two
+   * different pointers, and feeding both teleported the
+   * detached window between them. In fallback mode a poll point
+   * must also agree with the last authoritative point, so a
+   * leaked session can never chase Gary's cursor across the
+   * screen; rejected points are logged once, not per tick.
    */
   function startDragPoll(session: DragSession): void {
     stopDragPoll();
     let last: { x: number; y: number } | null = null;
     let loggedStart = false;
+    let loggedFallback = false;
+    let fallbackRejected = 0;
     dragPollTimer = setInterval(() => {
       if (!dragSession || dragSession !== session) {
         stopDragPoll();
@@ -506,6 +595,34 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
         loggedStart = true;
         detachDiag(`drag-poll started session tab=${session.tab.id}`);
       }
+      // Round 2: the poll drives the session ONLY in fallback
+      // mode (renderer silent) and only for points that agree
+      // with the last authoritative point. While the renderer
+      // reports moves, the poll is gated off — its real-cursor
+      // reading is not the drag pointer then.
+      if (!shouldAcceptPollPoint({
+        silentMs,
+        silenceThresholdMs: DRAG_POLL_FALLBACK_SILENCE_MS,
+        point,
+        lastPoint: session.lastPoint,
+        tolerancePx: DRAG_POLL_FALLBACK_TOLERANCE_PX,
+      })) {
+        if (silentMs > DRAG_POLL_FALLBACK_SILENCE_MS) {
+          fallbackRejected++;
+          if (fallbackRejected === 1) {
+            const anchor = session.lastPoint;
+            const d = anchor ? Math.hypot(point.x - anchor.x, point.y - anchor.y).toFixed(0) : 'n/a';
+            detachDiag(
+              `drag-poll fallback REJECTED point=(${point.x},${point.y}) ${d}px from lastPoint — real cursor is not the drag pointer`,
+            );
+          }
+        }
+        return;
+      }
+      if (!loggedFallback) {
+        loggedFallback = true;
+        detachDiag(`drag-poll fallback: renderer silent ${silentMs}ms, poll driving tab=${session.tab.id}`);
+      }
       const res = handleDragPoint(session, point);
       if (res === null) {
         detachDiag(`drag-poll DROPPED: source window ${session.sourceWindowId} unresolvable (fromId)`);
@@ -520,7 +637,7 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
     }, DRAG_POLL_MS);
   }
 
-  ipcMain.on('terminal:drag-start', (event, tab: DetachedTab, index: number) => {
+  ipcMain.on('terminal:drag-start', (event, tab: DetachedTab, index: number, grabOffset?: { x: number; y: number }) => {
     // DIAGNOSTIC: resolve the source window BOTH ways — fromId
     // takes a BrowserWindow id, event.sender.id is a WebContents
     // id. If fromId returns null here, every drag-move below is
@@ -529,15 +646,26 @@ export function setupTerminalDetachHandlers(ipcMain: IpcMain, mainAccess: MainWi
     const fromWCWin = BrowserWindow.fromWebContents(event.sender);
     detachDiag(
       `drag-start tab=${tab?.id} index=${index} senderWC=${event.sender.id} ` +
-        `fromId=${fromIdWin ? fromIdWin.id : 'null'} fromWebContents=${fromWCWin ? fromWCWin.id : 'null'}`,
+        `fromId=${fromIdWin ? fromIdWin.id : 'null'} fromWebContents=${fromWCWin ? fromWCWin.id : 'null'} ` +
+        `grabOffset=${grabOffset ? `(${grabOffset.x},${grabOffset.y})` : 'null'}`,
     );
     if (dragSession) cancelDragSession(dragSession);
+    // The follow offset keeps the tab under the pointer: the
+    // grab position within the tab, plus where the tab sits in
+    // a fresh detached window. Without a grab (old renderer,
+    // tests) the window centres on the pointer instead.
+    const followOffset =
+      grabOffset && Number.isFinite(grabOffset.x) && Number.isFinite(grabOffset.y)
+        ? { x: grabOffset.x + DETACHED_TAB_STRIP_OFFSET.x, y: grabOffset.y + DETACHED_TAB_STRIP_OFFSET.y }
+        : { x: DETACH_TERMINAL_DEFAULT_BOUNDS.width / 2, y: DETACH_TERMINAL_DEFAULT_BOUNDS.height / 2 };
     dragSession = {
       tab,
       sourceIndex: typeof index === 'number' ? index : 0,
       sourceWindowId: event.sender.id,
       ownerWindowId: event.sender.id,
       detachedWindowId: null,
+      grabOffset: grabOffset ?? null,
+      followOffset,
       candidateWindowId: null,
       holdTimer: null,
       detectedWindowId: null,

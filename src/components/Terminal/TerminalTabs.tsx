@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Plus, X, Terminal, Bell } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
 import type { Notification } from './ErrorNotification';
 import type { TerminalTab } from '../../types';
+import { toDetachedTab } from '../../types/detach';
 import { BloodDropIcon } from '../Layout/BloodDropIcon';
 import { useTerminalTabDrag } from '../../lib/tabDrag';
 
@@ -168,6 +170,35 @@ export function TerminalTabsView({
           style={{ left: markerLeft }}
         />
       )}
+      {/* Drag ghost (Gary, 2026-11-14): the tab unsnaps from
+          the strip and follows the pointer at its grabbed spot
+          until the drop. Rendered only while the tab is still
+          in this strip — once main detaches it, the tab leaves
+          the strip and the real window takes over following the
+          pointer. Portaled to the body (see below) so the
+          fixed position is truly viewport-relative;
+          pointer-events none, so it never steals the drag. */}
+      {drag.dragGhost &&
+        tabs.some((t) => t.id === drag.dragGhost!.tab.id) &&
+        // Portaled to the body (Gary, 2026-11-14 — round 2):
+        // the bar carries backdrop-blur, which makes it a
+        // containing block for fixed descendants AND a stacking
+        // context — inside the bar the ghost sat offset by the
+        // bar's viewport position and hid under the terminal
+        // content below the strip. In the body it is truly
+        // viewport-fixed and above everything, so it tracks the
+        // pointer exactly.
+        createPortal(
+          <div
+            data-testid="tab-drag-ghost"
+            className="fixed z-50 flex items-center gap-2 px-3 h-9 border border-[var(--border)] bg-black/60 text-[var(--text-primary)] shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)] pointer-events-none"
+            style={{ left: drag.dragGhost.x, top: drag.dragGhost.y }}
+          >
+            <Terminal size={14} />
+            <span className="text-sm whitespace-nowrap">{drag.dragGhost.tab.title}</span>
+          </div>,
+          document.body,
+        )}
       {/* Tabs */}
       <div className="flex-1 flex items-center overflow-x-auto">
         {/* Blood drop tab (Gary, 2026-11-07). Pinned first in the
@@ -212,7 +243,7 @@ export function TerminalTabsView({
               tab.id === activeTabId
                 ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
-            }`}
+            }${tab.id === drag.draggingTabId ? ' opacity-40' : ''}`}
             onClick={() => onSelectTab(tab.id)}
             onPointerDown={(e) => drag.onTabPointerDown(tab, index, e)}
             onDoubleClick={() => {
@@ -373,6 +404,27 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
+  // The tab x in a DETACHED window resnaps the tab into the main
+  // window (Gary, 2026-11-14 — "pressing X on an external tab
+  // should always resnap it not erase its history"): the same
+  // pop-in path as the pop-in button, PTY and history intact,
+  // never closeTab (which destroys the PTY). In the main window
+  // the x still closes the tab. The red window X is untouched —
+  // this is only the tab's own x in the strip. If the tab is the
+  // last one in the detached window, the window closes once it
+  // leaves, exactly like pop-in today.
+  const handleCloseTab = (id: string) => {
+    if (!detachedWindow) {
+      closeTab(id);
+      return;
+    }
+    const tab = tabs.find((t) => t.id === id);
+    if (!tab) return;
+    const detach = window.lucidAPI?.terminal?.detach;
+    if (!detach) return;
+    void detach.popIn(toDetachedTab(tab));
+  };
+
   // ⌘1–⌘9 switch tabs (Warp §7): the strip is tabs only, so
   // the numbers are the tabs in strip order. Skipped when focus is in a text field
   // that is not a composer (renaming a tab, Settings, ...) —
@@ -417,7 +469,7 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
         void createTab(undefined, { detached: detachedWindow });
         onBloodDropActiveChange?.(false);
       }}
-      onCloseTab={closeTab}
+      onCloseTab={handleCloseTab}
       onRenameTab={updateTabTitle}
       onSelectTab={(id) => {
         // Plain setActiveTab: the mode is per-tab, so

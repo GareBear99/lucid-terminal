@@ -18,6 +18,10 @@ import {
   pickDropTarget,
   insertionIndexFor,
   outsideDistance,
+  resolveDetachSpawnBounds,
+  followOrigin,
+  shouldAcceptPollPoint,
+  clampDragFollowOrigin,
   type ScreenBar,
 } from '../electron/lib/detachArbitration';
 import { useTerminalStore } from '../src/stores/terminalStore';
@@ -257,5 +261,174 @@ describe('terminalStore detach actions', () => {
       0,
     );
     expect(reserveNumber).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveDetachSpawnBounds', () => {
+  const DEFAULT = { x: 100, y: 100, width: 900, height: 560 };
+  const STORED = { x: 24, y: 48, width: 900, height: 560 };
+
+  test('a drag-out spawns at the drop point, never at remembered bounds (the glitch)', () => {
+    // The tab was detached before (stored bounds exist) — the
+    // window must still appear under the cursor, not at the old
+    // spot. Regression: stored bounds used to win over the drop
+    // point, so every later detach of the same tab popped up
+    // where it was last time.
+    const bounds = resolveDetachSpawnBounds({
+      stored: STORED,
+      dropPoint: { x: 800, y: 400 },
+      defaultBounds: DEFAULT,
+    });
+    expect(bounds).toEqual({ x: 350, y: 120, width: 900, height: 560 });
+  });
+
+  test('a drag-out with a grab offset keeps the tab under the pointer', () => {
+    const bounds = resolveDetachSpawnBounds({
+      stored: STORED,
+      dropPoint: { x: 800, y: 400 },
+      spawnOffset: { x: 60, y: 46 },
+      defaultBounds: DEFAULT,
+    });
+    expect(bounds).toEqual({ x: 740, y: 354, width: 900, height: 560 });
+  });
+
+  test('no drop point reopens where it was (restore, not a drag-out)', () => {
+    expect(
+      resolveDetachSpawnBounds({ stored: STORED, dropPoint: null, defaultBounds: DEFAULT }),
+    ).toEqual(STORED);
+  });
+
+  test('no drop point and nothing stored falls back to the default', () => {
+    expect(
+      resolveDetachSpawnBounds({ stored: null, dropPoint: null, defaultBounds: DEFAULT }),
+    ).toEqual(DEFAULT);
+  });
+});
+
+describe('followOrigin', () => {
+  test('the window keeps the offset it spawned with, so it moves 1:1 with the pointer', () => {
+    expect(followOrigin({ x: 800, y: 400 }, { x: 60, y: 46 })).toEqual({ x: 740, y: 354 });
+    expect(followOrigin({ x: 900, y: 500 }, { x: 60, y: 46 })).toEqual({ x: 840, y: 454 });
+  });
+
+  test('a centred window stays centred on the pointer', () => {
+    expect(followOrigin({ x: 800, y: 400 }, { x: 450, y: 280 })).toEqual({ x: 350, y: 120 });
+  });
+});
+
+describe('shouldAcceptPollPoint', () => {
+  // Round 2 (Gary, 2026-11-14 — the 01:39 glitch): the poll reads
+  // the REAL cursor, so it may only drive the session when the
+  // renderer is silent, and only for points that agree with the
+  // last authoritative point. One stream must win.
+  const base = {
+    silenceThresholdMs: 100,
+    tolerancePx: 768,
+  };
+
+  test('while the renderer reports moves the poll is gated off entirely', () => {
+    // A live renderer (0 ms, 50 ms, exactly at the threshold)
+    // means the drag-move stream is the pointer — the poll's
+    // real-cursor reading must not drive anything, even for a
+    // point right next to the last one.
+    for (const silentMs of [0, 50, 100]) {
+      expect(
+        shouldAcceptPollPoint({ ...base, silentMs, point: { x: 10, y: 10 }, lastPoint: { x: 0, y: 0 } }),
+      ).toBe(false);
+    }
+  });
+
+  test('a silent renderer hands the poll the wheel for a near point', () => {
+    expect(
+      shouldAcceptPollPoint({ ...base, silentMs: 150, point: { x: 600, y: 0 }, lastPoint: { x: 0, y: 0 } }),
+    ).toBe(true);
+  });
+
+  test('a fast flick during the silence gap stays inside the tolerance', () => {
+    // 4500 px/s × ~130 ms ≈ 600 px of drift while the renderer
+    // is quiet — the fallback must still engage, or a fast real
+    // drag-out would never detach.
+    expect(
+      shouldAcceptPollPoint({
+        ...base,
+        silentMs: 130,
+        point: { x: 3148, y: 1322 },
+        lastPoint: { x: 2548, y: 1322 },
+      }),
+    ).toBe(true);
+  });
+
+  test('the 01:39 incident replays as a rejection', () => {
+    // The dispatched pointer was at (2548,1322) while Gary's
+    // real cursor swept to (271,548) — ~2400 px apart. The poll
+    // must never feed that point into the session.
+    expect(
+      shouldAcceptPollPoint({
+        ...base,
+        silentMs: 150,
+        point: { x: 271, y: 548 },
+        lastPoint: { x: 2548, y: 1322 },
+      }),
+    ).toBe(false);
+  });
+
+  test('the tolerance boundary holds: exactly 768 in, 769 out', () => {
+    expect(
+      shouldAcceptPollPoint({ ...base, silentMs: 150, point: { x: 768, y: 0 }, lastPoint: { x: 0, y: 0 } }),
+    ).toBe(true);
+    expect(
+      shouldAcceptPollPoint({ ...base, silentMs: 150, point: { x: 769, y: 0 }, lastPoint: { x: 0, y: 0 } }),
+    ).toBe(false);
+  });
+
+  test('no authoritative point yet means the poll is the only signal', () => {
+    // Drag-start arrived but no move ever did (capture failed at
+    // the press) — the poll is all there is, so it is accepted.
+    expect(
+      shouldAcceptPollPoint({ ...base, silentMs: 150, point: { x: 500, y: 500 }, lastPoint: null }),
+    ).toBe(true);
+  });
+});
+
+describe('clampDragFollowOrigin', () => {
+  // Round 2 (Gary, 2026-11-14 — the solo-drag verdict): the old
+  // whole-window workArea clamp shoved the detached window to the
+  // middle of the screen at the bottom/left edge, so it popped up
+  // in the middle of the blurred background instead of under the
+  // cursor. The follow now keeps only a visible strip on-screen.
+  // Gary's display: 1920x1080, workArea (0,25,1920,991).
+  const AREA = { x: 0, y: 25, width: 1920, height: 991 };
+  const SIZE = { width: 900, height: 560 };
+  const MIN_VISIBLE = 100;
+
+  test('mid-screen the window moves 1:1, untouched', () => {
+    expect(clampDragFollowOrigin({ x: 500, y: 300 }, SIZE, AREA, MIN_VISIBLE)).toEqual({ x: 500, y: 300 });
+  });
+
+  test('session 1 replay (bottom edge): the tab stays under the cursor', () => {
+    // Gary detached at (783,957), grab (74,24) → follow offset
+    // (74,60) → origin (709,897). The old clamp forced the whole
+    // window on-screen and moved it to y≈456 — the middle of the
+    // screen. The strip clamp leaves it at (709,897): the tab
+    // (window top + 36 strip + 24 grab) sits under the pointer.
+    expect(clampDragFollowOrigin({ x: 709, y: 897 }, SIZE, AREA, MIN_VISIBLE)).toEqual({ x: 709, y: 897 });
+  });
+
+  test('session 2 replay (left edge): the tab stays under the cursor', () => {
+    // Detached at (243,586), grab (73,24) → origin (170,526).
+    // The old clamp moved it to y≈456 too. The strip clamp
+    // leaves it exactly under the pointer.
+    expect(clampDragFollowOrigin({ x: 170, y: 526 }, SIZE, AREA, MIN_VISIBLE)).toEqual({ x: 170, y: 526 });
+  });
+
+  test('a window flung far off-screen is reined in to a visible strip', () => {
+    // Bottom: 1200 → maxY = 25 + 991 − 100 = 916.
+    expect(clampDragFollowOrigin({ x: 709, y: 1200 }, SIZE, AREA, MIN_VISIBLE)).toEqual({ x: 709, y: 916 });
+    // Left: −950 → minX = 0 − (900 − 100) = −800.
+    expect(clampDragFollowOrigin({ x: -950, y: 500 }, SIZE, AREA, MIN_VISIBLE)).toEqual({ x: -800, y: 500 });
+    // Top: −600 → minY = 25 − (560 − 100) = −435.
+    expect(clampDragFollowOrigin({ x: 500, y: -600 }, SIZE, AREA, MIN_VISIBLE)).toEqual({ x: 500, y: -435 });
+    // Right: 1900 → maxX = 0 + 1920 − 100 = 1820.
+    expect(clampDragFollowOrigin({ x: 1900, y: 500 }, SIZE, AREA, MIN_VISIBLE)).toEqual({ x: 1820, y: 500 });
   });
 });

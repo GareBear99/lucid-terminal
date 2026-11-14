@@ -9,10 +9,12 @@
  * + a 4-second show fallback + show-on-fail-load, bounds clamped
  * onto the display, bounds persisted in an electron-store. The
  * differences that matter: the window opens AT the drop point on
- * first creation (so the tab appears where Gary pulled it, not
- * at a fixed default spot), and it is a NORMAL window — not
- * always-on-top like the browser mini — and it takes focus on
- * show, because Gary is about to type in it.
+ * a drag-out (so the tab appears where Gary pulled it, not
+ * at a fixed default spot and never at a remembered spot), and it is a NORMAL window — not
+ * always-on-top like the browser mini — and it shows INACTIVE
+ * (showInactive, never show + focus: it must not steal the app
+ * or flash forward over what Gary is doing — he clicks into it
+ * to type once the drop lands).
  */
 import { BrowserWindow, Rectangle } from 'electron';
 import Store from 'electron-store';
@@ -20,6 +22,7 @@ import path from 'path';
 import { getTheme } from '../../src/themes/themes';
 import { settings } from './secureStorage';
 import { clampToDisplay } from './browserMiniWindow';
+import { resolveDetachSpawnBounds } from '../lib/detachArbitration';
 
 /** Default size of a new detached terminal window (Q7 — Gary's
  *  call; the browser mini default is 640x420, a terminal wants
@@ -106,6 +109,11 @@ export interface DetachedWindowOptions {
   query: string;
   /** Drop point in screen coords, or null to use stored/default bounds. */
   dropPoint: { x: number; y: number } | null;
+  /** Offset from the drop point to the window's top-left — the
+   *  grab offset, so the tab stays under the pointer. Defaults
+   *  to centring the window on the drop point. Only used when
+   *  dropPoint is set. */
+  spawnOffset?: { x: number; y: number } | null;
   /** Default bounds when nothing is stored and there is no drop point. */
   defaultBounds: Rectangle;
   /** Called when the window is closed (for real) — the caller
@@ -114,34 +122,29 @@ export interface DetachedWindowOptions {
 }
 
 /**
- * Create a detached window. On first creation (no stored bounds)
- * it opens centred on the drop point, clamped onto the display;
- * on later creations it reopens where it was. Bounds are saved
- * (debounced) on move/resize and once more on close under the
- * window's bounds key.
+ * Create a detached window. A drag-out (dropPoint set) ALWAYS
+ * opens at the drop point — stored bounds never override it
+ * (Gary, 2026-11-14: the old spot is where the glitch came
+ * from — a tab detached before popped up where it was last
+ * time instead of under the cursor). Only a restore with no
+ * drop point reopens where it was. Bounds are saved (debounced)
+ * on move/resize and once more on close under the window's
+ * bounds key.
  */
 export function createDetachedWindow(options: DetachedWindowOptions): BrowserWindow {
   const stored = loadDetachBounds(options.boundsKey);
-  let bounds: Rectangle;
-  if (stored) {
-    bounds = {
-      x: stored.x,
-      y: stored.y,
-      width: Math.max(DETACH_WINDOW_MIN_WIDTH, stored.width),
-      height: Math.max(DETACH_WINDOW_MIN_HEIGHT, stored.height),
-    };
-  } else if (options.dropPoint) {
-    const w = options.defaultBounds.width;
-    const h = options.defaultBounds.height;
-    bounds = clampToDisplay({
-      x: Math.round(options.dropPoint.x - w / 2),
-      y: Math.round(options.dropPoint.y - h / 2),
-      width: w,
-      height: h,
-    });
-  } else {
-    bounds = { ...options.defaultBounds };
-  }
+  const spawned = resolveDetachSpawnBounds({
+    stored,
+    dropPoint: options.dropPoint,
+    spawnOffset: options.spawnOffset ?? null,
+    defaultBounds: options.defaultBounds,
+  });
+  let bounds: Rectangle = {
+    x: spawned.x,
+    y: spawned.y,
+    width: Math.max(DETACH_WINDOW_MIN_WIDTH, spawned.width),
+    height: Math.max(DETACH_WINDOW_MIN_HEIGHT, spawned.height),
+  };
   bounds = clampToDisplay(bounds);
 
   const win = new BrowserWindow({
@@ -193,14 +196,20 @@ export function createDetachedWindow(options: DetachedWindowOptions): BrowserWin
 
   // Show once ready, with the same 4s fallback as the browser
   // mini — a failed load shows too, so the failure is visible
-  // instead of silent. A detached terminal takes focus on show:
-  // Gary pulled the tab out to type in it.
+  // instead of silent. A detached terminal NEVER takes focus on
+  // show (Gary, 2026-11-14 — round 2: win.show() + win.focus()
+  // flashed the window forward over Brave and stole the app
+  // while Gary was in it). showInactive shows it without
+  // activating the app or taking keyboard focus: during a drag
+  // the window still appears and follows the pointer, and Gary
+  // clicks into it to type once the drop lands. The window is
+  // only ever created by a real drag-out (round 2 gates the
+  // poll, so a stray cursor can no longer summon one).
   let shown = false;
   const showWindow = () => {
     if (shown || win.isDestroyed()) return;
     shown = true;
-    win.show();
-    win.focus();
+    win.showInactive();
   };
   win.once('ready-to-show', showWindow);
   setTimeout(showWindow, DETACH_WINDOW_SHOW_FALLBACK_MS);

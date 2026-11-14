@@ -150,8 +150,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     // is owned by main after drag-start; the renderer reports
     // pointer moves and main fires the detach / volley itself.
     detach: {
-      dragStart: (tab: import('../src/types/detach').DetachedTab, index: number) =>
-        ipcRenderer.send('terminal:drag-start', tab, index),
+      dragStart: (tab: import('../src/types/detach').DetachedTab, index: number, grabOffset?: { x: number; y: number }) =>
+        ipcRenderer.send('terminal:drag-start', tab, index, grabOffset),
       dragMove: (clientX: number, clientY: number) =>
         ipcRenderer.send('terminal:drag-move', clientX, clientY),
       dragEnd: (clientX: number, clientY: number) =>
@@ -796,7 +796,7 @@ export interface LucidAPI {
     getCwd: (id: string) => Promise<string>;
     executeCommand: (command: string) => Promise<{ success: boolean; output?: string; error?: string }>;
     detach: {
-      dragStart: (tab: import('../src/types/detach').DetachedTab, index: number) => void;
+      dragStart: (tab: import('../src/types/detach').DetachedTab, index: number, grabOffset?: { x: number; y: number }) => void;
       dragMove: (clientX: number, clientY: number) => void;
       dragEnd: (clientX: number, clientY: number) => void;
       dragCancel: () => void;

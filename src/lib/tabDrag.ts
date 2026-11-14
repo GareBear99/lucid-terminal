@@ -33,6 +33,21 @@ import { toDetachedTab, toDetachedFile, type DetachedTab, type DetachedFile } fr
 /** Local detach threshold for the files strip (Q1, proposed 16px). */
 export const FILE_DETACH_THRESHOLD_PX = 16;
 
+/**
+ * Where the drag ghost's top-left goes for a pointer position:
+ * the pointer stays at the same spot within the ghost it had
+ * within the tab when grabbed, so the tab lifts out from
+ * under the pointer instead of jumping. Pure, so the
+ * drag-out geometry is testable without a window.
+ */
+export function dragGhostTopLeft(
+  clientX: number,
+  clientY: number,
+  grabOffset: { x: number; y: number },
+): { x: number; y: number } {
+  return { x: clientX - grabOffset.x, y: clientY - grabOffset.y };
+}
+
 /** A screen point (window.screenX/Y + client coords). */
 export function screenPoint(clientX: number, clientY: number): { x: number; y: number } {
   return { x: window.screenX + clientX, y: window.screenY + clientY };
@@ -59,6 +74,13 @@ export interface TerminalTabDrag {
     onLostPointerCapture: (e: React.PointerEvent) => void;
   };
   draggingTabId: string | null;
+  /** The drag ghost: the tab lifted out of the strip, following
+   *  the pointer at its grabbed spot (client coords, top-left).
+   *  Null when no drag is running. The view renders it only
+   *  while the tab is still in this strip — once main detaches
+   *  it, the tab leaves the strip and the real window takes
+   *  over following the pointer. */
+  dragGhost: { tab: DetachedTab; x: number; y: number } | null;
   /** The landing spot main detected, or null. */
   dropIndicator: { index: number } | null;
 }
@@ -72,7 +94,12 @@ export function useTerminalTabDrag({
 }): TerminalTabDrag {
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ index: number } | null>(null);
+  const [dragGhost, setDragGhost] = useState<{ tab: DetachedTab; x: number; y: number } | null>(null);
   const dragRef = useRef<{ tab: DetachedTab; index: number; pointerId: number } | null>(null);
+  /** Pointer position within the dragged tab at grab (the ghost
+   *  and main's follow both anchor on this, so the tab stays
+   *  under the pointer from lift to drop). */
+  const grabOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   /** DIAGNOSTIC: count of pointermove reports in this drag. */
   const moveCountRef = useRef(0);
   /** Dedupe: the same native pointer event reaches both the
@@ -149,6 +176,7 @@ export function useTerminalTabDrag({
     dragRef.current = null;
     setDraggingTabId(null);
     setDropIndicator(null);
+    setDragGhost(null);
     if (drag) {
       try {
         barRef.current?.releasePointerCapture?.(drag.pointerId);
@@ -219,6 +247,11 @@ export function useTerminalTabDrag({
       );
     }
     window.lucidAPI?.terminal?.detach?.dragMove(clientX, clientY);
+    // The ghost lifts with the first move (a plain click has no
+    // move, so it never flashes) and follows the pointer at the
+    // grabbed spot until the drop or the cancel.
+    const topLeft = dragGhostTopLeft(clientX, clientY, grabOffsetRef.current);
+    setDragGhost({ tab: dragRef.current.tab, x: topLeft.x, y: topLeft.y });
   };
 
   const handleUp = (clientX: number, clientY: number, timeStamp: number) => {
@@ -259,6 +292,16 @@ export function useTerminalTabDrag({
     if (!bar) return;
     const detachedTab = toDetachedTab(tab);
     dragRef.current = { tab: detachedTab, index, pointerId: e.pointerId };
+    // The grab offset: the pointer's spot within the tab. The
+    // ghost anchors on it, and main anchors the detached
+    // window on it, so the tab stays under the pointer from
+    // lift to drop. currentTarget is the tab element (the
+    // handler is attached to it); in jsdom the rect is zeros,
+    // so the offset is just the pointer position there.
+    const rect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect?.();
+    grabOffsetRef.current = rect
+      ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      : { x: 0, y: 0 };
     setDraggingTabId(tab.id);
     let captureOk = false;
     let captureError = '';
@@ -273,10 +316,10 @@ export function useTerminalTabDrag({
     // DIAGNOSTIC: capture success/failure decides whether moves
     // survive past the bar/viewport edge. Sent to main's log.
     detach.dragDiag?.(
-      `pointerdown tab=${tab.id} pointerId=${e.pointerId} capture=${captureOk ? 'ok' : `FAILED:${captureError}`}`,
+      `pointerdown tab=${tab.id} pointerId=${e.pointerId} capture=${captureOk ? 'ok' : `FAILED:${captureError}`} grab=(${grabOffsetRef.current.x},${grabOffsetRef.current.y})`,
     );
     moveCountRef.current = 0;
-    detach.dragStart(detachedTab, index);
+    detach.dragStart(detachedTab, index, grabOffsetRef.current);
   };
 
   const barHandlers = {
@@ -296,7 +339,7 @@ export function useTerminalTabDrag({
     },
   };
 
-  return { onTabPointerDown, barHandlers, draggingTabId, dropIndicator };
+  return { onTabPointerDown, barHandlers, draggingTabId, dragGhost, dropIndicator };
 }
 
 export interface FileTabDrag {

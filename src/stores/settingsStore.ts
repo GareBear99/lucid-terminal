@@ -39,6 +39,14 @@ interface SettingsState {
   checkPingKey: () => Promise<void>;
   hasPingKey: boolean;
 
+  // GitHub Copilot key actions - Gary's own Copilot key for the
+  // copilot tab's GitHub Copilot model, stored encrypted in
+  // secureStorage (same pattern as the API key / ping key).
+  setCopilotApiKey: (key: string) => Promise<void>;
+  deleteCopilotApiKey: () => Promise<void>;
+  checkCopilotApiKey: () => Promise<void>;
+  hasCopilotApiKey: boolean;
+
   // Telegram bot token actions — the Bot API token for the user's
   // own bot, stored encrypted in secureStorage.
   setTelegramBotToken: (token: string) => Promise<void>;
@@ -52,6 +60,13 @@ interface SettingsState {
   deleteStripeApiKey: () => Promise<void>;
   checkStripeApiKey: () => Promise<void>;
   hasStripeApiKey: boolean;
+
+  // Kaggle API key actions — the key for the user's own Kaggle
+  // account, stored encrypted in secureStorage.
+  setKaggleApiKey: (key: string) => Promise<void>;
+  deleteKaggleApiKey: () => Promise<void>;
+  checkKaggleApiKey: () => Promise<void>;
+  hasKaggleApiKey: boolean;
 
   // Google Authenticator TOTP secret actions - the second factor
   // for the Google sign-in (Settings > Security, Gary 2026-11-10
@@ -99,6 +114,7 @@ const defaultSettings: Settings = {
   filesMist: false,
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
+  copilots: [],
   pingServerEnabled: false,
   pingServerEndpoint: 'http://127.0.0.1:8787',
   pingServerUserId: '',
@@ -107,6 +123,8 @@ const defaultSettings: Settings = {
   telegramBotUsername: '',
   stripeAccountId: '',
   stripeAccountName: '',
+  kaggleUsername: '',
+  colabAccountEmail: '',
   terminalPolicy: 'ask',
   showValidationSteps: true,
   autoCollapseValidation: true,
@@ -127,6 +145,11 @@ const defaultSettings: Settings = {
   forgeStopColorDuration: { kind: 'seconds', seconds: 3 },
   synthDisclaimerChoice: null,
   synthVersion: null,
+  synthOwnBuild: null,
+  // Demo permanently replaced (Gary, 2026-11-12 ~12:23 PST) — the
+  // demo is still there until the creation build is made and
+  // mounted; then this flips true, one-way (see src/types/index.ts).
+  synthDemoReplaced: false,
   toolbarPlugins: {},
   // Toolbar icon order — empty = the default order (see
   // src/lib/toolbarOrder.ts). Written immediately on drop.
@@ -166,6 +189,11 @@ const defaultSettings: Settings = {
   // src/types/index.ts).
   summonVariant: null,
   summonVariantDontAsk: false,
+  // Voxel Directory local file access (Gary, 2026-11-12 ~10:45 PST)
+  // — no grant remembered yet, so the Local-tab ask runs every time
+  // until "do not show again" is checked with an Allow (see
+  // src/types/index.ts).
+  voxelLocalAccessDontAsk: false,
   // Snapshot update alert dismissals (Gary, 2026-11-09 ~14:51 PST)
   // — no version dismissed yet, so alerts show.
   snapshotAlertDismissedVersions: [],
@@ -202,8 +230,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currentTheme: themes[0],
   hasApiKey: false,
   hasPingKey: false,
+  hasCopilotApiKey: false,
   hasTelegramBotToken: false,
   hasStripeApiKey: false,
+  hasKaggleApiKey: false,
   hasTotpSecret: false,
   runOnStartup: false,
   isLocalBackendAvailable: false,
@@ -219,6 +249,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const hasPingKey = await window.lucidAPI.settings.hasPingKey();
       const hasTelegramBotToken = await window.lucidAPI.settings.hasTelegramBotToken();
       const hasStripeApiKey = await window.lucidAPI.settings.hasStripeApiKey();
+      const hasKaggleApiKey = await window.lucidAPI.settings.hasKaggleApiKey();
+      // Preload without the Copilot key call (an older build) - assume none stored.
+      let hasCopilotApiKey = false;
+      try {
+        hasCopilotApiKey = await window.lucidAPI.settings.hasCopilotApiKey();
+      } catch {
+        hasCopilotApiKey = false;
+      }
       // Preload without the TOTP call (an older build) - assume none stored.
       let hasTotpSecret = false;
       try {
@@ -279,7 +317,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       document.documentElement.style.setProperty('--font-mono', settings.fontFamily);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
 
-      set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, hasTelegramBotToken, hasStripeApiKey, hasTotpSecret, isLoading: false });
+      set({ settings, currentTheme: theme, hasApiKey: hasKey, hasPingKey, hasCopilotApiKey, hasTelegramBotToken, hasStripeApiKey, hasKaggleApiKey, hasTotpSecret, isLoading: false });
 
       // Run on startup syncs from the OS, not the settings file — the
       // macOS login-item state is the truth (Gary, 2026-11-12).
@@ -384,6 +422,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ hasPingKey: hasKey });
   },
 
+  setCopilotApiKey: async (key) => {
+    await window.lucidAPI.settings.setCopilotApiKey(key);
+    set({ hasCopilotApiKey: true });
+  },
+
+  deleteCopilotApiKey: async () => {
+    await window.lucidAPI.settings.deleteCopilotApiKey();
+    set({ hasCopilotApiKey: false });
+  },
+
+  checkCopilotApiKey: async () => {
+    const hasKey = await window.lucidAPI.settings.hasCopilotApiKey();
+    set({ hasCopilotApiKey: hasKey });
+  },
+
   setTelegramBotToken: async (token) => {
     await window.lucidAPI.settings.setTelegramBotToken(token);
     set({ hasTelegramBotToken: true });
@@ -412,6 +465,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   checkStripeApiKey: async () => {
     const hasKey = await window.lucidAPI.settings.hasStripeApiKey();
     set({ hasStripeApiKey: hasKey });
+  },
+
+  setKaggleApiKey: async (key) => {
+    await window.lucidAPI.settings.setKaggleApiKey(key);
+    set({ hasKaggleApiKey: true });
+  },
+
+  deleteKaggleApiKey: async () => {
+    await window.lucidAPI.settings.deleteKaggleApiKey();
+    set({ hasKaggleApiKey: false });
+  },
+
+  checkKaggleApiKey: async () => {
+    const hasKey = await window.lucidAPI.settings.hasKaggleApiKey();
+    set({ hasKaggleApiKey: hasKey });
   },
 
   setTotpSecret: async (secret) => {

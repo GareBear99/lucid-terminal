@@ -363,6 +363,25 @@ export interface ThemeColors {
   };
 }
 
+// Copilots (Gary, 2026-11-13): one entry per copilot in the AI
+// chat's copilot tab. `model` picks the brain that plans the
+// copilot's turns — 'local-planner' runs on this machine with no
+// key and no network; 'github-copilot' is Gary's Copilot key,
+// saved in Settings > AI (Secure Vault). The Copilot connection
+// itself lands in a later build (D9 is still open): a Copilot
+// copilot with a saved key still shows as not-connected-yet, and
+// never silently falls back to the local planner. The id is
+// stable per copilot (the tab's threads are keyed by it) and is
+// generated when the copilot is added. Keep in sync with the
+// catalogue in src/lib/copilotModels.ts.
+export type CopilotModelId = 'local-planner' | 'github-copilot';
+
+export interface CopilotConfig {
+  id: string;
+  name: string;
+  model: CopilotModelId;
+}
+
 export interface Settings {
   theme: string;
   customTheme: Theme | null;
@@ -385,6 +404,11 @@ export interface Settings {
   filesMist: boolean;
   aiModel: string;
   aiTemperature: number;
+  // Copilots (Gary, 2026-11-13): the AI chat's copilot tab runs
+  // these — add as many as desired in Settings > AI. Each copilot
+  // picks its own model; the list starts empty (the tab's empty
+  // state points at Settings > AI to add the first one).
+  copilots: CopilotConfig[];
   terminalPolicy: 'ask' | 'auto' | 'deny';
   // Validation display (Warp-style)
   showValidationSteps: boolean;
@@ -1325,6 +1349,9 @@ declare global {
         deleteApiKey: () => Promise<void>;
         setPingKey: (key: string) => Promise<void>;
         hasPingKey: () => Promise<boolean>;
+        setCopilotApiKey: (key: string) => Promise<void>;
+        hasCopilotApiKey: () => Promise<boolean>;
+        deleteCopilotApiKey: () => Promise<void>;
         deletePingKey: () => Promise<void>;
         setTelegramBotToken: (token: string) => Promise<void>;
         hasTelegramBotToken: () => Promise<boolean>;

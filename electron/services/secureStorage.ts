@@ -315,6 +315,32 @@ export const pingKeyStorage = {
 
 };
 
+// GitHub Copilot key — Gary's own Copilot key for the copilot
+// tab's GitHub Copilot model, entered by Gary himself in
+// Settings > AI and stored encrypted like the API key. The
+// key is never hardcoded, never logged, never written to a
+// file outside the OS keychain. (The Copilot connection
+// itself lands in a later build — D9 is still open — so a
+// saved key does not make a Copilot copilot run yet.)
+export const copilotApiKeyStorage = {
+  setCopilotApiKey(key: string): void {
+    secureStorage.setSecret('github-copilot-key', key);
+  },
+
+  getCopilotApiKey(): string | null {
+    return secureStorage.getSecret('github-copilot-key');
+  },
+
+  hasCopilotApiKey(): boolean {
+    return secureStorage.hasSecret('github-copilot-key');
+  },
+
+  deleteCopilotApiKey(): void {
+    secureStorage.deleteSecret('github-copilot-key');
+  },
+
+};
+
 // Telegram bot token — the Bot API token for the user's own bot
 // (created in BotFather), stored encrypted like the API key and
 // the ping key. The renderer only ever sees whether one is stored
@@ -360,6 +386,34 @@ export const stripeApiKeyStorage = {
 
   deleteStripeApiKey(): void {
     secureStorage.deleteSecret('stripe-api-key');
+  },
+
+};
+
+// Kaggle API key - the key for the user's own Kaggle account
+// (created on kaggle.com, Settings → API → Create New Token),
+// stored encrypted like the API key, the ping key, the Telegram
+// bot token and the Stripe key. The renderer only ever sees
+// whether one is stored (hasKaggleApiKey); the key itself never
+// crosses into plain Settings. Bring your own account (Gary,
+// 2026-11-12): the key belongs to whoever connects it, and jobs
+// spend that account's own GPU quota — never anyone else's, and
+// never Gary's. Gary's Kaggle account appears nowhere here.
+export const kaggleApiKeyStorage = {
+  setKaggleApiKey(key: string): void {
+    secureStorage.setSecret('kaggle-api-key', key);
+  },
+
+  getKaggleApiKey(): string | null {
+    return secureStorage.getSecret('kaggle-api-key');
+  },
+
+  hasKaggleApiKey(): boolean {
+    return secureStorage.hasSecret('kaggle-api-key');
+  },
+
+  deleteKaggleApiKey(): void {
+    secureStorage.deleteSecret('kaggle-api-key');
   },
 
 };

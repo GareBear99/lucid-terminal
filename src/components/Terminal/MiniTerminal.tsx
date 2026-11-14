@@ -74,6 +74,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { EMPTY_BLOCKS, useHistoryStore } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
+import { useCopilotStore } from '../../stores/copilotStore';
 import { isGuestProfile, useProfileStore } from '../../stores/profileStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useDetachPushListeners } from '../../lib/detachPushListeners';
@@ -652,6 +653,7 @@ export default function MiniTerminal() {
     if (isGuestProfile(profileState.profiles.find((p) => p.id === profileState.activeProfileId))) {
       useHistoryStore.getState().enterGuestSession();
       useCommandHistoryStore.getState().enterGuestSession();
+      useCopilotStore.getState().enterGuestSession();
     }
     const onChanged = window.lucidAPI?.settings?.onChanged?.((key) => {
       if (

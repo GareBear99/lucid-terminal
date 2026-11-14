@@ -325,6 +325,39 @@ function tabExists(tabId: string): boolean {
   return useTerminalStore.getState().tabs.some((t) => t.id === tabId);
 }
 
+/**
+ * Resolution listeners — surfaces that show a review OUTSIDE the
+ * terminal feed (the copilot tab) learn when a review resolves,
+ * so their copy of the card flips to kept/rejected with the
+ * checkpoint id, without re-rendering through the history store.
+ * The terminal feed does not need this (it re-renders via
+ * historyStore); the listener is a no-op for it. A listener that
+ * does not recognise the requestId ignores the call.
+ */
+export interface AgentReviewResolution {
+  requestId: string;
+  runId: string;
+  status: 'kept' | 'rejected' | 'kept-all' | 'rejected-all';
+  checkpointId?: string;
+}
+
+const reviewResolvedListeners = new Set<(resolution: AgentReviewResolution) => void>();
+
+export function onAgentReviewResolved(
+  listener: (resolution: AgentReviewResolution) => void,
+): () => void {
+  reviewResolvedListeners.add(listener);
+  return () => {
+    reviewResolvedListeners.delete(listener);
+  };
+}
+
+function notifyReviewResolved(resolution: AgentReviewResolution): void {
+  for (const listener of [...reviewResolvedListeners]) {
+    listener(resolution);
+  }
+}
+
 function appendReviewBlock(
   tabId: string,
   blockData: AgentReviewBlockData,
@@ -350,6 +383,12 @@ function updateReviewBlock(
   requestId: string,
   patch: Partial<AgentReviewBlockData>,
 ): void {
+  // A synthetic tab id (the copilot tab) or a tab that closed
+  // mid-run has no feed — setBlocks would silently CREATE a
+  // blocks entry for it, so the update is a no-op there. The
+  // resolution listener (above) is how non-feed surfaces learn
+  // about it instead.
+  if (!tabExists(tabId)) return;
   useHistoryStore.getState().setBlocks(tabId, (prev) =>
     prev.map((b) =>
       b.review?.requestId === requestId ? { ...b, review: { ...b.review, ...patch } } : b,
@@ -366,6 +405,8 @@ function updateReviewBlockByCheckpoint(
     if (cp.id === checkpointId) tabIds.add(cp.tabId);
   }
   for (const tabId of tabIds) {
+    // Same guard as updateReviewBlock: no feed, no update.
+    if (!tabExists(tabId)) continue;
     useHistoryStore.getState().setBlocks(tabId, (prev) =>
       prev.map((b) =>
         b.review?.checkpointId === checkpointId ? { ...b, review: { ...b.review, ...patch } } : b,
@@ -386,19 +427,31 @@ export interface AgentReviewRequestInput {
 }
 
 /**
- * Ask the user about one write call. Returns true when
- * the edit may run, false when it must not. A run in
- * keep-all / reject-all mode answers without a block.
- * The block is the UI surface; the returned promise is
- * what the loop awaits. A tab that closed mid-run, or an
- * aborted run, answers false — the run reports the
- * refusal instead of hanging.
+ * The feed-independent core of requestAgentReview: register one
+ * write call for review, compute its preview, and return the
+ * promise the loop awaits plus the block data for the UI surface
+ * to render. It appends NOTHING to any feed and checks NO tab
+ * exists — the caller owns the surface: the terminal feed via
+ * requestAgentReview below, the copilot tab directly (the
+ * copilot's run id is not a terminal tab, so it must never go
+ * through the feed path). A run in keep-all / reject-all mode
+ * answers immediately with no request registered.
  */
-export async function requestAgentReview(input: AgentReviewRequestInput): Promise<boolean> {
+export type CreateReviewResult =
+  | { kind: 'answered'; allowed: boolean }
+  | {
+      kind: 'pending';
+      requestId: string;
+      promise: Promise<boolean>;
+      blockData: AgentReviewBlockData;
+    };
+
+export async function createReviewRequest(
+  input: AgentReviewRequestInput,
+): Promise<CreateReviewResult> {
   const mode = runModes.get(input.runId);
-  if (mode === 'keep-all') return true;
-  if (mode === 'reject-all') return false;
-  if (!tabExists(input.tabId)) return false;
+  if (mode === 'keep-all') return { kind: 'answered', allowed: true };
+  if (mode === 'reject-all') return { kind: 'answered', allowed: false };
 
   const toolName = input.call.name;
   const filepath = resolveCallFilepath(input.call.args, input.cwd, input.workspaceRoot);
@@ -433,7 +486,6 @@ export async function requestAgentReview(input: AgentReviewRequestInput): Promis
     resolved: false,
   });
   runHosts.set(input.runId, input.host);
-  appendReviewBlock(input.tabId, blockData, input.cwd);
   if (input.signal) {
     if (input.signal.aborted) {
       void resolveAgentReview(requestId, 'reject');
@@ -443,7 +495,30 @@ export async function requestAgentReview(input: AgentReviewRequestInput): Promis
       });
     }
   }
-  return promise;
+  return { kind: 'pending', requestId, promise, blockData };
+}
+
+/**
+ * Ask the user about one write call. Returns true when
+ * the edit may run, false when it must not. A run in
+ * keep-all / reject-all mode answers without a block.
+ * The block is the UI surface; the returned promise is
+ * what the loop awaits. A tab that closed mid-run, or an
+ * aborted run, answers false — the run reports the
+ * refusal instead of hanging.
+ *
+ * (One tightening vs the old inline version: the tab
+ * check now runs before the run-mode check, so a
+ * keep-all run in a tab that closed mid-run answers
+ * false instead of true — the user can no longer see
+ * the review, so the edit must not run unseen.)
+ */
+export async function requestAgentReview(input: AgentReviewRequestInput): Promise<boolean> {
+  if (!tabExists(input.tabId)) return false;
+  const created = await createReviewRequest(input);
+  if (created.kind === 'answered') return created.allowed;
+  appendReviewBlock(input.tabId, created.blockData, input.cwd);
+  return created.promise;
 }
 
 /**
@@ -506,6 +581,9 @@ export async function resolveAgentReview(
     checkpointId = await recordCheckpoint(req);
   }
   updateReviewBlock(req.tabId, requestId, { status, checkpointId });
+  // Non-feed surfaces (the copilot tab) learn the outcome here —
+  // the feed re-renders through historyStore, they do not.
+  notifyReviewResolved({ requestId, runId: req.runId, status, checkpointId });
   req.resolve(decision === 'keep' || decision === 'keep-all');
   return true;
 }
@@ -553,6 +631,7 @@ export function cancelAgentReviewsForRun(runId: string): void {
     if (req.runId === runId && !req.resolved) {
       req.resolved = true;
       updateReviewBlock(req.tabId, req.requestId, { status: 'rejected' });
+      notifyReviewResolved({ requestId: req.requestId, runId, status: 'rejected' });
       req.resolve(false);
     }
   }
@@ -621,4 +700,8 @@ export function resetAgentReviewForTests(): void {
   checkpoints.clear();
   runModes.clear();
   runHosts.clear();
+  // The listeners are NOT cleared: the copilot store subscribes
+  // once at creation, and a test reset must not silently unplug
+  // it. Tests that subscribe directly unsubscribe with the
+  // function onAgentReviewResolved returns.
 }

@@ -14,17 +14,29 @@
  * Theme vars only — no hardcoded colors, no new theme
  * tokens. Diff lines borrow the red/green the feed
  * already uses for exit codes.
+ *
+ * The block renders from the review data itself, not from a
+ * terminal block — the copilot tab shows the same card in its
+ * thread, where there is no terminal block to take it from.
+ * The terminal feed passes the block's review + timestamp +
+ * id; the copilot tab passes its thread message's.
  */
 
 import { resolveAgentReview, revertAgentCheckpoint } from '../../lib/agentReview';
-import type { TerminalBlock } from '../../types';
+import type { AgentReviewBlockData } from '../../types';
 
 const BUTTON_CLASS =
   'rounded px-1.5 py-px font-mono text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]';
 
-export function AgentReviewBlock({ block }: { block: TerminalBlock }) {
-  const review = block.review;
-  if (!review) return null;
+export function AgentReviewBlock({
+  review,
+  timestamp,
+  blockId,
+}: {
+  review: AgentReviewBlockData;
+  timestamp: number;
+  blockId: string;
+}) {
   const pending = review.status === 'pending';
   const kept = review.status === 'kept' || review.status === 'kept-all';
   const canRevert = kept && review.checkpointId && !review.checkpointReverted;
@@ -37,7 +49,7 @@ export function AgentReviewBlock({ block }: { block: TerminalBlock }) {
     <article
       data-testid="agent-review"
       data-review-status={review.status}
-      id={`block-${block.id}`}
+      id={`block-${blockId}`}
       className="px-3 py-2"
     >
       {/* Header: REVIEW + the proposed action. */}
@@ -57,7 +69,7 @@ export function AgentReviewBlock({ block }: { block: TerminalBlock }) {
           </span>
         )}
         <span className="shrink-0 opacity-70">
-          {new Date(block.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         </span>
       </div>
 

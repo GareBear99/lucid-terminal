@@ -326,6 +326,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setPingKey: (key: string) => ipcRenderer.invoke('settings:setPingKey', key),
     hasPingKey: () => ipcRenderer.invoke('settings:hasPingKey'),
     deletePingKey: () => ipcRenderer.invoke('settings:deletePingKey'),
+    setCopilotApiKey: (key: string) => ipcRenderer.invoke('settings:setCopilotApiKey', key),
+    hasCopilotApiKey: () => ipcRenderer.invoke('settings:hasCopilotApiKey'),
+    deleteCopilotApiKey: () => ipcRenderer.invoke('settings:deleteCopilotApiKey'),
     setTelegramBotToken: (token: string) => ipcRenderer.invoke('settings:setTelegramBotToken', token),
     hasTelegramBotToken: () => ipcRenderer.invoke('settings:hasTelegramBotToken'),
     deleteTelegramBotToken: () => ipcRenderer.invoke('settings:deleteTelegramBotToken'),
@@ -982,6 +985,9 @@ export interface LucidAPI {
     deleteApiKey: () => Promise<void>;
     setPingKey: (key: string) => Promise<void>;
     hasPingKey: () => Promise<boolean>;
+    setCopilotApiKey: (key: string) => Promise<void>;
+    hasCopilotApiKey: () => Promise<boolean>;
+    deleteCopilotApiKey: () => Promise<void>;
     deletePingKey: () => Promise<void>;
     setTelegramBotToken: (token: string) => Promise<void>;
     hasTelegramBotToken: () => Promise<boolean>;

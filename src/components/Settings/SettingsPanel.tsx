@@ -30,7 +30,8 @@ import {
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
 import { themes, fullGlassTheme, allBlackTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
-import { Theme } from '../../types';
+import { Theme, type CopilotModelId } from '../../types';
+import { COPILOT_MODELS, copilotModelLabel, newCopilotId } from '../../lib/copilotModels';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
 import { ModelInstaller } from './ModelInstaller';
 import { ModulesTab } from '../Modules/ModulesTab';
@@ -88,6 +89,9 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     hasPingKey,
     setPingKey,
     deletePingKey,
+    hasCopilotApiKey,
+    setCopilotApiKey,
+    deleteCopilotApiKey,
     exportSettings,
     importSettings,
     runOnStartup,
@@ -130,6 +134,12 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'appearance');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [pingKeyInput, setPingKeyInput] = useState('');
+  // Copilots (Gary, 2026-11-13): the add form for the copilot
+  // tab's dropdown — a name + a model per copilot, as many as
+  // desired. The key input below is Gary's own Copilot key.
+  const [copilotNameInput, setCopilotNameInput] = useState('');
+  const [copilotModelInput, setCopilotModelInput] = useState<CopilotModelId>('local-planner');
+  const [copilotKeyInput, setCopilotKeyInput] = useState('');
   const [pingTesting, setPingTesting] = useState(false);
   const [pingTestResult, setPingTestResult] = useState<string | null>(null);
   const [commandFilter, setCommandFilter] = useState('');
@@ -1061,6 +1071,121 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
                   </select>
 </Tooltip>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Copilots</h3>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-3">
+                  The copilots in the AI chat&apos;s Copilot tab — add as many as you like, each
+                  with its own model. A copilot runs the agent loop in the tab: it reads files,
+                  makes edits, checks each edit, and shows every edit for Keep/Reject first. The
+                  local planner needs no key; GitHub Copilot needs your key below.
+                </p>
+                {settings.copilots.length > 0 && (
+                  <ul className="space-y-2 mb-3">
+                    {settings.copilots.map((copilot) => (
+                      <li
+                        key={copilot.id}
+                        data-testid="copilot-settings-row"
+                        className="flex items-center gap-3 px-3 py-2 bg-[var(--bg-tertiary)] rounded-md"
+                      >
+                        <span className="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]">
+                          {copilot.name}
+                        </span>
+                        <span className="shrink-0 text-xs text-[var(--text-muted)]">
+                          {copilotModelLabel(copilot.model)}
+                        </span>
+                        <Tooltip content={`Remove ${copilot.name}`}>
+                          <button
+                            onClick={() =>
+                              void updateSetting(
+                                'copilots',
+                                settings.copilots.filter((c) => c.id !== copilot.id),
+                              )
+                            }
+                            className="btn btn-danger"
+                          >
+                            <Trash2 size={16} />
+                            Remove
+                          </button>
+                        </Tooltip>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    className="input flex-1"
+                    placeholder="Copilot name"
+                    value={copilotNameInput}
+                    onChange={(e) => setCopilotNameInput(e.target.value)}
+                  />
+                  <select
+                    className="input"
+                    aria-label="Copilot model"
+                    value={copilotModelInput}
+                    onChange={(e) => setCopilotModelInput(e.target.value as CopilotModelId)}
+                  >
+                    {COPILOT_MODELS.map((model) => (
+                      <option key={model.id} value={model.id} title={model.hint}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Tooltip content="Add this copilot">
+                    <button
+                      data-testid="copilot-add"
+                      disabled={!copilotNameInput.trim()}
+                      onClick={() => {
+                        const name = copilotNameInput.trim();
+                        if (!name) return;
+                        void updateSetting('copilots', [
+                          ...settings.copilots,
+                          { id: newCopilotId(), name, model: copilotModelInput },
+                        ]);
+                        setCopilotNameInput('');
+                      }}
+                      className="btn btn-primary"
+                    >
+                      Add
+                    </button>
+                  </Tooltip>
+                </div>
+                {hasCopilotApiKey ? (
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-[var(--bg-tertiary)] rounded-md">
+                      <Check size={16} className="text-[var(--success)]" />
+                      <span className="text-sm text-[var(--text-muted)]">GitHub Copilot key saved</span>
+                    </div>
+                    <Tooltip content="Remove the saved GitHub Copilot key">
+                      <button data-testid="copilot-key-remove" onClick={deleteCopilotApiKey} className="btn btn-danger">
+                        <Trash2 size={16} />
+                        Remove
+                      </button>
+                    </Tooltip>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      className="input"
+                      placeholder="GitHub Copilot key"
+                      value={copilotKeyInput}
+                      onChange={(e) => setCopilotKeyInput(e.target.value)}
+                    />
+                    <Tooltip content="Save the GitHub Copilot key">
+                      <button data-testid="copilot-key-save" onClick={() => setCopilotApiKey(copilotKeyInput)} className="btn btn-primary">
+                        Save
+                      </button>
+                    </Tooltip>
+                  </div>
+                )}
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">
+                  The key is stored encrypted in the OS keychain, like the API key. The Copilot
+                  connection itself lands in a later build — a Copilot copilot with a saved key
+                  still shows as not connected yet, and never runs as the local planner.
+                </p>
               </section>
 
               <section>

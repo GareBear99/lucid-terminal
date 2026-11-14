@@ -20,7 +20,7 @@ import {
 } from './services/browserMiniWindow';
 import { setupAndroidHandlers } from './ipc/android';
 import { setupGlobalCursorPolling } from './ipc/cursor';
-import { apiKeyStorage, pingKeyStorage, telegramBotTokenStorage, stripeApiKeyStorage, kaggleApiKeyStorage, totpSecretStorage, settings } from './services/secureStorage';
+import { apiKeyStorage, pingKeyStorage, copilotApiKeyStorage, telegramBotTokenStorage, stripeApiKeyStorage, kaggleApiKeyStorage, totpSecretStorage, settings } from './services/secureStorage';
 import { verifyTotpCodeAgainstStored } from './services/totpAuth';
 import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
@@ -213,6 +213,19 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:deletePingKey', () => {
     pingKeyStorage.deletePingKey();
+  });
+
+  // GitHub Copilot key handlers — Gary's own Copilot key for the
+  // copilot tab's GitHub Copilot model, stored encrypted like the
+  // API key. The renderer only ever holds whether one is stored.
+  ipcMain.handle('settings:setCopilotApiKey', (_, key) => {
+    copilotApiKeyStorage.setCopilotApiKey(key);
+  });
+  ipcMain.handle('settings:hasCopilotApiKey', () => {
+    return copilotApiKeyStorage.hasCopilotApiKey();
+  });
+  ipcMain.handle('settings:deleteCopilotApiKey', () => {
+    copilotApiKeyStorage.deleteCopilotApiKey();
   });
 
   // Telegram bot token handlers — the Bot API token for the user's

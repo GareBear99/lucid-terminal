@@ -213,7 +213,7 @@ export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, 
               of the decision (and of the checkpoint it can
               revert to). */}
           {block.kind === 'agent-review' && block.review ? (
-            <AgentReviewBlock block={block} />
+            <AgentReviewBlock review={block.review} timestamp={block.timestamp} blockId={block.id} />
           ) : block.kind === 'notice' ? (
             /* A notice block is a plain note (the driving-
               intelligence placeholder in an agent session): no

@@ -101,6 +101,7 @@ import { create } from 'zustand';
 import { useAIStore } from './aiStore';
 import { clearPersistedHistory, useHistoryStore } from './historyStore';
 import { clearProfileCommandHistory, useCommandHistoryStore } from './commandHistoryStore';
+import { useCopilotStore } from './copilotStore';
 import { useSettingsStore } from './settingsStore';
 import { wipeProfileSynth } from './synthStore';
 import { parseCreatorBuild } from '../lib/synthDisclaimer';
@@ -360,6 +361,7 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         useAIStore.getState().resetGuestSession();
         useHistoryStore.getState().resetGuestSession();
         useCommandHistoryStore.getState().resetGuestSession();
+        useCopilotStore.getState().resetGuestSession();
       }
       return profile;
     },
@@ -382,7 +384,7 @@ export const useProfileStore = create<ProfileState>((set, get) => {
       // shows NO saved data — no LLMBuilder memory, no
       // driving-intelligence memory, no chat memory, no history.
       // The veil lives in aiStore / historyStore /
-      // commandHistoryStore: entering veils the owner's sessions
+      // commandHistoryStore / copilotStore: entering veils the owner's sessions
       // + blocks + command list in memory (never deleted, never
       // persisted over), leaving restores them exactly.
       // Guest-to-guest (a fresh guest replacing the old one) keeps
@@ -391,10 +393,12 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         useAIStore.getState().enterGuestSession();
         useHistoryStore.getState().enterGuestSession();
         useCommandHistoryStore.getState().enterGuestSession();
+        useCopilotStore.getState().enterGuestSession();
       } else if (wasGuest && !isGuest) {
         useAIStore.getState().exitGuestSession();
         useHistoryStore.getState().exitGuestSession();
         useCommandHistoryStore.getState().exitGuestSession();
+        useCopilotStore.getState().exitGuestSession();
         // The guest is gone: load the target profile's command
         // list (no-op when it is the profile the guest veiled
         // in from — exit already restored that list).
@@ -517,4 +521,5 @@ if (
   useAIStore.getState().enterGuestSession();
   useHistoryStore.getState().enterGuestSession();
   useCommandHistoryStore.getState().enterGuestSession();
+  useCopilotStore.getState().enterGuestSession();
 }

@@ -683,7 +683,13 @@ function App() {
                   className="h-full border-l border-[var(--border)]"
                   style={{ width: aiPanelWidth }}
                 >
-                  <AIPanel onClose={() => setShowAI(false)} />
+                  <AIPanel
+                    onClose={() => setShowAI(false)}
+                    onOpenSettings={(tab) => {
+                      setSettingsInitialTab(tab);
+                      setCurrentView('settings');
+                    }}
+                  />
                 </div>
               </>
             )}

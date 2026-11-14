@@ -24,7 +24,7 @@ import type { BrowserTabState } from '../types';
  * testable without Electron.
  */
 
-export type PanelTab = 'ai' | 'browser';
+export type PanelTab = 'ai' | 'browser' | 'copilot';
 
 export interface BrowserTab {
   id: string;

@@ -15,7 +15,23 @@ import {
 import { registerEditorLspProviders } from '../../lib/editorLspProvider';
 import { getEngineClient } from '../../lib/engineClient';
 import { publishDocsCursor, republishDocsCursor } from '../../lib/docsCursor';
+import { requestDocsPanel } from '../../lib/docsPanelRequest';
+import {
+  consumePendingEditorJump,
+  getPendingEditorJump,
+  requestEditorJump,
+  subscribeEditorJump,
+  type EditorJump,
+} from '../../lib/editorJump';
+import {
+  MarkerLayer,
+} from '../../lib/markerDecorations';
+import { gutterRangesForDiff } from '../../lib/gitLineDiff';
 import { lspDiagnosticToMonacoMarker, monacoToLsp } from '../../lib/tsLspContract';
+
+/** Atom's git-diff skips buffers at or above 2 MB
+ *  (`git-diff-view.js:6` MAX_BUFFER_LENGTH_TO_DIFF). */
+export const MAX_GUTTER_BUFFER_BYTES = 2 * 1024 * 1024;
 
 function CodeEditor() {
   const { openFiles, activeFilePath, setActiveFile, closeFileWithConfirm, detachFile, updateFileContent, saveFile } =
@@ -65,6 +81,11 @@ function CodeEditor() {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const diagnosticsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The git gutter's marker layer (Atom steal #4/#6): one
+  // layer over the editor, re-marked from `git diff HEAD`
+  // on edit stop. Created on mount, disposed on unmount.
+  const gutterLayerRef = useRef<MarkerLayer | null>(null);
+  const gutterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Docs panel cursor (Kite mapping #4 — the sidebar
   // pattern): publish the cursor position + the word at it
@@ -117,6 +138,97 @@ function CodeEditor() {
     }, 150);
   };
 
+  // The git gutter (Atom steal #6 — 419 LOC, highest
+  // feel-per-line): the coloured marks next to the line
+  // numbers, recomputed from HEAD on every edit stop, like
+  // the diagnostics cadence above. A null diff (not a repo,
+  // git missing) clears the gutter silently — never a faked
+  // mark. Buffers at or above 2 MB are skipped, Atom's rule.
+  // The refresh is async and reads the active file at fire
+  // time, so a switch mid-timer never gutters the wrong
+  // model.
+  const refreshGutter = async () => {
+    const path = useFileStore.getState().activeFilePath;
+    const layer = gutterLayerRef.current;
+    if (!path || !layer) return;
+    const file = useFileStore.getState().openFiles.find((f) => f.path === path);
+    const content = file?.content ?? '';
+    if (content.length >= MAX_GUTTER_BUFFER_BYTES) {
+      layer.clear();
+      return;
+    }
+    const api = window.lucidAPI?.git;
+    if (!api || typeof api.getDiff !== 'function') return;
+    const dir = path.split('/').slice(0, -1).join('/') || '/';
+    let diff: string | null = null;
+    try {
+      diff = await api.getDiff(dir, path);
+    } catch {
+      return;
+    }
+    // Not a repo (or git failed): no gutter, silently.
+    if (diff === null || diff === undefined) {
+      layer.clear();
+      return;
+    }
+    // The file may have switched while the diff was in
+    // flight — re-read the active path before applying.
+    if (useFileStore.getState().activeFilePath !== path) return;
+    const ranges = gutterRangesForDiff(diff);
+    layer.clear();
+    for (const r of ranges) {
+      const marker = layer.markRange(
+        {
+          startLineNumber: r.startLine,
+          startColumn: 1,
+          endLineNumber: r.endLine,
+          endColumn: 1,
+        },
+        // Atom's git-diff marks with invalidate: 'never'
+        // (git-diff-view.js markRange) — the gutter is
+        // re-marked from the diff on every refresh anyway.
+        { invalidate: 'never' },
+      );
+      layer.decorateMarker(marker, { type: 'gutter', className: r.className });
+    }
+  };
+  const scheduleGutter = () => {
+    if (gutterTimerRef.current) clearTimeout(gutterTimerRef.current);
+    gutterTimerRef.current = setTimeout(() => {
+      void refreshGutter();
+    }, 150);
+  };
+
+  // Put the editor on a file + line + column and centre it
+  // (Atom steal #8: setCursorBufferPosition +
+  // scrollToBufferPosition centre).
+  const applyJumpToEditor = (editor: any, jump: EditorJump) => {
+    try {
+      editor.setPosition?.({ lineNumber: jump.lineNumber, column: jump.column });
+      editor.revealLineInCenter?.(jump.lineNumber);
+      editor.focus?.();
+    } catch {
+      // The editor is gone — the jump is dropped, never an error.
+    }
+  };
+
+  // A jump request from the modal bus. The request is sticky:
+  // when the file is not active yet, open it — the
+  // active-file effect below consumes the pending jump once
+  // the new model is in place. When the editor is not mounted
+  // at all, the pending jump waits for the mount handler.
+  const handleJumpRequest = async (jump: EditorJump) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const active = useFileStore.getState().activeFilePath;
+    if (jump.path !== active) {
+      await useFileStore.getState().openFile(jump.path);
+      return;
+    }
+    const pending = consumePendingEditorJump();
+    if (pending) applyJumpToEditor(editor, pending);
+  };
+
   // Build the tree and open the LSP document when the active
   // file changes (open / switch); edits go through onChange
   // below. A no-op when the engine is not ready yet or the
@@ -127,6 +239,18 @@ function CodeEditor() {
       void updateFileTree(file.path, file.content || '');
       engineClient.openDocument(file.path, file.content || '');
       scheduleDiagnostics();
+      scheduleGutter();
+    }
+    // A jump requested while this file was not active yet —
+    // consume it now that the model is in place.
+    const pendingJump = getPendingEditorJump();
+    if (
+      pendingJump &&
+      pendingJump.path === activeFilePath &&
+      editorRef.current
+    ) {
+      consumePendingEditorJump();
+      applyJumpToEditor(editorRef.current, pendingJump);
     }
   }, [activeFilePath]);
 
@@ -144,6 +268,9 @@ function CodeEditor() {
       for (const dispose of disposers) dispose();
       if (diagnosticsTimerRef.current) clearTimeout(diagnosticsTimerRef.current);
       if (docsCursorTimerRef.current) clearTimeout(docsCursorTimerRef.current);
+      if (gutterTimerRef.current) clearTimeout(gutterTimerRef.current);
+      gutterLayerRef.current?.dispose();
+      gutterLayerRef.current = null;
     };
   }, []);
 
@@ -239,6 +366,42 @@ function CodeEditor() {
           const path = activePath();
           return path ? engineClient.getHover(path, monacoToLsp({ lineNumber, column })) : null;
         },
+        // The hover Docs link (Atom steal #7): `Docs` opens
+        // Lucid's docs panel at the hovered symbol, `Def`
+        // jumps to its definition when the engine knows one.
+        // The links are markdown in the lucid-docs:// /
+        // lucid-def:// schemes — the link opener registered
+        // on mount handles them. The report call is the same
+        // one the docs panel makes on every cursor move.
+        hoverLinks: (word, position) => {
+          const path = activePath();
+          if (!path) return null;
+          const docs = `lucid-docs://${encodeURIComponent(
+            JSON.stringify({
+              path,
+              lineNumber: position.lineNumber,
+              column: position.column,
+              word,
+            }),
+          )}`;
+          let def: string | undefined;
+          try {
+            const report = engineClient.getSymbolReport(
+              path,
+              { line: position.lineNumber - 1, character: position.column - 1 },
+              word,
+            );
+            const loc = report?.definition?.[0];
+            if (loc) {
+              def = `lucid-def://${encodeURIComponent(
+                JSON.stringify({ uri: loc.uri, line: loc.range.start.line }),
+              )}`;
+            }
+          } catch {
+            // No definition link — Docs still works.
+          }
+          return { docs, def };
+        },
         getSignatureHelp: (lineNumber, column, _triggerCharacter) => {
           const path = activePath();
           return path
@@ -251,6 +414,65 @@ function CodeEditor() {
     // (debounced), and the mount publishes once for the file
     // the editor just opened. The listener's dispose rides
     // with the provider disposers — same unmount.
+    // The git gutter's layer (Atom steal #4): one layer
+    // over this editor, fed by refreshGutter.
+    gutterLayerRef.current = new MarkerLayer(_editor);
+    // The editor-jump subscription (Atom steal #8): modals
+    // request jumps, this editor applies them. Disposed with
+    // the providers below.
+    const jumpUnsubscribe = subscribeEditorJump((jump) => {
+      void handleJumpRequest(jump);
+    });
+    lspDisposers.current.push(jumpUnsubscribe);
+    // The hover link opener (Atom steal #7): the Docs/Def
+    // links in the hover markdown land here. Returning false
+    // lets any other opener try the link.
+    if (monaco.editor?.registerLinkOpener) {
+      const linkOpener = monaco.editor.registerLinkOpener({
+        open: (resource: { toString: () => string }) => {
+          const href = resource.toString();
+          if (href.startsWith('lucid-docs://')) {
+            try {
+              const data = JSON.parse(
+                decodeURIComponent(href.slice('lucid-docs://'.length)),
+              );
+              publishDocsCursor({
+                path: data.path,
+                lineNumber: data.lineNumber,
+                column: data.column,
+                word: data.word ?? null,
+              });
+              requestDocsPanel();
+              return true;
+            } catch {
+              return false;
+            }
+          }
+          if (href.startsWith('lucid-def://')) {
+            try {
+              const data = JSON.parse(
+                decodeURIComponent(href.slice('lucid-def://'.length)),
+              );
+              const path = String(data.uri ?? '').replace(/^file:\/\//, '');
+              if (!path) return false;
+              void (async () => {
+                await useFileStore.getState().openFile(path);
+                requestEditorJump({
+                  path,
+                  lineNumber: (data.line ?? 0) + 1,
+                  column: 1,
+                });
+              })();
+              return true;
+            } catch {
+              return false;
+            }
+          }
+          return false;
+        },
+      });
+      lspDisposers.current.push(() => linkOpener.dispose());
+    }
     const cursorDisposable = _editor.onDidChangeCursorPosition?.(scheduleDocsCursorPublish);
     if (cursorDisposable) {
       lspDisposers.current.push(() => {
@@ -263,6 +485,17 @@ function CodeEditor() {
     }
     publishCurrentCursor();
     scheduleDiagnostics();
+    scheduleGutter();
+    // A jump requested before this editor mounted (the view
+    // was elsewhere when the modal asked) — apply it now.
+    const pendingJump = getPendingEditorJump();
+    if (
+      pendingJump &&
+      pendingJump.path === useFileStore.getState().activeFilePath
+    ) {
+      consumePendingEditorJump();
+      applyJumpToEditor(_editor, pendingJump);
+    }
   };
 
   // Determine language from file extension
@@ -434,11 +667,15 @@ function CodeEditor() {
                 void updateFileTree(activeFile.path, value || '');
                 engineClient.changeDocument(activeFile.path, value || '');
                 scheduleDiagnostics();
+                scheduleGutter();
               }}
               options={{
                 fontFamily: settings.fontFamily,
                 fontSize: settings.fontSize,
                 minimap: { enabled: true },
+                // The git gutter renders in the glyph margin
+                // (Atom steal #6 — `gutter` decorations).
+                glyphMargin: true,
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',
                 automaticLayout: true,

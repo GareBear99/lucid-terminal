@@ -559,3 +559,29 @@ button {
     animation: none;
   }
 }
+
+/* Atom git gutter (steal #6): the glyph-margin marks next to
+   the line numbers. The colour is the line's state — added
+   green, modified amber, removed red (the removed mark sits
+   on the line before the gap; a removal at the top of the
+   file hangs on line 1). */
+.git-line-added,
+.git-line-modified,
+.git-line-removed,
+.git-previous-line-removed {
+  width: 3px;
+  margin-left: 3px;
+}
+
+.git-line-added {
+  background: var(--success);
+}
+
+.git-line-modified {
+  background: var(--warning);
+}
+
+.git-line-removed,
+.git-previous-line-removed {
+  background: var(--error);
+}

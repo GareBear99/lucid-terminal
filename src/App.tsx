@@ -26,6 +26,10 @@ import { togglePersonaPlexView } from './lib/personaPlexView';
 import { toggleSettingsView } from './lib/settingsView';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
+import { AtomModals } from './components/CommandPalette/CommandPalette';
+import { registerBuiltinCommands } from './lib/builtinCommands';
+import type { CommandContext } from './lib/commandRegistry';
+import { refreshProjectFileIndex } from './lib/projectFileIndex';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
@@ -75,7 +79,7 @@ function App() {
   // Tab detach + remount pushes (Gary, 2026-11-09): tabs/files
   // returning to the main window land here.
   useDetachPushListeners();
-  const { currentDir, setCurrentDir } = useFileStore();
+  const { currentDir, setCurrentDir, openFiles, activeFilePath } = useFileStore();
   // Snapshot update alert (Gary, 2026-11-12 ~08:22 PST):
   // the dialog shows when the launch check (or a manual
   // check) finds the manifest differs and this version was
@@ -94,6 +98,31 @@ function App() {
   }, [snapshotStatus, snapshotCheckResult]);
 
   const [currentView, setCurrentView] = useState<View>('terminal');
+  // The command palette's focus point (Atom steal #1): which
+  // view is showing, whether a file is active, whether
+  // LuciferAI is on — the registry filters on this. It is
+  // rebuilt every render so the palette always sees the
+  // current view and file state.
+  const commandContext: CommandContext = {
+    view: currentView,
+    hasActiveFile: Boolean(activeFilePath),
+    hasOpenFiles: openFiles.length > 0,
+    luciferAiEnabled,
+    luciferAiSilenced,
+  };
+  // Register the built-in palette commands once (Atom steal
+  // #1): view switches, editor + terminal actions, the four
+  // Atom modals. The handlers are the same store calls the
+  // buttons and slash commands use — the palette lists them,
+  // it adds no new powers.
+  useEffect(() => {
+    registerBuiltinCommands({
+      switchView: (view) => setCurrentView(view),
+      toggleAI: () => handleToggleAI(),
+      openHelp: () => openHelp(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // The theme is the stored theme everywhere (Gary, 2026-11-09:
   // solid theme like before). It is applied by loadSettings at
   // startup and by setTheme / setCustomTheme on change — there is
@@ -378,6 +407,11 @@ function App() {
       try {
         const homeDir = await window.lucidAPI.fs.getHomeDir();
         await setCurrentDir(homeDir, 'startup');
+        // Warm the fuzzy finder's project index (Atom steal
+        // #2) so the first ⌘P is instant. Best-effort, no
+        // await — a failed read keeps the empty list, and the
+        // finder warms on first open as a fallback.
+        void refreshProjectFileIndex(homeDir);
         console.log('[INIT] ✅ File explorer ready');
       } catch (error) {
         console.log('[INIT] File explorer unavailable');
@@ -745,6 +779,11 @@ function App() {
           setHelpInitialCategory(null);
         }}
       />
+
+      {/* The command palette + fuzzy finder + go-to modals
+          (Atom steals #1/#2/#8): one host, mounted once, the
+          modals open from their shortcuts or the registry. */}
+      <AtomModals context={commandContext} switchView={(view) => setCurrentView(view)} />
 
       {/* Snapshot update alert — a new snapshot is required
           (the manifest differs from the installed snapshot)

@@ -90,6 +90,21 @@ export interface EditorLspProviderOptions {
   getPatternCompletions?: (linePrefix: string) => string[];
   /** LSP hover at a Monaco position, or null. */
   getHover: (lineNumber: number, column: number) => LspHover | null;
+  /**
+   * Hover action links (Atom steal #7 — the hover Docs link,
+   * 2026-11-14). When present, the provider appends a `Docs`
+   * link (and a `Def` link when the engine knows a definition)
+   * to the hover, as markdown links in the `lucid-docs://` /
+   * `lucid-def://` schemes — the editor's link opener handles
+   * them (CodeEditor registers it). The word comes from the
+   * model at the hover position; returning null/undefined
+   * skips the link. Optional: without it the hover is
+   * LSP-only, as before.
+   */
+  hoverLinks?: (
+    word: string,
+    position: { lineNumber: number; column: number },
+  ) => { docs?: string; def?: string } | null;
   /** LSP signature help at a Monaco position, or null. */
   getSignatureHelp: (
     lineNumber: number,
@@ -356,8 +371,24 @@ export function registerEditorLspProviders(
         if (!position) return null;
         const hover = opts.getHover(position.lineNumber, position.column);
         if (!hover) return null;
+        // The hover Docs link (Atom steal #7): append `Docs`
+        // (and `Def` when the engine knows a definition) to
+        // the hover markdown. The word comes from the model;
+        // without a word there is nothing to link.
+        let contents = hover.contents;
+        const model = _model as ModelLike | null;
+        const word = model?.getWordAtPosition?.(position)?.word;
+        if (word && opts.hoverLinks) {
+          const links = opts.hoverLinks(word, position);
+          const actions: string[] = [];
+          if (links?.docs) actions.push(`[Docs](${links.docs})`);
+          if (links?.def) actions.push(`[Def](${links.def})`);
+          if (actions.length > 0) {
+            contents = `${contents}\n\n${actions.join(' · ')}`;
+          }
+        }
         return {
-          contents: [{ value: hover.contents }],
+          contents: [{ value: contents }],
           range: hover.range ? lspRangeToMonaco(hover.range) : undefined,
         };
       } catch {

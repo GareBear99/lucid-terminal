@@ -29,6 +29,7 @@ import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { resolveToolbarOrder, moveToolbarIcon } from '../../lib/toolbarOrder';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
 import { DocsPanel } from '../Sidebar/DocsPanel';
+import { subscribeDocsPanelRequest } from '../../lib/docsPanelRequest';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { View, FileEntry } from '../../types';
 
@@ -550,6 +551,17 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activePanel]);
+
+  // The hover Docs link (Atom steal #7): the editor's link
+  // opener asks for the docs panel — show it, un-collapsed,
+  // with the hovered symbol (the cursor comes from the
+  // docs-cursor bus, which the opener publishes first).
+  useEffect(() => {
+    return subscribeDocsPanelRequest(() => {
+      setActivePanel('docs');
+      setCollapsedPanels((prev) => ({ ...prev, docs: false }));
+    });
+  }, []);
 
   // Jump to a block in the terminal. The block elements only exist
   // while the Terminal view is mounted — if the user is in the Synth,

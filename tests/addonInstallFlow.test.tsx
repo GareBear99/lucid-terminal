@@ -14,6 +14,12 @@
  * opens its setup page; the others open their settings entry
  * point or a toast when they have no settings page yet).
  *
+ * ARC Server (Gary, 2026-11-14) is the one add-on fetched at
+ * install time: Install downloads the repo tarball in the main
+ * process (mocked here) and only then records the id; a failed
+ * fetch records the error and installs nothing. Remove deletes
+ * the fetched files first, then clears the state and the id.
+ *
  * These tests render SettingsPanel with @testing-library/react and
  * click the real buttons (found by data-addon-install/remove).
  * Only what's needed is tested here — no exhaustive suite pass.
@@ -24,9 +30,33 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/react';
 import SettingsPanel from '../src/components/Settings/SettingsPanel';
 import { useSettingsStore } from '../src/stores/settingsStore';
+import type {
+  ArcServerInstallResult,
+  ArcServerStatusResult,
+} from '../src/lib/arcServerAddon';
+
+const ARC_SHA = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
+const ARC_PATH = `/Users/gary/.lucid/addons/arc-server/${ARC_SHA}`;
 
 describe('Add-on install flow (Settings > Plugins)', () => {
   const mockSet = vi.fn(async (_key: string, _value: unknown) => undefined);
+  const mockArcInstall = vi.fn(
+    async (): Promise<ArcServerInstallResult> => ({
+      ok: true,
+      version: ARC_SHA,
+      path: ARC_PATH,
+    }),
+  );
+  const mockArcUninstall = vi.fn(
+    async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true }),
+  );
+  const mockArcStatus = vi.fn(
+    async (): Promise<ArcServerStatusResult> => ({
+      installed: false,
+      version: null,
+      path: null,
+    }),
+  );
   let prevLucidAPI: unknown;
 
   beforeEach(() => {
@@ -40,11 +70,18 @@ describe('Add-on install flow (Settings > Plugins)', () => {
         hasPingKey: vi.fn(async () => false),
         getStorageStatus: vi.fn(async () => ({ degraded: false, reason: null })),
       },
+      arcServer: {
+        install: mockArcInstall,
+        uninstall: mockArcUninstall,
+        getStatus: mockArcStatus,
+      },
     };
     mockSet.mockClear();
+    mockArcInstall.mockClear();
+    mockArcUninstall.mockClear();
     const base = useSettingsStore.getState().settings;
     useSettingsStore.setState({
-      settings: { ...base, installedAddons: [] },
+      settings: { ...base, installedAddons: [], arcServerInstall: null },
     });
   });
 
@@ -157,20 +194,110 @@ describe('Add-on install flow (Settings > Plugins)', () => {
     useSettingsStore.setState({
       settings: {
         ...base,
-        installedAddons: ['persona-plex', 'gh-ai-operator', 'desktop-commander', 'android-emulator', 'segments'],
+        installedAddons: ['persona-plex', 'gh-ai-operator', 'desktop-commander', 'android-emulator', 'segments', 'arc-server'],
+        arcServerInstall: { status: 'installed', version: ARC_SHA, path: ARC_PATH, error: null },
       },
     });
     renderPlugins();
-    for (const id of ['persona-plex', 'gh-ai-operator', 'desktop-commander', 'android-emulator', 'segments']) {
+    for (const id of ['persona-plex', 'gh-ai-operator', 'desktop-commander', 'android-emulator', 'segments', 'arc-server']) {
       expect(settingsButton(id)).not.toBeNull();
     }
   });
 
   test('an uninstalled add-on has no Settings button', () => {
     renderPlugins();
-    for (const id of ['persona-plex', 'gh-ai-operator', 'desktop-commander']) {
+    for (const id of ['persona-plex', 'gh-ai-operator', 'desktop-commander', 'arc-server']) {
       expect(settingsButton(id)).toBeNull();
     }
+  });
+
+  test('Install on ARC Server fetches from the repo, then records the install and shows the fetched version', async () => {
+    renderPlugins();
+    const button = installButton('arc-server');
+    expect(button).not.toBeNull();
+    expect(button!.disabled).toBe(false);
+    fireEvent.click(button!);
+    await waitFor(() => {
+      expect(mockArcInstall).toHaveBeenCalledTimes(1);
+      expect(mockSet).toHaveBeenCalledWith('arcServerInstall', {
+        status: 'installed',
+        version: ARC_SHA,
+        path: ARC_PATH,
+        error: null,
+      });
+      expect(mockSet).toHaveBeenCalledWith('installedAddons', ['arc-server']);
+    });
+    // The store holds the fetched identity (what a reload reads).
+    expect(useSettingsStore.getState().settings.arcServerInstall).toEqual({
+      status: 'installed',
+      version: ARC_SHA,
+      path: ARC_PATH,
+      error: null,
+    });
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([
+      'arc-server',
+    ]);
+    // And the UI reflects it: the fetched SHA, no Install button,
+    // a Settings button and a Remove button instead.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Fetched a1b2c3d');
+      expect(installButton('arc-server')).toBeNull();
+      expect(settingsButton('arc-server')).not.toBeNull();
+      expect(removeButton('arc-server')).not.toBeNull();
+    });
+  });
+
+  test('a failed ARC Server fetch records the error and installs nothing', async () => {
+    mockArcInstall.mockResolvedValueOnce({ ok: false, error: 'Network down' });
+    renderPlugins();
+    const button = installButton('arc-server');
+    expect(button).not.toBeNull();
+    fireEvent.click(button!);
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('arcServerInstall', {
+        status: 'failed',
+        version: null,
+        path: null,
+        error: 'Network down',
+      });
+    });
+    // The id is NOT recorded — a failed fetch installs nothing.
+    expect(
+      mockSet.mock.calls.filter(([key]) => key === 'installedAddons'),
+    ).toEqual([]);
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([]);
+    // The error shows and Install is still there to retry.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Fetch failed: Network down');
+      expect(installButton('arc-server')).not.toBeNull();
+    });
+  });
+
+  test('Remove on an installed ARC Server removes the fetched files and un-installs it', async () => {
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: {
+        ...base,
+        installedAddons: ['arc-server'],
+        arcServerInstall: { status: 'installed', version: ARC_SHA, path: ARC_PATH, error: null },
+      },
+    });
+    renderPlugins();
+    expect(installButton('arc-server')).toBeNull();
+    const remove = removeButton('arc-server');
+    expect(remove).not.toBeNull();
+    fireEvent.click(remove!);
+    await waitFor(() => {
+      expect(mockArcUninstall).toHaveBeenCalledTimes(1);
+      expect(mockSet).toHaveBeenCalledWith('arcServerInstall', null);
+      expect(mockSet).toHaveBeenCalledWith('installedAddons', []);
+    });
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([]);
+    expect(useSettingsStore.getState().settings.arcServerInstall).toBeNull();
+    await waitFor(() => {
+      expect(installButton('arc-server')).not.toBeNull();
+      expect(removeButton('arc-server')).toBeNull();
+    });
   });
 
   test('Remove on an installed Desktop Commander un-installs it', async () => {

@@ -12,6 +12,7 @@ import { setupPermissionsHandlers } from './ipc/permissions';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupSnapshotHandlers } from './ipc/snapshot';
+import { setupArcServerHandlers } from './ipc/arcServer';
 import { setupTerminalDetachHandlers } from './ipc/terminalDetach';
 import { setupBrowserHandlers } from './ipc/browser';
 import {
@@ -130,6 +131,7 @@ app.whenReady().then(() => {
   setupDaemonHandlers(ipcMain);
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   setupSnapshotHandlers(ipcMain);
+  setupArcServerHandlers(ipcMain);
   // Tab detach + remount (Gary, 2026-11-09): the drag session is
   // owned by main; pop-back-in re-creates the main window when
   // it is gone (guarded — never two main windows).

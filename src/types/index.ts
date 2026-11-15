@@ -37,6 +37,11 @@ import type {
   SnapshotManifestFetchWire,
   SnapshotStatusResult,
 } from '../lib/snapshotFetch';
+import type {
+  ArcServerInstallResult,
+  ArcServerInstallState,
+  ArcServerStatusResult,
+} from '../lib/arcServerAddon';
 
 export interface FileEntry {
   name: string;
@@ -689,6 +694,13 @@ export interface Settings {
   // (Android Connect, Segments) are NOT listed here — their installed
   // state derives from their anchor, not from this list.
   installedAddons: string[];
+  // ARC Server add-on install state (Gary, 2026-11-14
+  // ~14:53 PST): ARC Server is fetched at install time from
+  // its repo, never bundled in Lucid. Null = never installed
+  // (or removed). The id is added to `installedAddons` only
+  // once the fetch has succeeded. See
+  // src/lib/arcServerAddon.ts.
+  arcServerInstall: ArcServerInstallState | null;
   // Persona Plex (Gary, 2026-11-06) — personas + Speak. All local,
   // no servers. Custom personas created on the Persona Plex setup
   // page (full records — they have no Python source). Per-persona
@@ -1500,6 +1512,13 @@ declare global {
         onDownloadProgress: (
           callback: (progress: SnapshotDownloadProgress) => void,
         ) => () => void;
+      };
+      // ARC Server add-on (Gary, 2026-11-14 ~14:53 PST):
+      // fetched at install time from its repo, never bundled.
+      arcServer: {
+        install: () => Promise<ArcServerInstallResult>;
+        uninstall: () => Promise<{ ok: boolean; error?: string }>;
+        getStatus: () => Promise<ArcServerStatusResult>;
       };
     };
   }

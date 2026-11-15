@@ -15,6 +15,10 @@ import type {
   SnapshotManifestFetchWire,
   SnapshotStatusResult,
 } from '../src/lib/snapshotFetch';
+import type {
+  ArcServerInstallResult,
+  ArcServerStatusResult,
+} from '../src/lib/arcServerAddon';
 
 /** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
  *  / GoogleDriveAuthRedirect in src/lib/googleDriveAuth.ts. Defined
@@ -702,6 +706,21 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.on('snapshot:download-progress', listener);
       return () => ipcRenderer.removeListener('snapshot:download-progress', listener);
     },
+  },
+
+  // ARC Server add-on (Gary, 2026-11-14 ~14:53 PST): the
+  // add-on is fetched at install time from its repo, never
+  // bundled in the asar. The main process downloads the repo
+  // tarball for the HEAD commit and records the fetched SHA +
+  // path; the renderer passes no URL (see
+  // electron/ipc/arcServer.ts).
+  arcServer: {
+    install: (): Promise<ArcServerInstallResult> =>
+      ipcRenderer.invoke('arc-server:install'),
+    uninstall: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('arc-server:uninstall'),
+    getStatus: (): Promise<ArcServerStatusResult> =>
+      ipcRenderer.invoke('arc-server:status'),
   },
 
   // Lucid Workflow operations

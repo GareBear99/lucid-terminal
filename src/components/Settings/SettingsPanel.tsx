@@ -62,6 +62,11 @@ import { ModulesTab } from '../Modules/ModulesTab';
 import { ForgeView } from '../Forge/ForgeView';
 import { TOOLBAR_PLUGINS } from '../../data/toolbarPlugins';
 import { PLUGIN_ADDONS, isAddonInstalled, addonAnchorLabel } from '../../data/pluginAddons';
+import {
+  ARC_SERVER_ADDON_ID,
+  ARC_SERVER_BUILD_NOTE,
+  arcServerInstallStateText,
+} from '../../lib/arcServerAddon';
 import { AddonVoiceButton } from './AddonVoiceButton';
 import { DEVICES_PLUGIN } from '../../data/devices';
 import { MODULES_PLUGIN } from '../../data/modules';
@@ -138,7 +143,10 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   // a Settings button that opens that add-on's settings. Persona Plex
   // opens its setup page; Android Connect and Segments open their
   // anchor plugin's tab (Devices / Modules); an add-on with no
-  // settings page yet just says so (no invented page).
+  // settings page yet just says so (no invented page). ARC Server
+  // has no settings page by design (Gary, 2026-11-14: it has 0 to
+  // do with Lucid beyond the catalogue entry) — it falls through
+  // to the default toast below.
   const { info: toastInfo } = useToastStore();
   const handleAddonSettings = (addonId: string, addonName: string) => {
     if (addonId === 'persona-plex') {
@@ -155,6 +163,60 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
       return;
     }
     toastInfo(`No settings yet for ${addonName}.`);
+  };
+
+  // ARC Server add-on (Gary, 2026-11-14 ~14:53 PST): the ONE
+  // add-on fetched at install time. Install downloads the repo
+  // tarball in the main process and only then records the id
+  // in `installedAddons`; a failed fetch records the error in
+  // `arcServerInstall` and installs nothing. Remove deletes
+  // the fetched files in the main process first, then clears
+  // the state and the id. The build is NOT done here: the
+  // fetched directory is source, `make` in it is the user's
+  // step (see src/lib/arcServerAddon.ts).
+  const [arcServerInstalling, setArcServerInstalling] = useState(false);
+  const handleArcServerInstall = async () => {
+    if (arcServerInstalling) return;
+    setArcServerInstalling(true);
+    await updateSetting('arcServerInstall', { status: 'downloading', version: null, path: null, error: null });
+    try {
+      const api = window.lucidAPI.arcServer;
+      if (!api) {
+        await updateSetting('arcServerInstall', { status: 'failed', version: null, path: null, error: 'ARC Server install is not available in this build.' });
+        return;
+      }
+      const result = await api.install();
+      if (result.ok && result.version && result.path) {
+        await updateSetting('arcServerInstall', { status: 'installed', version: result.version, path: result.path, error: null });
+        await updateSetting('installedAddons', [...(settings.installedAddons ?? []), ARC_SERVER_ADDON_ID]);
+      } else {
+        await updateSetting('arcServerInstall', { status: 'failed', version: null, path: null, error: result.error ?? 'Fetch failed.' });
+      }
+    } catch (err) {
+      await updateSetting('arcServerInstall', { status: 'failed', version: null, path: null, error: err instanceof Error ? err.message : 'Fetch failed.' });
+    } finally {
+      setArcServerInstalling(false);
+    }
+  };
+  const handleArcServerRemove = async () => {
+    if (arcServerInstalling) return;
+    setArcServerInstalling(true);
+    try {
+      const api = window.lucidAPI.arcServer;
+      if (!api) {
+        toastInfo('ARC Server removal is not available in this build.');
+        return;
+      }
+      const result = await api.uninstall();
+      if (!result.ok) {
+        toastInfo(`Could not remove ARC Server: ${result.error ?? 'unknown error'}.`);
+        return;
+      }
+      await updateSetting('arcServerInstall', null);
+      await updateSetting('installedAddons', (settings.installedAddons ?? []).filter((id) => id !== ARC_SERVER_ADDON_ID));
+    } finally {
+      setArcServerInstalling(false);
+    }
   };
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'appearance');
@@ -1899,10 +1961,55 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                           <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                             {addon.description}
                             {addon.removable ? ' Removable once installed.' : ''}
+                            {addon.fetchedAtInstall && settings.arcServerInstall ? (
+                              <span className="block">{arcServerInstallStateText(settings.arcServerInstall)}</span>
+                            ) : null}
+                            {addon.fetchedAtInstall && installed ? (
+                              <span className="block">{ARC_SERVER_BUILD_NOTE}</span>
+                            ) : null}
                           </span>
                         </span>
                         <AddonVoiceButton addonId={addon.id} addonName={addon.name} />
-                        {installed ? (
+                        {addon.fetchedAtInstall ? (
+                          <>
+                            <span className="text-xs text-[var(--text-muted)] shrink-0">
+                              {installed ? 'Installed' : 'Not installed'}
+                            </span>
+                            {arcServerInstalling ? (
+                              <button data-addon-install={addon.id}
+                                disabled
+                                className="btn btn-secondary text-xs shrink-0 opacity-50 cursor-not-allowed"
+                              >
+                                Fetching…
+                              </button>
+                            ) : installed ? (
+                              <>
+                                <button data-addon-settings={addon.id}
+                                  onClick={() => handleAddonSettings(addon.id, addon.name)}
+                                  className="btn btn-secondary text-xs shrink-0"
+                                  title={`Open ${addon.name} settings`}
+                                >
+                                  Settings
+                                </button>
+                                {userInstalled && addon.removable && (
+                                  <button data-addon-remove={addon.id}
+                                    onClick={() => void handleArcServerRemove()}
+                                    className="btn btn-secondary text-xs shrink-0"
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <button data-addon-install={addon.id}
+                                onClick={() => void handleArcServerInstall()}
+                                className="btn btn-secondary text-xs shrink-0"
+                              >
+                                Install
+                              </button>
+                            )}
+                          </>
+                        ) : installed ? (
                           <>
                             <span className="text-xs text-[var(--text-muted)] shrink-0">
                               Installed{anchorLabel ? ` · ${anchorLabel}` : ''}

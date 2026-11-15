@@ -8,9 +8,11 @@
  * lists Android Connect as anchor-installed with the Devices
  * plugin and Segments as anchor-installed with the Modules plugin,
  * while Persona Plex reads Not installed with an enabled Install
- * button (it is installable now, Gary 2026-11-06) and gh-ai-operator and
- * Desktop Commander read Not installed with enabled Install
- * buttons (the install flow exists now; MCP Tools was removed).
+ * button (it is installable now, Gary 2026-11-06) and gh-ai-operator,
+ * Desktop Commander and ARC Server read Not installed with enabled
+ * Install buttons (the install flow exists now; MCP Tools was
+ * removed). ARC Server is the one add-on fetched at install time
+ * (Gary, 2026-11-14) — never bundled, never pre-downloaded.
  *
  * These tests render with react-dom/server's renderToStaticMarkup
  * (effects never run under SSR, so the LuciferAI backend fetch does
@@ -83,25 +85,25 @@ describe('Plugins tab', () => {
     // backend fetch runs under SSR to reach).
     expect(html).toContain('Built-in · Disabled');
     expect(html).toContain('Disabled — the plugin is completely gone');
-    // The disable toggle is OFF by default; Synth, Blood drop, and
-    // Mouse are the other ON switches (Synth and Blood drop checked
-    // but disabled while the plugin is off; Mouse is not a
-    // LuciferAI surface, so its switch is checked and enabled);
-    // AI Chat and Forge default off.
+    // The disable toggle is OFF by default; Synth and Blood drop
+    // are the other ON switches (Synth and Blood drop checked
+    // but disabled while the plugin is off); Mouse defaults OFF
+    // (Gary, 2026-11-12 ~12:37 PST), AI Chat and Forge default
+    // off.
     expect(switchCount(html)).toBe(6);
-    expect(switchesOnCount(html)).toBe(3);
+    expect(switchesOnCount(html)).toBe(2);
   });
 
-  it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator and Desktop Commander installable', () => {
+  it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator, Desktop Commander and ARC Server installable', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Add-ons');
-    for (const name of ['Persona Plex', 'gh-ai-operator', 'Desktop Commander', 'Android Connect', 'Segments']) {
+    for (const name of ['Persona Plex', 'gh-ai-operator', 'Desktop Commander', 'Android Connect', 'Segments', 'ARC Server']) {
       expect(html).toContain(name);
     }
     expect(html).not.toContain('MCP Tools');
-    // Persona Plex, gh-ai-operator and Desktop Commander are all
-    // not installed (but installable).
-    expect((html.match(/Not installed/g) || []).length).toBe(3);
+    // Persona Plex, gh-ai-operator, Desktop Commander and ARC
+    // Server are all not installed (but installable).
+    expect((html.match(/Not installed/g) || []).length).toBe(4);
     expect(html).toContain('Installed · Anchored with Devices');
     expect(html).toContain('Installed · Anchored with Modules');
     // The LuciferAI-surface switches (Synth, Blood drop) are

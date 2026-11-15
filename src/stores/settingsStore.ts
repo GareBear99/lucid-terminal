@@ -185,6 +185,11 @@ const defaultSettings: Settings = {
   // User-installed add-ons — empty = none installed (see
   // src/types/index.ts). Written immediately on Install.
   installedAddons: [],
+  // ARC Server add-on install state — null = never installed
+  // (see src/lib/arcServerAddon.ts). Written on install /
+  // remove; the id joins `installedAddons` only once the
+  // fetch has succeeded.
+  arcServerInstall: null,
   // Persona Plex — empty = no custom personas, no per-persona
   // overrides, no active persona, Speak off (see src/types/index.ts).
   personaPlexCustomPersonas: [],

@@ -1,7 +1,7 @@
 /**
- * Anchored add-ons — the five add-ons Gary settled (three on
- * 2026-11-04, Desktop Commander and Segments on 2026-11-06), in
- * order. Add-ons are NOT pre-installed — except where an ANCHOR
+ * Anchored add-ons — the six add-ons Gary settled (three on
+ * 2026-11-04, Desktop Commander and Segments on 2026-11-06,
+ * ARC Server on 2026-11-14), in order. Add-ons are NOT pre-installed — except where an ANCHOR
  * plugin installs one automatically (see below). An installable
  * add-on is installed from Settings > Plugins: the Install button
  * records the add-on's id in the persisted `installedAddons`
@@ -53,6 +53,15 @@ export interface PluginAddon {
    *  Install button in Settings. Absent for anchored add-ons (they
    *  need no install) and for add-ons with a working install flow. */
   installBlockedReason?: string;
+  /** Fetched at install time (Gary, 2026-11-14): the add-on is
+   *  NOT bundled in Lucid's asar and NOT pre-downloaded —
+   *  Install downloads it from its repo in the main process
+   *  (see src/lib/arcServerAddon.ts) and only then records
+   *  the id in `installedAddons`. Absent (the default) means
+   *  the existing record-only install: the UI already ships
+   *  inside the bundle and Install just reveals it. Only
+   *  ARC Server sets this today. */
+  fetchedAtInstall?: boolean;
 }
 
 /** Plugin ids that anchor-install their add-ons. Devices and
@@ -124,5 +133,13 @@ export const PLUGIN_ADDONS: PluginAddon[] = [
     installed: false,
     removable: false,
     anchor: 'modules',
+  },
+  {
+    id: 'arc-server',
+    name: 'ARC Server',
+    description: 'The fastest static + API server — fetched from its repo at install time, never bundled in Lucid.',
+    installed: false,
+    removable: true,
+    fetchedAtInstall: true,
   },
 ];

@@ -1,18 +1,20 @@
 /**
  * Anchored add-on data tests.
  *
- * The five add-ons Gary settled (three on 2026-11-04, Desktop
- * Commander and Segments on 2026-11-06), in order. MCP Tools was
- * removed (Gary, 2026-11-06) — it named no specific tools and had
- * no install flow. User installs are recorded in the settings
- * store's `installedAddons` list, not in this data file (the
+ * The six add-ons Gary settled (three on 2026-11-04, Desktop
+ * Commander and Segments on 2026-11-06, ARC Server on
+ * 2026-11-14), in order. MCP Tools was removed (Gary,
+ * 2026-11-06) — it named no specific tools and had no install
+ * flow. User installs are recorded in the settings store's
+ * `installedAddons` list, not in this data file (the
  * `installed` flag stays false here); Android Connect is
  * anchor-installed with the Devices plugin (Gary, 2026-11-05) and
  * Segments with the Modules plugin (Gary, 2026-11-06) — their
  * installed state derives from the anchor. Persona Plex is
  * installable now (Gary, 2026-11-06) — one plex embodiment,
  * personas inside, all local, no servers. Segments has no install
- * action at all.
+ * action at all. ARC Server is the one add-on fetched at install
+ * time (Gary, 2026-11-14) — never bundled, never pre-downloaded.
  *
  * Run with: npm test
  */
@@ -26,14 +28,35 @@ import {
 } from '../src/data/pluginAddons';
 
 describe('PLUGIN_ADDONS', () => {
-  it('lists exactly the five anchored add-ons, in order', () => {
+  it('lists exactly the six anchored add-ons, in order', () => {
     expect(PLUGIN_ADDONS.map((a) => a.id)).toEqual([
       'persona-plex',
       'gh-ai-operator',
       'desktop-commander',
       'android-emulator',
       'segments',
+      'arc-server',
     ]);
+  });
+
+  it('ARC Server is the fetched-at-install add-on (Gary, 2026-11-14)', () => {
+    const arc = PLUGIN_ADDONS.find((a) => a.id === 'arc-server');
+    expect(arc).toBeDefined();
+    expect(arc?.name).toBe('ARC Server');
+    expect(arc?.description).toBeTruthy();
+    expect(arc?.description).toMatch(/fetched|never bundled/i);
+    expect(arc?.anchor).toBeUndefined();
+    expect(arc?.installBlockedReason).toBeUndefined();
+    expect(arc?.installed).toBe(false);
+    expect(arc?.removable).toBe(true);
+    // The exception to the record-only install: Install
+    // downloads the repo tarball in the main process first.
+    expect(arc?.fetchedAtInstall).toBe(true);
+  });
+
+  it('ARC Server is the only fetched-at-install add-on', () => {
+    const fetched = PLUGIN_ADDONS.filter((a) => a.fetchedAtInstall);
+    expect(fetched.map((a) => a.id)).toEqual(['arc-server']);
   });
 
   it('MCP Tools is gone — removed, not renamed', () => {

@@ -1,6 +1,41 @@
 /* Import JetBrains Mono font (Warp AI style) */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
+/* Hack, bundled with Lucid (Gary, 2026-11-14 ~14:28 PST — the
+   Warp preset's face): the exact TTFs Warp ships, in
+   src/assets/fonts/hack/ (OFL, LICENSE.md alongside), so the
+   Warp preset renders Hack on every machine. Vite bundles
+   these into dist/assets/ — relative urls, so they load under
+   the packaged app's file:// protocol too. */
+@font-face {
+  font-family: 'Hack';
+  src: url('./assets/fonts/hack/Hack-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hack';
+  src: url('./assets/fonts/hack/Hack-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hack';
+  src: url('./assets/fonts/hack/Hack-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hack';
+  src: url('./assets/fonts/hack/Hack-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

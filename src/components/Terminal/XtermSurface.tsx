@@ -35,6 +35,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { buildXtermFontOptions } from '../../lib/terminalFont';
 import {
   DEFCON_DEFAULT,
   defconTerminalForeground,
@@ -142,6 +143,39 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       themeBrightWhite,
       '#e6edf3',
     );
+    // Terminal font customizations (Gary, 2026-11-14 ~14:28 PST):
+    // the terminal follows the terminal font settings (Settings >
+    // Customization > Terminal customizations), live. The
+    // settings used to be hardcoded here (JetBrains Mono 13 /
+    // 1.5) while the Settings Font control only drove the editor.
+    // Individual selectors — the font object is built per render
+    // from these, never stored, so unrelated settings changes
+    // do not re-apply the font.
+    const terminalFontFamily = useSettingsStore(
+      (s) => s.settings.terminalFontFamily,
+    );
+    const terminalFontSize = useSettingsStore(
+      (s) => s.settings.terminalFontSize,
+    );
+    const terminalLineHeight = useSettingsStore(
+      (s) => s.settings.terminalLineHeight,
+    );
+    const terminalLetterSpacing = useSettingsStore(
+      (s) => s.settings.terminalLetterSpacing,
+    );
+    const terminalFontWeight = useSettingsStore(
+      (s) => s.settings.terminalFontWeight,
+    );
+    // The no-canvas fallback renders the same font as the real
+    // surface (13px/1.5 before this wiring).
+    const fallbackFontOptions = buildXtermFontOptions({
+      family: terminalFontFamily,
+      size: terminalFontSize,
+      lineHeight: terminalLineHeight,
+      letterSpacing: terminalLetterSpacing,
+      ligatures: false,
+      weight: terminalFontWeight,
+    });
     const onInputRef = useRef(onInput);
     onInputRef.current = onInput;
     const onResizeRef = useRef(onResize);
@@ -218,9 +252,20 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
           brightCyan: '#56d4dd',
           brightWhite: '#f0f6fc',
         },
-        fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace",
-        fontSize: 13,
-        lineHeight: 1.5,
+        // Terminal font settings (Gary, 2026-11-14 ~14:28 PST) —
+        // the creation options come from the settings now, not
+        // literals: the terminal finally follows the font
+        // settings. Defaults ship as the old literals
+        // (JetBrains Mono 13 / 1.5), so the first paint is
+        // unchanged.
+        ...buildXtermFontOptions({
+          family: terminalFontFamily,
+          size: terminalFontSize,
+          lineHeight: terminalLineHeight,
+          letterSpacing: terminalLetterSpacing,
+          ligatures: false,
+          weight: terminalFontWeight,
+        }),
         cursorBlink: true,
         cursorStyle: 'block',
         scrollback: 5000,
@@ -310,6 +355,42 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       }
     }, [cursorHidden]);
 
+    // Terminal font customizations (Gary, 2026-11-14 ~14:28 PST):
+    // the mount effect above runs once, so re-apply the font
+    // options when a control in Settings > Customization
+    // changes them — live, no restart, no remount. A font
+    // change re-flows the grid, so re-fit and report the new
+    // size to the PTY. Ligatures have no xterm meaning.
+    useEffect(() => {
+      const term = termRef.current;
+      if (!term) return;
+      const opts = buildXtermFontOptions({
+        family: terminalFontFamily,
+        size: terminalFontSize,
+        lineHeight: terminalLineHeight,
+        letterSpacing: terminalLetterSpacing,
+        ligatures: false,
+        weight: terminalFontWeight,
+      });
+      term.options.fontFamily = opts.fontFamily;
+      term.options.fontSize = opts.fontSize;
+      term.options.lineHeight = opts.lineHeight;
+      term.options.letterSpacing = opts.letterSpacing;
+      term.options.fontWeight = opts.fontWeight;
+      try {
+        fitRef.current?.fit();
+      } catch {
+        return;
+      }
+      onResizeRef.current?.(term.cols, term.rows);
+    }, [
+      terminalFontFamily,
+      terminalFontSize,
+      terminalLineHeight,
+      terminalLetterSpacing,
+      terminalFontWeight,
+    ]);
+
     if (fallback) {
       // Per-keystroke forwarding, same contract as xterm onData:
       // printable chars as they arrive (diffed out of the change
@@ -397,7 +478,12 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
         >
           <pre
             data-testid="xterm-fallback-output"
-            className="m-0 flex-1 overflow-y-auto whitespace-pre-wrap p-2 font-mono text-[13px] leading-[1.5] text-[var(--text-primary)]"
+            className="m-0 flex-1 overflow-y-auto whitespace-pre-wrap p-2 font-mono text-[var(--text-primary)]"
+            style={{
+              fontFamily: fallbackFontOptions.fontFamily,
+              fontSize: fallbackFontOptions.fontSize,
+              lineHeight: fallbackFontOptions.lineHeight,
+            }}
           >
             {fallbackOutput}
           </pre>
@@ -421,13 +507,23 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
               autoFocus
               aria-label="Terminal input"
               placeholder=""
-              className="w-full resize-none bg-transparent px-3 py-2 font-mono text-[13px] text-[var(--text-primary)] outline-none"
+              className="w-full resize-none bg-transparent px-3 py-2 font-mono text-[var(--text-primary)] outline-none"
+              style={{
+                fontFamily: fallbackFontOptions.fontFamily,
+                fontSize: fallbackFontOptions.fontSize,
+                lineHeight: fallbackFontOptions.lineHeight,
+              }}
             />
             {!fallbackSubmitted && fallbackInput.length === 0 && (
               <div
                 data-testid="xterm-fallback-hint-placeholder"
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-nowrap py-2 font-mono text-[13px] text-[var(--text-muted)] opacity-80"
+                className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-nowrap py-2 font-mono text-[var(--text-muted)] opacity-80"
+                style={{
+                  fontFamily: fallbackFontOptions.fontFamily,
+                  fontSize: fallbackFontOptions.fontSize,
+                  lineHeight: fallbackFontOptions.lineHeight,
+                }}
               >
                 Type a command… (plain input — terminal surface unavailable)
               </div>

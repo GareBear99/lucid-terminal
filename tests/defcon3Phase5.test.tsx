@@ -529,20 +529,24 @@ describe('Prompt input row — cursor on the same line as the blood drop icon (G
     const overlay = within(wrap).getByTestId('composer-hint-placeholder');
     expect(overlay.textContent).toBe('Type a command e.g. ls');
     // Caret-overlap positioning: the overlay starts at the
-    // composer's text origin — the same classes the ghost
+    // composer's text origin — the same positioning the ghost
     // suggestion overlay uses to align with the editor/textarea
     // text (left-3 = the 12px container padding, py-[10px] =
-    // the editor's top padding, 13px/leading-5 = the editor
-    // font). The caret at position 0 sits on the ghost text,
-    // exactly like Warp's screenshot. jsdom has no layout, so
-    // the classes are the check — the live deploy still needs
-    // eyes on it.
+    // the editor's top padding). The font metrics (13px/20px)
+    // used to be Tailwind classes here; since the Warp font
+    // customizations (Gary, 2026-11-14 ~14:28 PST) they come
+    // from the terminal font settings as inline styles, so the
+    // overlay always matches the composer at any size — the
+    // defaults are still 13px / 20px (13 × 1.5). The caret at
+    // position 0 sits on the ghost text, exactly like Warp's
+    // screenshot. jsdom has no layout, so the classes + styles
+    // are the check — the live deploy still needs eyes on it.
     expect(overlay.className).toContain('pointer-events-none');
     expect(overlay.className).toContain('absolute');
     expect(overlay.className).toContain('left-3');
     expect(overlay.className).toContain('py-[10px]');
-    expect(overlay.className).toContain('text-[13px]');
-    expect(overlay.className).toContain('leading-5');
+    expect((overlay as HTMLElement).style.fontSize).toBe('13px');
+    expect((overlay as HTMLElement).style.lineHeight).toBe('20px');
     // The composer input is typeable in the row — the caret lives here now.
     expect(nonDevmodeComposerInput()).not.toBeNull();
   });

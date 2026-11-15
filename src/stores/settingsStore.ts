@@ -101,6 +101,17 @@ const defaultSettings: Settings = {
   customTheme: null,
   fontSize: 14,
   fontFamily: 'Consolas',
+  // Terminal font defaults (Gary, 2026-11-14 ~14:28 PST) — the
+  // terminal's current look: JetBrains Mono 13 / 1.5 / 0 / off /
+  // Normal. The Warp preset (Hack, 13, 1.2, off, Normal) is a
+  // one-click choice in Settings > Customization, not the
+  // default. See src/lib/terminalFont.ts.
+  terminalFontFamily: 'JetBrains Mono',
+  terminalFontSize: 13,
+  terminalLineHeight: 1.5,
+  terminalLetterSpacing: 0,
+  terminalLigatures: false,
+  terminalFontWeight: '400',
   shell: 'powershell.exe',
   startupDirectory: '',
   cursorStyle: 'block',

@@ -13,6 +13,8 @@ import { useToastStore } from '../../stores/toastStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { buildComposerFontOptions } from '../../lib/terminalFont';
 import { registerComposerInlineCompletions, type InlineOffer } from '../../lib/composerInlineProvider';
 import { getComposerStructureIdentifiers } from '../../lib/treeSitter';
 import { getEngineClient } from '../../lib/engineClient';
@@ -134,6 +136,26 @@ interface InputAreaProps {
 
 export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInput, isProcessing = false, flat = false, dragState, showDragHandle = true, ghostSuggestion = null, hintPlaceholder = null, onAcceptSuggestion, onInterrupt, onEof, onHandoff, onEscape, completionMode = 'terminal' }: InputAreaProps) {
   const editorRef = useRef<any>(null);
+  // Terminal font customizations (Gary, 2026-11-14 ~14:28 PST):
+  // the composer follows the terminal font settings (Settings >
+  // Customization > Terminal customizations) — it used to be
+  // hardcoded JetBrains Mono 13 / 20px while the Settings Font
+  // control only drove the editor. The ghost overlays below
+  // take the same metrics, or they drift off the input text.
+  const terminalFontFamily = useSettingsStore((s) => s.settings.terminalFontFamily);
+  const terminalFontSize = useSettingsStore((s) => s.settings.terminalFontSize);
+  const terminalLineHeight = useSettingsStore((s) => s.settings.terminalLineHeight);
+  const terminalLetterSpacing = useSettingsStore((s) => s.settings.terminalLetterSpacing);
+  const terminalLigatures = useSettingsStore((s) => s.settings.terminalLigatures);
+  const terminalFontWeight = useSettingsStore((s) => s.settings.terminalFontWeight);
+  const composerFont = buildComposerFontOptions({
+    family: terminalFontFamily,
+    size: terminalFontSize,
+    lineHeight: terminalLineHeight,
+    letterSpacing: terminalLetterSpacing,
+    ligatures: terminalLigatures,
+    weight: terminalFontWeight,
+  });
   /** The inline-completion provider's live offer (the ghost the
    *  user can accept with Tab / Right-arrow). Stashed by the
    *  provider, read by the mounted key handlers. */
@@ -748,16 +770,16 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     overviewRulerLanes: 0,
                     hideCursorInOverviewRuler: true,
                     overviewRulerBorder: false,
-                    fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace",
-                    fontSize: 13,
-                    fontWeight: '400',
-                    lineHeight: 20,
-                    letterSpacing: 0,
+                    fontFamily: composerFont.fontFamily,
+                    fontSize: composerFont.fontSize,
+                    fontWeight: composerFont.fontWeight,
+                    lineHeight: composerFont.lineHeight,
+                    letterSpacing: composerFont.letterSpacing,
                     padding: { top: 10, bottom: 10 },
                     renderWhitespace: 'none',
                     renderControlCharacters: false,
                     matchBrackets: 'never',
-                    fontLigatures: false,
+                    fontLigatures: composerFont.fontLigatures,
                 }}
             />
             )}
@@ -766,8 +788,8 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     ref={ghostRef}
                     data-testid="composer-ghost-suggestion"
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-pre py-[10px] font-mono text-[13px] leading-5"
-                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace" }}
+                    className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-pre py-[10px] font-mono"
+                    style={{ fontFamily: composerFont.fontFamily, fontSize: composerFont.fontSize, lineHeight: `${composerFont.lineHeight}px` }}
                 >
                     <span style={{ visibility: 'hidden' }}>{input}</span>
                     <span className="text-[var(--text-muted)] opacity-60">{ghostRemainder}</span>
@@ -777,8 +799,8 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                 <div
                     data-testid="composer-hint-placeholder"
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-pre py-[10px] font-mono text-[13px] leading-5"
-                    style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace" }}
+                    className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 overflow-hidden whitespace-pre py-[10px] font-mono"
+                    style={{ fontFamily: composerFont.fontFamily, fontSize: composerFont.fontSize, lineHeight: `${composerFont.lineHeight}px` }}
                 >
                     <span className="text-[var(--text-muted)] opacity-80">{hintPlaceholder}</span>
                 </div>

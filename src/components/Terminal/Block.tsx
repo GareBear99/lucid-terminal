@@ -5,6 +5,8 @@ import { Tooltip } from '../Tooltip/Tooltip';
 import { ansiToHtml } from '../../utils/ansiToHtml';
 import { ValidationSteps } from './ValidationIndicator';
 import { TokenDisplay } from './TokenDisplay';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { buildXtermFontOptions } from '../../lib/terminalFont';
 
 interface BlockProps {
     block: TerminalBlock;
@@ -21,6 +23,22 @@ interface BlockProps {
 
 export function Block({ block, isActive, onToggle, flat = false }: BlockProps) {
     const [copied, setCopied] = useState(false);
+    // Terminal font customizations (Gary, 2026-11-14 ~14:28 PST):
+    // the feed output follows the terminal font settings —
+    // it used to be hardcoded 13px / 1.5 like the xterm was.
+    const terminalFontFamily = useSettingsStore((s) => s.settings.terminalFontFamily);
+    const terminalFontSize = useSettingsStore((s) => s.settings.terminalFontSize);
+    const terminalLineHeight = useSettingsStore((s) => s.settings.terminalLineHeight);
+    const terminalLetterSpacing = useSettingsStore((s) => s.settings.terminalLetterSpacing);
+    const terminalFontWeight = useSettingsStore((s) => s.settings.terminalFontWeight);
+    const terminalFont = buildXtermFontOptions({
+      family: terminalFontFamily,
+      size: terminalFontSize,
+      lineHeight: terminalLineHeight,
+      letterSpacing: terminalLetterSpacing,
+      ligatures: false,
+      weight: terminalFontWeight,
+    });
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -92,12 +110,14 @@ export function Block({ block, isActive, onToggle, flat = false }: BlockProps) {
                 {/* Output */}
                 <div className={flat ? '' : 'bg-[var(--bg-primary)]'}>
                     <pre
-                        className="ansi-output font-mono text-[13px] whitespace-pre-wrap select-text m-0 p-2"
+                        className="ansi-output font-mono whitespace-pre-wrap select-text m-0 p-2"
                         style={{
                             userSelect: 'text',
                             WebkitUserSelect: 'text',
                             color: 'var(--text-primary)',
-                            lineHeight: '1.5',
+                            fontFamily: terminalFont.fontFamily,
+                            fontSize: terminalFont.fontSize,
+                            lineHeight: terminalFont.lineHeight,
                         }}
                         dangerouslySetInnerHTML={{ __html: ansiToHtml(block.output) }}
                     />

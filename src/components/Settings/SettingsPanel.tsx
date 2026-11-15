@@ -42,6 +42,21 @@ import {
   newDrivingAgentTabId,
 } from '../../lib/drivingAgents';
 import { ProcessingGlowSettings } from '../Terminal/ProcessingGlow';
+import {
+  TERMINAL_FONT_FAMILIES,
+  TERMINAL_FONT_WEIGHTS,
+  TERMINAL_FONT_SIZE_MIN,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_LINE_HEIGHT_MIN,
+  TERMINAL_LINE_HEIGHT_MAX,
+  TERMINAL_LETTER_SPACING_MIN,
+  TERMINAL_LETTER_SPACING_MAX,
+  WARP_PRESET,
+  clampTerminalFontSize,
+  clampTerminalLineHeight,
+  clampTerminalLetterSpacing,
+  warpPresetSettings,
+} from '../../lib/terminalFont';
 import { ModelInstaller } from './ModelInstaller';
 import { ModulesTab } from '../Modules/ModulesTab';
 import { ForgeView } from '../Forge/ForgeView';
@@ -1554,6 +1569,139 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                       <span className="text-sm">Show efficiency indicators</span>
                     </label>
 </Tooltip>
+                </div>
+              </section>
+
+              <section>
+                {/* Terminal customizations (Gary, 2026-11-14 ~14:28 PST):
+                    Warp's terminal font values as customizations.
+                    The terminal — xterm, the composer, the feed
+                    blocks — follows these settings live. Defaults
+                    ship as the terminal's current look (JetBrains
+                    Mono 13 / 1.5 / 0 / off / Normal); the Warp
+                    preset below is a one-click choice, not the
+                    default. Hack is bundled with Lucid, so the
+                    preset renders Hack on every machine. */}
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Terminal customizations</h3>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">Family</label>
+<Tooltip content="Terminal font family">
+                        <select
+                          className="input"
+                          data-testid="terminal-font-family"
+                          value={settings.terminalFontFamily ?? 'JetBrains Mono'}
+                          onChange={(e) => updateSetting('terminalFontFamily', e.target.value)}
+                        >
+                          {TERMINAL_FONT_FAMILIES.map((family) => (
+                            <option key={family} value={family}>{family}</option>
+                          ))}
+                        </select>
+</Tooltip>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">Size</label>
+<Tooltip content="Terminal font size (1–120)">
+                        <input
+                          type="number"
+                          className="input"
+                          data-testid="terminal-font-size"
+                          value={settings.terminalFontSize ?? 13}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!Number.isNaN(v)) updateSetting('terminalFontSize', clampTerminalFontSize(v));
+                          }}
+                          min={TERMINAL_FONT_SIZE_MIN}
+                          max={TERMINAL_FONT_SIZE_MAX}
+                        />
+</Tooltip>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">
+                      Line height — {(settings.terminalLineHeight ?? 1.5).toFixed(1)}×
+                    </label>
+                    <div className="flex items-center gap-3">
+<Tooltip content="Terminal line height (ratio — Warp default 1.2)">
+                        <input
+                          type="range"
+                          className="flex-1"
+                          data-testid="terminal-line-height"
+                          value={settings.terminalLineHeight ?? 1.5}
+                          onChange={(e) => updateSetting('terminalLineHeight', clampTerminalLineHeight(parseFloat(e.target.value)))}
+                          min={TERMINAL_LINE_HEIGHT_MIN}
+                          max={TERMINAL_LINE_HEIGHT_MAX}
+                          step={0.1}
+                        />
+</Tooltip>
+                      <span className="text-sm w-10">{(settings.terminalLineHeight ?? 1.5).toFixed(1)}×</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">
+                      Letter spacing — {(settings.terminalLetterSpacing ?? 0).toFixed(1)} px
+                    </label>
+                    <div className="flex items-center gap-3">
+<Tooltip content="Terminal letter spacing (Warp sets none — a Lucid addition)">
+                        <input
+                          type="range"
+                          className="flex-1"
+                          data-testid="terminal-letter-spacing"
+                          value={settings.terminalLetterSpacing ?? 0}
+                          onChange={(e) => updateSetting('terminalLetterSpacing', clampTerminalLetterSpacing(parseFloat(e.target.value)))}
+                          min={TERMINAL_LETTER_SPACING_MIN}
+                          max={TERMINAL_LETTER_SPACING_MAX}
+                          step={0.5}
+                        />
+</Tooltip>
+                      <span className="text-sm w-10">{(settings.terminalLetterSpacing ?? 0).toFixed(1)} px</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">Weight</label>
+<Tooltip content="Terminal font weight">
+                        <select
+                          className="input"
+                          data-testid="terminal-font-weight"
+                          value={settings.terminalFontWeight ?? '400'}
+                          onChange={(e) => updateSetting('terminalFontWeight', e.target.value)}
+                        >
+                          {TERMINAL_FONT_WEIGHTS.map((w) => (
+                            <option key={w.value} value={w.value}>{w.label}</option>
+                          ))}
+                        </select>
+</Tooltip>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">Ligatures</label>
+<Tooltip content="Terminal ligatures (Warp default: off)">
+                        <label className="flex items-center gap-2 cursor-pointer pt-1">
+                          <Toggle
+                            checked={settings.terminalLigatures ?? false}
+                            onChange={(checked) => updateSetting('terminalLigatures', checked)}
+                          />
+                          <span className="text-sm">On</span>
+                        </label>
+</Tooltip>
+                    </div>
+                  </div>
+                  <div>
+<Tooltip content="Apply Warp's terminal font defaults">
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        data-testid="terminal-warp-preset"
+                        onClick={() => updateSettings(warpPresetSettings())}
+                      >
+                        Warp preset
+                      </button>
+</Tooltip>
+                    <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">
+                      Hack, {WARP_PRESET.size}, line height {WARP_PRESET.lineHeight.toFixed(1)}, ligatures off, Normal — Warp&rsquo;s defaults. Applies right away, no restart needed.
+                    </p>
+                  </div>
                 </div>
               </section>
 

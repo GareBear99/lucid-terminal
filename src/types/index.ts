@@ -405,6 +405,21 @@ export interface Settings {
   customTheme: Theme | null;
   fontSize: number;
   fontFamily: string;
+  // Terminal font (Gary, 2026-11-14 ~14:28 PST) — the terminal's
+  // own font settings, controlled in Settings > Customization >
+  // Terminal customizations. Separate from fontFamily/fontSize
+  // above, which drive the editor only: the terminal used to be
+  // hardcoded JetBrains Mono 13 / 1.5 and never followed them.
+  // Defaults ship as the terminal's current look; the Warp
+  // preset (Hack, 13, 1.2, off, Normal) is a choice, not the
+  // default. Missing keys in older persisted settings count as
+  // the defaults (loadSettings merges defaults over persisted).
+  terminalFontFamily: string;
+  terminalFontSize: number;
+  terminalLineHeight: number;
+  terminalLetterSpacing: number;
+  terminalLigatures: boolean;
+  terminalFontWeight: string;
   shell: string;
   startupDirectory: string;
   cursorStyle: 'block' | 'underline' | 'bar';

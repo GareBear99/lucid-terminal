@@ -387,6 +387,16 @@ export interface EngineClient {
   getState(): EngineState;
   /** The pinned compiler version, or null before init. */
   getEngineVersion(): string | null;
+  /**
+   * Brain-alive activity (Atom steal #16, Kite half —
+   * 2026-11-14): the ms epoch of the last successful engine
+   * operation, or null when none has completed yet. Every
+   * operation records it (see `call()` below); the indicator
+   * reads it to decide alive vs not responding.
+   */
+  getLastSuccessAt(): number | null;
+  /** The last failed operation (when + message), or null. */
+  getLastError(): { at: number; message: string } | null;
   /** Kite's `did-fail-request`: every failure the API
    *  swallows is emitted here, once per failed call. */
   onDidFailRequest(listener: (error: Error) => void): { dispose: () => void };
@@ -467,6 +477,11 @@ export function createEngineClient(
 ): EngineClient {
   const listeners = new Set<(error: Error) => void>();
   let lastState: EngineState = 'not-running';
+  // Brain-alive activity (Atom steal #16): the last
+  // successful operation and the last failure, for the
+  // indicator. Updated by `call()` and `checkHealth()`.
+  let lastSuccessAt: number | null = null;
+  let lastError: { at: number; message: string } | null = null;
 
   const emitFailure = (error: Error): void => {
     for (const listener of [...listeners]) {
@@ -482,12 +497,18 @@ export function createEngineClient(
   // One transport call, with Kite's failure contract: the
   // error is emitted once and the empty result is returned.
   // `empty` is the per-method empty result (null / [] /
-  // false), so the caller never sees a throw.
+  // false), so the caller never sees a throw. A success
+  // records the activity (the brain-alive indicator's clock);
+  // a failure records the error the same way.
   const call = <T>(empty: T, fn: () => T): T => {
     try {
-      return fn();
+      const result = fn();
+      lastSuccessAt = Date.now();
+      return result;
     } catch (error) {
-      emitFailure(error instanceof Error ? error : new Error(String(error)));
+      const err = error instanceof Error ? error : new Error(String(error));
+      lastError = { at: Date.now(), message: err.message };
+      emitFailure(err);
       return empty;
     }
   };
@@ -518,8 +539,14 @@ export function createEngineClient(
     async checkHealth(): Promise<EngineState> {
       try {
         lastState = await transport.checkHealth();
+        // The probe itself is a successful operation when the
+        // engine answers ready — it keeps the indicator alive
+        // even before the first completion runs.
+        if (lastState === 'ready') lastSuccessAt = Date.now();
       } catch (error) {
-        emitFailure(error instanceof Error ? error : new Error(String(error)));
+        const err = error instanceof Error ? error : new Error(String(error));
+        lastError = { at: Date.now(), message: err.message };
+        emitFailure(err);
         lastState = 'unreachable';
       }
       return lastState;
@@ -527,6 +554,14 @@ export function createEngineClient(
 
     getState(): EngineState {
       return lastState;
+    },
+
+    getLastSuccessAt(): number | null {
+      return lastSuccessAt;
+    },
+
+    getLastError(): { at: number; message: string } | null {
+      return lastError;
     },
 
     getEngineVersion(): string | null {

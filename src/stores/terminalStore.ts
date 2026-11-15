@@ -50,6 +50,24 @@ export interface TerminalState {
   createTab: (cwd?: string, opts?: { detached?: boolean }) => Promise<string>;
   closeTab: (id: string) => void;
   /**
+   * Close several tabs at once (Atom steal #17 — the tab
+   * context menu's "Close Other Tabs" / "Close Tabs to the
+   * Right"). Each close goes through closeTab (PTY destroyed,
+   * cwd pushed to the closed-item stack for ⌘⇧T, activation
+   * re-resolved), so a batch ends with the same state as
+   * closing them one by one. Unknown ids are skipped.
+   */
+  closeTabs: (ids: string[]) => void;
+  /**
+   * Reopen the most recently closed tab (⌘⇧T, Atom steal #13 —
+   * the workspace's closed-item stack). The tab comes back in
+   * its old cwd, as a fresh PTY — the shell session itself is
+   * gone, only the place is remembered. Returns the new tab id,
+   * or null when nothing was closed. The stack is session-only
+   * (never persisted) and holds at most 10.
+   */
+  reopenClosedTab: () => Promise<string | null>;
+  /**
    * Detach (Gary, 2026-11-09): drop the tab from THIS window's
    * strip WITHOUT destroying its PTY and WITHOUT freeing its
    * number — the shell still lives, now owned by a detached
@@ -126,6 +144,15 @@ function lowestFreeTabNumber(): number {
   while (usedTabNumbers.has(n)) n++;
   return n;
 }
+
+/**
+ * The closed-tab stack for ⌘⇧T (Atom steal #13): the cwds of
+ * the most recently closed tabs, most recent first. Module
+ * level, like usedTabNumbers — no component renders it, only
+ * reopenClosedTab reads it. Session-only, never persisted.
+ */
+const closedTabStack: Array<{ cwd: string }> = [];
+const CLOSED_TAB_STACK_MAX = 10;
 
 /**
  * Home directory, cached after the first read (zero-latency F5):
@@ -225,6 +252,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   closeTab: (id) => {
+    // Remember where this tab was, for ⌘⇧T (the closed-item
+    // stack, Atom steal #13): only the cwd survives — the shell
+    // session is gone with the PTY. Tabs that never existed in
+    // this window's strip (a stale id) remember nothing.
+    const closedTab = get().tabs.find((t) => t.id === id);
+    if (closedTab) {
+      closedTabStack.unshift({ cwd: closedTab.cwd });
+      if (closedTabStack.length > CLOSED_TAB_STACK_MAX) closedTabStack.pop();
+    }
     // Free the tab's number so a later tab reuses it.
     const tabNumber = tabNumberFromId(id);
     if (tabNumber !== null) usedTabNumbers.delete(tabNumber);
@@ -347,8 +383,21 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }));
   },
 
+  closeTabs: (ids) => {
+    for (const id of ids) {
+      if (get().tabs.some((t) => t.id === id)) get().closeTab(id);
+    }
+  },
+
+  reopenClosedTab: async () => {
+    const closed = closedTabStack.shift();
+    if (!closed) return null;
+    return get().createTab(closed.cwd);
+  },
+
   resetForTests: () => {
     cachedHomeDir = null;
+    closedTabStack.length = 0;
   },
 }));
 

@@ -8,7 +8,6 @@ import {
   History,
   ChevronRight,
   ChevronDown,
-  File,
   Folder,
   RefreshCw,
   FolderPlus,
@@ -29,6 +28,7 @@ import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { resolveToolbarOrder, moveToolbarIcon } from '../../lib/toolbarOrder';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
 import { DocsPanel } from '../Sidebar/DocsPanel';
+import { FileTypeIcon } from '../Editor/FileTypeIcon';
 import { subscribeDocsPanelRequest } from '../../lib/docsPanelRequest';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { View, FileEntry } from '../../types';
@@ -172,12 +172,18 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   const personaPlexInstalled = installedAddons.includes('persona-plex');
   const storedToolbarOrder = useSettingsStore((s) => s.settings.toolbarOrder);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
+  // Kite's docs-panel toggle (Atom steal #15): when the docs
+  // panel is off, its toolbar icon leaves silently — the same
+  // silent-filter pattern as the blood drop while silenced.
+  // The stored order keeps the 'docs' entry, so re-enabling
+  // puts the icon back where it was.
+  const docsPanelEnabled = useSettingsStore((s) => s.settings.docsPanelEnabled !== false);
   const availableToolbarIcons: string[] = [
     'terminal',
     'editor',
     'explorer',
     'history',
-    'docs',
+    ...(docsPanelEnabled ? ['docs'] : []),
     ...enabledPlugins.map((p) => p.id),
     ...(personaPlexInstalled ? ['persona-plex'] : []),
     'settings',
@@ -556,12 +562,23 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // opener asks for the docs panel — show it, un-collapsed,
   // with the hovered symbol (the cursor comes from the
   // docs-cursor bus, which the opener publishes first).
+  // Kite's docs-panel toggle (steal #15): a request while
+  // the panel is off is ignored, so a hover Docs link does
+  // nothing while the panel is disabled.
   useEffect(() => {
     return subscribeDocsPanelRequest(() => {
+      if (useSettingsStore.getState().settings.docsPanelEnabled === false) return;
       setActivePanel('docs');
       setCollapsedPanels((prev) => ({ ...prev, docs: false }));
     });
   }, []);
+
+  // Turning the docs panel off while it is the active panel
+  // falls back to the Explorer — the icon is gone, so the
+  // panel must not be stranded open with no way back to it.
+  useEffect(() => {
+    if (!docsPanelEnabled) setActivePanel((prev) => (prev === 'docs' ? 'explorer' : prev));
+  }, [docsPanelEnabled]);
 
   // Jump to a block in the terminal. The block elements only exist
   // while the Terminal view is mounted — if the user is in the Synth,
@@ -733,7 +750,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           ) : (
             <>
               <span className="w-3.5" />
-              <File size={14} className="text-[var(--text-muted)] flex-shrink-0" />
+              <FileTypeIcon path={item.path} />
             </>
           )}
           {renamingPath === item.path ? (

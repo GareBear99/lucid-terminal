@@ -4,6 +4,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { BrainAliveIndicator } from './BrainAliveIndicator';
 
 interface StatusBarProps {
   showAI: boolean;
@@ -62,6 +63,11 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
 
       {/* Right Side */}
       <div className="flex items-center gap-3">
+        {/* Brain-alive indicator (Atom steal #16, Kite half):
+            the language engine's health — green while it
+            completed an operation in the last 5 seconds. */}
+        <BrainAliveIndicator />
+
         {/* Network Indicator */}
         <Tooltip content={networkOnline === null ? 'Checking network…' : networkOnline ? 'Network reachable' : 'Network unreachable'}>
           <div
@@ -90,6 +96,7 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
           <Tooltip content="Command Reference" shortcut="Cmd+/">
             <button
               onClick={onOpenHelp}
+              aria-label="Command Reference"
               className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-colors"
             >
               <HelpCircle size={14} />

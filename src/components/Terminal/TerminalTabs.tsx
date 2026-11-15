@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Plus, X, Terminal, Bell, Columns2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { useSplitPaneStore, findGroupForTab } from '../../stores/splitPaneStore';
+import { useSplitPaneStore, findGroupForTab, groupTabIds, orderTabsForRender } from '../../stores/splitPaneStore';
 import { useHistoryStore } from '../../stores/historyStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
@@ -85,6 +85,18 @@ export interface TerminalTabsViewProps {
    * no split control.
    */
   onSplitTab?: () => void;
+  /**
+   * Per-tab context menu (Atom steal #17 — tabs
+   * punch-list): right-click a tab for Close Tab, Close
+   * Other Tabs, Close Tabs to the Right, Reopen Closed Tab,
+   * Split This Tab, and Copy Working Directory. All optional
+   * so existing callers render the plain strip unchanged.
+   */
+  onSplitTabId?: (id: string) => void;
+  onCloseOtherTabs?: (id: string) => void;
+  onCloseTabsToTheRight?: (id: string) => void;
+  onReopenClosedTab?: () => void;
+  onCopyTabCwd?: (id: string) => void;
   showSplitButton?: boolean;
   /**
    * Tabs in the active tab's split group (empty when unsplit):
@@ -142,6 +154,11 @@ export function TerminalTabsView({
   onCloseAskKeepTab,
   onDismissCloseAsk,
   onSplitTab,
+  onSplitTabId,
+  onCloseOtherTabs,
+  onCloseTabsToTheRight,
+  onReopenClosedTab,
+  onCopyTabCwd,
   showSplitButton = false,
   splitGroupTabIds = [],
   onRenameTab,
@@ -167,6 +184,23 @@ export function TerminalTabsView({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [closeAsk, onDismissCloseAsk]);
+
+  // Per-tab context menu (Atom steal #17): right-click a tab.
+  // Clamped so the menu never opens off-screen; Escape or an
+  // outside click dismisses it (never a destructive default).
+  const [contextMenu, setContextMenu] = useState<{
+    tab: TerminalTab;
+    x: number;
+    y: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [contextMenu]);
 
   // Inline rename: double-clicking a tab swaps its label for a text
   // field with the current name selected. Enter or clicking away
@@ -317,6 +351,15 @@ export function TerminalTabsView({
             }${tab.id === drag.draggingTabId ? ' opacity-40' : ''}`}
             onClick={() => onSelectTab(tab.id)}
             onPointerDown={(e) => drag.onTabPointerDown(tab, index, e)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              // Clamp so the menu never opens off-screen.
+              setContextMenu({
+                tab,
+                x: Math.min(e.clientX, window.innerWidth - 200),
+                y: Math.min(e.clientY, window.innerHeight - 230),
+              });
+            }}
             onDoubleClick={() => {
               setEditingTabId(tab.id);
               setEditValue(tab.title);
@@ -468,6 +511,79 @@ export function TerminalTabsView({
           )}
         </div>
       )}
+      {/* Per-tab context menu (Atom steal #17): fixed at the
+          cursor, a transparent overlay closes it on an
+          outside click, Escape closes it too. "Close Tabs to
+          the Right" is disabled on the last tab; Reopen
+          Closed Tab is a silent no-op when nothing was closed
+          (the closed-item stack is session-only). */}
+      {contextMenu && (
+        <div
+          className="fixed inset-0 z-[60]"
+          data-testid="tab-context-menu-overlay"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            role="menu"
+            aria-label={`Tab actions for ${contextMenu.tab.title}`}
+            data-testid="tab-context-menu"
+            className="absolute w-56 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] py-1 shadow-xl"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {[
+              {
+                label: 'Split This Tab',
+                onClick: () => onSplitTabId?.(contextMenu.tab.id),
+                disabled: false,
+              },
+              {
+                label: 'Copy Working Directory',
+                onClick: () => onCopyTabCwd?.(contextMenu.tab.id),
+                disabled: false,
+              },
+              {
+                label: 'Reopen Closed Tab',
+                onClick: () => onReopenClosedTab?.(),
+                disabled: false,
+              },
+              {
+                label: 'Close Tab',
+                onClick: () => onCloseTab(contextMenu.tab.id),
+                disabled: false,
+              },
+              {
+                label: 'Close Other Tabs',
+                onClick: () => onCloseOtherTabs?.(contextMenu.tab.id),
+                disabled: tabs.length <= 1,
+              },
+              {
+                label: 'Close Tabs to the Right',
+                onClick: () => onCloseTabsToTheRight?.(contextMenu.tab.id),
+                disabled:
+                  tabs.findIndex((t) => t.id === contextMenu.tab.id) >= tabs.length - 1,
+              },
+            ].map((item) => (
+              <button
+                key={item.label}
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => {
+                  setContextMenu(null);
+                  item.onClick();
+                }}
+                className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Close ask (Gary, 2026-11-14) — the dialog pattern
           from LocalAccessPromptDialog: role="dialog",
           aria-modal, fixed inset-0 z-60 backdrop, w-96 card,
@@ -561,9 +677,15 @@ interface TerminalTabsProps {
 }
 
 function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange, bloodDropDisabled = false }: TerminalTabsProps) {
-  const { tabs, activeTabId, createTab, updateTabTitle, setActiveTab } =
+  const { tabs: storeTabs, activeTabId, createTab, updateTabTitle, setActiveTab } =
     useTerminalStore();
   const splitGroups = useSplitPaneStore((s) => s.groups);
+  // The strip follows the pane order (Atom steal #17 — pane
+  // item ordering): the split group's leaf order first, then
+  // the rest in store order. The drag hook, the keyboard
+  // switching and the view all read this same ordered list,
+  // so a drag's index is the rendered index.
+  const tabs = orderTabsForRender(storeTabs, splitGroups, activeTabId);
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -716,8 +838,33 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
       onSplitTab={() => {
         if (activeTabId) void useSplitPaneStore.getState().splitTab(activeTabId);
       }}
-      splitGroupTabIds={activeTabId ? (findGroupForTab(splitGroups, activeTabId)?.tabIds ?? []) : []}
+      splitGroupTabIds={activeTabId ? (() => { const g = findGroupForTab(splitGroups, activeTabId); return g ? groupTabIds(g) : []; })() : []}
       onCloseTab={handleCloseTab}
+      // Per-tab context menu (Atom steal #17): "to the right"
+      // is computed in the RENDERED (pane-ordered) list, not
+      // the store order — what the user sees is what closes.
+      onSplitTabId={(id) => {
+        void useSplitPaneStore.getState().splitTab(id);
+      }}
+      onCloseOtherTabs={(id) => {
+        useTerminalStore
+          .getState()
+          .closeTabs(tabs.filter((t) => t.id !== id).map((t) => t.id));
+      }}
+      onCloseTabsToTheRight={(id) => {
+        const index = tabs.findIndex((t) => t.id === id);
+        if (index < 0) return;
+        useTerminalStore
+          .getState()
+          .closeTabs(tabs.slice(index + 1).map((t) => t.id));
+      }}
+      onReopenClosedTab={() => {
+        void useTerminalStore.getState().reopenClosedTab();
+      }}
+      onCopyTabCwd={(id) => {
+        const tab = tabs.find((t) => t.id === id);
+        if (tab) void navigator.clipboard?.writeText?.(tab.cwd);
+      }}
       closeAsk={closeAsk}
       onCloseAskResnap={handleCloseAskResnap}
       onCloseAskCloseSession={handleCloseAskCloseSession}

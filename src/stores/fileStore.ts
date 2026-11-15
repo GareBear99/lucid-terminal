@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { FileEntry } from '../types';
 import { useEventLogStore } from './eventLogStore';
 import { useToastStore } from './toastStore';
+import { useSettingsStore } from './settingsStore';
+import { applyWhitespaceOnSave } from '../lib/whitespace';
 
 /**
  * Clean an error for display. IPC errors wrap the underlying Node error
@@ -72,7 +74,7 @@ interface FileState {
 
   // Actions
   clearError: () => void;
-  setCurrentDir: (dir: string, origin?: 'startup' | 'user') => Promise<void>;
+  setCurrentDir: (dir: string, origin?: 'startup' | 'user' | 'workspace-restore') => Promise<void>;
   refreshDir: () => Promise<void>;
   toggleDir: (path: string) => Promise<void>;
   /** Load a directory's children (top level only) and merge them into the tree. */
@@ -142,7 +144,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ error: null });
   },
 
-  setCurrentDir: async (dir, origin: 'startup' | 'user' = 'user') => {
+  setCurrentDir: async (dir, origin: 'startup' | 'user' | 'workspace-restore' = 'user') => {
     console.log('💾 FileStore: setCurrentDir called with:', dir);
     set({ isLoading: true, error: null });
     try {
@@ -173,10 +175,11 @@ export const useFileStore = create<FileState>((set, get) => ({
       // startup load reads the top level only (depth 1) — no
       // recursive walk, no TCC prompts. A user folder-open is a
       // session read. (Gary, 2026-11-08 — track when + why.)
-      if (origin === 'startup') {
-        useEventLogStore.getState().logStartupFileExplorerWalk(dir, 'completed');
-      } else {
+      if (origin === 'user') {
         useEventLogStore.getState().logDirectoryRead(dir, 'completed');
+      } else {
+        // 'startup' and 'workspace-restore' are both startup reads.
+        useEventLogStore.getState().logStartupFileExplorerWalk(dir, 'completed');
       }
       console.log('✅ FileStore: setCurrentDir completed successfully');
     } catch (error) {
@@ -184,10 +187,10 @@ export const useFileStore = create<FileState>((set, get) => ({
       const message = errorMessage(error);
       set({ error: message, isLoading: false });
       useToastStore.getState().error(`Could not open folder: ${message}`);
-      if (origin === 'startup') {
-        useEventLogStore.getState().logStartupFileExplorerWalk(dir, 'failed', message);
-      } else {
+      if (origin === 'user') {
         useEventLogStore.getState().logDirectoryRead(dir, 'failed', message);
+      } else {
+        useEventLogStore.getState().logStartupFileExplorerWalk(dir, 'failed', message);
       }
     }
   },
@@ -362,12 +365,30 @@ export const useFileStore = create<FileState>((set, get) => ({
     const file = openFiles.find((f) => f.path === path);
     if (!file) return;
 
+    // Whitespace-on-save (Atom steal #20): the enabled
+    // transforms run before the write, and the in-memory
+    // content is updated to match — the editor shows the
+    // trimmed text and the dirty flag clears against it.
+    // Off by default; when off the content is untouched.
+    const settings = useSettingsStore.getState().settings;
+    const content = applyWhitespaceOnSave(file.content, file.path, {
+      trimTrailingWhitespace: settings.editorTrimTrailingWhitespaceOnSave === true,
+      ensureTrailingNewline: settings.editorEnsureTrailingNewlineOnSave === true,
+    });
+    if (content !== file.content) {
+      set((state) => ({
+        openFiles: state.openFiles.map((f) =>
+          f.path === path ? { ...f, content, isDirty: content !== f.originalContent } : f
+        ),
+      }));
+    }
+
     try {
-      await window.lucidAPI.fs.writeFile(path, file.content);
+      await window.lucidAPI.fs.writeFile(path, content);
       set((state) => ({
         openFiles: state.openFiles.map((f) =>
           f.path === path
-            ? { ...f, originalContent: f.content, isDirty: false }
+            ? { ...f, content, originalContent: content, isDirty: false }
             : f
         ),
       }));

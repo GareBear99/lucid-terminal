@@ -35,6 +35,7 @@ import {
 } from '../../lib/drivingAgents';
 import { getCachedGitStatus, useGitStatus } from '../../lib/useGitStatus';
 import { computeGhostSuggestion } from '../../lib/prompterSuggestions';
+import { openFileInWorkspace } from '../../lib/workspace';
 import { getPromptHintWords } from '../../lib/promptHintWords';
 import type { TerminalBlock } from '../../types';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
@@ -864,12 +865,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     // error. In a detached window neither runs — MiniTerminal
     // answers every other slash with the not-here note.
     if (parsed.type === 'split') {
-      const newId = await useSplitPaneStore.getState().splitTab(tabId);
+      // /split takes an optional direction: `horizontal` (or `h`)
+      // stacks the new pane below the active tab (PaneAxis,
+      // Atom steal #9); anything else splits side by side.
+      const direction = parsed.args?.[0] === 'horizontal' || parsed.args?.[0] === 'h' ? 'horizontal' : 'vertical';
+      const newId = await useSplitPaneStore.getState().splitTab(tabId, direction);
       if (newId === null) {
         await write('No terminal tab to split.');
         return;
       }
-      await write('Split — two terminals side by side. /unsplit closes the extra panes.');
+      await write(
+        direction === 'horizontal'
+          ? 'Split — a new terminal stacked below. /unsplit closes the extra panes.'
+          : 'Split — two terminals side by side. /unsplit closes the extra panes.',
+      );
       return;
     }
     if (parsed.type === 'unsplit') {
@@ -925,7 +934,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         await write('Usage: /open <file>');
         return;
       }
-      const ok = await useFileStore.getState().openFile(resolveFileArg(arg));
+      // The open funnel (Atom steal #14): /open outside every
+      // known project adds the file's directory as a project.
+      const ok = await openFileInWorkspace(resolveFileArg(arg));
       if (!ok) {
         const detail = useFileStore.getState().error;
         await write(`Could not open "${arg}"${detail ? ` — ${detail}` : '.'}`);

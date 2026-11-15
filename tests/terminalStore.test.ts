@@ -143,3 +143,88 @@ describe('useTerminalStore — renaming does not touch numbering', () => {
     expect(titles()).toEqual(['Terminal 1', 'Build', 'Terminal 3']);
   });
 });
+
+describe('useTerminalStore — reopen closed tab (⌘⇧T)', () => {
+  test('reopens the most recently closed tab in its old cwd', async () => {
+    const api = useTerminalStore.getState();
+    await api.createTab('/home/test/work');
+    await api.createTab('/home/test/other');
+    useTerminalStore.getState().closeTab('terminal-2');
+    const reopened = await useTerminalStore.getState().reopenClosedTab();
+    expect(reopened).toBe('terminal-2');
+    const tab = useTerminalStore.getState().tabs.find((t) => t.id === reopened);
+    expect(tab?.cwd).toBe('/home/test/other');
+  });
+
+  test('reopen pops most-recent-first', async () => {
+    const api = useTerminalStore.getState();
+    await api.createTab('/home/test/a');
+    await api.createTab('/home/test/b');
+    useTerminalStore.getState().closeTab('terminal-1');
+    useTerminalStore.getState().closeTab('terminal-2');
+    const first = await useTerminalStore.getState().reopenClosedTab();
+    expect(useTerminalStore.getState().tabs.find((t) => t.id === first)?.cwd).toBe('/home/test/b');
+    const second = await useTerminalStore.getState().reopenClosedTab();
+    expect(useTerminalStore.getState().tabs.find((t) => t.id === second)?.cwd).toBe('/home/test/a');
+  });
+
+  test('reopen with an empty stack returns null and creates nothing', async () => {
+    expect(await useTerminalStore.getState().reopenClosedTab()).toBeNull();
+    expect(stub.create).not.toHaveBeenCalled();
+  });
+
+  test('closing an unknown id remembers nothing', async () => {
+    useTerminalStore.getState().closeTab('terminal-99');
+    expect(await useTerminalStore.getState().reopenClosedTab()).toBeNull();
+  });
+
+  test('the stack holds at most 10 — the oldest close is forgotten', async () => {
+    const api = useTerminalStore.getState();
+    for (let i = 0; i < 11; i++) {
+      await api.createTab(`/home/test/dir-${i}`);
+    }
+    // Close all 11 (most recent close is dir-10, oldest is dir-0).
+    for (let i = 1; i <= 11; i++) {
+      useTerminalStore.getState().closeTab(`terminal-${i}`);
+    }
+    const cwds: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = await useTerminalStore.getState().reopenClosedTab();
+      cwds.push(useTerminalStore.getState().tabs.find((t) => t.id === id)?.cwd ?? '');
+    }
+    expect(cwds[0]).toBe('/home/test/dir-10');
+    expect(cwds).not.toContain('/home/test/dir-0');
+    expect(await useTerminalStore.getState().reopenClosedTab()).toBeNull();
+  });
+});
+
+describe('useTerminalStore — closeTabs (tab context menu)', () => {
+  test('closeTabs closes the listed tabs and lands the active tab on the survivor', async () => {
+    const api = useTerminalStore.getState();
+    await api.createTab('/home/test/a');
+    await api.createTab('/home/test/b');
+    await api.createTab('/home/test/c');
+    useTerminalStore.getState().setActiveTab('terminal-2');
+    useTerminalStore.getState().closeTabs(['terminal-1', 'terminal-3']);
+    const tabs = useTerminalStore.getState().tabs;
+    expect(tabs.map((t) => t.id)).toEqual(['terminal-2']);
+    expect(useTerminalStore.getState().activeTabId).toBe('terminal-2');
+  });
+
+  test('closeTabs skips unknown ids and pushes each closed cwd onto the reopen stack', async () => {
+    const api = useTerminalStore.getState();
+    await api.createTab('/home/test/a');
+    await api.createTab('/home/test/b');
+    useTerminalStore.getState().closeTabs(['terminal-1', 'terminal-99']);
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual(['terminal-2']);
+    const reopened = await useTerminalStore.getState().reopenClosedTab();
+    expect(useTerminalStore.getState().tabs.find((t) => t.id === reopened)?.cwd).toBe('/home/test/a');
+  });
+
+  test('closeTabs with an empty list changes nothing', async () => {
+    const api = useTerminalStore.getState();
+    await api.createTab('/home/test/a');
+    useTerminalStore.getState().closeTabs([]);
+    expect(useTerminalStore.getState().tabs).toHaveLength(1);
+  });
+});

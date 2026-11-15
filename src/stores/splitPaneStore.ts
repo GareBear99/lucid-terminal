@@ -15,9 +15,23 @@
  * the audit directed ("reusing the existing tab strip for pane
  * management").
  *
- * VERTICAL FIRST: panes sit side by side (a vertical split). A
- * horizontal split (stacked panes) is a follow-on — the group
- * would need a direction, and the divider a horizontal drag.
+ * PANEAXIS TREE (Atom steal #9, 2026-11-14): a group is a binary
+ * tree of split nodes, not a flat row. A leaf is one pane (a tab);
+ * a split node holds exactly two children and a direction —
+ * 'vertical' (side by side, the original ⌘D split) or
+ * 'horizontal' (stacked, ⌘⇧D / `/split horizontal`). Splitting a
+ * pane replaces its leaf with a split node holding the old pane
+ * and the new one, so splits nest: split a pane inside a vertical
+ * split horizontally and you get a stack inside a column, the
+ * way Atom's PaneAxis nests. Each split node carries its own
+ * two sizes (percentages summing to 100); a divider drag moves
+ * exactly one node's boundary. Closing a pane collapses its
+ * parent node — the sibling takes the parent's place — and a
+ * group whose root collapses to one leaf dissolves, the same
+ * rule the flat model had. The leaf order (left-to-right, then
+ * top-to-bottom) is the visible order and the order the
+ * terminal view shows.
+ *
  * Terminal view only: the editor, Files and AI panel never split.
  *
  * MAIN WINDOW ONLY: detached windows (MiniTerminal, `?mini=
@@ -48,9 +62,10 @@
  * persisted state (there is none — split layout is session-only,
  * like the tab strip itself: tabs start empty each launch).
  *
- * SIZES: percentages per group, summing to 100, each pane clamped
- * to 15–85%. Membership changes reset to equal widths; the
- * divider drag (SplitDivider.tsx) moves one boundary.
+ * SIZES: percentages per split node, summing to 100, each pane
+ * clamped to 15–85%. Splitting a pane always starts the new
+ * node at 50/50; the divider drag (SplitDivider.tsx) moves one
+ * node's boundary.
  */
 
 import { create } from 'zustand';
@@ -58,15 +73,33 @@ import { useTerminalStore } from './terminalStore';
 import { useHistoryStore } from './historyStore';
 import type { TerminalTab } from '../types';
 
-/** A split group: tabs shown side by side, left to right. */
+/** Split direction: 'vertical' is side by side, 'horizontal' is stacked. */
+export type SplitDirection = 'vertical' | 'horizontal';
+
+/**
+ * A node in a group's PaneAxis tree. A leaf is one pane (a tab);
+ * a split node holds exactly two children and the direction they
+ * sit in. Sizes are the two children's percentages, summing to
+ * 100 — a divider drag moves exactly this node's boundary.
+ */
+export type SplitNode =
+  | { type: 'leaf'; tabId: string }
+  | {
+      type: 'split';
+      id: string;
+      direction: SplitDirection;
+      sizes: [number, number];
+      first: SplitNode;
+      second: SplitNode;
+    };
+
+/** A split group: one tree over its panes. */
 export interface SplitGroup {
   /** Stable id (`split-N`), independent of membership — the anchor
    *  tab may leave the group without the group losing its id. */
   id: string;
-  /** Pane tab ids, left to right. */
-  tabIds: string[];
-  /** Width percentages, same length as tabIds, summing to 100. */
-  sizes: number[];
+  /** The tree's root: a split node while the group is split. */
+  root: SplitNode;
 }
 
 export interface SplitPaneState {
@@ -74,22 +107,24 @@ export interface SplitPaneState {
   groups: Record<string, SplitGroup>;
 
   /**
-   * Split a tab vertically: create a fresh tab (a new PTY, in the
-   * source tab's cwd) and put it beside the source — appended
-   * after the source inside its group when the source is already
-   * split, else a new group [source, new]. Focus follows the new
+   * Split a tab: create a fresh tab (a new PTY, in the source
+   * tab's cwd) and put it beside the source — the source leaf is
+   * replaced by a split node holding the source and the new pane
+   * (50/50, in `direction`), so splits nest. When the source is
+   * not split yet this makes a new group. Focus follows the new
    * pane (createTab makes it active). Returns the new tab id, or
    * null when the source tab does not exist.
    */
-  splitTab: (tabId: string) => Promise<string | null>;
+  splitTab: (tabId: string, direction?: SplitDirection) => Promise<string | null>;
   /**
-   * Close one pane: remove it from its group (dissolving the group
-   * when one pane is left) and close the tab (destroying its PTY).
-   * When the closed pane was active and siblings remain, focus
-   * moves to the pane that takes its place (the next pane, else
-   * the previous) — not to the strip neighbour, which may sit
-   * outside the group. A tab in no group closes exactly like
-   * closeTab.
+   * Close one pane: remove it from its group (collapsing its
+   * parent node — the sibling takes the parent's place — and
+   * dissolving the group when one pane is left) and close the tab
+   * (destroying its PTY). When the closed pane was active and
+   * siblings remain, focus moves to the pane that takes its place
+   * (the next pane, else the previous) — not to the strip
+   * neighbour, which may sit outside the group. A tab in no group
+   * closes exactly like closeTab.
    */
   closePane: (tabId: string) => void;
   /**
@@ -103,12 +138,13 @@ export interface SplitPaneState {
   unsplitTab: (tabId: string) => void;
   /** Focus a pane — the tab strip's setActiveTab. */
   focusPane: (tabId: string) => void;
-  /** Set a group's widths (divider drag). Length must match the
-   *  group; each pane is clamped to 15–85% and the set is
-   *  normalised to 100. Anything else is a no-op. */
-  setPaneSizes: (groupId: string, sizes: number[]) => void;
-  /** Test-only reset: clears groups, the group counter, and the
-   *  guest stash (same precedent as sessionStore.resetForTests). */
+  /** Set one split node's sizes (divider drag). The sizes must
+   *  be a pair; each pane is clamped to 15–85% and the pair is
+   *  normalised to 100. An unknown group, an unknown node, or a
+   *  wrong-length sizes array is a no-op. */
+  setSplitSizes: (groupId: string, nodeId: string, sizes: [number, number]) => void;
+  /** Test-only reset: clears groups, the group/node counters, and
+   *  the guest stash (same precedent as sessionStore.resetForTests). */
   resetForTests: () => void;
 }
 
@@ -117,7 +153,10 @@ export const SPLIT_PANE_MIN_PCT = 15;
 export const SPLIT_PANE_MAX_PCT = 85;
 
 /** Equal widths for n panes (rounded to 2 decimals; the sum lands
- *  within a hundredth of 100, which flex tolerates). */
+ *  within a hundredth of 100, which flex tolerates). Kept for the
+ *  flat callers that still need an n-way split (tests, and the
+ *  drag helper's boundary math); a split node itself always
+ *  holds exactly two sizes. */
 export function equalSizes(n: number): number[] {
   if (n <= 0) return [];
   const each = Math.round(10000 / n) / 100;
@@ -134,7 +173,9 @@ export function clampPanePct(value: number): number {
  * `boundary` — between pane `boundary` and `boundary + 1` — by
  * `deltaPct` (positive grows the left pane). The two panes'
  * combined width is conserved; when one side hits its clamp the
- * other gives back the leftover, so both stay in 15–85%.
+ * other gives back the leftover, so both stay in 15–85%. A
+ * divider always sits between exactly two children of one split
+ * node, so callers pass a two-element sizes array and boundary 0.
  */
 export function computePaneSizesAfterDrag(
   sizes: number[],
@@ -158,13 +199,36 @@ export function computePaneSizesAfterDrag(
   return next;
 }
 
+/** The pane tab ids under a node, in visible order (left to right, then top to bottom). */
+export function splitNodeTabIds(node: SplitNode): string[] {
+  if (node.type === 'leaf') return [node.tabId];
+  return [...splitNodeTabIds(node.first), ...splitNodeTabIds(node.second)];
+}
+
+/** The pane tab ids of a group, in visible order. */
+export function groupTabIds(group: SplitGroup): string[] {
+  return splitNodeTabIds(group.root);
+}
+
+/** The split node with this id inside a group, or null. */
+export function findSplitNode(group: SplitGroup, nodeId: string): SplitNode | null {
+  const walk = (node: SplitNode): SplitNode | null => {
+    if (node.type === 'split') {
+      if (node.id === nodeId) return node;
+      return walk(node.first) ?? walk(node.second);
+    }
+    return null;
+  };
+  return walk(group.root);
+}
+
 /** The group containing a tab, or null. A tab is in at most one. */
 export function findGroupForTab(
   groups: Record<string, SplitGroup>,
   tabId: string,
 ): SplitGroup | null {
   for (const group of Object.values(groups)) {
-    if (group.tabIds.includes(tabId)) return group;
+    if (groupTabIds(group).includes(tabId)) return group;
   }
   return null;
 }
@@ -180,7 +244,7 @@ export function getVisibleTabIds(
 ): string[] {
   if (!activeTabId) return [];
   const group = findGroupForTab(groups, activeTabId);
-  return group ? [...group.tabIds] : [activeTabId];
+  return group ? groupTabIds(group) : [activeTabId];
 }
 
 /**
@@ -210,12 +274,84 @@ export function orderTabsForRender(
   return ordered;
 }
 
+/**
+ * Tree surgery (pure, exported for tests). Replace the leaf
+ * holding `tabId` with `replacement`, returning a new tree —
+ * the old tree is never mutated. Returns the node unchanged
+ * when the leaf is not under it.
+ */
+export function replaceLeaf(node: SplitNode, tabId: string, replacement: SplitNode): SplitNode {
+  if (node.type === 'leaf') {
+    return node.tabId === tabId ? replacement : node;
+  }
+  return {
+    ...node,
+    first: replaceLeaf(node.first, tabId, replacement),
+    second: replaceLeaf(node.second, tabId, replacement),
+  };
+}
+
+/**
+ * Remove the leaf holding `tabId`, collapsing its parent: the
+ * sibling takes the parent's place. Returns null when the node
+ * itself was that leaf (the group dissolves), and the node
+ * unchanged when the leaf is not under it.
+ */
+export function removeLeaf(node: SplitNode, tabId: string): SplitNode | null {
+  if (node.type === 'leaf') {
+    return node.tabId === tabId ? null : node;
+  }
+  const first = removeLeaf(node.first, tabId);
+  if (first === null) return node.second;
+  const second = removeLeaf(node.second, tabId);
+  if (second === null) return node.first;
+  if (first === node.first && second === node.second) return node;
+  return { ...node, first, second };
+}
+
+/** Set one split node's sizes, returning a new tree. */
+export function setNodeSizes(
+  node: SplitNode,
+  nodeId: string,
+  sizes: [number, number],
+): SplitNode {
+  if (node.type === 'leaf') return node;
+  if (node.id === nodeId) return { ...node, sizes };
+  return {
+    ...node,
+    first: setNodeSizes(node.first, nodeId, sizes),
+    second: setNodeSizes(node.second, nodeId, sizes),
+  };
+}
+
+/**
+ * Drop every leaf whose tab id is not live, collapsing parents
+ * as removeLeaf does. Returns null when nothing survives.
+ */
+export function pruneSplitNode(node: SplitNode, liveIds: Set<string>): SplitNode | null {
+  if (node.type === 'leaf') {
+    return liveIds.has(node.tabId) ? node : null;
+  }
+  const first = pruneSplitNode(node.first, liveIds);
+  const second = pruneSplitNode(node.second, liveIds);
+  if (first && second) {
+    // Nothing dropped under this node: return the same
+    // reference, so the prune subscription's `changed` check
+    // stays false and the store is not rewritten on every
+    // terminal-store change.
+    if (first === node.first && second === node.second) return node;
+    return { ...node, first, second };
+  }
+  return first ?? second;
+}
+
 let groupCounter = 0;
+let nodeCounter = 0;
 
 export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
   groups: {},
 
-  splitTab: async (tabId) => {
+  splitTab: async (tabId, direction = 'vertical') => {
     const source = useTerminalStore.getState().tabs.find((t) => t.id === tabId);
     if (!source) return null;
     // A new PTY, in the source tab's cwd — a split of this
@@ -223,15 +359,24 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     // the new tab active, so focus follows the new pane.
     const newId = await useTerminalStore.getState().createTab(source.cwd);
     set((state) => {
+      nodeCounter += 1;
+      const node: SplitNode = {
+        type: 'split',
+        id: `node-${nodeCounter}`,
+        direction,
+        sizes: [50, 50],
+        first: { type: 'leaf', tabId },
+        second: { type: 'leaf', tabId: newId },
+      };
       const existing = findGroupForTab(state.groups, tabId);
       if (existing) {
-        const at = existing.tabIds.indexOf(tabId);
-        const tabIds = [...existing.tabIds];
-        tabIds.splice(at + 1, 0, newId);
+        // Nest: the source leaf becomes a split node holding the
+        // source and the new pane — the split lands beside the
+        // source inside its group, at whatever depth it sits.
         return {
           groups: {
             ...state.groups,
-            [existing.id]: { ...existing, tabIds, sizes: equalSizes(tabIds.length) },
+            [existing.id]: { ...existing, root: replaceLeaf(existing.root, tabId, node) },
           },
         };
       }
@@ -240,7 +385,7 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
       return {
         groups: {
           ...state.groups,
-          [id]: { id, tabIds: [tabId, newId], sizes: [50, 50] },
+          [id]: { id, root: node },
         },
       };
     });
@@ -252,19 +397,23 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     const wasActive = useTerminalStore.getState().activeTabId === tabId;
     let nextActive: string | null = null;
     if (group) {
-      const idx = group.tabIds.indexOf(tabId);
-      const remaining = group.tabIds.filter((id) => id !== tabId);
+      const leaves = groupTabIds(group);
+      const idx = leaves.indexOf(tabId);
+      const remaining = leaves.filter((id) => id !== tabId);
       if (wasActive && remaining.length > 0) {
         nextActive = remaining[Math.min(idx, remaining.length - 1)];
       }
       set((state) => {
         const groups = { ...state.groups };
-        if (remaining.length < 2) {
-          // One pane left: the split is over — the survivor is a
-          // normal tab again.
+        const current = groups[group.id];
+        if (!current) return state;
+        // Collapse the parent; a root that becomes one leaf
+        // dissolves the group — the survivor is a normal tab.
+        const root = removeLeaf(current.root, tabId);
+        if (root === null || root.type === 'leaf') {
           delete groups[group.id];
         } else {
-          groups[group.id] = { ...group, tabIds: remaining, sizes: equalSizes(remaining.length) };
+          groups[group.id] = { ...current, root };
         }
         return { groups };
       });
@@ -282,7 +431,7 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     // Snapshot the membership: each closePane mutates the group
     // (removing its tab, dissolving it at one pane left), so the
     // loop reads the original list, not the shrinking one.
-    for (const id of [...group.tabIds]) {
+    for (const id of groupTabIds(group)) {
       if (id !== tabId) get().closePane(id);
     }
   },
@@ -291,29 +440,34 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     useTerminalStore.getState().setActiveTab(tabId);
   },
 
-  setPaneSizes: (groupId, sizes) => {
+  setSplitSizes: (groupId, nodeId, sizes) => {
     set((state) => {
       const group = state.groups[groupId];
-      if (!group || sizes.length !== group.tabIds.length) return state;
-      const clamped = sizes.map(clampPanePct);
-      // Normalise to 100 on the largest pane; the drag helper
+      if (!group) return state;
+      const node = findSplitNode(group, nodeId);
+      if (!node || node.type !== 'split') return state;
+      const clamped = sizes.map(clampPanePct) as [number, number];
+      // Normalise to 100 on the larger pane; the drag helper
       // already conserves the sum, so this is a defensive fix-up
       // for direct callers, not the drag path.
-      const total = clamped.reduce((a, b) => a + b, 0);
+      const total = clamped[0] + clamped[1];
       const residual = 100 - total;
       if (residual !== 0) {
-        let largest = 0;
-        clamped.forEach((v, i) => {
-          if (v > clamped[largest]) largest = i;
-        });
+        const largest = clamped[0] >= clamped[1] ? 0 : 1;
         clamped[largest] = clampPanePct(clamped[largest] + residual);
       }
-      return { groups: { ...state.groups, [groupId]: { ...group, sizes: clamped } } };
+      return {
+        groups: {
+          ...state.groups,
+          [groupId]: { ...group, root: setNodeSizes(group.root, nodeId, clamped) },
+        },
+      };
     });
   },
 
   resetForTests: () => {
     groupCounter = 0;
+    nodeCounter = 0;
     stashedGroups = null;
     guestWasActive = useHistoryStore.getState().guestSessionActive;
     set({ groups: {} });
@@ -333,17 +487,15 @@ useTerminalStore.subscribe((state) => {
   let changed = false;
   const next: Record<string, SplitGroup> = {};
   for (const [id, group] of Object.entries(groups)) {
-    const tabIds = group.tabIds.filter((t) => liveIds.has(t));
-    if (tabIds.length === group.tabIds.length) {
-      next[id] = group;
+    const root = pruneSplitNode(group.root, liveIds);
+    if (root === null || root.type === 'leaf') {
+      // Nothing survives, or one pane left: the group dissolves,
+      // the survivor is a normal tab — the entry is dropped.
+      if (root !== group.root) changed = true;
       continue;
     }
-    changed = true;
-    if (tabIds.length >= 2) {
-      next[id] = { ...group, tabIds, sizes: equalSizes(tabIds.length) };
-    }
-    // One pane left: the group dissolves, the survivor is a
-    // normal tab — the entry is dropped, not kept.
+    if (root !== group.root) changed = true;
+    next[id] = root === group.root ? group : { ...group, root };
   }
   if (changed) useSplitPaneStore.setState({ groups: next });
 });
@@ -372,9 +524,9 @@ useHistoryStore.subscribe((state) => {
     const liveIds = new Set(useTerminalStore.getState().tabs.map((t) => t.id));
     const restored: Record<string, SplitGroup> = {};
     for (const [id, group] of Object.entries(stashedGroups)) {
-      const tabIds = group.tabIds.filter((t) => liveIds.has(t));
-      if (tabIds.length >= 2) {
-        restored[id] = { ...group, tabIds, sizes: equalSizes(tabIds.length) };
+      const root = pruneSplitNode(group.root, liveIds);
+      if (root !== null && root.type === 'split') {
+        restored[id] = { ...group, root };
       }
     }
     stashedGroups = null;

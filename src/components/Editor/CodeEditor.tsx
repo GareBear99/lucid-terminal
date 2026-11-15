@@ -27,7 +27,16 @@ import {
   MarkerLayer,
 } from '../../lib/markerDecorations';
 import { gutterRangesForDiff } from '../../lib/gitLineDiff';
+import { FindReplacePanel } from '../Search/FindReplacePanel';
 import { lspDiagnosticToMonacoMarker, monacoToLsp } from '../../lib/tsLspContract';
+import { EditorStatusBar } from './EditorStatusBar';
+import { FileTypeIcon } from './FileTypeIcon';
+import { editorOptionsForSettings } from '../../lib/whitespace';
+import { useEditorStatusStore } from '../../stores/editorStatusStore';
+import { useScopeStore } from '../../stores/scopeStore';
+import { getScopeDescriptorAtPosition } from '../../lib/treeSitter';
+import { setActiveMonacoEditor } from '../../lib/editorHandle';
+import { detectEol } from '../../lib/editorStatus';
 
 /** Atom's git-diff skips buffers at or above 2 MB
  *  (`git-diff-view.js:6` MAX_BUFFER_LENGTH_TO_DIFF). */
@@ -96,6 +105,13 @@ function CodeEditor() {
   // has no word-at-position API, so it does not publish —
   // the panel follows the Monaco cursor only.
   const docsCursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Editor status bar (Atom steal #11): the same debounced
+  // publish carries the bar's cheap state — cursor position and
+  // selection size (offset math, no text read). The model state
+  // (language, endings, line count) publishes on its own timer
+  // below: it reads the model text, so it runs on content
+  // change and file switch, not on every cursor move.
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const publishCurrentCursor = () => {
     const editor = editorRef.current;
     const path = useFileStore.getState().activeFilePath;
@@ -110,6 +126,52 @@ function CodeEditor() {
       column: position.column,
       word,
     });
+    const selection = editor.getSelection?.();
+    let selectionCount = 0;
+    if (selection && model?.getOffsetAt) {
+      try {
+        selectionCount = Math.max(
+          0,
+          model.getOffsetAt(selection.getEndPosition()) -
+            model.getOffsetAt(selection.getStartPosition()),
+        );
+      } catch {
+        selectionCount = 0;
+      }
+    }
+    useEditorStatusStore.getState().publish({
+      filePath: path,
+      lineNumber: position.lineNumber,
+      column: position.column,
+      selectionCount,
+    });
+    // Scope system (Atom steal #18): the cursor's scope
+    // descriptor rides the same debounced publish, so the
+    // keymap dispatcher can gate scoped bindings on it. Null
+    // when there is no tree for the file — scoped bindings
+    // simply do not fire then.
+    useScopeStore
+      .getState()
+      .setCurrentScope(
+        getScopeDescriptorAtPosition(path, position.lineNumber, position.column),
+      );
+  };
+  const publishModelStatus = () => {
+    const editor = editorRef.current;
+    const path = useFileStore.getState().activeFilePath;
+    if (!editor || !path) return;
+    const model = editor.getModel?.();
+    if (!model) return;
+    useEditorStatusStore.getState().publish({
+      filePath: path,
+      languageId: model.getLanguageId?.() ?? null,
+      eol: detectEol(model.getValue?.() ?? ''),
+      lineCount: model.getLineCount?.() ?? 0,
+    });
+  };
+  const scheduleModelStatus = () => {
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = setTimeout(publishModelStatus, 150);
   };
   const scheduleDocsCursorPublish = () => {
     if (docsCursorTimerRef.current) clearTimeout(docsCursorTimerRef.current);
@@ -234,12 +296,22 @@ function CodeEditor() {
   // below. A no-op when the engine is not ready yet or the
   // file is not TS/JS.
   useEffect(() => {
+    // The status bar follows the active file even when Monaco
+    // never mounts (the fallback textarea): publish the path
+    // here so the bar never shows a closed file's state.
+    useEditorStatusStore.getState().publish({
+      filePath: activeFilePath,
+      lineNumber: 1,
+      column: 1,
+      selectionCount: 0,
+    });
     const file = useFileStore.getState().openFiles.find((f) => f.path === activeFilePath);
     if (file) {
       void updateFileTree(file.path, file.content || '');
       engineClient.openDocument(file.path, file.content || '');
       scheduleDiagnostics();
       scheduleGutter();
+      scheduleModelStatus();
     }
     // A jump requested while this file was not active yet —
     // consume it now that the model is in place.
@@ -269,6 +341,8 @@ function CodeEditor() {
       if (diagnosticsTimerRef.current) clearTimeout(diagnosticsTimerRef.current);
       if (docsCursorTimerRef.current) clearTimeout(docsCursorTimerRef.current);
       if (gutterTimerRef.current) clearTimeout(gutterTimerRef.current);
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+      setActiveMonacoEditor(null);
       gutterLayerRef.current?.dispose();
       gutterLayerRef.current = null;
     };
@@ -318,6 +392,10 @@ function CodeEditor() {
     monacoReady.current = true;
     editorRef.current = _editor;
     monacoRef.current = monaco;
+    // The status bar's grammar and line-ending tiles reach the
+    // editor through this handle (see editorHandle.ts).
+    setActiveMonacoEditor({ editor: _editor, monaco });
+    scheduleModelStatus();
     void engineClient.ensureReady().then(() => {
       scheduleDiagnostics();
       // The engine just became ready — re-publish the cursor
@@ -362,6 +440,22 @@ function CodeEditor() {
             5,
           );
         },
+        // Steal #10 — snippets: user snippets from Settings
+        // (customSnippets), merged over the built-in library
+        // by the snippet provider; read at request time, so a
+        // saved snippet is live without a reload.
+        getUserSnippets: () =>
+          useSettingsStore.getState().settings.customSnippets ?? [],
+        // Kite's settings toggles (Atom steal #15): read live
+        // at request time, so flipping a switch in Settings >
+        // General > Editor takes effect without a reload or a
+        // re-registration. Absent in tests = on.
+        isCompletionsEnabled: () =>
+          useSettingsStore.getState().settings.editorCompletionsEnabled !== false,
+        isHoverEnabled: () =>
+          useSettingsStore.getState().settings.editorHoverEnabled !== false,
+        isSignatureHelpEnabled: () =>
+          useSettingsStore.getState().settings.editorSignatureHelpEnabled !== false,
         getHover: (lineNumber, column) => {
           const path = activePath();
           return path ? engineClient.getHover(path, monacoToLsp({ lineNumber, column })) : null;
@@ -401,6 +495,24 @@ function CodeEditor() {
             // No definition link — Docs still works.
           }
           return { docs, def };
+        },
+        // Kite signature assist (Atom steal #19): the
+        // "How others used this" block — the lines in the
+        // user's own open files that call this callee, from
+        // the pattern index (steal #7). The prefix is the
+        // full dotted chain + `(` (`obj.foo(`), so only
+        // real call sites match; capped at 3, Kite's cap.
+        // No matches means no block — the signature is
+        // unchanged, never invented.
+        getCommonInvocations: (callee) => {
+          return engineClient.getPatternCompletions(
+            useFileStore.getState().openFiles.map((f) => ({
+              path: f.path,
+              content: f.content,
+            })),
+            `${callee}(`,
+            3,
+          );
         },
         getSignatureHelp: (lineNumber, column, _triggerCharacter) => {
           const path = activePath();
@@ -561,28 +673,30 @@ function CodeEditor() {
     }
   };
 
-  // Keyboard shortcuts
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      handleSave();
-    }
-  };
-
+  // Keyboard shortcuts: none live here anymore. ⌘S (save) and
+  // ⌘⇧F (find in project) used to be handled on this div, but
+  // the keymap dispatcher (Atom steal #13, keymapDispatch.ts)
+  // owns them now — one handler for the keymap, the menu and
+  // the palette, so a user rebind changes all three. Keeping
+  // these branches here would save twice (this div's handler
+  // AND the window dispatcher fire on the same keydown).
   // Empty state - solid stored theme, not black (Gary, 2026-11-09):
   // the centre used to be transparent over the app root's bg-black,
   // so the Files page read as a black hole between themed panels.
   // bg-primary is the theme token - never a hardcoded colour here.
   if (openFiles.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center bg-[var(--bg-primary)] text-[var(--text-muted)]">
-        <p>No files open. Select a file from the explorer.</p>
+      <div className="h-full flex flex-col bg-[var(--bg-primary)] text-[var(--text-muted)]">
+        <div className="flex-1 flex items-center justify-center bg-[var(--bg-primary)]">
+          <p>No files open. Select a file from the explorer.</p>
+        </div>
+        <EditorStatusBar />
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col" onKeyDown={handleKeyDown}>
+    <div className="h-full flex flex-col">
       {/* File Tabs */}
       <div
         ref={fileStripRef}
@@ -601,6 +715,7 @@ function CodeEditor() {
               onClick={() => setActiveFile(file.path)}
               onPointerDown={(e) => fileDrag.onFileTabPointerDown(file, e)}
             >
+              <FileTypeIcon path={file.path} />
               <span className="text-sm whitespace-nowrap">
                 {file.isDirty && <span className="text-[var(--accent)]">● </span>}
                 {file.name}
@@ -668,6 +783,7 @@ function CodeEditor() {
                 engineClient.changeDocument(activeFile.path, value || '');
                 scheduleDiagnostics();
                 scheduleGutter();
+                scheduleModelStatus();
               }}
               options={{
                 fontFamily: settings.fontFamily,
@@ -687,11 +803,23 @@ function CodeEditor() {
                   indentation: true,
                   bracketPairs: true,
                 },
+                // Settings smalls (Atom steal #20): bracket
+                // config + wrap-guide rulers, live from
+                // Settings > General > Editor.
+                ...editorOptionsForSettings(settings),
               }}
             />
           )}
         </div>
       )}
+
+      {/* Find in project (Atom steal #5) — the bottom panel,
+          below the editor, above the editor status bar. */}
+      <FindReplacePanel />
+      {/* Editor status bar (Atom steal #11): the bottom strip
+          under the editor — path, cursor, selection, grammar,
+          line endings, git. */}
+      <EditorStatusBar />
     </div>
   );
 }

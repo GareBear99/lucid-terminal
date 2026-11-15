@@ -65,6 +65,20 @@ import {
   type LspHover,
   type LspSignatureHelp,
 } from './tsLspContract';
+import {
+  mergeCompletions,
+  registerCompletionProvider,
+  createWordCompletionProvider,
+  EDITOR_LANGUAGE_IDS,
+  type CompletionItem,
+  type CompletionProvider,
+  type CompletionRequest,
+} from './completionProviders';
+import {
+  createSnippetCompletionProvider,
+  type Snippet,
+} from './snippets';
+import { extractCalleeName, buildSignatureDocumentation } from './signatureAssist';
 
 export interface EditorLspProviderOptions {
   /** LSP completions at a Monaco position, or null when the
@@ -88,6 +102,23 @@ export interface EditorLspProviderOptions {
    *  LSP items and are deduped against them, so a verified
    *  symbol always wins over a repeated idiom. */
   getPatternCompletions?: (linePrefix: string) => string[];
+  /** User snippets (Atom steal #10 — snippets, 2026-11-14):
+   *  read at request time from the settings store's
+   *  customSnippets, merged over the built-in library by the
+   *  snippet provider. Optional: without it the provider
+   *  offers the built-ins only. */
+  getUserSnippets?: () => Snippet[];
+  /**
+   * Kite's settings toggles (Atom steal #15, 2026-11-14):
+   * each is a live callback (read at request time, like
+   * getUserSnippets, so flipping the switch in Settings
+   * takes effect without re-registering the providers).
+   * Absent = on. Completions off returns an empty list;
+   * hover / signature help off return null.
+   */
+  isCompletionsEnabled?: () => boolean;
+  isHoverEnabled?: () => boolean;
+  isSignatureHelpEnabled?: () => boolean;
   /** LSP hover at a Monaco position, or null. */
   getHover: (lineNumber: number, column: number) => LspHover | null;
   /**
@@ -105,6 +136,14 @@ export interface EditorLspProviderOptions {
     word: string,
     position: { lineNumber: number; column: number },
   ) => { docs?: string; def?: string } | null;
+  /**
+   * Common invocations (Atom steal #19 — Kite signature assist,
+   * 2026-11-14): the lines in the user's own open files that call
+   * the given callee — the "How others used this" block, drawn
+   * from Lucid's pattern index, never from Kite's cloud data.
+   * Optional: without it the signature shows the Docs link only.
+   */
+  getCommonInvocations?: (callee: string) => string[];
   /** LSP signature help at a Monaco position, or null. */
   getSignatureHelp: (
     lineNumber: number,
@@ -146,6 +185,10 @@ type ModelLike = {
    *  the test stubs have no model lines, and the provider
    *  falls back to the word at the cursor without it. */
   getLineContent?: (lineNumber: number) => string;
+  /** The file's text (Monaco's getValue) — optional: the
+   *  word provider reads the current file's words from it;
+   *  without it the word provider sees an empty file. */
+  getValue?: () => string;
 };
 
 const registrations = new WeakMap<object, Map<string, () => void>>();
@@ -153,31 +196,10 @@ const registrations = new WeakMap<object, Map<string, () => void>>();
 /** The LSP trigger characters (the clone's completionProvider). */
 const COMPLETION_TRIGGERS = new Set(['.', '"', "'", '/', '@', '<']);
 
-/** A Monaco suggestion carrying its LSP item for resolve. */
-interface MonacoSuggestion {
-  label: string;
-  kind: number;
-  detail?: string;
-  documentation?: { value: string } | string;
-  sortText?: string;
-  insertText: string;
-  range?: {
-    startLineNumber: number;
-    startColumn: number;
-    endLineNumber: number;
-    endColumn: number;
-  };
-  additionalTextEdits?: Array<{
-    range: {
-      startLineNumber: number;
-      startColumn: number;
-      endLineNumber: number;
-      endColumn: number;
-    };
-    text: string;
-  }>;
-  __lspItem?: LspCompletionItem;
-}
+/** A Monaco suggestion is a merged completion item (the
+ *  registry's shape is Monaco's shape, plus `source` and the
+ *  opaque `__lspItem` for the lazy resolve). */
+type MonacoSuggestion = CompletionItem;
 
 export function registerEditorLspProviders(
   monaco: MonacoLike,
@@ -212,6 +234,124 @@ export function registerEditorLspProviders(
     endColumn: wordInfo?.endColumn ?? position.column,
   });
 
+  // The merged completion list (Atom steal #3 — 2026-11-14):
+  // one fan-out over the registered providers, in priority
+  // order — lsp (5), snippet (3), pattern (2), structure
+  // (1), word (0) — deduped and source-badged by the merge
+  // (src/lib/completionProviders.ts). The providers below are
+  // (re)registered on every editor registration (upsert by
+  // source id), so the registry always reflects the current
+  // engine state; the word provider is global and registered
+  // once. The structure provider is the fallback when the
+  // engine is dead (Kite's failure mode): it only offers
+  // when the lsp provider saw a null list on this very
+  // request (the shared engineAlive flag, set by the lsp
+  // provider first — priority order guarantees it runs
+  // first), so a live engine never gets structure noise.
+  const engineAlive = { current: true };
+  const lspProvider: CompletionProvider = {
+    id: 'lsp',
+    suggestionPriority: 5,
+    selector: EDITOR_LANGUAGE_IDS,
+    getSuggestions: (request: CompletionRequest) => {
+      const lspItems = opts.getCompletions(
+        request.lineNumber,
+        request.column,
+      );
+      engineAlive.current = lspItems !== null;
+      if (lspItems === null) return [];
+      const out: CompletionItem[] = [];
+      for (const item of lspItems) {
+        // The service returns everything in scope; the
+        // provider filters by the typed prefix (the
+        // structure provider's rule). After a trigger
+        // character there is no prefix to filter by.
+        if (request.word.length >= 2 && !item.label.startsWith(request.word)) {
+          continue;
+        }
+        out.push({
+          label: item.label,
+          // The LSP kind and Monaco's kind are different
+          // enums — translate, never pass through.
+          kind: lspKindToMonacoKind(item.kind),
+          detail: item.detail,
+          sortText: item.sortText,
+          insertText: item.label,
+          range: request.wordRange,
+          source: 'lsp',
+          __lspItem: item,
+        });
+      }
+      return out;
+    },
+  };
+  const structureProvider: CompletionProvider = {
+    id: 'structure',
+    suggestionPriority: 1,
+    selector: EDITOR_LANGUAGE_IDS,
+    getSuggestions: (request: CompletionRequest) => {
+      // Live engine — the LSP items are the answer; the
+      // structure names stay as the dead-engine fallback.
+      if (engineAlive.current) return [];
+      const seen = new Set<string>();
+      const out: CompletionItem[] = [];
+      for (const identifier of request.identifiers) {
+        if (
+          identifier.length > request.word.length &&
+          identifier.startsWith(request.word) &&
+          !seen.has(identifier)
+        ) {
+          seen.add(identifier);
+          out.push({
+            label: identifier,
+            kind: variableKind,
+            insertText: identifier,
+            range: request.wordRange,
+            source: 'structure',
+          });
+        }
+      }
+      return out;
+    },
+  };
+  const patternProvider: CompletionProvider = {
+    id: 'pattern',
+    suggestionPriority: 2,
+    selector: EDITOR_LANGUAGE_IDS,
+    getSuggestions: (request: CompletionRequest) => {
+      if (!opts.getPatternCompletions) return [];
+      const prefix = request.linePrefix;
+      if (prefix.length < 2) return [];
+      const seen = new Set<string>();
+      const out: CompletionItem[] = [];
+      for (const [i, text] of opts
+        .getPatternCompletions(prefix)
+        .entries()) {
+        if (text.length <= prefix.length || seen.has(text)) continue;
+        seen.add(text);
+        out.push({
+          label: text.length > 100 ? `${text.slice(0, 97)}…` : text,
+          kind: snippetKind,
+          sortText: `zz-pattern-${i}`,
+          insertText: text,
+          range: request.prefixRange,
+          source: 'pattern',
+        });
+      }
+      return out;
+    },
+  };
+  registerCompletionProvider(lspProvider);
+  registerCompletionProvider(structureProvider);
+  registerCompletionProvider(patternProvider);
+  registerCompletionProvider(
+    createSnippetCompletionProvider(
+      () => opts.getUserSnippets?.() ?? [],
+      snippetKind,
+    ),
+  );
+  registerCompletionProvider(createWordCompletionProvider());
+
   const completionProvider = {
     triggerCharacters: [...COMPLETION_TRIGGERS],
     provideCompletionItems(
@@ -221,6 +361,11 @@ export function registerEditorLspProviders(
     ) {
       try {
         if (!model || !position) return { suggestions: [] };
+        // Kite's completions toggle (steal #15): off means an
+        // empty list — the suggest widget never opens.
+        if (opts.isCompletionsEnabled && !opts.isCompletionsEnabled()) {
+          return { suggestions: [] };
+        }
         const wordInfo = model.getWordAtPosition(position);
         const word = wordInfo?.word ?? '';
         // A single character would offer everywhere — require a
@@ -233,105 +378,46 @@ export function registerEditorLspProviders(
         const range = wordRange(position, wordInfo);
         // Tabnine patterns (steal #7): the repeated shapes
         // from the user's own open files, offered for the
-        // line prefix typed so far — after the LSP items (or
-        // after the structure names when the engine is dead).
-        // The prefix is the line from its first
-        // non-whitespace character to the cursor, and the
-        // range replaces exactly that prefix, so accepting a
-        // pattern swaps what was typed for the whole shape.
-        // Without getLineContent (the test stubs) the word
-        // is the prefix and the range is the word range.
-        // Patterns sort last ('zz-pattern-…') and are
-        // deduped against the labels already offered — a
-        // verified symbol always wins over a repeated idiom.
-        const patternSuggestions = (
-          existing: MonacoSuggestion[],
-        ): MonacoSuggestion[] => {
-          if (!opts.getPatternCompletions) return [];
-          const hasLine = typeof model.getLineContent === 'function';
-          const upToCursor = hasLine
-            ? (model.getLineContent!(position.lineNumber) ?? '').slice(
-                0,
-                position.column - 1,
-              )
-            : word;
-          const firstNonWs = upToCursor.search(/\S/);
-          const prefix = firstNonWs === -1 ? '' : upToCursor.slice(firstNonWs);
-          if (prefix.length < 2) return [];
-          const seen = new Set(existing.map((s) => s.label));
-          const out: MonacoSuggestion[] = [];
-          for (const [i, text] of opts
-            .getPatternCompletions(prefix)
-            .entries()) {
-            if (text.length <= prefix.length || seen.has(text)) continue;
-            seen.add(text);
-            out.push({
-              label: text.length > 100 ? `${text.slice(0, 97)}…` : text,
-              kind: snippetKind,
-              detail: 'Pattern',
-              sortText: `zz-pattern-${i}`,
-              insertText: text,
-              range: {
-                startLineNumber: position.lineNumber,
-                startColumn: hasLine
-                  ? firstNonWs + 1
-                  : (wordInfo?.startColumn ?? position.column),
-                endLineNumber: position.lineNumber,
-                endColumn: position.column,
-              },
-            });
-          }
-          return out;
+        // line prefix typed so far. The prefix is the line
+        // from its first non-whitespace character to the
+        // cursor, and the pattern range replaces exactly that
+        // prefix, so accepting a pattern swaps what was typed
+        // for the whole shape. Without getLineContent (the
+        // test stubs) the word is the prefix and the range is
+        // the word range.
+        const hasLine = typeof model.getLineContent === 'function';
+        const upToCursor = hasLine
+          ? (model.getLineContent!(position.lineNumber) ?? '').slice(
+              0,
+              position.column - 1,
+            )
+          : word;
+        const firstNonWs = upToCursor.search(/\S/);
+        const linePrefix = firstNonWs === -1 ? '' : upToCursor.slice(firstNonWs);
+        const prefixRange = {
+          startLineNumber: position.lineNumber,
+          startColumn: hasLine
+            ? firstNonWs + 1
+            : (wordInfo?.startColumn ?? position.column),
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
         };
-        const lspItems = opts.getCompletions(position.lineNumber, position.column);
-        if (lspItems === null) {
-          // Engine dead — fall back to tree-sitter structure
-          // names (the steal #2 provider's shape: Variable
-          // kind, no docs, prefix-filtered).
-          const seen = new Set<string>();
-          const suggestions: MonacoSuggestion[] = [];
-          for (const identifier of opts.getStructureIdentifiers(
+        const request: CompletionRequest = {
+          word,
+          linePrefix,
+          lineNumber: position.lineNumber,
+          column: position.column,
+          languageId,
+          modelText:
+            typeof model.getValue === 'function' ? model.getValue() : '',
+          identifiers: opts.getStructureIdentifiers(
             position.lineNumber,
             position.column,
-          )) {
-            if (
-              identifier.length > word.length &&
-              identifier.startsWith(word) &&
-              !seen.has(identifier)
-            ) {
-              seen.add(identifier);
-              suggestions.push({
-                label: identifier,
-                kind: variableKind,
-                insertText: identifier,
-                range,
-              });
-            }
-          }
-          suggestions.push(...patternSuggestions(suggestions));
-          return { suggestions };
-        }
-        const suggestions: MonacoSuggestion[] = [];
-        for (const item of lspItems) {
-          // The service returns everything in scope; the
-          // provider filters by the typed prefix (the
-          // structure provider's rule). After a trigger
-          // character there is no prefix to filter by.
-          if (word.length >= 2 && !item.label.startsWith(word)) continue;
-          suggestions.push({
-            label: item.label,
-            // The LSP kind and Monaco's kind are different
-            // enums — translate, never pass through.
-            kind: lspKindToMonacoKind(item.kind),
-            detail: item.detail,
-            sortText: item.sortText,
-            insertText: item.label,
-            range,
-            __lspItem: item,
-          });
-        }
-        suggestions.push(...patternSuggestions(suggestions));
-        return { suggestions };
+          ),
+          wordRange: range,
+          prefixRange,
+        };
+        return { suggestions: mergeCompletions(request) };
       } catch {
         // Kite's failure mode — a dead engine returns no
         // completions, never an error in the user's face.
@@ -340,7 +426,7 @@ export function registerEditorLspProviders(
     },
     resolveCompletionItem(item: MonacoSuggestion) {
       try {
-        const lspItem = item.__lspItem;
+        const lspItem = item.__lspItem as LspCompletionItem | undefined;
         if (!lspItem?.resolveKey) return item;
         const resolved = opts.resolveCompletion(lspItem);
         if (!resolved) return item;
@@ -369,6 +455,8 @@ export function registerEditorLspProviders(
     ) {
       try {
         if (!position) return null;
+        // Kite's hover toggle (steal #15): off means no hover.
+        if (opts.isHoverEnabled && !opts.isHoverEnabled()) return null;
         const hover = opts.getHover(position.lineNumber, position.column);
         if (!hover) return null;
         // The hover Docs link (Atom steal #7): append `Docs`
@@ -401,28 +489,65 @@ export function registerEditorLspProviders(
     signatureHelpTriggerCharacters: ['(', ',', '<'],
     signatureHelpRetriggerCharacters: [')'],
     provideSignatureHelp(
-      _model: unknown,
+      model: unknown,
       position: { lineNumber: number; column: number } | null,
       context: { triggerCharacter?: string } | null,
     ) {
       try {
         if (!position) return null;
+        // Kite's signature-help toggle (steal #15): off means
+        // no signature popup.
+        if (opts.isSignatureHelpEnabled && !opts.isSignatureHelpEnabled()) return null;
         const help = opts.getSignatureHelp(
           position.lineNumber,
           position.column,
           context?.triggerCharacter,
         );
         if (!help || help.signatures.length === 0) return null;
+        // Kite signature assist (steal #19): the active
+        // signature gains a Docs link and a "How others used
+        // this" block — the callee comes from the line text
+        // at the cursor, the Docs link from the hover wiring,
+        // the invocations from the user's own open files. A
+        // model without getLineContent (or no callee, no
+        // link, no invocations) leaves the signature exactly
+        // as the LSP gave it.
+        const lineText = (() => {
+          try {
+            const m = model as { getLineContent?: (n: number) => string } | null;
+            return typeof m?.getLineContent === 'function'
+              ? m.getLineContent(position.lineNumber)
+              : null;
+          } catch {
+            return null;
+          }
+        })();
+        const callee = lineText ? extractCalleeName(lineText, position.column) : null;
+        const docsUrl =
+          callee && opts.hoverLinks ? opts.hoverLinks(callee.word, position)?.docs : undefined;
+        const invocations =
+          callee && opts.getCommonInvocations
+            ? opts.getCommonInvocations(callee.chain)
+            : [];
         return {
           value: {
-            signatures: help.signatures.map((sig) => ({
-              label: sig.label,
-              documentation: sig.documentation,
-              parameters: sig.parameters.map((param) => ({
-                label: param.label,
-                documentation: param.documentation,
-              })),
-            })),
+            signatures: help.signatures.map((sig, index) => {
+              const base = {
+                label: sig.label,
+                documentation: sig.documentation,
+                parameters: sig.parameters.map((param) => ({
+                  label: param.label,
+                  documentation: param.documentation,
+                })),
+              };
+              if (index !== help.activeSignature) return base;
+              const documentation = buildSignatureDocumentation(
+                sig.documentation,
+                docsUrl,
+                invocations,
+              );
+              return documentation === null ? base : { ...base, documentation };
+            }),
             activeSignature: help.activeSignature,
             activeParameter: help.activeParameter,
           },

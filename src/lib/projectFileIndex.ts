@@ -12,18 +12,105 @@
  * TCC-protected folders below the root), flattened to file paths,
  * capped so a huge home directory never blocks the UI.
  *
+ * Project-root awareness (Atom rest, 2026-11-14): the wave-1
+ * index rooted at the home dir with depth 4, so files 5 levels
+ * deep from /Users/gary — every file under
+ * src/components/Settings/ — were invisible to ⌘P
+ * ("PermissionsTab" matched nothing, "SecurityTab" only its
+ * test). The refresh now seeds from the active file's
+ * directory and walks up to the nearest project marker
+ * (package.json / .git / …), so the index roots at the
+ * project and the depth is measured from there. Depth is 6
+ * from the project root (Settings files sit at depth 4);
+ * from the home root (no project detected) the same depth
+ * applies, still capped at 5,000 files.
+ *
  * In-memory and session-scoped only — nothing persists, so the
  * guest rule holds (the guest's index dies with the session).
- * The readDir call is the only Electron touch; the flattening
- * and the last-opened hoist are pure and unit-tested.
+ * The readDir call is the only Electron touch; the flattening,
+ * the last-opened hoist, and the project-root detection are
+ * pure and unit-tested.
  */
 
 import type { FileEntry } from '../types';
 
-/** How deep the recursive read goes (readDir's depth option). */
-export const PROJECT_INDEX_DEPTH = 4;
+/** How deep the recursive read goes (readDir's depth option),
+ *  measured from the project root. */
+export const PROJECT_INDEX_DEPTH = 6;
 /** Hard cap on indexed files — a huge tree stops here. */
 export const PROJECT_INDEX_MAX_FILES = 5000;
+
+/** Directory entries that mark a project root (Atom: the
+ *  added folder). The first ancestor containing one of these
+ *  is the index root. */
+export const PROJECT_ROOT_MARKERS = [
+  'package.json',
+  '.git',
+  'Cargo.toml',
+  'pyproject.toml',
+  'go.mod',
+  'Gemfile',
+  'pom.xml',
+  'composer.json',
+];
+
+/** How far up detectProjectRoot walks from the seed. */
+export const PROJECT_ROOT_MAX_UP = 8;
+
+/** The parent directory of a path ('/a/b/c.ts' → '/a/b';
+ *  '/c.ts' → '/'). */
+export function dirnameOf(path: string): string {
+  const index = path.lastIndexOf('/');
+  if (index <= 0) return '/';
+  return path.slice(0, index);
+}
+
+/** Lists the entry names of a directory (one shallow read).
+ *  Injected in tests; the default reads through the preload
+ *  bridge. A failed read is an empty directory. */
+export type ProjectRootLister = (dir: string) => Promise<string[]>;
+
+export async function listDirectoryNames(dir: string): Promise<string[]> {
+  try {
+    const api = window.lucidAPI?.fs;
+    if (!api || typeof api.readDir !== 'function') return [];
+    const entries = await api.readDir(dir, { depth: 0 });
+    return entries.map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Walk up from a directory to the nearest project root — the
+ * first ancestor (the seed itself first) containing a project
+ * marker. Returns the seed itself when no marker is found
+ * within PROJECT_ROOT_MAX_UP levels (the home-rooted index,
+ * as before). Never walks above the filesystem root.
+ */
+export async function detectProjectRoot(
+  seedDir: string,
+  listNames: ProjectRootLister = listDirectoryNames,
+  maxUp: number = PROJECT_ROOT_MAX_UP,
+): Promise<string> {
+  let dir = seedDir || '/';
+  for (let level = 0; level <= maxUp; level++) {
+    let names: string[] = [];
+    try {
+      names = await listNames(dir);
+    } catch {
+      // A failed read is an empty directory — keep walking.
+      names = [];
+    }
+    if (names.some((name) => PROJECT_ROOT_MARKERS.includes(name))) {
+      return dir;
+    }
+    const parent = dirnameOf(dir);
+    if (parent === dir) return seedDir;
+    dir = parent;
+  }
+  return seedDir;
+}
 
 export interface ProjectFileIndexState {
   root: string;
@@ -102,19 +189,43 @@ export function subscribeProjectFileIndex(listener: Listener): () => void {
 }
 
 /**
- * (Re)build the index for a root directory. Best-effort: a
- * failed read leaves the previous index in place and clears
- * the indexing flag — the finder shows the stale list, never
- * an error in the user's face. No-op when the root is empty.
+ * (Re)build the index for a seed directory. The seed is
+ * usually the active file's directory (or the file store's
+ * current directory at startup); the index roots at the
+ * project detected from it (see detectProjectRoot), so ⌘P
+ * reaches files 5 levels deep from home that the wave-1
+ * home-rooted index could not. A refresh for the project
+ * already indexed is a no-op, so the finder can call this
+ * on every open. Best-effort: a failed read leaves the
+ * previous index in place and clears the indexing flag — the
+ * finder shows the stale list, never an error in the user's
+ * face. No-op when the seed is empty or a refresh is in
+ * flight.
  */
-export async function refreshProjectFileIndex(root: string): Promise<void> {
+export async function refreshProjectFileIndex(
+  root: string,
+  listNames?: ProjectRootLister,
+): Promise<void> {
   if (!root || state.indexing) return;
-  state = { ...state, root, indexing: true };
+  state = { ...state, indexing: true };
+  emit();
+  const projectRoot = await detectProjectRoot(root, listNames);
+  // Already warm for this project — a re-open is a no-op.
+  if (state.root === projectRoot && state.files.length > 0) {
+    state = { ...state, indexing: false };
+    emit();
+    return;
+  }
+  state = { ...state, root: projectRoot };
   emit();
   try {
     const api = window.lucidAPI?.fs;
-    if (!api || typeof api.readDir !== 'function') return;
-    const entries = await api.readDir(root, { depth: PROJECT_INDEX_DEPTH });
+    if (!api || typeof api.readDir !== 'function') {
+      state = { ...state, indexing: false };
+      emit();
+      return;
+    }
+    const entries = await api.readDir(projectRoot, { depth: PROJECT_INDEX_DEPTH });
     const files = flattenFileEntries(entries);
     state = {
       ...state,

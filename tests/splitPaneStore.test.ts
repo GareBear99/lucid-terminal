@@ -20,10 +20,16 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   useSplitPaneStore,
   findGroupForTab,
+  findSplitNode,
   getVisibleTabIds,
+  groupTabIds,
   orderTabsForRender,
   computePaneSizesAfterDrag,
   equalSizes,
+  replaceLeaf,
+  removeLeaf,
+  pruneSplitNode,
+  type SplitGroup,
 } from '../src/stores/splitPaneStore';
 import { useTerminalStore } from '../src/stores/terminalStore';
 import { useHistoryStore } from '../src/stores/historyStore';
@@ -73,6 +79,10 @@ async function makeTabs(n: number): Promise<string[]> {
 
 const groups = () => useSplitPaneStore.getState().groups;
 
+/** The root split node's sizes, or null when the group is a single leaf (it never is — a group is always split). */
+const rootSizes = (group: SplitGroup): [number, number] | null =>
+  group.root.type === 'split' ? group.root.sizes : null;
+
 describe('splitTab', () => {
   test('splits a tab: a fresh tab with its own PTY beside it, 50/50, focus follows', async () => {
     const [a] = await makeTabs(1);
@@ -84,8 +94,8 @@ describe('splitTab', () => {
     expect(stub.create).toHaveBeenCalledWith(created, cwd);
     const group = findGroupForTab(groups(), a);
     expect(group).not.toBeNull();
-    expect(group!.tabIds).toEqual([a, created]);
-    expect(group!.sizes).toEqual([50, 50]);
+    expect(groupTabIds(group!)).toEqual([a, created]);
+    expect(rootSizes(group!)).toEqual([50, 50]);
     // Focus follows the new pane.
     expect(useTerminalStore.getState().activeTabId).toBe(created);
   });
@@ -101,8 +111,18 @@ describe('splitTab', () => {
     const c = await useSplitPaneStore.getState().splitTab(a);
     const d = await useSplitPaneStore.getState().splitTab(a);
     const group = findGroupForTab(groups(), a);
-    expect(group!.tabIds).toEqual([a, d, c]);
-    expect(group!.sizes).toEqual([33.33, 33.33, 33.33]);
+    // The tree nests: splitting `a` again replaces its leaf with
+    // a split node [a, d] inside the root [.., c] — the leaf order
+    // is [a, d, c], and each node holds its own 50/50 pair.
+    expect(groupTabIds(group!)).toEqual([a, d, c]);
+    expect(rootSizes(group!)).toEqual([50, 50]);
+    expect(group!.root.type).toBe('split');
+    if (group!.root.type === 'split') {
+      expect(group!.root.first.type).toBe('split');
+      if (group!.root.first.type === 'split') {
+        expect(group!.root.first.sizes).toEqual([50, 50]);
+      }
+    }
   });
 });
 
@@ -114,8 +134,8 @@ describe('closePane', () => {
     useSplitPaneStore.getState().closePane(d!);
     expect(stub.destroy).toHaveBeenCalledWith(d);
     const group = findGroupForTab(groups(), a);
-    expect(group!.tabIds).toEqual([a, c]);
-    expect(group!.sizes).toEqual([50, 50]);
+    expect(groupTabIds(group!)).toEqual([a, c]);
+    expect(rootSizes(group!)).toEqual([50, 50]);
   });
 
   test('closing down to one pane dissolves the group — the survivor is a normal tab', async () => {
@@ -200,26 +220,164 @@ describe('unsplitTab', () => {
   });
 });
 
-describe('setPaneSizes', () => {
-  test('clamps each pane to 15–85 and normalises the set to 100', async () => {
+describe('setSplitSizes', () => {
+  test('clamps each pane to 15–85 and normalises the pair to 100', async () => {
     const [a] = await makeTabs(1);
     await useSplitPaneStore.getState().splitTab(a);
     const group = findGroupForTab(groups(), a)!;
-    useSplitPaneStore.getState().setPaneSizes(group.id, [5, 95]);
-    expect(groups()[group.id].sizes).toEqual([15, 85]);
-    useSplitPaneStore.getState().setPaneSizes(group.id, [60, 60]);
+    const nodeId = group.root.type === 'split' ? group.root.id : '';
+    useSplitPaneStore.getState().setSplitSizes(group.id, nodeId, [5, 95]);
+    expect(rootSizes(findGroupForTab(groups(), a)!)).toEqual([15, 85]);
+    useSplitPaneStore.getState().setSplitSizes(group.id, nodeId, [60, 60]);
     // Over 100: the residual lands on the first largest pane.
-    expect(groups()[group.id].sizes).toEqual([40, 60]);
+    expect(rootSizes(findGroupForTab(groups(), a)!)).toEqual([40, 60]);
   });
 
-  test('wrong length or unknown group is a no-op', async () => {
+  test('wrong node or unknown group is a no-op', async () => {
     const [a] = await makeTabs(1);
     await useSplitPaneStore.getState().splitTab(a);
     const group = findGroupForTab(groups(), a)!;
-    useSplitPaneStore.getState().setPaneSizes(group.id, [70]);
-    expect(groups()[group.id].sizes).toEqual([50, 50]);
-    useSplitPaneStore.getState().setPaneSizes('split-99', [70, 30]);
-    expect(groups()[group.id].sizes).toEqual([50, 50]);
+    useSplitPaneStore.getState().setSplitSizes(group.id, 'node-99', [70, 30]);
+    expect(rootSizes(findGroupForTab(groups(), a)!)).toEqual([50, 50]);
+    useSplitPaneStore.getState().setSplitSizes('split-99', 'node-99', [70, 30]);
+    expect(rootSizes(findGroupForTab(groups(), a)!)).toEqual([50, 50]);
+  });
+
+  test('sets one nested node without touching its parent', async () => {
+    const [a] = await makeTabs(1);
+    await useSplitPaneStore.getState().splitTab(a);
+    await useSplitPaneStore.getState().splitTab(a);
+    const group = findGroupForTab(groups(), a)!;
+    // Root [ [a, d], c ] — the inner node is the root's first child.
+    expect(group.root.type).toBe('split');
+    if (group.root.type !== 'split') return;
+    expect(group.root.first.type).toBe('split');
+    if (group.root.first.type !== 'split') return;
+    const innerId = group.root.first.id;
+    useSplitPaneStore.getState().setSplitSizes(group.id, innerId, [70, 30]);
+    const after = findGroupForTab(groups(), a)!;
+    expect(rootSizes(after)).toEqual([50, 50]);
+    if (after.root.type === 'split' && after.root.first.type === 'split') {
+      expect(after.root.first.sizes).toEqual([70, 30]);
+    } else {
+      throw new Error('expected a nested split node');
+    }
+  });
+});
+
+describe('PaneAxis nesting', () => {
+  test('horizontal split stacks below: direction recorded, leaf order kept', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    const group = findGroupForTab(groups(), a)!;
+    expect(groupTabIds(group)).toEqual([a, c]);
+    expect(group.root.type).toBe('split');
+    if (group.root.type === 'split') {
+      expect(group.root.direction).toBe('horizontal');
+      expect(group.root.sizes).toEqual([50, 50]);
+    }
+  });
+
+  test('a horizontal split inside a vertical split nests — a stack inside a column', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    const group = findGroupForTab(groups(), a)!;
+    // Leaf order [a, d, c]: the inner node [a, d] sits left of c.
+    expect(groupTabIds(group)).toEqual([a, d, c]);
+    expect(group.root.type).toBe('split');
+    if (group.root.type === 'split') {
+      expect(group.root.direction).toBe('vertical');
+      expect(group.root.first.type).toBe('split');
+      if (group.root.first.type === 'split') {
+        expect(group.root.first.direction).toBe('horizontal');
+        expect(group.root.first.sizes).toEqual([50, 50]);
+      }
+    }
+  });
+
+  test('closing a pane in a nested node collapses its parent — the sibling takes its place', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    // Tree: root [ [a, d], c ]. Close d: the inner node collapses
+    // to leaf a, the root becomes [a, c].
+    useSplitPaneStore.getState().closePane(d!);
+    const group = findGroupForTab(groups(), a)!;
+    expect(groupTabIds(group)).toEqual([a, c]);
+    expect(group.root.type).toBe('split');
+    if (group.root.type === 'split') {
+      expect(group.root.first.type).toBe('leaf');
+      expect(group.root.second.type).toBe('leaf');
+    }
+    expect(stub.destroy).toHaveBeenCalledWith(d);
+  });
+
+  test('pruning a nested leaf collapses its parent node', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    // Close d directly (not via closePane): the prune
+    // subscription collapses the inner node to leaf a.
+    useTerminalStore.getState().closeTab(d!);
+    const group = findGroupForTab(groups(), a)!;
+    expect(groupTabIds(group)).toEqual([a, c]);
+    expect(group.root.type).toBe('split');
+    if (group.root.type === 'split') {
+      expect(group.root.first.type).toBe('leaf');
+    }
+  });
+
+  test('findSplitNode finds a nested node and returns null for a missing id', async () => {
+    const [a] = await makeTabs(1);
+    await useSplitPaneStore.getState().splitTab(a);
+    await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    const group = findGroupForTab(groups(), a)!;
+    if (group.root.type !== 'split' || group.root.first.type !== 'split') {
+      throw new Error('expected a nested split node');
+    }
+    const inner = findSplitNode(group, group.root.first.id);
+    expect(inner).not.toBeNull();
+    expect(inner!.type).toBe('split');
+    expect(findSplitNode(group, 'node-99')).toBeNull();
+  });
+
+  test('pure tree surgery: replaceLeaf nests, removeLeaf collapses, pruneSplitNode drops dead leaves', () => {
+    const leaf = (tabId: string) => ({ type: 'leaf' as const, tabId });
+    const root = {
+      type: 'split' as const,
+      id: 'node-1',
+      direction: 'vertical' as const,
+      sizes: [50, 50] as [number, number],
+      first: leaf('terminal-1'),
+      second: leaf('terminal-2'),
+    };
+    const nested = replaceLeaf(root, 'terminal-1', {
+      type: 'split',
+      id: 'node-2',
+      direction: 'horizontal',
+      sizes: [50, 50],
+      first: leaf('terminal-1'),
+      second: leaf('terminal-3'),
+    });
+    expect(nested.type).toBe('split');
+    // The original tree is untouched — surgery returns new trees.
+    expect(root.first).toEqual(leaf('terminal-1'));
+    // Remove the middle leaf: its parent collapses to the sibling.
+    const collapsed = removeLeaf(nested, 'terminal-3');
+    expect(collapsed).toEqual(root);
+    // Prune a dead leaf: the node collapses to the live sibling.
+    const pruned = pruneSplitNode(nested, new Set(['terminal-1', 'terminal-2']));
+    expect(pruned).toEqual({
+      type: 'split',
+      id: 'node-1',
+      direction: 'vertical',
+      sizes: [50, 50],
+      first: leaf('terminal-1'),
+      second: leaf('terminal-2'),
+    });
+    // Prune everything: null.
+    expect(pruneSplitNode(nested, new Set())).toBeNull();
   });
 });
 
@@ -230,7 +388,7 @@ describe('pruning on tab lifecycle', () => {
     const d = await useSplitPaneStore.getState().splitTab(a);
     useTerminalStore.getState().closeTab(d!);
     const group = findGroupForTab(groups(), a);
-    expect(group!.tabIds).toEqual([a, c]);
+    expect(groupTabIds(group!)).toEqual([a, c]);
     useTerminalStore.getState().closeTab(c!);
     expect(groups()).toEqual({});
   });

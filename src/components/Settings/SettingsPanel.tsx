@@ -29,6 +29,7 @@ import {
   Pause,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { parseRulers } from '../../lib/whitespace';
 import { useAIStore } from '../../stores/aiStore';
 import { themes, fullGlassTheme, allBlackTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
 import { Theme, type CopilotModelId, type DrivingAgentId } from '../../types';
@@ -2368,6 +2369,150 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     {settings.devMode === true
                       ? 'On — the prompt bar is delinked from the terminal screen: a detached command bar in the prompt section runs slash commands and one-shot shell commands into its own dev console, and the terminal screen runs independently. Clicking the prompt section does not focus the terminal. Works with LuciferAI on or off.'
                       : 'Off — the prompt bar and the terminal are topology-synced: clicking anywhere in the prompt section focuses the terminal, so typing always lands in the shell (Warp-style, one input, one screen). Turn it on to delink the bar for troubleshooting, or run /devmode on in the terminal.'}
+                  </span>
+                </label>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
+                  Editor
+                </h3>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2">
+                  Kite&apos;s editor toggles (Atom steal #15): each takes effect immediately, without a reload.
+                </p>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorCompletionsEnabled !== false}
+                    onChange={(checked) => updateSetting('editorCompletionsEnabled', checked)}
+                    ariaLabel="Code completions"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Code completions — the merged completion list in the editor (language server, snippets, patterns, structure, words).
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorSignatureHelpEnabled !== false}
+                    onChange={(checked) => updateSetting('editorSignatureHelpEnabled', checked)}
+                    ariaLabel="Signature help"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Signature help — the parameter popup while calling a function.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorHoverEnabled !== false}
+                    onChange={(checked) => updateSetting('editorHoverEnabled', checked)}
+                    ariaLabel="Hover"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Hover — type and documentation on hover, with the Docs link.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.docsPanelEnabled !== false}
+                    onChange={(checked) => updateSetting('docsPanelEnabled', checked)}
+                    ariaLabel="Docs panel"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Docs panel — the Docs sidebar panel and its toolbar icon. Off hides both; a hover Docs link does nothing while off.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.projectSearchEnabled === true}
+                    onChange={(checked) => updateSetting('projectSearchEnabled', checked)}
+                    ariaLabel="Find in Project"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Find in Project — project find-and-replace over ripgrep (⌘⇧F). Off until enabled; the panel shows an opt-in card until then.
+                  </span>
+                </label>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2 mt-3">
+                  Brackets, rulers, whitespace, autosave (Atom steal #20): each takes effect immediately, without a reload.
+                </p>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorAutoClosingBrackets !== false}
+                    onChange={(checked) => updateSetting('editorAutoClosingBrackets', checked)}
+                    ariaLabel="Auto-close brackets"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Auto-close brackets — typing an opening bracket or quote inserts its pair, with the cursor inside.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorAutoSurround !== false}
+                    onChange={(checked) => updateSetting('editorAutoSurround', checked)}
+                    ariaLabel="Auto-surround selection"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Auto-surround selection — typing a bracket or quote around a selection wraps it instead of replacing it.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorMatchBrackets !== false}
+                    onChange={(checked) => updateSetting('editorMatchBrackets', checked)}
+                    ariaLabel="Highlight matching brackets"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Highlight matching brackets — the pair enclosing the cursor is highlighted.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 py-1">
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)] w-40 shrink-0">
+                    Wrap guides (columns)
+                  </span>
+                  <input
+                    type="text"
+                    value={(settings.editorRulers ?? []).join(', ')}
+                    onChange={(e) =>
+                      updateSetting('editorRulers', parseRulers(e.target.value))
+                    }
+                    placeholder="80, 120"
+                    aria-label="Wrap guide columns"
+                    className="flex-1 min-w-0 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--text-primary)] outline-none"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Vertical lines at these columns, e.g. 80, 120. Empty means none.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorTrimTrailingWhitespaceOnSave === true}
+                    onChange={(checked) =>
+                      updateSetting('editorTrimTrailingWhitespaceOnSave', checked)
+                    }
+                    ariaLabel="Trim trailing whitespace on save"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Trim trailing whitespace on save — strips trailing spaces and tabs when a file saves. Markdown hard breaks (lines ending in 2+ spaces) are preserved.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorEnsureTrailingNewlineOnSave === true}
+                    onChange={(checked) =>
+                      updateSetting('editorEnsureTrailingNewlineOnSave', checked)
+                    }
+                    ariaLabel="Ensure single trailing newline on save"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Ensure single trailing newline on save — a saved file ends with exactly one newline.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <Toggle
+                    checked={settings.editorAutosave === true}
+                    onChange={(checked) => updateSetting('editorAutosave', checked)}
+                    ariaLabel="Autosave on window blur"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Autosave on window blur — dirty files save when the window loses focus. Off by default; a save meant to be discarded stays discarded until you save it yourself.
                   </span>
                 </label>
               </section>

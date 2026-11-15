@@ -112,6 +112,28 @@ const defaultSettings: Settings = {
   terminalLetterSpacing: 0,
   terminalLigatures: false,
   terminalFontWeight: '400',
+  // Atom rest (2026-11-14): custom keybindings + snippets,
+  // both empty by default (the defaults / built-ins apply).
+  customKeybindings: [],
+  customSnippets: [],
+  // Atom rest (2026-11-14): project find-and-replace is
+  // opt-in — off until enabled in Settings > General > Editor.
+  projectSearchEnabled: false,
+  // Kite's settings toggles (Atom steal #15, 2026-11-14) —
+  // all on by default.
+  editorCompletionsEnabled: true,
+  editorSignatureHelpEnabled: true,
+  editorHoverEnabled: true,
+  docsPanelEnabled: true,
+  // Settings smalls (Atom steal #20, 2026-11-14) — see
+  // src/types/index.ts for the defaults' reasoning.
+  editorAutoClosingBrackets: true,
+  editorAutoSurround: true,
+  editorMatchBrackets: true,
+  editorRulers: [],
+  editorTrimTrailingWhitespaceOnSave: false,
+  editorEnsureTrailingNewlineOnSave: false,
+  editorAutosave: false,
   shell: 'powershell.exe',
   startupDirectory: '',
   cursorStyle: 'block',

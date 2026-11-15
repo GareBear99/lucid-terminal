@@ -31,6 +31,13 @@ import type {
 } from '../lib/synthDisclaimer';
 import type { SnapshotManifest } from '../lib/snapshotUpdate';
 import type { RawGitStatus } from '../lib/gitStatus';
+import type { Snippet } from '../lib/snippets';
+import type { KeymapBinding } from '../lib/keymap';
+import type {
+  SearchMatch,
+  SearchOptions,
+  SearchResult,
+} from '../lib/projectSearch';
 import type {
   SnapshotDownloadProgress,
   SnapshotDownloadResult,
@@ -425,6 +432,41 @@ export interface Settings {
   terminalLetterSpacing: number;
   terminalLigatures: boolean;
   terminalFontWeight: string;
+  // Custom keybindings (Atom steal #13 — keymaps,
+  // 2026-11-14): user overrides merged onto the default
+  // keymap (src/lib/keymap.ts). Empty = the defaults.
+  customKeybindings: KeymapBinding[];
+  // Custom snippets (Atom steal #10 — snippets, 2026-11-14):
+  // user snippets merged over the built-in library
+  // (src/lib/snippets.ts). Empty = built-ins only.
+  customSnippets: Snippet[];
+  // Project find-and-replace (Atom steal #5, 2026-11-14):
+  // off until enabled — the panel shows the opt-in card
+  // until this is true (see src/lib/projectSearch.ts).
+  projectSearchEnabled: boolean;
+  // Kite's settings toggles (Atom steal #15, 2026-11-14):
+  // code completions, signature help, hover, and the docs
+  // panel — each on by default, each with a switch in
+  // Settings > General > Editor. The editor providers read
+  // them live (see editorLspProvider.ts); the docs panel
+  // toggle also hides the toolbar's Docs icon (Sidebar).
+  editorCompletionsEnabled: boolean;
+  editorSignatureHelpEnabled: boolean;
+  editorHoverEnabled: boolean;
+  docsPanelEnabled: boolean;
+  // Settings smalls (Atom steal #20, 2026-11-14): bracket
+  // config, wrap-guide rulers, whitespace-on-save, autosave.
+  // Brackets default on (Monaco's current behaviour); rulers
+  // default to none; whitespace-on-save and autosave default
+  // OFF — both rewrite or persist file contents, so they are
+  // opt-in. Each has a switch in Settings > General > Editor.
+  editorAutoClosingBrackets: boolean;
+  editorAutoSurround: boolean;
+  editorMatchBrackets: boolean;
+  editorRulers: number[];
+  editorTrimTrailingWhitespaceOnSave: boolean;
+  editorEnsureTrailingNewlineOnSave: boolean;
+  editorAutosave: boolean;
   shell: string;
   startupDirectory: string;
   cursorStyle: 'block' | 'underline' | 'bar';
@@ -1243,7 +1285,33 @@ declare global {
       };
       git: {
         getStatus: (cwd: string) => Promise<RawGitStatus | null>;
-        getDiff: (cwd: string, filepath?: string) => Promise<string | null>;
+        getDiff: (cwd: string, filepath?: string, staged?: boolean) => Promise<string | null>;
+        // Local-git writes (Atom steal #21 — the git panel):
+        // every write returns { ok, error? } — never a throw.
+        stage: (cwd: string, paths: string[]) => Promise<{ ok: boolean; error?: string }>;
+        unstage: (cwd: string, paths: string[]) => Promise<{ ok: boolean; error?: string }>;
+        commit: (cwd: string, message: string) => Promise<{ ok: boolean; error?: string }>;
+        getBranches: (cwd: string) => Promise<{ branches: string[]; current: string } | null>;
+        checkout: (cwd: string, branch: string) => Promise<{ ok: boolean; error?: string }>;
+        applyHunk: (
+          cwd: string,
+          patch: string,
+          reverse: boolean,
+        ) => Promise<{ ok: boolean; error?: string }>;
+      };
+      menu: {
+        onOpenModal: (
+          callback: (kind: import('../lib/menuModals').MenuActionKind) => void,
+        ) => () => void;
+        setKeybindings: (overrides: import('../lib/keymap').KeymapBinding[]) => void;
+      };
+      search: {
+        search: (root: string, options: SearchOptions) => Promise<SearchResult>;
+        replace: (
+          root: string,
+          replacement: string,
+          matches: SearchMatch[],
+        ) => Promise<{ filesChanged: number; replacedCount: number }>;
       };
       ai: {
         chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;

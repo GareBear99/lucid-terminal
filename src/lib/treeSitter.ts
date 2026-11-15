@@ -54,6 +54,10 @@ import {
   type FileDefinition,
   type EnclosingFunction,
 } from './fileStructure';
+import {
+  scopeDescriptorForNodePath,
+  type ScopeDescriptor,
+} from './scopeDescriptor';
 
 // web-tree-sitter's .d.ts references EmscriptenModule without
 // defining it (no @types/emscripten in Lucid). Declare the two
@@ -439,6 +443,60 @@ export function getEnclosingFunctionAtPosition(
   } catch {
     return null;
   }
+}
+
+/**
+ * The tree-sitter node-type path at a Monaco position in a
+ * file — root (`program`) first, the smallest named node
+ * containing the position last. Null when there is no tree.
+ * The raw path behind the scope descriptor.
+ */
+export function getNodePathAtPosition(
+  path: string,
+  lineNumber: number,
+  column: number,
+): string[] | null {
+  const cached = trees.get(path);
+  if (!cached) return null;
+  const { row, column: byteColumn } = monacoPositionToTreeSitter(
+    cached.text,
+    lineNumber,
+    column,
+  );
+  try {
+    const node = cached.tree.rootNode.namedDescendantForPosition({
+      row,
+      column: byteColumn,
+    });
+    if (!node) return null;
+    const types: string[] = [];
+    let current: typeof node | null = node;
+    while (current) {
+      types.unshift(current.type);
+      current = current.parent;
+    }
+    return types;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The scope descriptor at a Monaco position in a file (Atom
+ * steal #18): the node-type path mapped through the
+ * SyntaxScopeMap-style table into TextMate-style scopes.
+ * Null when there is no tree for the file.
+ */
+export function getScopeDescriptorAtPosition(
+  path: string,
+  lineNumber: number,
+  column: number,
+): ScopeDescriptor | null {
+  const cached = trees.get(path);
+  if (!cached) return null;
+  const nodePath = getNodePathAtPosition(path, lineNumber, column);
+  if (!nodePath) return null;
+  return scopeDescriptorForNodePath(cached.language, nodePath);
 }
 
 /** Parse a standalone text (tests / tools) without touching the

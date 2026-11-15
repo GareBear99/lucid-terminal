@@ -61,10 +61,11 @@ describe('StatusBar tooltip wiring', () => {
   });
 
   test('Help button shows "Command Reference" with the Cmd+/ shortcut', () => {
-    const { container } = renderBar();
-    // The Help button is icon-only (no accessible name); it is the
-    // first button in the StatusBar, ahead of the AI toggle.
-    const helpButton = container.querySelectorAll('button')[0];
+    renderBar();
+    // The Help button is icon-only — found by its aria-label, not
+    // by position: the brain-alive indicator (slice K) sits ahead
+    // of it in the bar now, so "first button" no longer holds.
+    const helpButton = screen.getByRole('button', { name: 'Command Reference' });
     expect(helpButton.getAttribute('title')).toBeNull();
     hoverAndShow(helpButton);
     const tip = screen.getByRole('tooltip');

@@ -12,7 +12,7 @@
  *
  * Run with: npx vitest run tests/atomModals.test.tsx
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, act } from '@testing-library/react';
 import { AtomModals } from '../src/components/CommandPalette/CommandPalette';
 import { useModalStore } from '../src/stores/modalStore';
@@ -30,6 +30,16 @@ const CONTEXT: CommandContext = {
 describe('AtomModals', () => {
   beforeEach(() => {
     useModalStore.setState({ openModal: null });
+    // The keydown handler dispatches through the registry now
+    // (Atom steal #13) — the builtins must be registered, the
+    // way App does it once at startup. Without them the keymap
+    // names a command the registry has never heard of and the
+    // dispatch returns null.
+    registerBuiltinCommands({
+      switchView: vi.fn(),
+      toggleAI: vi.fn(),
+      openHelp: vi.fn(),
+    });
   });
 
   test('renders nothing when no modal is open', () => {
@@ -40,13 +50,17 @@ describe('AtomModals', () => {
   });
 
   test('⌘⇧P opens the command palette', () => {
-    const { getByPlaceholderText } = render(
+    const { getByPlaceholderText, getByText } = render(
       <AtomModals context={CONTEXT} switchView={vi.fn()} />,
     );
     act(() => {
       fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
     });
     expect(getByPlaceholderText('Type a command')).toBeTruthy();
+    // The palette's keystroke labels come from the keymap
+    // (Atom steal #13): the Quick Open row shows the macOS
+    // glyph label from the keymap, not a static string.
+    expect(getByText('⌘P')).toBeTruthy();
   });
 
   test('⌘P opens the fuzzy file finder', () => {
@@ -99,5 +113,78 @@ describe('AtomModals', () => {
       useModalStore.getState().open('goto-line');
     });
     expect(getByPlaceholderText('Go to line (e.g. 42 or 42:10)')).toBeTruthy();
+  });
+});
+
+describe('AtomModals menu events (Atom steal #13 — menus)', () => {
+  // The application menu sends 'menu:open-modal' through the
+  // preload bridge; AtomModals subscribes and opens the modal.
+  // The bridge is mocked on window.lucidAPI here.
+  type MenuCallback = (kind: string) => void;
+  let captured: MenuCallback | null = null;
+  let originalLucidAPI: unknown;
+
+  beforeEach(() => {
+    useModalStore.setState({ openModal: null });
+    captured = null;
+    originalLucidAPI = (window as unknown as { lucidAPI?: unknown }).lucidAPI;
+    (window as unknown as { lucidAPI?: unknown }).lucidAPI = {
+      menu: {
+        onOpenModal: (cb: MenuCallback) => {
+          captured = cb;
+          return () => {};
+        },
+      },
+    };
+  });
+
+  afterEach(() => {
+    (window as unknown as { lucidAPI?: unknown }).lucidAPI = originalLucidAPI;
+  });
+
+  test('menu palette event opens the command palette', () => {
+    const { getByPlaceholderText } = render(
+      <AtomModals context={CONTEXT} switchView={vi.fn()} />,
+    );
+    expect(captured).not.toBeNull();
+    act(() => {
+      captured!('palette');
+    });
+    expect(getByPlaceholderText('Type a command')).toBeTruthy();
+  });
+
+  test('menu finder event opens the fuzzy file finder', () => {
+    const { getByPlaceholderText } = render(
+      <AtomModals context={CONTEXT} switchView={vi.fn()} />,
+    );
+    act(() => {
+      captured!('finder');
+    });
+    expect(getByPlaceholderText('Open a file… (type :12 to jump to a line)')).toBeTruthy();
+  });
+
+  test('menu symbols event opens go-to-symbol only with an active file', () => {
+    const { queryByPlaceholderText, unmount } = render(
+      <AtomModals context={CONTEXT} switchView={vi.fn()} />,
+    );
+    act(() => {
+      captured!('symbols');
+    });
+    // CONTEXT has hasActiveFile: false — nothing opens.
+    expect(queryByPlaceholderText('Go to symbol in file…')).toBeNull();
+    // Both renders share the modal store, so the first must
+    // unmount before the second renders the same modal.
+    unmount();
+
+    const { getByPlaceholderText } = render(
+      <AtomModals
+        context={{ ...CONTEXT, view: 'editor', hasActiveFile: true }}
+        switchView={vi.fn()}
+      />,
+    );
+    act(() => {
+      captured!('symbols');
+    });
+    expect(getByPlaceholderText('Go to symbol in file…')).toBeTruthy();
   });
 });

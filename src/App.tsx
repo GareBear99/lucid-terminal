@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { useForgeStore } from './stores/forgeStore';
 import { isLuciferAiEnabled, isLuciferAiSilenced } from './lib/luciferAi';
@@ -7,6 +7,7 @@ import { ErrorNotification } from './components/Terminal/ErrorNotification';
 import { useTerminalStore } from './stores/terminalStore';
 import { useDetachPushListeners } from './lib/detachPushListeners';
 import { useFileStore } from './stores/fileStore';
+import { autosaveVetoed } from './lib/autosave';
 import { useBrowserStore } from './stores/browserStore';
 import TitleBar from './components/Layout/TitleBar';
 import Sidebar from './components/Layout/Sidebar';
@@ -15,6 +16,10 @@ import Terminal from './components/Terminal/Terminal';
 import TerminalTabs from './components/Terminal/TerminalTabs';
 import { EmptyTerminalState } from './components/Terminal/EmptyTerminalState';
 import AIPanel from './components/AI/AIPanel';
+import { Dock } from './components/Layout/Dock';
+import { GitPanel } from './components/Git/GitPanel';
+import { useDockStore } from './stores/dockStore';
+import { useWorkspaceStore } from './stores/workspaceStore';
 import CodeEditor from './components/Editor/CodeEditor';
 import SettingsPanel, { type SettingsTab } from './components/Settings/SettingsPanel';
 import { SynthView } from './components/Synth/SynthView';
@@ -30,6 +35,7 @@ import { AtomModals } from './components/CommandPalette/CommandPalette';
 import { registerBuiltinCommands } from './lib/builtinCommands';
 import type { CommandContext } from './lib/commandRegistry';
 import { refreshProjectFileIndex } from './lib/projectFileIndex';
+import { subscribeMenuModals } from './lib/menuModals';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
@@ -38,11 +44,11 @@ import { useProfileStore } from './stores/profileStore';
 import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
 import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, orderTabsForRender } from './stores/splitPaneStore';
-import { SplitDivider } from './components/Terminal/SplitDivider';
+import { SplitPaneTree } from './components/Terminal/SplitPaneTree';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
-import { View } from './types';
+import { View, type TerminalTab } from './types';
 import { SnapshotUpdateAlertDialog } from './components/Settings/SnapshotUpdateAlert';
 import { useSnapshotUpdateStore } from './stores/snapshotUpdateStore';
 
@@ -76,6 +82,17 @@ function App() {
   const visibleTabIdSet = new Set(visibleTabIds);
   const isSplitVisible = visibleTabIds.length > 1;
   const renderTabs = orderTabsForRender(tabs, splitGroups, activeTabId);
+  // The active tab's split group, when it is split — the tree
+  // the terminal view renders (PaneAxis, Atom steal #9). Null
+  // when the active tab is not in a group.
+  const activeGroup = activeTabId ? findGroupForTab(splitGroups, activeTabId) : null;
+  const tabById = new Map(renderTabs.map((t) => [t.id, t]));
+  // One terminal pane: the element the flat render and the split
+  // tree both render for a tab. The tree wraps it in its own
+  // sized boxes; the flat render wraps it in the h-full div below.
+  const terminalForTab = (tab: TerminalTab) => (
+    <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} onOpenFiles={() => setCurrentView('editor')} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
+  );
   // Tab detach + remount pushes (Gary, 2026-11-09): tabs/files
   // returning to the main window land here.
   useDetachPushListeners();
@@ -167,7 +184,10 @@ function App() {
     setSettingsInitialTab('modules');
     setCurrentView('settings');
   };
-  const [showAI, setShowAI] = useState(false); // Hidden by default - use command router instead
+  // The AI panel lives in the right dock (Atom steal #12): its
+  // visibility is the dock's, not a local boolean. Hidden by
+  // default — use the command router instead.
+  const showAI = useDockStore((s) => s.docks.right.visible);
   // The AI button always lands on AI Chat: opening the panel from the
   // Browser tab (or with the panel already open on Browser) switches to
   // the chat tab first - it never reopens on Browser. Clicking it while
@@ -180,11 +200,11 @@ function App() {
   const handleToggleAI = () => {
     if (!showAI) {
       useBrowserStore.getState().setPanelTab('ai');
-      setShowAI(true);
+      useDockStore.getState().showDock('right');
     } else if (useBrowserStore.getState().panelTab === 'browser') {
       useBrowserStore.getState().setPanelTab('ai');
     } else {
-      setShowAI(false);
+      useDockStore.getState().hideDock('right');
     }
   };
   const [showHelp, setShowHelp] = useState(false);
@@ -287,7 +307,6 @@ function App() {
     </>
   );
   const [sidebarWidth, setSidebarWidth] = useState(250);
-  const [aiPanelWidth, setAiPanelWidth] = useState(500);
   const [storageBannerDismissed, setStorageBannerDismissed] = useState(false);
   // Startup model check: null while the check has not resolved yet.
   // Dismissing the banner hides it for this session only — it comes
@@ -325,6 +344,52 @@ function App() {
   useEffect(() => {
     return useHelpModalShortcut(openHelp);
   }, []);
+
+  // Application menu actions (Atom steal #13 — menus): the
+  // menu sends 'menu:open-modal' for Help and New Terminal
+  // Tab; the three modals are handled by AtomModals. openHelp
+  // is already gated on LuciferAI; createTab is the same call
+  // the + button uses.
+  useEffect(() => {
+    return subscribeMenuModals((kind) => {
+      if (kind === 'help') openHelp();
+      else if (kind === 'new-terminal-tab') void createTab();
+    });
+  }, [createTab]);
+
+  // Workspace save on quit (Atom steal #14): the debounced
+  // save covers the session, but a quit inside the 500 ms
+  // window would lose the last change — flush on unload.
+  useEffect(() => {
+    const onBeforeUnload = () => useWorkspaceStore.getState().saveNow();
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // Autosave (Atom steal #20): when the window loses focus,
+  // dirty files save through the existing save path. Off by
+  // default; a registered dontSaveIf veto blocks the save
+  // (a modal over unsaved work, a transient state). The
+  // setting is read at blur time, so flipping the switch
+  // takes effect without a reload.
+  useEffect(() => {
+    const onBlur = () => {
+      if (useSettingsStore.getState().settings.editorAutosave !== true) return;
+      if (autosaveVetoed()) return;
+      void useFileStore.getState().saveAllFiles();
+    };
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  }, []);
+
+  // Keymap → menu (Atom steal #13): the menu's accelerators
+  // come from the keymap, so a user rebind reaches main and
+  // the menu is rebuilt with the new labels. Sent on mount
+  // and whenever the overrides change; a no-op without the
+  // bridge (web build, tests, detached windows).
+  useEffect(() => {
+    window.lucidAPI?.menu?.setKeybindings?.(settings.customKeybindings ?? []);
+  }, [settings.customKeybindings]);
 
   // Instant startup - terminal first, everything else loads in background
   useEffect(() => {
@@ -410,11 +475,31 @@ function App() {
         // Warm the fuzzy finder's project index (Atom steal
         // #2) so the first ⌘P is instant. Best-effort, no
         // await — a failed read keeps the empty list, and the
-        // finder warms on first open as a fallback.
+        // finder warms on first open as a fallback. The
+        // refresh detects the project root from the seed, so
+        // this home-dir warm stays home-rooted until a file
+        // is open; the finder re-roots to the project then.
         void refreshProjectFileIndex(homeDir);
         console.log('[INIT] ✅ File explorer ready');
       } catch (error) {
         console.log('[INIT] File explorer unavailable');
+      }
+
+      // Workspace restore (Atom steal #14): reopen the last
+      // session's files + active file + cursor + projects, and
+      // start tracking changes for the debounced save. Best-
+      // effort, never blocks startup — a missing saved workspace
+      // is the normal first-launch case, and a guest restores
+      // nothing (the veil). The terminal stays the landing:
+      // restore never switches the view to the editor.
+      useWorkspaceStore.getState().startTracking();
+      try {
+        const restored = await useWorkspaceStore.getState().restore();
+        if (restored.restored) {
+          console.log(`[INIT] Workspace restored: ${restored.files} files, active ${restored.activeFile}`);
+        }
+      } catch (error) {
+        console.log('[INIT] Workspace restore unavailable:', error);
       }
     }
     
@@ -654,30 +739,44 @@ function App() {
                         <LuciferAITabPanel />
                       ) : (
                         <>
-                      {renderTabs.map((tab, renderIndex) => {
-                        const visible = visibleTabIdSet.has(tab.id);
-                        const group = visible ? findGroupForTab(splitGroups, tab.id) : null;
-                        const paneIndex = group ? group.tabIds.indexOf(tab.id) : -1;
-                        const size = group && paneIndex >= 0 ? group.sizes[paneIndex] : undefined;
-                        // A divider follows every visible pane except
-                        // the last one — between it and the next
-                        // visible pane.
-                        const nextTab = renderTabs[renderIndex + 1];
-                        const showDivider = visible && !!nextTab && visibleTabIdSet.has(nextTab.id);
-                        return (
-                          <Fragment key={tab.id}>
-                            <div
-                              className={`h-full ${visible ? (isSplitVisible ? 'block min-w-0' : 'block') : 'hidden'}`}
-                              style={isSplitVisible && visible && size !== undefined ? { flex: `1 1 ${size}%` } : undefined}
-                            >
-                              <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} onOpenFiles={() => setCurrentView('editor')} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
+                      {isSplitVisible && activeGroup ? (
+                        // Split visible: the PaneAxis tree renders
+                        // the visible panes (nested flex, one
+                        // divider per split node); every other tab
+                        // stays mounted but hidden, exactly as the
+                        // flat render did — its PTY keeps running.
+                        <>
+                          <SplitPaneTree
+                            group={activeGroup}
+                            renderPane={(tabId) => {
+                              const tab = tabById.get(tabId);
+                              if (!tab) return null;
+                              return (
+                                <div key={tab.id} className="h-full w-full block min-w-0">
+                                  {terminalForTab(tab)}
+                                </div>
+                              );
+                            }}
+                          />
+                          {renderTabs.filter((tab) => !visibleTabIdSet.has(tab.id)).map((tab) => (
+                            <div key={tab.id} className="hidden">
+                              {terminalForTab(tab)}
                             </div>
-                            {showDivider && group && (
-                              <SplitDivider groupId={group.id} boundary={paneIndex} />
-                            )}
-                          </Fragment>
-                        );
-                      })}
+                          ))}
+                        </>
+                      ) : (
+                        renderTabs.map((tab) => {
+                          const visible = visibleTabIdSet.has(tab.id);
+                          return (
+                            <div
+                              key={tab.id}
+                              className={`h-full ${visible ? 'block' : 'hidden'}`}
+                            >
+                              {terminalForTab(tab)}
+                            </div>
+                          );
+                        })
+                      )}
                       {tabs.length === 0 && (
                         <EmptyTerminalState
                           onCreateTerminal={() => createTab()}
@@ -719,49 +818,32 @@ function App() {
                 loaded" screen, the SP base display). It does NOT need
                 LuciferAI: nothing here reads the plugin, and the panel
                 works with it on or off. */}
-            {showAI && (
-              <>
-                {/* Resize Handle */}
-                <div
-                  className="w-1 resize-handle"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    const startX = e.clientX;
-                    const startWidth = aiPanelWidth;
-
-                    const onMouseMove = (e: MouseEvent) => {
-                      const delta = startX - e.clientX;
-                      const newWidth = Math.max(400, Math.min(1000, startWidth + delta));
-                      setAiPanelWidth(newWidth);
-                    };
-
-                    const onMouseUp = () => {
-                      document.removeEventListener('mousemove', onMouseMove);
-                      document.removeEventListener('mouseup', onMouseUp);
-                    };
-
-                    document.addEventListener('mousemove', onMouseMove);
-                    document.addEventListener('mouseup', onMouseUp);
-                  }}
-                />
-
-                {/* AI Panel — tabbed: AI Chat + Browser */}
-                <div
-                  className="h-full border-l border-[var(--border)]"
-                  style={{ width: aiPanelWidth }}
-                >
-                  <AIPanel
-                    onClose={() => setShowAI(false)}
-                    onOpenSettings={(tab) => {
-                      setSettingsInitialTab(tab);
-                      setCurrentView('settings');
-                    }}
-                  />
-                </div>
-              </>
-            )}
+            {/* AI Panel — tabbed: AI Chat + Copilot + Browser — in the
+                right dock (Atom steal #12). The dock owns the toggle
+                chevron, the resize handle and the open/close mask;
+                the panel's own X hides it. Its allowed edge is
+                'right' (see dockLocations.ts). */}
+            <Dock edge="right" label="AI Panel">
+              <AIPanel
+                onClose={() => useDockStore.getState().hideDock('right')}
+                onOpenSettings={(tab) => {
+                  setSettingsInitialTab(tab);
+                  setCurrentView('settings');
+                }}
+              />
+            </Dock>
         </>
       </div>
+
+      {/* Git panel — the staging area (Atom steal #21), in the
+          bottom dock. The dock owns the toggle chevron, the
+          resize handle and the open/close mask; the panel's
+          own X hides it. Its allowed edge is 'bottom' (see
+          dockLocations.ts). Opened from the palette
+          (`Git: Open Git Panel`) or the dock chevron. */}
+      <Dock edge="bottom" label="Git">
+        <GitPanel />
+      </Dock>
 
       {/* Status Bar */}
       <StatusBar

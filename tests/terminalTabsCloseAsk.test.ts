@@ -161,7 +161,20 @@ describe('TerminalTabs main-window x asks for used tabs', () => {
   test('a used pane tab asks, then closePane runs on confirm — the group dissolves', () => {
     markUsedByBlocks();
     useSplitPaneStore.setState({
-      groups: { 'split-1': { id: 'split-1', tabIds: ['terminal-1', 'terminal-2'], sizes: [50, 50] } },
+      // Tree shape (slice E): a split node holding the two pane leaves.
+      groups: {
+        'split-1': {
+          id: 'split-1',
+          root: {
+            type: 'split',
+            id: 'split-node-1',
+            direction: 'vertical',
+            sizes: [50, 50],
+            first: { type: 'leaf', tabId: 'terminal-1' },
+            second: { type: 'leaf', tabId: 'terminal-2' },
+          },
+        },
+      },
     });
     render(React.createElement(TerminalTabs, {}));
     fireEvent.click(closeButtonFor('terminal-1'));
@@ -176,7 +189,20 @@ describe('TerminalTabs main-window x asks for used tabs', () => {
 
   test('an unused pane tab closes silently — no ask, group dissolves', () => {
     useSplitPaneStore.setState({
-      groups: { 'split-1': { id: 'split-1', tabIds: ['terminal-1', 'terminal-2'], sizes: [50, 50] } },
+      // Tree shape (slice E): a split node holding the two pane leaves.
+      groups: {
+        'split-1': {
+          id: 'split-1',
+          root: {
+            type: 'split',
+            id: 'split-node-1',
+            direction: 'vertical',
+            sizes: [50, 50],
+            first: { type: 'leaf', tabId: 'terminal-1' },
+            second: { type: 'leaf', tabId: 'terminal-2' },
+          },
+        },
+      },
     });
     render(React.createElement(TerminalTabs, {}));
     fireEvent.click(closeButtonFor('terminal-1'));

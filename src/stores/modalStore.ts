@@ -10,7 +10,7 @@
 
 import { create } from 'zustand';
 
-export type AtomModalKind = 'palette' | 'finder' | 'symbols' | 'goto-line';
+export type AtomModalKind = 'palette' | 'finder' | 'symbols' | 'goto-line' | 'tutorials' | 'project-symbols';
 
 interface ModalState {
   openModal: AtomModalKind | null;

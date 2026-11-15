@@ -241,7 +241,49 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // headers and the pill row. Null when the cwd is not a repo.
   git: {
     getStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
-    getDiff: (cwd: string, filepath?: string) => ipcRenderer.invoke('git:diff', cwd, filepath),
+    getDiff: (cwd: string, filepath?: string, staged?: boolean) =>
+      ipcRenderer.invoke('git:diff', cwd, filepath, staged),
+    // Local-git writes (Atom steal #21 — the git panel, local
+    // core only): stage / unstage / commit / branches /
+    // checkout / apply-one-hunk. All write through the main
+    // process's argv-only git calls (see electron/ipc/git.ts).
+    stage: (cwd: string, paths: string[]) => ipcRenderer.invoke('git:stage', cwd, paths),
+    unstage: (cwd: string, paths: string[]) => ipcRenderer.invoke('git:unstage', cwd, paths),
+    commit: (cwd: string, message: string) => ipcRenderer.invoke('git:commit', cwd, message),
+    getBranches: (cwd: string) => ipcRenderer.invoke('git:branches', cwd),
+    checkout: (cwd: string, branch: string) => ipcRenderer.invoke('git:checkout', cwd, branch),
+    applyHunk: (cwd: string, patch: string, reverse: boolean) =>
+      ipcRenderer.invoke('git:apply-hunk', cwd, patch, reverse),
+  },
+
+  // Project find-and-replace (Atom steal #5 — 2026-11-14):
+  // the main process runs ripgrep (or the Node fallback) and
+  // owns the root-containment check for replaces.
+  search: {
+    search: (root: string, options: unknown) =>
+      ipcRenderer.invoke('search:search', { root, options }),
+    replace: (root: string, replacement: string, matches: unknown) =>
+      ipcRenderer.invoke('search:replace', { root, replacement, matches }),
+  },
+
+  // Application menu (Atom steal #13 — menus, 2026-11-14):
+  // menu items send 'menu:open-modal' with the action; the
+  // renderer subscribes via onOpenModal (same shape as
+  // onMaximizedChange / onData — returns an unsubscribe).
+  menu: {
+    onOpenModal: (callback: (kind: string) => void) => {
+      const handler = (_event: unknown, kind: string) => callback(kind);
+      ipcRenderer.on('menu:open-modal', handler);
+      return () => {
+        ipcRenderer.removeListener('menu:open-modal', handler);
+      };
+    },
+    // Send the user's keybinding overrides to main so the
+    // menu is rebuilt with the new accelerators (Atom steal
+    // #13 — MenuManager.update()). Fire-and-forget.
+    setKeybindings: (overrides: Array<{ command: string; keys: string }>) => {
+      ipcRenderer.send('menu:set-keybindings', overrides);
+    },
   },
 
   // AI operations
@@ -852,6 +894,13 @@ export interface LucidAPI {
   };
   git: {
     getStatus: (cwd: string) => Promise<import('../src/lib/gitStatus').RawGitStatus | null>;
+    getDiff: (cwd: string, filepath?: string, staged?: boolean) => Promise<string | null>;
+    stage: (cwd: string, paths: string[]) => Promise<{ ok: boolean; error?: string }>;
+    unstage: (cwd: string, paths: string[]) => Promise<{ ok: boolean; error?: string }>;
+    commit: (cwd: string, message: string) => Promise<{ ok: boolean; error?: string }>;
+    getBranches: (cwd: string) => Promise<{ branches: string[]; current: string } | null>;
+    checkout: (cwd: string, branch: string) => Promise<{ ok: boolean; error?: string }>;
+    applyHunk: (cwd: string, patch: string, reverse: boolean) => Promise<{ ok: boolean; error?: string }>;
   };
   ai: {
     chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;

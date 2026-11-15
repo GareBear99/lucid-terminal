@@ -103,6 +103,7 @@ import { clearPersistedHistory, useHistoryStore } from './historyStore';
 import { clearProfileCommandHistory, useCommandHistoryStore } from './commandHistoryStore';
 import { clearProfilePlans, usePlanStore } from './planStore';
 import { useCopilotStore } from './copilotStore';
+import { useWorkspaceStore } from './workspaceStore';
 import { useSettingsStore } from './settingsStore';
 import { wipeProfileSynth } from './synthStore';
 import { parseCreatorBuild } from '../lib/synthDisclaimer';
@@ -397,23 +398,30 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         useCommandHistoryStore.getState().enterGuestSession();
         usePlanStore.getState().enterGuestSession();
         useCopilotStore.getState().enterGuestSession();
+        // Workspace (Atom steal #14): flush the owner's
+        // workspace, then veil it — a guest never reads it
+        // and never persists over it.
+        useWorkspaceStore.getState().enterGuestSession();
       } else if (wasGuest && !isGuest) {
         useAIStore.getState().exitGuestSession();
         useHistoryStore.getState().exitGuestSession();
         useCommandHistoryStore.getState().exitGuestSession();
         usePlanStore.getState().exitGuestSession();
         useCopilotStore.getState().exitGuestSession();
+        useWorkspaceStore.getState().exitGuestSession();
         // The guest is gone: load the target profile's command
         // list (no-op when it is the profile the guest veiled
         // in from — exit already restored that list).
         useCommandHistoryStore.getState().switchProfile(id);
         usePlanStore.getState().switchProfile(id);
+        useWorkspaceStore.getState().switchProfile(id);
       } else {
         // Non-guest → non-guest (includes the boot Profiles
         // screen re-selecting the active profile): load that
         // profile's command list.
         useCommandHistoryStore.getState().switchProfile(id);
         usePlanStore.getState().switchProfile(id);
+        useWorkspaceStore.getState().switchProfile(id);
       }
       return true;
     },
@@ -529,4 +537,5 @@ if (
   useHistoryStore.getState().enterGuestSession();
   useCommandHistoryStore.getState().enterGuestSession();
   useCopilotStore.getState().enterGuestSession();
+  useWorkspaceStore.getState().enterGuestSession();
 }

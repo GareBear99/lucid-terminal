@@ -1,8 +1,11 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import path from 'path';
+import { setupApplicationMenu, MENU_OPEN_MODAL_CHANNEL } from './menu';
+import type { MenuActionKind } from './menu';
 import { setupFileSystemHandlers } from './ipc/fileSystem';
 import { setupTerminalHandlers } from './ipc/terminal';
 import { setupGitHandlers } from './ipc/git';
+import { setupSearchHandlers } from './ipc/search';
 import { setupAIHandlers } from './ipc/ai';
 import { setupSettingsHandlers } from './ipc/settings';
 import { setupLucidWorkflowHandlers } from './ipc/lucidWorkflow';
@@ -117,10 +120,45 @@ async function createWindow() {
 app.whenReady().then(() => {
   startBackend(); // START LOCAL AI BACKEND
 
+  // Application menu (Atom steal #13 — menus, 2026-11-14).
+  // Lucid never set one, so macOS got Electron's default menu
+  // whose View > Reload (Cmd+R) shadowed go-to-symbol and
+  // reloaded the app to Profiles. This menu has no Reload at
+  // all; Cmd+R is Go to Symbol. Menu clicks send one IPC
+  // event to the focused window (falling back to the main
+  // window); the renderer owns the behaviour.
+  const sendMenuAction = (kind: MenuActionKind) => {
+    const target = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    if (target && !target.isDestroyed()) {
+      target.webContents.send(MENU_OPEN_MODAL_CHANNEL, kind);
+    }
+  };
+  setupApplicationMenu(Menu, sendMenuAction);
+
+  // A user rebind (settings.customKeybindings) reaches main
+  // here; the menu is rebuilt with the new accelerators so
+  // the labels follow the rebind live (Atom's
+  // MenuManager.update()). The payload is validated — garbage
+  // in would silently unbind menu items — and the keymap
+  // itself drops unparseable keys (acceleratorForCommand
+  // returns undefined for them).
+  ipcMain.on('menu:set-keybindings', (_event, overrides: unknown) => {
+    if (!Array.isArray(overrides) || overrides.length > 100) return;
+    const clean = overrides.filter(
+      (o): o is { command: string; keys: string } =>
+        !!o &&
+        typeof o === 'object' &&
+        typeof (o as { command?: unknown }).command === 'string' &&
+        typeof (o as { keys?: unknown }).keys === 'string',
+    );
+    setupApplicationMenu(Menu, sendMenuAction, process.platform, clean);
+  });
+
   // Setup IPC handlers once
   setupFileSystemHandlers(ipcMain);
   setupTerminalHandlers(ipcMain);
   setupGitHandlers(ipcMain);
+  setupSearchHandlers(ipcMain);
   setupAIHandlers(ipcMain);
   setupSettingsHandlers(ipcMain);
   setupGoogleDriveHandlers(ipcMain);

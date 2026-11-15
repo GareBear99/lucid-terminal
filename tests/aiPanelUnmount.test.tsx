@@ -44,6 +44,7 @@ import { useAIStore } from '../src/stores/aiStore';
 import { useBrowserStore } from '../src/stores/browserStore';
 import { useTerminalStore } from '../src/stores/terminalStore';
 import { useToastStore } from '../src/stores/toastStore';
+import { useDockStore } from '../src/stores/dockStore';
 
 // Monaco is vendored locally and loads from disk in the real app;
 // in jsdom the bundle never loads, so the editor surfaces fall back
@@ -84,6 +85,7 @@ function installMock() {
       onStream: vi.fn(() => noop),
       onStreamEnd: vi.fn(() => noop),
       onStreamError: vi.fn(() => noop),
+      onSnapshotHit: vi.fn(() => noop),
     },
     lucid: {
       checkModelsInstalled: vi.fn(async () => ({ installed: false })),
@@ -163,6 +165,11 @@ function installMock() {
 }
 
 function resetStores() {
+  // The AI panel is the right dock (slice H): its visibility lives
+  // in the dock store's module state, so a test that opens the panel
+  // leaves it open for the next render — the next test's AI-button
+  // click would toggle it CLOSED instead of opening it.
+  useDockStore.getState().resetForTests();
   useSettingsStore.setState((s) => ({
     settings: { ...s.settings, ...mockSettingsOverrides },
     hasApiKey: false,

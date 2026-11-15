@@ -452,7 +452,10 @@ function parseSlashCommand(input: string): ParsedCommand {
   // silenced or not, and in guest. /split splits the active
   // tab (the same action as the toggle pill, the strip split
   // button and ⌘D); /unsplit closes every pane except the
-  // focused one. Neither takes arguments.
+  // focused one. /split takes an optional direction argument:
+  // `horizontal` (or `h`) stacks the new pane below the active
+  // tab (PaneAxis, Atom steal #9); anything else splits side by
+  // side. /unsplit takes no arguments.
   if (command === 'split') {
     return {
       type: 'split',

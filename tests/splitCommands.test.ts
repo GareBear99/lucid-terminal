@@ -30,6 +30,12 @@ describe('parseCommand: /split', () => {
     expect(parsed.isSlashCommand).toBe(true);
   });
 
+  test('/split horizontal carries the direction as its arg', () => {
+    const parsed = parseCommand('/split horizontal');
+    expect(parsed.type).toBe('split');
+    expect(parsed.args).toEqual(['horizontal']);
+  });
+
   test('bare `split` is a shell word, never the command', () => {
     const parsed = parseCommand('split');
     expect(parsed.type).toBe('shell');

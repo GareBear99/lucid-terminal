@@ -1068,9 +1068,13 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         </div>
 
         {/* The docs for the symbol under the editor's cursor —
-            a reader of the engine, never a writer. */}
+            a reader of the engine, never a writer. Clicking a
+            location jumps to it in the editor (open-file
+            funnel + editor-jump bus), like the Explorer's
+            file click: switch to the editor only once the
+            file is open. */}
         <div className="flex-1 overflow-y-auto">
-          <DocsPanel />
+          <DocsPanel onJumpToEditor={() => onViewChange('editor')} />
         </div>
       </div>
       )}

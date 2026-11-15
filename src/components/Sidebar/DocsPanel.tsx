@@ -36,10 +36,18 @@
  *     engine becomes ready). An edit that changes a
  *     symbol's docs without moving the cursor leaves the
  *     shown docs stale until the next cursor move.
- *   - Definition locations are shown as text (file:line),
- *     not jump targets — click-to-jump is owed, not built.
+ *   - Definition and reference locations are jump targets:
+ *     clicking one opens the file at the line in the
+ *     editor (the open-file funnel + the editor-jump bus,
+ *     the same route go-to-symbol uses). A location that
+ *     cannot resolve to a file on disk stays plain text.
  *   - Non-TS/JS files have no engine document, so the
  *     panel shows "no documentation" for them.
+ *   - In a detached window there is no editor view to land
+ *     in: the click still opens the file in that window's
+ *     file store and requests the jump, but the jump stays
+ *     pending there — the Sidebar (main window) passes
+ *     onJumpToEditor, MiniTerminal does not.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -48,11 +56,17 @@ import {
   subscribeDocsCursor,
   type DocsCursor,
 } from '../../lib/docsCursor';
+import { requestEditorJump } from '../../lib/editorJump';
 import {
   getEngineClient,
   type EngineClient,
   type SymbolReport,
 } from '../../lib/engineClient';
+import {
+  openFileInWorkspace,
+  type OpenFileResult,
+} from '../../lib/workspace';
+import type { LspLocation } from '../../lib/tsLspContract';
 
 /** Split the hover markdown (steal #3's shape — a fenced
  *  code block with the display, then the JSDoc) into the
@@ -77,9 +91,83 @@ function locationLabel(uri: string, line0: number): string {
   return `${base}:${line0 + 1}`;
 }
 
+/** A location's file path, or null when it cannot resolve
+ *  to a file on disk. The in-process engine returns plain
+ *  paths (`tsLanguageService.toLocations` uses the TS
+ *  `fileName` as-is); a real LSP transport returns
+ *  `file://` URIs, percent-encoded. Anything else — empty,
+ *  a non-file scheme (`untitled:`, …), a relative path —
+ *  is unresolvable and stays plain text, never a dead link.
+ *  (The hover `Def` link in CodeEditor strips `file://`
+ *  inline; this is the same normalisation, with the decode
+ *  the inline copy lacks.) */
+export function resolveLocationPath(uri: string): string | null {
+  if (!uri) return null;
+  let path = uri;
+  if (path.startsWith('file://')) {
+    path = path.slice('file://'.length);
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      return null;
+    }
+  }
+  if (!path.startsWith('/')) return null;
+  return path;
+}
+
+/** One definition/reference location: a jump target when
+ *  it resolves, plain text when it does not. The label is
+ *  identical either way — only the affordance changes. */
+function LocationLink({
+  loc,
+  onJump,
+}: {
+  loc: LspLocation;
+  onJump: (loc: LspLocation) => void;
+}) {
+  const label = locationLabel(loc.uri, loc.range.start.line);
+  if (!resolveLocationPath(loc.uri)) {
+    return (
+      <span
+        title={loc.uri}
+        className="font-mono text-xs text-[var(--text-primary)] break-words"
+      >
+        {label}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      title={loc.uri}
+      onClick={() => void onJump(loc)}
+      className="cursor-pointer break-words bg-transparent p-0 text-left font-mono text-xs text-[var(--text-primary)] hover:underline"
+    >
+      {label}
+    </button>
+  );
+}
+
 /** The panel body. The header ("Docs" + minimize) lives in
  *  the Sidebar, like the Explorer's. */
-export function DocsPanel({ client = getEngineClient() }: { client?: EngineClient }) {
+export function DocsPanel({
+  client = getEngineClient(),
+  onJumpToEditor,
+  openFile = openFileInWorkspace,
+}: {
+  client?: EngineClient;
+  /** Switch to the editor view after a jump. The Sidebar
+   *  passes its onViewChange('editor'); a surface with no
+   *  editor view (MiniTerminal) passes nothing, and the
+   *  jump stays pending in that window's bus. */
+  onJumpToEditor?: () => void;
+  /** The open-file funnel (openFileInWorkspace); a test
+   *  passes a stub — the same prop pattern as `client`. */
+  openFile?: (
+    path: string,
+  ) => Promise<{ result: OpenFileResult; path: string } | null>;
+}) {
   const [cursor, setCursor] = useState<DocsCursor | null>(() => getDocsCursor());
   useEffect(
     () =>
@@ -101,6 +189,25 @@ export function DocsPanel({ client = getEngineClient() }: { client?: EngineClien
       cursor.word,
     );
   }, [cursor, engineReady, client]);
+
+  /** Click-to-jump (Kite follow-on #1): open the location's
+   *  file through the open-file funnel, switch to the
+   *  editor, and request the jump at the location's start
+   *  (LSP 0-based → editor 1-based). A failed open stops
+   *  here — no view switch, no jump, never an error — the
+   *  same rule the Explorer's file click follows. */
+  const jumpToLocation = async (loc: LspLocation): Promise<void> => {
+    const path = resolveLocationPath(loc.uri);
+    if (!path) return;
+    const opened = await openFile(path);
+    if (!opened) return;
+    onJumpToEditor?.();
+    requestEditorJump({
+      path,
+      lineNumber: loc.range.start.line + 1,
+      column: loc.range.start.character + 1,
+    });
+  };
 
   if (!cursor) {
     return (
@@ -168,13 +275,7 @@ export function DocsPanel({ client = getEngineClient() }: { client?: EngineClien
             Defined in
           </span>
           {report.definition.map((loc, i) => (
-            <span
-              key={i}
-              title={loc.uri}
-              className="font-mono text-xs text-[var(--text-primary)] break-words"
-            >
-              {locationLabel(loc.uri, loc.range.start.line)}
-            </span>
+            <LocationLink key={i} loc={loc} onJump={jumpToLocation} />
           ))}
         </div>
       )}
@@ -186,13 +287,7 @@ export function DocsPanel({ client = getEngineClient() }: { client?: EngineClien
             References ({references.length})
           </span>
           {shownReferences.map((loc, i) => (
-            <span
-              key={i}
-              title={loc.uri}
-              className="font-mono text-xs text-[var(--text-primary)] break-words"
-            >
-              {locationLabel(loc.uri, loc.range.start.line)}
-            </span>
+            <LocationLink key={i} loc={loc} onJump={jumpToLocation} />
           ))}
           {references.length > shownReferences.length && (
             <span className="text-xs text-[var(--text-muted)]">

@@ -21,6 +21,8 @@ import {
   useSplitPaneStore,
   findGroupForTab,
   findSplitNode,
+  findNewestSplitNode,
+  collapseSplitNode,
   getVisibleTabIds,
   groupTabIds,
   orderTabsForRender,
@@ -171,14 +173,215 @@ describe('closePane', () => {
   });
 });
 
-describe('unsplitTab', () => {
+describe('unsplitOneTab — chained unsplit (Gary, 2026-11-15)', () => {
+  test('one press removes exactly the newest pane; the rest, their PTYs and the group survive', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a);
+    const e = await useSplitPaneStore.getState().splitTab(a);
+    // Focus follows the newest pane (e); one press removes e only.
+    expect(useTerminalStore.getState().activeTabId).toBe(e);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(e);
+    expect(stub.destroy).toHaveBeenCalledWith(e);
+    expect(stub.destroy).not.toHaveBeenCalledWith(a);
+    expect(stub.destroy).not.toHaveBeenCalledWith(c);
+    expect(stub.destroy).not.toHaveBeenCalledWith(d);
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([a, c, d]);
+    const group = findGroupForTab(groups(), a)!;
+    expect(groupTabIds(group)).toEqual([a, d, c]);
+    // The survivors' layout is untouched — the previous
+    // layout is restored exactly.
+    expect(rootSizes(group)).toEqual([50, 50]);
+    if (group.root.type === 'split' && group.root.first.type === 'split') {
+      expect(group.root.first.sizes).toEqual([50, 50]);
+    } else {
+      throw new Error('expected a nested split node');
+    }
+    // Focus: the removed pane was active — focus lands on the
+    // first leaf of the surviving subtree (a).
+    expect(useTerminalStore.getState().activeTabId).toBe(a);
+  });
+
+  test('three presses on a 3-split group return to one terminal; the 4th press is a no-op', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a);
+    const e = await useSplitPaneStore.getState().splitTab(a);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(e);
+    expect(groupTabIds(findGroupForTab(groups(), a)!)).toEqual([a, d, c]);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(d);
+    expect(groupTabIds(findGroupForTab(groups(), a)!)).toEqual([a, c]);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(c);
+    expect(groups()).toEqual({});
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([a]);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBeNull();
+    expect(stub.destroy).toHaveBeenCalledTimes(3);
+    expect(stub.destroy).toHaveBeenCalledWith(e);
+    expect(stub.destroy).toHaveBeenCalledWith(d);
+    expect(stub.destroy).toHaveBeenCalledWith(c);
+  });
+
+  test('each press removes the most recent pane, not the focused one', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a);
+    const e = await useSplitPaneStore.getState().splitTab(a);
+    // Focus the OLDEST pane — the press still removes the newest.
+    useSplitPaneStore.getState().focusPane(a);
+    expect(useTerminalStore.getState().activeTabId).toBe(a);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(e);
+    expect(stub.destroy).toHaveBeenCalledWith(e);
+    expect(stub.destroy).not.toHaveBeenCalledWith(a);
+    expect(stub.destroy).not.toHaveBeenCalledWith(c);
+    expect(stub.destroy).not.toHaveBeenCalledWith(d);
+    // Focus does not move — the removed pane was not active.
+    expect(useTerminalStore.getState().activeTabId).toBe(a);
+    expect(groupTabIds(findGroupForTab(groups(), a)!)).toEqual([a, d, c]);
+  });
+
+  test('removing the focused newest pane focuses the pane that was there before the split', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    // Focus is on c (the newest pane); unsplit removes c and
+    // focus lands on a — the source pane, first leaf of the
+    // surviving subtree.
+    expect(useTerminalStore.getState().activeTabId).toBe(c);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(c);
+    expect(useTerminalStore.getState().activeTabId).toBe(a);
+    expect(groups()).toEqual({});
+  });
+
+  test('focus lands on the surviving subtree, not the strip neighbour — nested case', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a);
+    // Tree [[a, d], c]; focus is on d (the newest pane). The
+    // surviving subtree is leaf a — focus goes there, not to
+    // c (the strip neighbour closePane would have picked).
+    expect(useTerminalStore.getState().activeTabId).toBe(d);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(d);
+    expect(useTerminalStore.getState().activeTabId).toBe(a);
+    expect(groupTabIds(findGroupForTab(groups(), a)!)).toEqual([a, c]);
+  });
+
+  test('mixed directions unwind in reverse creation order, layout restored at each step', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a, 'vertical');
+    const d = await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    const e = await useSplitPaneStore.getState().splitTab(c!, 'vertical');
+    const group0 = findGroupForTab(groups(), a)!;
+    expect(groupTabIds(group0)).toEqual([a, d, c, e]);
+    // Custom sizes, so the test can prove each step restores
+    // the layout that existed before that split was made.
+    const rootId = group0.root.type === 'split' ? group0.root.id : '';
+    const innerId =
+      group0.root.type === 'split' && group0.root.first.type === 'split'
+        ? group0.root.first.id
+        : '';
+    useSplitPaneStore.getState().setSplitSizes(group0.id, rootId, [70, 30]);
+    useSplitPaneStore.getState().setSplitSizes(group0.id, innerId, [60, 40]);
+    // Press 1 undoes node-3: e goes, the tree is [[a, d], c]
+    // with the root and inner sizes untouched.
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(e);
+    const group1 = findGroupForTab(groups(), a)!;
+    expect(groupTabIds(group1)).toEqual([a, d, c]);
+    expect(rootSizes(group1)).toEqual([70, 30]);
+    expect(group1.root.type).toBe('split');
+    if (group1.root.type === 'split') {
+      expect(group1.root.direction).toBe('vertical');
+      expect(group1.root.first.type).toBe('split');
+      if (group1.root.first.type === 'split') {
+        expect(group1.root.first.direction).toBe('horizontal');
+        expect(group1.root.first.sizes).toEqual([60, 40]);
+      }
+    }
+    // Press 2 undoes node-2: d goes, the tree is [a, c] vertical.
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(d);
+    const group2 = findGroupForTab(groups(), a)!;
+    expect(groupTabIds(group2)).toEqual([a, c]);
+    expect(rootSizes(group2)).toEqual([70, 30]);
+    if (group2.root.type === 'split') expect(group2.root.direction).toBe('vertical');
+    // Press 3 undoes node-1: c goes, the group dissolves.
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(c);
+    expect(groups()).toEqual({});
+  });
+
+  test('two panes: one press dissolves the group, survivor is a normal tab; second press is a no-op', async () => {
+    const [a] = await makeTabs(1);
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    expect(useTerminalStore.getState().activeTabId).toBe(c);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(c);
+    expect(groups()).toEqual({});
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([a]);
+    expect(useTerminalStore.getState().activeTabId).toBe(a);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBeNull();
+    expect(stub.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  test('unsplit when not split is a no-op, never an error', async () => {
+    const [a, b] = await makeTabs(2);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBeNull();
+    expect(stub.destroy).not.toHaveBeenCalled();
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([a, b]);
+    expect(groups()).toEqual({});
+  });
+
+  test('unsplit works in guest — a guest-made split unwinds one press at a time', async () => {
+    const [a] = await makeTabs(1);
+    useHistoryStore.getState().enterGuestSession();
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    const d = await useSplitPaneStore.getState().splitTab(a);
+    const e = await useSplitPaneStore.getState().splitTab(a);
+    expect(Object.keys(groups()).length).toBe(1);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(e);
+    expect(groupTabIds(findGroupForTab(groups(), a)!)).toEqual([a, d, c]);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(d);
+    expect(groupTabIds(findGroupForTab(groups(), a)!)).toEqual([a, c]);
+    // Guest exit still drops whatever split remains.
+    useHistoryStore.getState().exitGuestSession();
+    expect(groups()).toEqual({});
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([a, c]);
+  });
+
+  test('equalize then unsplit: survivors keep their equalized shares; a second equalize re-equalizes', async () => {
+    const [a] = await makeTabs(1);
+    await useSplitPaneStore.getState().splitTab(a);
+    await useSplitPaneStore.getState().splitTab(a);
+    const e = await useSplitPaneStore.getState().splitTab(a);
+    const group0 = findGroupForTab(groups(), a)!;
+    useSplitPaneStore.getState().equalizeGroup(group0.id);
+    // Four leaves: root 75/25 (3 vs 1), middle 66.67/33.33 (2 vs 1), inner 50/50.
+    expect(rootSizes(findGroupForTab(groups(), a)!)).toEqual([75, 25]);
+    expect(useSplitPaneStore.getState().unsplitOneTab(a)).toBe(e);
+    // The survivors keep their equalized shares — the press
+    // does not re-equalize or reset anything.
+    const group1 = findGroupForTab(groups(), a)!;
+    expect(rootSizes(group1)).toEqual([75, 25]);
+    if (group1.root.type === 'split' && group1.root.first.type === 'split') {
+      expect(group1.root.first.sizes).toEqual([66.67, 33.33]);
+    } else {
+      throw new Error('expected a nested split node');
+    }
+    // A second equalize re-equalizes the three survivors.
+    useSplitPaneStore.getState().equalizeGroup(group1.id);
+    const group2 = findGroupForTab(groups(), a)!;
+    expect(rootSizes(group2)).toEqual([66.67, 33.33]);
+    if (group2.root.type === 'split' && group2.root.first.type === 'split') {
+      expect(group2.root.first.sizes).toEqual([50, 50]);
+    } else {
+      throw new Error('expected a nested split node');
+    }
+  });
+});
+
+describe('unsplitAllTabs — the explicit collapse-all', () => {
   test('closes every pane except the focused one, destroys their PTYs, group dissolves', async () => {
     const [a] = await makeTabs(1);
     const c = await useSplitPaneStore.getState().splitTab(a);
     const d = await useSplitPaneStore.getState().splitTab(a);
-    // Focus follows the newest pane (d); unsplit from d keeps d.
+    // Focus follows the newest pane (d); collapse-all from d keeps d.
     expect(useTerminalStore.getState().activeTabId).toBe(d);
-    useSplitPaneStore.getState().unsplitTab(d!);
+    useSplitPaneStore.getState().unsplitAllTabs(d!);
     expect(stub.destroy).toHaveBeenCalledWith(a);
     expect(stub.destroy).toHaveBeenCalledWith(c);
     expect(stub.destroy).not.toHaveBeenCalledWith(d);
@@ -189,34 +392,145 @@ describe('unsplitTab', () => {
     expect(useTerminalStore.getState().activeTabId).toBe(d);
   });
 
-  test('unsplit from a middle pane keeps that pane and closes the rest', async () => {
-    const [a] = await makeTabs(1);
-    const c = await useSplitPaneStore.getState().splitTab(a);
-    await useSplitPaneStore.getState().splitTab(a);
-    useSplitPaneStore.getState().focusPane(c!);
-    useSplitPaneStore.getState().unsplitTab(c!);
-    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([c]);
-    expect(groups()).toEqual({});
-    expect(useTerminalStore.getState().activeTabId).toBe(c);
-  });
-
-  test('unsplit when not split is a no-op, never an error', async () => {
+  test('unsplitAllTabs when not split is a no-op, never an error', async () => {
     const [a, b] = await makeTabs(2);
-    useSplitPaneStore.getState().unsplitTab(a);
+    useSplitPaneStore.getState().unsplitAllTabs(a);
     expect(stub.destroy).not.toHaveBeenCalled();
     expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([a, b]);
     expect(groups()).toEqual({});
   });
+});
 
-  test('unsplit works in guest — a guest-made split unsplits to one pane', async () => {
+describe('unsplitAllAsk — the collapse-all ask', () => {
+  test('requestUnsplitAll stages the ask with the pane count; confirm collapses all and clears it', async () => {
     const [a] = await makeTabs(1);
-    useHistoryStore.getState().enterGuestSession();
     const c = await useSplitPaneStore.getState().splitTab(a);
-    expect(Object.keys(groups()).length).toBe(1);
-    useSplitPaneStore.getState().unsplitTab(c!);
-    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([c]);
+    const d = await useSplitPaneStore.getState().splitTab(a);
+    // Focus is on d (the newest pane) — the ask is for d's group.
+    expect(useTerminalStore.getState().activeTabId).toBe(d);
+    expect(useSplitPaneStore.getState().unsplitAllAsk).toBeNull();
+    useSplitPaneStore.getState().requestUnsplitAll(d!);
+    expect(useSplitPaneStore.getState().unsplitAllAsk).toEqual({ tabId: d, paneCount: 3 });
+    // Nothing destroyed while the ask is pending.
+    expect(stub.destroy).not.toHaveBeenCalled();
+    useSplitPaneStore.getState().confirmUnsplitAll();
+    expect(useSplitPaneStore.getState().unsplitAllAsk).toBeNull();
+    expect(stub.destroy).toHaveBeenCalledWith(a);
+    expect(stub.destroy).toHaveBeenCalledWith(c);
+    expect(stub.destroy).not.toHaveBeenCalledWith(d);
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([d]);
     expect(groups()).toEqual({});
-    useHistoryStore.getState().exitGuestSession();
+  });
+
+  test('dismissUnsplitAllAsk clears the ask and destroys nothing', async () => {
+    const [a] = await makeTabs(1);
+    await useSplitPaneStore.getState().splitTab(a);
+    useSplitPaneStore.getState().requestUnsplitAll(a);
+    expect(useSplitPaneStore.getState().unsplitAllAsk).not.toBeNull();
+    useSplitPaneStore.getState().dismissUnsplitAllAsk();
+    expect(useSplitPaneStore.getState().unsplitAllAsk).toBeNull();
+    expect(stub.destroy).not.toHaveBeenCalled();
+    expect(Object.keys(groups()).length).toBe(1);
+  });
+
+  test('requestUnsplitAll on a single pane is a no-op — no ask is staged', async () => {
+    const [a] = await makeTabs(1);
+    useSplitPaneStore.getState().requestUnsplitAll(a);
+    expect(useSplitPaneStore.getState().unsplitAllAsk).toBeNull();
+  });
+
+  test('confirm/dismiss with no ask pending is a no-op, never an error', async () => {
+    const [a] = await makeTabs(1);
+    await useSplitPaneStore.getState().splitTab(a);
+    useSplitPaneStore.getState().confirmUnsplitAll();
+    useSplitPaneStore.getState().dismissUnsplitAllAsk();
+    expect(stub.destroy).not.toHaveBeenCalled();
+    expect(Object.keys(groups()).length).toBe(1);
+  });
+});
+
+describe('findNewestSplitNode / collapseSplitNode', () => {
+  test('findNewestSplitNode returns the highest-numbered split node, null for a single leaf', async () => {
+    const [a] = await makeTabs(1);
+    await useSplitPaneStore.getState().splitTab(a);
+    await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    const group = findGroupForTab(groups(), a)!;
+    const newest = findNewestSplitNode(group);
+    expect(newest).not.toBeNull();
+    expect(newest?.type).toBe('split');
+    if (newest?.type === 'split') {
+      expect(newest.id).toBe('node-2');
+      expect(newest.second.type).toBe('leaf');
+    }
+    // A single leaf has no split node.
+    expect(
+      findNewestSplitNode({ id: 'split-9', root: { type: 'leaf', tabId: a } }),
+    ).toBeNull();
+  });
+
+  test('collapseSplitNode replaces the named node with its first child, root included', () => {
+    const leaf = (tabId: string) => ({ type: 'leaf' as const, tabId });
+    const root = {
+      type: 'split' as const,
+      id: 'node-1',
+      direction: 'vertical' as const,
+      sizes: [50, 50] as [number, number],
+      first: {
+        type: 'split' as const,
+        id: 'node-2',
+        direction: 'horizontal' as const,
+        sizes: [60, 40] as [number, number],
+        first: leaf('terminal-1'),
+        second: leaf('terminal-3'),
+      },
+      second: leaf('terminal-2'),
+    };
+    // Collapse the nested node: its first child takes its place.
+    const collapsed = collapseSplitNode(root, 'node-2');
+    expect(collapsed).toEqual({
+      type: 'split',
+      id: 'node-1',
+      direction: 'vertical',
+      sizes: [50, 50],
+      first: leaf('terminal-1'),
+      second: leaf('terminal-2'),
+    });
+    // Collapse the root: the result is its first child directly.
+    expect(collapseSplitNode(root, 'node-1')).toEqual(root.first);
+    // Unknown id: unchanged (same reference).
+    expect(collapseSplitNode(root, 'node-99')).toBe(root);
+    // A leaf: unchanged.
+    expect(collapseSplitNode(leaf('terminal-1'), 'node-1')).toEqual(leaf('terminal-1'));
+    // The original tree is untouched.
+    expect(root.first.type).toBe('split');
+  });
+
+  test('invariant: the newest split node’s second child is always a leaf — after splits, closes and detaches', async () => {
+    const [a] = await makeTabs(1);
+    const assertInvariant = () => {
+      for (const group of Object.values(groups())) {
+        const newest = findNewestSplitNode(group);
+        if (newest && newest.type === 'split') {
+          expect(newest.second.type).toBe('leaf');
+        }
+      }
+    };
+    const c = await useSplitPaneStore.getState().splitTab(a);
+    assertInvariant();
+    const d = await useSplitPaneStore.getState().splitTab(a, 'horizontal');
+    assertInvariant();
+    const e = await useSplitPaneStore.getState().splitTab(c!, 'vertical');
+    assertInvariant();
+    // A tab × close (closePane) shortens the chain — the
+    // newest remaining node still has a leaf second child.
+    useSplitPaneStore.getState().closePane(d!);
+    assertInvariant();
+    // Splitting again grows the chain from there.
+    await useSplitPaneStore.getState().splitTab(a);
+    assertInvariant();
+    // A direct closeTab (prune path) also preserves it.
+    useTerminalStore.getState().closeTab(e!);
+    assertInvariant();
   });
 });
 

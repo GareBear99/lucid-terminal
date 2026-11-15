@@ -446,16 +446,20 @@ function parseSlashCommand(input: string): ParsedCommand {
     };
   }
 
-  // Split panes (sweep fix 2 follow-on, 2026-11-14) — `/split`
-  // and `/unsplit`. Lucid-local, like devmode and defcon: they
-  // touch layout only, so they run with LuciferAI on or off,
-  // silenced or not, and in guest. /split splits the active
-  // tab (the same action as the toggle pill, the strip split
-  // button and ⌘D); /unsplit closes every pane except the
-  // focused one. /split takes an optional direction argument:
+  // Split panes (sweep fix 2 follow-on, 2026-11-14;
+  // CHAINED 2026-11-15, Gary) — `/split` and `/unsplit`.
+  // Lucid-local, like devmode and defcon: they touch layout
+  // only, so they run with LuciferAI on or off, silenced or
+  // not, and in guest. /split splits the active tab (the
+  // same action as the toggle pill, the strip split button
+  // and ⌘D); /unsplit undoes exactly the most recent split
+  // (one press closes only the newest pane); `/unsplit all`
+  // is the explicit collapse-all, behind the close ask.
+  // /split takes an optional direction argument:
   // `horizontal` (or `h`) stacks the new pane below the active
   // tab (PaneAxis, Atom steal #9); anything else splits side by
-  // side. /unsplit takes no arguments.
+  // side. /unsplit takes an optional `all` argument, and
+  // nothing else.
   if (command === 'split') {
     return {
       type: 'split',
@@ -595,7 +599,7 @@ export function getCommandDescription(type: CommandType): string {
     case 'split':
       return 'Splitting the terminal...';
     case 'unsplit':
-      return 'Closing the extra panes...';
+      return 'Undoing the last split...';
     case 'file':
       return 'Opening the Files page...';
     case 'open':
@@ -635,6 +639,7 @@ export function getCommandExamples(prefix: string): string[] {
     '/defcon',
     '/split',
     '/unsplit',
+    '/unsplit all',
     '/file',
     '/open <file>',
     '/new <file>',

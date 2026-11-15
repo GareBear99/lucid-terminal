@@ -184,7 +184,7 @@ describe('PillRow', () => {
     expect(html).toContain('data-testid="split-toggle-pill"');
     expect(html).toContain('>Unsplit<');
     expect(html).not.toContain('>Split<');
-    expect(html).toContain('Unsplit — close the extra panes, back to one terminal');
+    expect(html).toContain('Unsplit — undo the last split');
     expect(html).toContain('aria-label="Unsplit panes"');
     // The active styling echoes the split group's blue underline
     // in the tab strip (TerminalTabs.tsx): the focused pane's

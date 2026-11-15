@@ -308,16 +308,18 @@ export function searchCommandCatalogue(
  */
 /**
  * Lucid-local commands documented in Help but handled in
- * Terminal.tsx, not by the plugin: /split and /unsplit (split
- * panes, sweep fix 2 follow-on) and /file /open /new (file
- * commands). They run with LuciferAI off, so the
- * Settings panel lists them while disabled — the same rule as
- * the Lucid-local singles below. (Gary, 2026-11-07: the panel
- * lists only what the terminal will actually run.)
+ * Terminal.tsx, not by the plugin: /split and /unsplit and
+ * /unsplit all (split panes, sweep fix 2 follow-on; chained
+ * unsplit, 2026-11-15) and /file /open /new (file commands).
+ * They run with LuciferAI off, so the Settings panel lists
+ * them while disabled — the same rule as the Lucid-local
+ * singles below. (Gary, 2026-11-07: the panel lists only
+ * what the terminal will actually run.)
  */
 const LUCID_LOCAL_HELP_COMMANDS = [
   'split',
   'unsplit',
+  'unsplit all',
   'file',
   'open',
   'new',

@@ -37,19 +37,21 @@
  *   header and the app status bar. The header is settled and
  *   not redesigned; this pill earns its place as the copyable
  *   one.)
- * - Split pill (button, sweep fix 2 follow-on, 2026-11-14):
- *   toggles the split panes for this tab — "Split" when
- *   single-pane, "Unsplit" + active styling while a split is
- *   visible. Click splits the active tab (the same action as
- *   the tab-strip split button / ⌘D) or, when split, closes
- *   every pane except the focused one (each closed pane's PTY
- *   is destroyed, the same as closePane). The pill is a third
- *   way to do the same thing, not a replacement: splitting
- *   from the button or ⌘D lights the pill, because both read
- *   the same split store. Main window only — the parent passes
- *   no handler in a detached window, so no pill renders there.
- *   Works in guest exactly like the strip button (plain
- *   terminal panes, session-only, dropped on exit).
+ * - Split pill (button, sweep fix 2 follow-on, 2026-11-14;
+ *   CHAINED 2026-11-15, Gary): toggles the split panes for
+ *   this tab — "Split" when single-pane, "Unsplit" + active
+ *   styling while a split is visible. Click splits the
+ *   active tab (the same action as the tab-strip split
+ *   button / ⌘D) or, when split, undoes the most recent
+ *   split — one press closes only the newest pane, never
+ *   the rest (a single press can never lose more than one
+ *   pane). The pill is a third way to do the same thing,
+ *   not a replacement: splitting from the button or ⌘D
+ *   lights the pill, because both read the same split
+ *   store. Main window only — the parent passes no handler
+ *   in a detached window, so no pill renders there. Works
+ *   in guest exactly like the strip button (plain terminal
+ *   panes, session-only, dropped on exit).
  * - Branch + counts pills (labels): the live git state for the
  *   active cwd. They render only when the cwd is a repo.
  * - Version pill (label): the app version.
@@ -195,7 +197,7 @@ export function PillRow({
           onClick={onToggleSplit}
           title={
             splitVisible
-              ? 'Unsplit — close the extra panes, back to one terminal'
+              ? 'Unsplit — undo the last split'
               : 'Split terminal (⌘D)'
           }
           aria-label={splitVisible ? 'Unsplit panes' : 'Split panes'}

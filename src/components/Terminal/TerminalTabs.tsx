@@ -44,13 +44,14 @@ import { useTerminalTabDrag } from '../../lib/tabDrag';
  * (Gary, 2026-11-14): the detached tab x asks resnap-vs-close
  * every time, and the main-window x asks before closing a
  * USED tab. `kind` picks the question and the buttons.
+ * `unsplit-all` (Gary, 2026-11-15) is the collapse-all ask:
+ * `/unsplit all` / "Unsplit All Panes" asks first, and the
+ * dialog names the pane count — the cost is explicit.
  */
-export type TabCloseAskKind = 'detached' | 'used';
-export interface TabCloseAsk {
-  tabId: string;
-  title: string;
-  kind: TabCloseAskKind;
-}
+export type TabCloseAskKind = 'detached' | 'used' | 'unsplit-all';
+export type TabCloseAsk =
+  | { tabId: string; title: string; kind: 'detached' | 'used' }
+  | { tabId: string; title: string; kind: 'unsplit-all'; paneCount: number };
 
 export interface TerminalTabsViewProps {
   tabs: TerminalTab[];
@@ -76,6 +77,8 @@ export interface TerminalTabsViewProps {
   onCloseAskCloseTab?: () => void;
   /** Used-tab ask: keep the tab open. */
   onCloseAskKeepTab?: () => void;
+  /** Unsplit-all ask: confirm — close every pane in the asked group. */
+  onCloseAskCloseAllPanes?: () => void;
   /** Backdrop / Escape: dismiss the ask — keep the tab, do nothing. */
   onDismissCloseAsk?: () => void;
   /**
@@ -165,6 +168,7 @@ export function TerminalTabsView({
   onCloseAskCloseSession,
   onCloseAskCloseTab,
   onCloseAskKeepTab,
+  onCloseAskCloseAllPanes,
   onDismissCloseAsk,
   onSplitTab,
   showEqualizeButton = false,
@@ -628,7 +632,11 @@ export function TerminalTabsView({
           <div
             role="dialog"
             aria-modal="true"
-            aria-label={`Close "${closeAsk.title}"?`}
+            aria-label={
+              closeAsk.kind === 'unsplit-all'
+                ? `Unsplit all ${closeAsk.paneCount} panes?`
+                : `Close "${closeAsk.title}"?`
+            }
             data-testid="tab-close-ask"
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
             onClick={() => onDismissCloseAsk?.()}
@@ -638,12 +646,16 @@ export function TerminalTabsView({
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                {`Close "${closeAsk.title}"?`}
+                {closeAsk.kind === 'unsplit-all'
+                  ? `Unsplit all ${closeAsk.paneCount} panes?`
+                  : `Close "${closeAsk.title}"?`}
               </h3>
               <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
                 {closeAsk.kind === 'detached'
                   ? `Resnap "${closeAsk.title}" back to the main window, or close its session? Resnapping keeps the session and its history. Closing the session destroys it — it cannot be brought back.`
-                  : `"${closeAsk.title}" has run commands — closing it destroys its session and its history. Close the tab, or keep it?`}
+                  : closeAsk.kind === 'unsplit-all'
+                    ? `This closes all ${closeAsk.paneCount} panes. Their sessions and history will be destroyed — they cannot be brought back.`
+                    : `"${closeAsk.title}" has run commands — closing it destroys its session and its history. Close the tab, or keep it?`}
               </p>
               <div className="mt-4 flex justify-end gap-2">
                 {closeAsk.kind === 'detached' ? (
@@ -663,6 +675,25 @@ export function TerminalTabsView({
                       className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
                     >
                       Resnap
+                    </button>
+                  </>
+                ) : closeAsk.kind === 'unsplit-all' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onDismissCloseAsk?.()}
+                      data-testid="tab-close-ask-keep-panes"
+                      className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-white/10"
+                    >
+                      Keep panes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCloseAskCloseAllPanes?.()}
+                      data-testid="tab-close-ask-close-all-panes"
+                      className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      Close all panes
                     </button>
                   </>
                 ) : (
@@ -729,6 +760,24 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   // closes it used to do silently. The container owns the
   // pending ask; the view only renders it.
   const [closeAsk, setCloseAsk] = useState<TabCloseAsk | null>(null);
+
+  // The pending collapse-all ask (Gary, 2026-11-15): `/unsplit
+  // all` / "Unsplit All Panes" asked first — the strip renders
+  // it from the split store (the slash command and the palette
+  // request it without prop drilling). A tab x ask showing
+  // wins — the two dialogs never stack; the store ask stays
+  // pending underneath until the tab ask is dismissed.
+  const unsplitAllAsk = useSplitPaneStore((s) => s.unsplitAllAsk);
+  const closeAskToShow: TabCloseAsk | null =
+    closeAsk ??
+    (unsplitAllAsk
+      ? {
+          tabId: unsplitAllAsk.tabId,
+          title: 'Unsplit all',
+          kind: 'unsplit-all',
+          paneCount: unsplitAllAsk.paneCount,
+        }
+      : null);
 
   // A tab is USED when it has run at least one command: it has
   // blocks in its feed (historyStore.blocksByTab — a block is
@@ -805,6 +854,17 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   };
   const handleCloseAskKeepTab = () => {
     setCloseAsk(null);
+  };
+  // Dismiss (backdrop / Escape) keeps everything in both
+  // cases — never a destructive default. A tab x ask showing
+  // dismisses itself; otherwise the pending collapse-all ask
+  // is dismissed and every pane stays.
+  const handleDismissCloseAsk = () => {
+    if (closeAsk) {
+      setCloseAsk(null);
+      return;
+    }
+    useSplitPaneStore.getState().dismissUnsplitAllAsk();
   };
 
   // ⌘1–⌘9 switch tabs (Warp §7): the strip is tabs only, so
@@ -905,12 +965,13 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
         const tab = tabs.find((t) => t.id === id);
         if (tab) void navigator.clipboard?.writeText?.(tab.cwd);
       }}
-      closeAsk={closeAsk}
+      closeAsk={closeAskToShow}
       onCloseAskResnap={handleCloseAskResnap}
       onCloseAskCloseSession={handleCloseAskCloseSession}
       onCloseAskCloseTab={handleCloseAskCloseTab}
       onCloseAskKeepTab={handleCloseAskKeepTab}
-      onDismissCloseAsk={() => setCloseAsk(null)}
+      onCloseAskCloseAllPanes={() => useSplitPaneStore.getState().confirmUnsplitAll()}
+      onDismissCloseAsk={handleDismissCloseAsk}
       onRenameTab={updateTabTitle}
       onSelectTab={(id) => {
         // Plain setActiveTab: the mode is per-tab, so

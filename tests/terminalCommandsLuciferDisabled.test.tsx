@@ -86,6 +86,7 @@ describe('requiresLuciferAI — the rule', () => {
       'history',
       'split',
       'unsplit',
+      'unsplit all',
       'file',
       'open',
       'new',
@@ -153,13 +154,13 @@ describe('requiresLuciferAI — the rule', () => {
   });
 
   test('searchCommandCatalogue hides LuciferAI entries while disabled', () => {
-    // 94 entries with the plugin on; 61 without it (43 shell +
+    // 95 entries with the plugin on; 62 without it (43 shell +
     // 4 Lucid-local singles + 6 FixNet phrases + browser diagnose
-    // + workflow status + history + clear history + 5 Lucid-local
-    // help commands: split, unsplit, file, open, new).
-    expect(searchCommandCatalogue('').length).toBe(94);
-    expect(searchCommandCatalogue('', true).length).toBe(94);
-    expect(searchCommandCatalogue('', false).length).toBe(61);
+    // + workflow status + history + clear history + 6 Lucid-local
+    // help commands: split, unsplit, unsplit all, file, open, new).
+    expect(searchCommandCatalogue('').length).toBe(95);
+    expect(searchCommandCatalogue('', true).length).toBe(95);
+    expect(searchCommandCatalogue('', false).length).toBe(62);
     expect(searchCommandCatalogue('llm', false)).toEqual([]);
     expect(searchCommandCatalogue('llm', true).map((e) => e.name)).toContain(
       'llm list',
@@ -218,7 +219,7 @@ describe('Terminal tab Commands section', () => {
     const codes = codeTexts(container);
     // Every plugin LuciferAI entry, by its slash syntax chip.
     // (The Lucid-local slash commands — /fix, /fixnet, /workflow,
-    // /history, /split, /unsplit, /file, /open, /new and
+    // /history, /split, /unsplit, /unsplit all, /file, /open, /new and
     // the FixNet phrases — DO show while disabled.)
     for (const syntax of [
       '/help',

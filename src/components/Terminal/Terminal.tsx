@@ -969,19 +969,24 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       return;
     }
 
-    // /split / /unsplit (sweep fix 2 follow-on, 2026-11-14) —
-    // the slash commands for the split panes. Lucid-local, like
-    // /devmode and /defcon: they touch layout only, so they run
-    // with LuciferAI on or off, silenced or not, and in guest
-    // (plain terminal panes, session-only, dropped on exit —
-    // the split store's guest veil handles that). /split splits
-    // the active tab (the same action as the toggle pill, the
-    // strip split button and ⌘D); already split, it splits the
-    // focused pane again. /unsplit closes every pane except the
-    // focused one (each closed pane's PTY is destroyed, the
-    // same as closePane); not split, it is a no-op, never an
-    // error. In a detached window neither runs — MiniTerminal
-    // answers every other slash with the not-here note.
+    // /split / /unsplit (sweep fix 2 follow-on, 2026-11-14;
+    // CHAINED 2026-11-15, Gary) — the slash commands for the
+    // split panes. Lucid-local, like /devmode and /defcon:
+    // they touch layout only, so they run with LuciferAI on
+    // or off, silenced or not, and in guest (plain terminal
+    // panes, session-only, dropped on exit — the split
+    // store's guest veil handles that). /split splits the
+    // active tab (the same action as the toggle pill, the
+    // strip split button and ⌘D); already split, it splits
+    // the focused pane again. /unsplit undoes exactly the
+    // most recent split — one press closes only the newest
+    // pane, never the rest (N splits need N presses to get
+    // back to one terminal); not split, it is a no-op, never
+    // an error. /unsplit all is the explicit collapse-all:
+    // it asks first in the tab bar, and nothing is destroyed
+    // until it is confirmed. In a detached window none of
+    // them run — MiniTerminal answers every other slash with
+    // the not-here note.
     if (parsed.type === 'split') {
       // /split takes an optional direction: `horizontal` (or `h`)
       // stacks the new pane below the active tab (PaneAxis,
@@ -994,19 +999,41 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       }
       await write(
         direction === 'horizontal'
-          ? 'Split — a new terminal stacked below. /unsplit closes the extra panes.'
-          : 'Split — two terminals side by side. /unsplit closes the extra panes.',
+          ? 'Split — a new terminal stacked below. /unsplit undoes the last split.'
+          : 'Split — two terminals side by side. /unsplit undoes the last split.',
       );
       return;
     }
     if (parsed.type === 'unsplit') {
+      // /unsplit all — the collapse-all, behind the close
+      // ask: the strip asks first ("close N panes? their
+      // sessions and history will be destroyed"), and nothing
+      // is destroyed until it is confirmed. Not split: a
+      // no-op, never an error.
+      if (parsed.args?.[0] === 'all') {
+        const visible = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId);
+        if (visible.length <= 1) {
+          await write('Already one terminal — nothing to unsplit.');
+          return;
+        }
+        useSplitPaneStore.getState().requestUnsplitAll(tabId);
+        await write(
+          `Unsplit all — close ${visible.length} panes? Confirm in the tab bar.`,
+        );
+        return;
+      }
       const wasSplit =
         getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1;
-      useSplitPaneStore.getState().unsplitTab(tabId);
+      const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
+      if (!wasSplit || removed === null) {
+        await write('Already one terminal — nothing to unsplit.');
+        return;
+      }
+      const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
       await write(
-        wasSplit
-          ? 'Unsplit — back to one terminal.'
-          : 'Already one terminal — nothing to unsplit.',
+        remaining > 1
+          ? `Closed ${removed} — ${remaining} panes left.`
+          : `Closed ${removed} — back to one terminal.`,
       );
       return;
     }
@@ -2036,20 +2063,24 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     useSessionStore.getState().toggleTabMode(tabId);
     setTimeout(() => focusPrompterComposer(), 0);
   };
-  // The split pill (sweep fix 2 follow-on, 2026-11-14): it
-  // toggles this tab's split — split when single-pane, unsplit
-  // when split (close every pane except the focused one, each
-  // closed pane's PTY destroyed, the same as closePane). It
-  // reads the same split store as the strip split button and
-  // ⌘D, so splitting from either lights the pill. Main window
-  // only — MiniTerminal passes no handler, so no pill renders
-  // in a detached window. Works in guest like the strip button
-  // (plain terminal panes, session-only, dropped on exit).
+  // The split pill (sweep fix 2 follow-on, 2026-11-14;
+  // CHAINED 2026-11-15, Gary): it toggles this tab's split
+  // — split when single-pane, undo ONE split when split
+  // (the most recent one only — a single press can never
+  // lose more than one pane). Collapse-all is never
+  // reachable from the pill: only `/unsplit all` /
+  // "Unsplit All Panes" behind the close ask closes more
+  // than one pane at a time. It reads the same split store
+  // as the strip split button and ⌘D, so splitting from
+  // either lights the pill. Main window only — MiniTerminal
+  // passes no handler, so no pill renders in a detached
+  // window. Works in guest like the strip button (plain
+  // terminal panes, session-only, dropped on exit).
   const splitGroups = useSplitPaneStore((s) => s.groups);
   const splitVisible = getVisibleTabIds(splitGroups, tabId).length > 1;
   const handleToggleSplit = () => {
     if (getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1) {
-      useSplitPaneStore.getState().unsplitTab(tabId);
+      useSplitPaneStore.getState().unsplitOneTab(tabId);
     } else {
       void useSplitPaneStore.getState().splitTab(tabId);
     }

@@ -318,12 +318,23 @@ export function registerBuiltinCommands(
   registry.register({
     id: 'terminal:unsplit',
     title: 'Unsplit Terminal',
-    description: 'Close the other panes (the /unsplit command)',
+    description: 'Undo the last split (the /unsplit command)',
     tags: ['unsplit', 'pane', 'terminal'],
     when: inTerminal,
     run: () => {
       const tabId = useTerminalStore.getState().activeTabId;
-      if (tabId) useSplitPaneStore.getState().unsplitTab(tabId);
+      if (tabId) useSplitPaneStore.getState().unsplitOneTab(tabId);
+    },
+  });
+  registry.register({
+    id: 'terminal:unsplit-all',
+    title: 'Unsplit All Panes',
+    description: 'Close all the panes (the /unsplit all command — asks first)',
+    tags: ['unsplit', 'pane', 'terminal', 'all'],
+    when: inTerminal,
+    run: () => {
+      const tabId = useTerminalStore.getState().activeTabId;
+      if (tabId) useSplitPaneStore.getState().requestUnsplitAll(tabId);
     },
   });
 }

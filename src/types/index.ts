@@ -396,10 +396,10 @@ export interface ThemeColors {
 // chat's copilot tab. `model` picks the brain that plans the
 // copilot's turns — 'local-planner' runs on this machine with no
 // key and no network; 'github-copilot' is Gary's Copilot key,
-// saved in Settings > AI (Secure Vault). The Copilot connection
-// itself lands in a later build (D9 is still open): a Copilot
-// copilot with a saved key still shows as not-connected-yet, and
-// never silently falls back to the local planner. The id is
+// saved in Settings > AI (Secure Vault), connected in the D9
+// build (2026-11-15) through the Copilot API client — cloud and
+// metered by the Copilot subscription, never the local planner
+// wearing Copilot's name. The id is
 // stable per copilot (the tab's threads are keyed by it) and is
 // generated when the copilot is added. Keep in sync with the
 // catalogue in src/lib/copilotModels.ts.
@@ -514,6 +514,16 @@ export interface Settings {
   // picks its own model; the list starts empty (the tab's empty
   // state points at Settings > AI to add the first one).
   copilots: CopilotConfig[];
+  // The GitHub Copilot API model the copilot tab's GitHub Copilot
+  // brain answers with (D9, 2026-11-15) — a model id from the
+  // API's own list, never a hardcoded roster. Null = no model
+  // picked yet (the tab lists models and picks the first one).
+  // `copilotApiModels` is the last list fetched from the API,
+  // with the fetch time — the tab refreshes it when it is stale
+  // (older than 30 minutes) or empty.
+  copilotApiModel: string | null;
+  copilotApiModels: string[];
+  copilotApiModelsFetchedAt: number | null;
   // Driving-agent tabs (Gary, 2026-11-13 ~12:27 PST): the
   // LLMBuilder tab picks a driving agent from these — add as
   // many as desired in Settings > AI, no cap, the same input
@@ -1354,6 +1364,12 @@ declare global {
         saveSession: (session: ChatSession) => Promise<void>;
         deleteSession: (id: string) => Promise<void>;
         clearSessions: () => Promise<void>;
+      };
+      copilot: {
+        listModels: () => Promise<{ ok: boolean; code?: string; message?: string; retryAfterSeconds?: number; models?: string[] }>;
+        chatCompletions: (request: { requestId: string; model: string; messages: { role: string; content: string }[]; tools: unknown[] }) => Promise<{ ok: boolean; code?: string; message?: string; retryAfterSeconds?: number; content?: string; toolCalls?: { id: string; name: string; arguments: string }[]; model?: string }>;
+        onChatDelta: (callback: (event: { requestId: string; text: string }) => void) => () => void;
+        abortChatCompletions: (requestId: string) => void;
       };
       system: {
         checkNetwork: () => Promise<{ online: boolean }>;

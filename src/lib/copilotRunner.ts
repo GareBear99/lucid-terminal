@@ -16,12 +16,13 @@
  * The difference from the terminal path is the brain: the
  * copilot's model is whichever the copilot picked; the
  * driving intelligence is always the local base underneath,
- * gating the pass. In this slice the only brain that runs a
- * turn is the local planner — a GitHub Copilot copilot with
- * a saved key shows as not-connected-yet (the Copilot
- * connection itself lands in a later build; D9 is still
- * open), and never silently falls back to the local planner
- * pretending to be Copilot.
+ * gating the pass. Two brains run a turn in this slice: the
+ * local planner, and GitHub Copilot (D9, 2026-11-15) — the
+ * Copilot API client, cloud and metered by the Copilot
+ * subscription. A GitHub Copilot copilot with a saved key
+ * but no model listed yet answers as not-ready (the tab
+ * lists models), and never silently falls back to the local
+ * planner pretending to be Copilot.
  *
  * Guest: the runner is called DIRECTLY with isGuest — never
  * through submitAgentPrompt / setTabMode, whose terminal
@@ -37,6 +38,8 @@
  */
 import { electronAgentHost, type AgentHost } from './agentHost';
 import { LocalPlanner, type AgentBrain } from './agentBrain';
+import { CopilotBrain } from './copilotBrain';
+import { getBuiltInToolDefinitions } from './agentToolsImpl';
 import {
   runAgentTurn,
   type AgentLoopEvent,
@@ -83,6 +86,9 @@ export interface CopilotRunInput {
   drivingAgent?: ResolvedDrivingAgent;
   signal?: AbortSignal;
   onEvent?: (event: AgentLoopEvent) => void;
+  /** The Copilot brain's streamed words, as they arrive (the
+   *  tab shows them while the model plans). */
+  onBrainProgress?: (text: string) => void;
   /** A review card the tab should show (the run pauses on it). */
   onReview?: (review: AgentReviewBlockData) => void;
 }
@@ -90,13 +96,24 @@ export interface CopilotRunInput {
 /** The reply a copilot that cannot run yet answers with — a
  * state, never an error in the user's face. Without the key it
  * is the unconfigured state (the tab shows the same words);
- * with the key it is the not-connected-yet state. */
-export function copilotNotReadyReply(copilot: CopilotConfig, hasCopilotKey: boolean): string {
+ * with the key but no model listed yet it is the models state. */
+export function copilotNotReadyReply(
+  copilot: CopilotConfig,
+  hasCopilotKey: boolean,
+  hasCopilotModel = true,
+): string {
   if (copilot.model === 'github-copilot' && !hasCopilotKey) {
     return 'This copilot is not configured yet — add your GitHub Copilot key in Settings > AI.';
   }
+  if (copilot.model === 'github-copilot' && !hasCopilotModel) {
+    return 'Copilot models not listed yet — open the copilot tab and refresh the model list.';
+  }
   if (copilot.model === 'github-copilot') {
-    return 'This copilot is not connected yet — the GitHub Copilot connection lands in a later build. The local planner is the brain that runs today.';
+    // A keyed Copilot with a model listed can run — this reply
+    // is only reached by a caller that already knows it cannot
+    // (a stale settings snapshot); say so plainly instead of
+    // claiming a state that is not true.
+    return 'This copilot cannot run right now — check the key and the model list in Settings > AI.';
   }
   return `The model "${copilot.model}" is not available.`;
 }
@@ -128,19 +145,37 @@ export async function runCopilotTurn(input: CopilotRunInput): Promise<AgentTurnR
       liveDrivingAgentDetection(useSettingsStore.getState().hasApiKey, settings.aiModel),
     );
 
-  // The model decides the brain. Only the local planner has a
-  // brain in this slice — a GitHub Copilot copilot with a saved
-  // key is still not connected (no Copilot client — D9), so it
-  // answers as not-ready and runs NO tools, rather than the
-  // local planner wearing Copilot's name. An explicit brain
-  // override (tests, and the future Copilot brain) runs as given.
+  // The model decides the brain. The local planner plans its
+  // own turns; a GitHub Copilot copilot plans through the
+  // Copilot API client (D9) — the API model is the tab's pick
+  // from the API's own list (settings.copilotApiModel), else
+  // the first listed model. A keyed Copilot with no model
+  // listed yet answers as not-ready and runs NO tools, rather
+  // than the local planner wearing Copilot's name. An explicit
+  // brain override (tests, and a future brain) runs as given.
   let brain: AgentBrain | null = input.brain ?? null;
   if (!brain && input.copilot.model === 'local-planner') {
     brain = new LocalPlanner();
   }
+  if (!brain && input.copilot.model === 'github-copilot' && input.hasCopilotKey) {
+    const apiModel =
+      settings.copilotApiModel ?? settings.copilotApiModels[0] ?? null;
+    if (apiModel) {
+      brain = new CopilotBrain({
+        model: apiModel,
+        tools: getBuiltInToolDefinitions(),
+        onProgress: input.onBrainProgress,
+        signal: input.signal,
+      });
+    }
+  }
   if (!brain) {
+    const hasCopilotModel =
+      input.copilot.model !== 'github-copilot' ||
+      settings.copilotApiModel !== null ||
+      settings.copilotApiModels.length > 0;
     return {
-      reply: copilotNotReadyReply(input.copilot, input.hasCopilotKey),
+      reply: copilotNotReadyReply(input.copilot, input.hasCopilotKey, hasCopilotModel),
       toolCalls: [],
       edits: [],
       diagnostics: [],

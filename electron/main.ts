@@ -30,6 +30,7 @@ import { resetClient } from './services/openai';
 import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
 import { setupGoogleDriveHandlers } from './ipc/googleDrive';
+import { setupCopilotHandlers } from './ipc/copilot';
 
 // Browser paint fix (Gary, 2026-11-09 — LIVE evidence, not a guess):
 // the in-app BrowserView presents only frames from the renderer
@@ -170,6 +171,11 @@ app.whenReady().then(() => {
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   setupSnapshotHandlers(ipcMain);
   setupArcServerHandlers(ipcMain);
+  // GitHub Copilot API client (D9, 2026-11-15) — the copilot
+  // tab's keyed brain. The key never leaves main: the handlers
+  // read it from the OS keychain and the renderer only ever sees
+  // streamed text + the finished result.
+  setupCopilotHandlers(ipcMain);
   // Tab detach + remount (Gary, 2026-11-09): the drag session is
   // owned by main; pop-back-in re-creates the main window when
   // it is gone (guarded — never two main windows).

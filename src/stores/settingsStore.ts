@@ -47,6 +47,17 @@ interface SettingsState {
   checkCopilotApiKey: () => Promise<void>;
   hasCopilotApiKey: boolean;
 
+  // GitHub Copilot models (D9, 2026-11-15) — the model list
+  // comes from the API, never hardcoded. Refresh lists the
+  // models for this subscription, caches them in settings, and
+  // keeps the picked model when it is still listed (else the
+  // first listed model). A failure returns the reason — the
+  // caller shows it, the settings are left as they were.
+  refreshCopilotModels: () => Promise<
+    | { ok: true; models: string[] }
+    | { ok: false; code: string; message: string }
+  >;
+
   // Telegram bot token actions — the Bot API token for the user's
   // own bot, stored encrypted in secureStorage.
   setTelegramBotToken: (token: string) => Promise<void>;
@@ -158,6 +169,12 @@ const defaultSettings: Settings = {
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
   copilots: [],
+  // The GitHub Copilot API model (D9) — null until the tab
+  // lists models from the API and picks one; the list itself
+  // is cached below, with the fetch time.
+  copilotApiModel: null,
+  copilotApiModels: [],
+  copilotApiModelsFetchedAt: null,
   drivingAgentTabs: [],
   activeDrivingAgentTabId: null,
   pingServerEnabled: false,
@@ -485,6 +502,39 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   checkCopilotApiKey: async () => {
     const hasKey = await window.lucidAPI.settings.hasCopilotApiKey();
     set({ hasCopilotApiKey: hasKey });
+  },
+
+  refreshCopilotModels: async () => {
+    const bridge = window.lucidAPI?.copilot;
+    if (!bridge) {
+      return { ok: false, code: 'unavailable', message: 'Copilot is unavailable in this environment.' };
+    }
+    let result: Awaited<ReturnType<typeof bridge.listModels>>;
+    try {
+      result = await bridge.listModels();
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'unavailable',
+        message: `Copilot is unavailable in this environment. (${error instanceof Error ? error.message : String(error)})`,
+      };
+    }
+    if (!result.ok) {
+      return {
+        ok: false,
+        code: result.code ?? 'upstream',
+        message: result.message ?? 'GitHub Copilot had a problem listing models — try again.',
+      };
+    }
+    const models = result.models ?? [];
+    const current = get().settings.copilotApiModel;
+    const pick = current && models.includes(current) ? current : (models[0] ?? null);
+    await get().updateSettings({
+      copilotApiModels: models,
+      copilotApiModelsFetchedAt: Date.now(),
+      copilotApiModel: pick,
+    });
+    return { ok: true, models };
   },
 
   setTelegramBotToken: async (token) => {

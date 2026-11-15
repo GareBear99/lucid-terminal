@@ -13,10 +13,12 @@
  *   (src/lib/agentBrain.ts). Runs on this machine, no key, no
  *   network — the only brain that runs a turn in this slice.
  * - 'github-copilot': Gary's Copilot key, saved in Settings > AI
- *   (Secure Vault). The Copilot connection itself is NOT built in
- *   this slice (D9 is still open) — a Copilot copilot with a saved
- *   key shows as not-connected-yet, and never silently falls back
- *   to the local planner pretending to be Copilot.
+ *   (Secure Vault), connected in the D9 build (2026-11-15)
+ *   through the Copilot API client — cloud and metered by the
+ *   Copilot subscription, the opposite of the local pitch, and
+ *   labelled as such. The model it answers with comes from the
+ *   API's own model list (settings.copilotApiModel), never a
+ *   hardcoded roster.
  */
 import type { CopilotConfig, CopilotModelId } from '../types';
 
@@ -37,7 +39,7 @@ export const COPILOT_MODELS: readonly CopilotModelInfo[] = [
   {
     id: 'github-copilot',
     label: 'GitHub Copilot',
-    hint: 'Your Copilot key, saved in Settings > AI.',
+    hint: 'Cloud, metered — your Copilot subscription, via your saved key.',
   },
 ] as const;
 
@@ -49,13 +51,18 @@ export function copilotModelHint(model: CopilotModelId): string {
   return COPILOT_MODELS.find((m) => m.id === model)?.hint ?? '';
 }
 
-/** Whether this copilot's model is ready to run a turn. */
+/** Whether this copilot's model is ready to run a turn.
+ *  `hasCopilotModel` is whether a Copilot API model is known
+ *  (picked or listed) — a keyed Copilot with no model listed
+ *  yet is not ready to run. Callers that do not know the
+ *  model state pass nothing and keep the old key-only check. */
 export function isCopilotConfigured(
   copilot: CopilotConfig,
   hasCopilotKey: boolean,
+  hasCopilotModel = true,
 ): boolean {
   if (copilot.model === 'local-planner') return true;
-  if (copilot.model === 'github-copilot') return hasCopilotKey;
+  if (copilot.model === 'github-copilot') return hasCopilotKey && hasCopilotModel;
   // An unknown model (a stale persisted value) is unconfigured,
   // never silently another model.
   return false;
@@ -69,10 +76,14 @@ export function isCopilotConfigured(
 export function copilotUnconfiguredReason(
   copilot: CopilotConfig,
   hasCopilotKey: boolean,
+  hasCopilotModel = true,
 ): string | null {
-  if (isCopilotConfigured(copilot, hasCopilotKey)) return null;
-  if (copilot.model === 'github-copilot') {
+  if (isCopilotConfigured(copilot, hasCopilotKey, hasCopilotModel)) return null;
+  if (copilot.model === 'github-copilot' && !hasCopilotKey) {
     return 'Not configured — add your GitHub Copilot key in Settings > AI.';
+  }
+  if (copilot.model === 'github-copilot') {
+    return 'Copilot models not listed yet — refresh the model list below.';
   }
   return `The model "${copilot.model}" is not available.`;
 }

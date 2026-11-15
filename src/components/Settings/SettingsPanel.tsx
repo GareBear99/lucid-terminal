@@ -1306,9 +1306,11 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   </div>
                 )}
                 <p className="text-xs leading-[1.5] text-[var(--text-muted)] mt-2">
-                  The key is stored encrypted in the OS keychain, like the API key. The Copilot
-                  connection itself lands in a later build — a Copilot copilot with a saved key
-                  still shows as not connected yet, and never runs as the local planner.
+                  The key is stored encrypted in the OS keychain, like the API key, and never
+                  leaves the main process — the copilot tab talks to GitHub Copilot through it
+                  (cloud, metered by your Copilot subscription). The key is a GitHub token: an
+                  OAuth token or a fine-grained token with Copilot access. A classic personal
+                  access token (ghp_…) does not work — GitHub rejects it.
                 </p>
               </section>
 

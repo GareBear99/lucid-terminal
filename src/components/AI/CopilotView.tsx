@@ -18,7 +18,7 @@
  * unconfigured, never an error in the user's face; the local
  * planner needs no key at all.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, Send, StopCircle } from 'lucide-react';
 import { useCopilotStore, type CopilotMessage } from '../../stores/copilotStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -53,6 +53,15 @@ export function CopilotView({
 }) {
   const copilots = useSettingsStore((s) => s.settings.copilots);
   const hasCopilotKey = useSettingsStore((s) => s.hasCopilotApiKey);
+  const copilotApiModel = useSettingsStore((s) => s.settings.copilotApiModel);
+  const copilotApiModels = useSettingsStore((s) => s.settings.copilotApiModels);
+  const copilotApiModelsFetchedAt = useSettingsStore(
+    (s) => s.settings.copilotApiModelsFetchedAt,
+  );
+  const refreshCopilotModels = useSettingsStore((s) => s.refreshCopilotModels);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const activeCopilotId = useCopilotStore((s) => s.activeCopilotId);
   const threads = useCopilotStore((s) => s.threads);
   const runningCopilotId = useCopilotStore((s) => s.runningCopilotId);
@@ -75,9 +84,39 @@ export function CopilotView({
   const activeCopilot = copilots.find((c) => c.id === activeCopilotId) ?? copilots[0] ?? null;
   const thread = activeCopilot ? (threads[activeCopilot.id] ?? []) : [];
   const isRunning = activeCopilot !== null && runningCopilotId === activeCopilot.id;
+  // A Copilot API model is known when one is picked or the list
+  // has been fetched — a keyed Copilot with no model listed yet
+  // is not ready to run.
+  const hasCopilotModel = copilotApiModel !== null || copilotApiModels.length > 0;
   const unconfiguredReason = activeCopilot
-    ? copilotUnconfiguredReason(activeCopilot, hasCopilotKey)
+    ? copilotUnconfiguredReason(activeCopilot, hasCopilotKey, hasCopilotModel)
     : null;
+
+  const refreshModels = useCallback(async () => {
+    setModelsLoading(true);
+    setModelsError(null);
+    const result = await refreshCopilotModels();
+    setModelsLoading(false);
+    if (!result.ok) setModelsError(result.message);
+  }, [refreshCopilotModels]);
+
+  // The Copilot model list comes from the API, never hardcoded:
+  // fetch it when a GitHub Copilot copilot becomes active and
+  // the cached list is empty or stale (older than 30 minutes).
+  // A failure leaves the error text + the Refresh button — the
+  // tab never invents a model.
+  useEffect(() => {
+    if (activeCopilot?.model !== 'github-copilot' || !hasCopilotKey) return;
+    const stale =
+      copilotApiModelsFetchedAt === null ||
+      Date.now() - copilotApiModelsFetchedAt > 30 * 60 * 1000;
+    if (copilotApiModels.length === 0 || stale) {
+      void refreshModels();
+    }
+    // The fetch is keyed to the active copilot, not to the list
+    // itself — a refresh that fills the list must not re-trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCopilot?.id, activeCopilot?.model, hasCopilotKey]);
 
   useEffect(() => {
     // jsdom has no scrollIntoView — the optional call is a
@@ -126,6 +165,50 @@ export function CopilotView({
           </>
         )}
       </div>
+
+      {/* The GitHub Copilot model picker (D9, 2026-11-15): the
+      model comes from the API's own list, never hardcoded. The
+      row is for a keyed GitHub Copilot copilot only — the local
+      planner has no model to pick, and a Copilot without a key
+      shows its not-configured note instead. */}
+      {activeCopilot?.model === 'github-copilot' && hasCopilotKey && (
+        <div className="flex shrink-0 flex-col gap-1 border-b border-[var(--border)] px-3 py-2">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 font-mono text-[11px] text-[var(--text-muted)]">Model</span>
+            <select
+              data-testid="copilot-model-picker"
+              aria-label="Pick a Copilot model"
+              value={copilotApiModel ?? copilotApiModels[0] ?? ''}
+              disabled={modelsLoading || copilotApiModels.length === 0}
+              onChange={(e) => void updateSetting('copilotApiModel', e.target.value)}
+              className="min-w-0 flex-1 truncate rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs text-[var(--text)]"
+            >
+              {copilotApiModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              data-testid="copilot-models-refresh"
+              onClick={() => void refreshModels()}
+              disabled={modelsLoading}
+              className="shrink-0 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
+            >
+              {modelsLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <span className="shrink-0 font-mono text-[11px] text-[var(--text-muted)]">
+              Cloud, metered
+            </span>
+          </div>
+          {modelsError && (
+            <p data-testid="copilot-models-error" className="text-xs text-[var(--danger,red)]">
+              {modelsError}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* The thread. */}
       <div className="min-h-0 flex-1 overflow-y-auto">

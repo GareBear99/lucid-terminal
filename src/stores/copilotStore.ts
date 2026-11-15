@@ -211,6 +211,14 @@ export const useCopilotStore = create<CopilotState>()((set, get) => {
     const setRunText = (text: string) =>
       get().updateMessage(copilotId, runMessageId, { text });
     const progressLines: string[] = [];
+    // The Copilot brain's streamed words, shown while it plans
+    // — the tool lines take over once the loop starts executing,
+    // and the final reply replaces all of it.
+    let streamedText = '';
+    const renderRunText = () => {
+      const text = [...progressLines, streamedText].filter(Boolean).join('\n');
+      setRunText(text || 'Working…');
+    };
 
     if (!workspaceRoot) {
       // The copilot works on a workspace (the same rule as the
@@ -236,7 +244,11 @@ export const useCopilotStore = create<CopilotState>()((set, get) => {
         const line = eventLine(event);
         if (!line) return;
         progressLines.push(line);
-        setRunText(progressLines.join('\n'));
+        renderRunText();
+      },
+      onBrainProgress: (text) => {
+        streamedText = text;
+        renderRunText();
       },
       onReview: (review) => {
         // A profile switch mid-run veils the threads — a review

@@ -325,6 +325,29 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     clearSessions: () => ipcRenderer.invoke('ai:clearSessions'),
   },
 
+  // GitHub Copilot API client (D9, 2026-11-15) — the copilot
+  // tab's keyed brain. The key never crosses this bridge: main
+  // reads it from the OS keychain, and the renderer only ever
+  // sees streamed text + the finished result. Deltas arrive on
+  // 'copilot:chat-delta' while the invoke is in flight.
+  copilot: {
+    listModels: () =>
+      ipcRenderer.invoke('copilot:listModels'),
+    chatCompletions: (request: {
+      requestId: string;
+      model: string;
+      messages: { role: string; content: string }[];
+      tools: unknown[];
+    }) => ipcRenderer.invoke('copilot:chatCompletions', request),
+    onChatDelta: (callback: (event: { requestId: string; text: string }) => void) => {
+      const listener = (_: any, event: { requestId: string; text: string }) => callback(event);
+      ipcRenderer.on('copilot:chat-delta', listener);
+      return () => ipcRenderer.removeListener('copilot:chat-delta', listener);
+    },
+    abortChatCompletions: (requestId: string) =>
+      ipcRenderer.send('copilot:chat-abort', requestId),
+  },
+
   // System operations
   system: {
     checkNetwork: () => ipcRenderer.invoke('system:checkNetwork'),
@@ -917,6 +940,12 @@ export interface LucidAPI {
     saveSession: (session: ChatSession) => Promise<void>;
     deleteSession: (id: string) => Promise<void>;
     clearSessions: () => Promise<void>;
+  };
+  copilot: {
+    listModels: () => Promise<{ ok: boolean; code?: string; message?: string; retryAfterSeconds?: number; models?: string[] }>;
+    chatCompletions: (request: { requestId: string; model: string; messages: { role: string; content: string }[]; tools: unknown[] }) => Promise<{ ok: boolean; code?: string; message?: string; retryAfterSeconds?: number; content?: string; toolCalls?: { id: string; name: string; arguments: string }[]; model?: string }>;
+    onChatDelta: (callback: (event: { requestId: string; text: string }) => void) => () => void;
+    abortChatCompletions: (requestId: string) => void;
   };
   system: {
     checkNetwork: () => Promise<{ online: boolean }>;

@@ -97,6 +97,17 @@ export const aiChatTickRing = new SpscRing<AiChatTick>(AI_CHAT_TICK_RING_CAPACIT
  *  never silent. */
 let refusedCount = 0;
 
+/**
+ * Cumulative ticks accepted into the ring since the channel
+ * started, and cumulative ticks drained out of it (Memory tab,
+ * 2026-11-14: the live tick-stream view's per-second rates are
+ * measured from these counters' deltas — the ring itself has
+ * no rate, only a depth. Counts only, no timing; the view
+ * does the timing. Reset with the channel (test/support only).
+ */
+let acceptedCount = 0;
+let drainedCount = 0;
+
 /** The consumer's output: drained ticks in FIFO (causal)
  *  order, oldest first, capped at AI_CHAT_TICK_RECENT_LIMIT. */
 let recentTicks: AiChatTick[] = [];
@@ -141,6 +152,7 @@ export function issueAiChatTick(
     refusedCount += 1;
     return false;
   }
+  acceptedCount += 1;
   scheduleDrain();
   return true;
 }
@@ -163,6 +175,7 @@ export function takeAiChatTick(): AiChatTick | undefined {
 export function drainAiChatTicks(): AiChatTick[] {
   const drained = aiChatTickRing.drain();
   if (drained.length === 0) return drained;
+  drainedCount += drained.length;
   // FIFO (causal) order, oldest first, capped — the oldest
   // tick falls off the window when it is full (it is still
   // on its message; the window is a view, not storage).
@@ -179,6 +192,20 @@ export function getRecentAiChatTicks(): AiChatTick[] {
 /** Ticks refused by backpressure so far. */
 export function aiChatTickRefusedCount(): number {
   return refusedCount;
+}
+
+/**
+ * Cumulative tick counts for the live tick-stream view
+ * (Memory tab, 2026-11-14): accepted into the ring, drained
+ * out of it, refused by backpressure. The view measures
+ * per-second rates from successive reads of these counters.
+ */
+export function aiChatTickCounts(): {
+  accepted: number;
+  drained: number;
+  refused: number;
+} {
+  return { accepted: acceptedCount, drained: drainedCount, refused: refusedCount };
 }
 
 /**
@@ -214,5 +241,7 @@ export function resetAiChatTickChannel(): void {
   aiChatTickRing.drain();
   recentTicks = [];
   refusedCount = 0;
+  acceptedCount = 0;
+  drainedCount = 0;
   drainScheduled = false;
 }

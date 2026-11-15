@@ -80,6 +80,11 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   'models',
   'terminal',
   'ai',
+  // Memory (Gary, 2026-11-14 ~14:47 PST) — the AI memory tab,
+  // right under the AI tab. A stored order that predates it
+  // gains it here (see resolveSettingsTabOrder), not appended
+  // at the end.
+  'memory',
   'daemon',
   'general',
 ];

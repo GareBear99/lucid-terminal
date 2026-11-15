@@ -24,6 +24,7 @@ import {
   Shield,
   ShieldCheck,
   User,
+  Brain,
   Volume2,
   Pause,
 } from 'lucide-react';
@@ -67,6 +68,7 @@ import { PermissionsTab } from './PermissionsTab';
 import { AgentPermissionsTab } from './AgentPermissionsTab';
 import { SecurityTab } from './SecurityTab';
 import { ProfileTab } from './ProfileTab';
+import { MemoryTab } from './MemoryTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
 import { PluginsVoiceButton } from './PluginsVoiceButton';
 import { AppearanceVoiceButton } from './AppearanceVoiceButton';
@@ -82,7 +84,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'agent-permissions' | 'security' | 'profile';
+export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'memory' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'agent-permissions' | 'security' | 'profile';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
@@ -463,6 +465,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     { id: 'models', label: 'Models', icon: <Package size={18} /> },
     { id: 'terminal', label: 'Terminal', icon: <Terminal size={18} /> },
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} /> },
+    { id: 'memory', label: 'Memory', icon: <Brain size={18} /> },
     { id: 'daemon', label: 'Daemon', icon: <Eye size={18} /> },
     { id: 'general', label: 'General', icon: <Settings size={18} /> },
   ];
@@ -2138,6 +2141,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'permissions' && (<PermissionsTab />)}
           {activeTab === 'agent-permissions' && (<AgentPermissionsTab />)}
           {activeTab === 'security' && (<SecurityTab />)}
+          {activeTab === 'memory' && (<MemoryTab />)}
           {activeTab === 'profile' && (<ProfileTab />)}
         </div>
       </div>

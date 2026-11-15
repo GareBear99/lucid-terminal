@@ -177,6 +177,18 @@ interface HistoryState {
   setBlocks: (tabId: string, updater: BlocksUpdater) => void;
   /** Clear one tab's blocks (the clear-history action). */
   clearBlocks: (tabId: string) => void;
+  /**
+   * Drop the driving intelligence's working memory (Memory tab,
+   * 2026-11-14): the agent-prompt and agent-response blocks in
+   * every tab's feed. Terminal command blocks are untouched —
+   * only the agent's own blocks go. The feed persists the
+   * change like any other mutation (the store subscribe).
+   * No-op in a guest session: the visible blocks are the
+   * guest's own live feed, and the Memory tab shows the empty
+   * state in guest and never offers this button — the guard
+   * is belt-and-braces for the hard constraint.
+   */
+  clearAgentBlocks: () => void;
   /** Drop a tab's blocks entirely (on tab close). */
   removeTab: (tabId: string) => void;
   /** Whether a guest session is veiled in: the visible blocks are
@@ -235,6 +247,30 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       for (const b of state.blocksByTab[tabId] ?? EMPTY_BLOCKS) dropPendingEscape(b.id);
       return { blocksByTab: { ...state.blocksByTab, [tabId]: [] } };
     }),
+
+  clearAgentBlocks: () => {
+    if (get().guestSessionActive) return;
+    set((state) => {
+      let changed = false;
+      const blocksByTab: Record<string, TerminalBlock[]> = {};
+      for (const [tabId, blocks] of Object.entries(state.blocksByTab)) {
+        const kept = blocks.filter(
+          (b) => b.kind !== 'agent-prompt' && b.kind !== 'agent-response',
+        );
+        if (kept.length !== blocks.length) {
+          changed = true;
+          for (const b of blocks) {
+            if (b.kind === 'agent-prompt' || b.kind === 'agent-response') {
+              dropPendingEscape(b.id);
+            }
+          }
+        }
+        blocksByTab[tabId] = kept;
+      }
+      if (!changed) return state;
+      return { blocksByTab };
+    });
+  },
 
   removeTab: (tabId) =>
     set((state) => {

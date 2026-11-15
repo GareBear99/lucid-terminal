@@ -193,6 +193,15 @@ interface EventLogState {
   /** Events refused by ring backpressure (ring full). Counted
    *  and shown in the UI — a refusal is visible, never silent. */
   refusedCount: number;
+  /** Events accepted into the ring since the log started
+   *  (cumulative, Memory tab 2026-11-14: the live tick-stream
+   *  view measures per-second rates from this counter's
+   *  deltas). Reset by clear(). */
+  acceptedCount: number;
+  /** Events drained out of the ring into the log since the log
+   *  started (cumulative, same purpose as acceptedCount).
+   *  Reset by clear(). */
+  drainedCount: number;
   /** The last snapshot update stream's time + strain
    *  (Gary, 2026-11-09 ~15:00 PST): one sample per phase
    *  (mismatch → ping fallback → download → hash verify →
@@ -316,6 +325,7 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
       set((s) => ({ refusedCount: s.refusedCount + 1 }));
       return null;
     }
+    set((s) => ({ acceptedCount: s.acceptedCount + 1 }));
     scheduleDrain();
     return event;
   };
@@ -323,6 +333,8 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
   return {
     events: readPersisted(),
     refusedCount: 0,
+    acceptedCount: 0,
+    drainedCount: 0,
     snapshotStream: readPersistedSnapshotStream(),
 
     log: (input) => enqueueEvent(createEvent(input)),
@@ -356,7 +368,11 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
         nextStream = recordSnapshotStreamTickWait(stream, worst);
         if (nextStream !== stream) persistSnapshotStream(nextStream);
       }
-      set({ events, snapshotStream: nextStream });
+      set({
+        events,
+        snapshotStream: nextStream,
+        drainedCount: get().drainedCount + drained.length,
+      });
     },
 
     logStartupFileExplorerWalk: (dir, outcome, detail) =>
@@ -559,7 +575,13 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
       eventRing.drain();
       persist([]);
       persistSnapshotStream(null);
-      set({ events: [], refusedCount: 0, snapshotStream: null });
+      set({
+        events: [],
+        refusedCount: 0,
+        acceptedCount: 0,
+        drainedCount: 0,
+        snapshotStream: null,
+      });
     },
   };
 });

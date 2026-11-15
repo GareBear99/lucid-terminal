@@ -83,8 +83,9 @@
  *   The only restriction on a guest is demo until a real profile
  *   is made; a guest can run long enough to verify the build.
  *   The veil transitions live in selectProfile (the boot Profiles
- *   screen's onDone is the only caller) + the module-bottom init
- *   sync (a relaunch with a guest still active).
+ *   screen's onDone is the only caller) + applyPersistedGuestVeil
+ *   (called once from App's boot init — a relaunch with a guest
+ *   still active).
  *
  * Persistence: localStorage, versioned key (same pattern as
  * historyStore — guarded, never throws, corrupt storage starts
@@ -524,15 +525,24 @@ useProfileStore.subscribe((state) => {
 // reads them (the boot Profiles screen's onDone → selectProfile
 // covers every later transition; this covers the persisted-active
 // guest on module load).
-if (
-  useProfileStore
-    .getState()
-    .profiles.some(
-      (p) =>
-        p.id === useProfileStore.getState().activeProfileId &&
-        p.status === 'guest',
-    )
-) {
+//
+// Moved out of module scope into applyPersistedGuestVeil()
+// (2026-11-15): the block above ran at import time and called
+// useWorkspaceStore.getState() while workspaceStore was still in
+// TDZ — profileStore ↔ workspaceStore import each other, so the
+// order depends on which store is first imported, and the c154ae9
+// deploy flipped it (Kite click-to-jump: DocsPanel → lib/workspace
+// → workspaceStore, reached before profileStore). The app then
+// booted to a blank window:
+// "Uncaught ReferenceError: Cannot access 'useWorkspaceStore'
+// before initialization". App's boot init() calls this once after
+// mount, when every module is initialized. Idempotent — every
+// enterGuestSession() guards on already-veiled — and the behavior
+// is unchanged: same check, same five veil calls, same order.
+export function applyPersistedGuestVeil(): void {
+  const state = useProfileStore.getState();
+  const active = state.profiles.find((p) => p.id === state.activeProfileId);
+  if (!active || active.status !== 'guest') return;
   useAIStore.getState().enterGuestSession();
   useHistoryStore.getState().enterGuestSession();
   useCommandHistoryStore.getState().enterGuestSession();

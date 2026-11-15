@@ -40,7 +40,7 @@ import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
 import { ProfilesScreen } from './components/Profiles/ProfilesScreen';
-import { useProfileStore } from './stores/profileStore';
+import { applyPersistedGuestVeil, useProfileStore } from './stores/profileStore';
 import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
 import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, groupTabIds, orderTabsForRender } from './stores/splitPaneStore';
@@ -430,6 +430,15 @@ function App() {
     hasInitialized.current = true;
 
     async function init() {
+      // Persisted-guest veil (2026-11-15): a relaunch with a guest
+      // still active veils the owner's chats + history before
+      // anything reads them. This MUST run first, before
+      // loadSettings / createTab / the file-explorer load, and it
+      // must run here — not at module scope in profileStore — so
+      // every store module is initialized before it touches them
+      // (the old module-level block hit the profileStore ↔
+      // workspaceStore cycle in TDZ and blanked the app).
+      applyPersistedGuestVeil();
       console.log('[INIT] Loading settings...');
       await loadSettings();
       // Snapshot manifest check on launch (Gary, 2026-11-12

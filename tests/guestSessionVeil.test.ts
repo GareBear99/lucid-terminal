@@ -37,9 +37,11 @@ import {
 import {
   DEFAULT_PROFILE_ID,
   PROFILE_STORAGE_KEY,
+  applyPersistedGuestVeil,
   createDefaultProfile,
   useProfileStore,
 } from '../src/stores/profileStore';
+import { useWorkspaceStore } from '../src/stores/workspaceStore';
 import type { ChatMessage, ChatSession, TerminalBlock } from '../src/types';
 
 const ownerMessages: ChatMessage[] = [
@@ -314,7 +316,7 @@ describe('guest session veil — leaving the guest', () => {
   });
 
   test('a guest entered before the chat ever loaded still restores the owner on exit', async () => {
-    // Boot case: the veil went on at module load, before the chat
+    // Boot case: the veil went on at boot, before the chat
     // loaded — the stash holds nothing, so exit loads for real.
     useHistoryStore.getState().setBlocks('tab-1', [ownerBlock()]);
     flushHistoryPersistence();
@@ -375,5 +377,104 @@ describe('guest session veil — always a new guest', () => {
     expect(useHistoryStore.getState().blocksByTab).toEqual({
       'tab-1': [ownerBlock()],
     });
+  });
+});
+
+describe('persisted-guest veil at boot — applyPersistedGuestVeil (2026-11-15)', () => {
+  // Regression: the veil used to run at module scope in
+  // profileStore.ts, touching useWorkspaceStore while it was still
+  // in TDZ — profileStore ↔ workspaceStore import each other, so
+  // the order depends on which store is first imported, and the
+  // c154ae9 deploy flipped it (Kite click-to-jump: DocsPanel →
+  // lib/workspace → workspaceStore, reached before profileStore).
+  // The app then booted to a blank window ("Cannot access
+  // 'useWorkspaceStore' before initialization"). The veil is now a
+  // function App's boot init() calls after mount. These tests pin that it still veils a
+  // persisted-active guest, does nothing otherwise, and that the
+  // import order itself can no longer crash the boot.
+  //
+  // NOTE: no test here reproduces the packaged-app TDZ crash
+  // directly — the bundler's module order differs from vitest's.
+  // The import-order test below is the closest pin: with the old
+  // module-level block, importing workspaceStore first with a
+  // guest persisted active threw at evaluation; with the function
+  // it resolves.
+  beforeEach(() => {
+    // The file-level reset does not cover the workspace store —
+    // a veil left by the previous test would leak into the next.
+    useWorkspaceStore.getState().resetForTests();
+  });
+
+  test('veils a guest that is already active without going through selectProfile', () => {
+    seedOwner();
+    const guest = useProfileStore.getState().createGuestProfile();
+    // Active guest, veil NOT yet on: selectProfile was never
+    // called (this is the relaunch state — the persisted record
+    // says guest).
+    useProfileStore.setState({ activeProfileId: guest.id });
+    expect(useAIStore.getState().guestSessionActive).toBe(false);
+    expect(useWorkspaceStore.getState().guestVeiled).toBe(false);
+
+    applyPersistedGuestVeil();
+
+    expect(useAIStore.getState().guestSessionActive).toBe(true);
+    expect(useAIStore.getState().guestStash?.sessions).toEqual([ownerSession]);
+    expect(useHistoryStore.getState().guestSessionActive).toBe(true);
+    expect(useHistoryStore.getState().guestStash).toEqual({
+      'tab-1': [ownerBlock()],
+    });
+    expect(useWorkspaceStore.getState().guestVeiled).toBe(true);
+  });
+
+  test('is a no-op when the active profile is not a guest', () => {
+    seedOwner();
+    applyPersistedGuestVeil();
+    expect(useAIStore.getState().guestSessionActive).toBe(false);
+    expect(useHistoryStore.getState().guestSessionActive).toBe(false);
+    expect(useWorkspaceStore.getState().guestVeiled).toBe(false);
+    expect(useAIStore.getState().sessions).toEqual([ownerSession]);
+  });
+
+  test('is idempotent — a second call keeps the same stash', () => {
+    seedOwner();
+    const guest = useProfileStore.getState().createGuestProfile();
+    useProfileStore.setState({ activeProfileId: guest.id });
+    applyPersistedGuestVeil();
+    const stash = useAIStore.getState().guestStash;
+    applyPersistedGuestVeil();
+    expect(useAIStore.getState().guestSessionActive).toBe(true);
+    expect(useAIStore.getState().guestStash).toBe(stash);
+    expect(useHistoryStore.getState().guestStash).toEqual({
+      'tab-1': [ownerBlock()],
+    });
+  });
+
+  test('importing workspaceStore first with a guest persisted active does not throw', async () => {
+    // Seed the persisted record the way a relaunch with a guest
+    // still active leaves it, then load FRESH module copies with
+    // workspaceStore first — the order that used to crash.
+    const guest = {
+      ...createDefaultProfile(),
+      id: 'profile-guest-boot',
+      name: 'Guest',
+      status: 'guest' as const,
+    };
+    localStorage.setItem(
+      PROFILE_STORAGE_KEY,
+      JSON.stringify({
+        profiles: [createDefaultProfile(), guest],
+        activeProfileId: guest.id,
+      }),
+    );
+    vi.resetModules();
+    const freshWorkspace = await import('../src/stores/workspaceStore');
+    expect(freshWorkspace.useWorkspaceStore).toBeDefined();
+    const freshProfile = await import('../src/stores/profileStore');
+    const freshAI = await import('../src/stores/aiStore');
+    const freshHistory = await import('../src/stores/historyStore');
+    freshProfile.applyPersistedGuestVeil();
+    expect(freshAI.useAIStore.getState().guestSessionActive).toBe(true);
+    expect(freshHistory.useHistoryStore.getState().guestSessionActive).toBe(true);
+    expect(freshWorkspace.useWorkspaceStore.getState().guestVeiled).toBe(true);
   });
 });

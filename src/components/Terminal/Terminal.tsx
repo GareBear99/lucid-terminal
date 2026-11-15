@@ -30,7 +30,7 @@ import {
 import { computeHintLine } from '../../lib/hintLine';
 import { classifyInput } from '../../lib/inputClassifier';
 import { parseAgentInput } from '../../lib/inputParse';
-import { runAgentTurnForTab } from '../../lib/agentSession';
+import { runAgentTurnForTab, stopAgentRun } from '../../lib/agentSession';
 import {
   drivingAgentPickerOptions,
   liveDrivingAgentDetection,
@@ -50,7 +50,9 @@ import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { isLuciferAiEnabled, isLuciferAiSilenced, LUCIFER_AI_SILENCED_NOTE } from '../../lib/luciferAi';
 import { DEFCON_DEFAULT, DEFCON2_MERGE_IMPLEMENTED, DEFCON3_PROMPTER_IMPLEMENTED, defconCriteria, defconMergeActive, defconMergeReadingText, defconPrompterActive, defconTagline, describeDefcon, isDefconLevel } from '../../lib/defcon';
 import { checkPromptFocus, ptyWriteFailureReason, TOPOLOGY_FALLBACK_NOTICE, TOPOLOGY_FALLBACK_TITLE } from '../../lib/topologySync';
+import { useAgentRunStore } from '../../stores/agentRunStore';
 import { useDraggableInputHeight } from '../../lib/inputHeight';
+import { StopCircle } from 'lucide-react';
 import { processTerminalBell } from '../../lib/terminalBell';
 import { Tooltip } from '../Tooltip/Tooltip';
 
@@ -450,6 +452,12 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // tab's instance (hidden tabs render their own terminal view).
   const tabMode = useSessionStore((s) => s.tabMode);
   const isAgentMode = isActiveTab && getTabMode(tabMode, tabId) === 'agent';
+  // The agent run's reactive in-flight signal for this tab
+  // (Zed Stop button, 2026-11-15 — agentRunStore mirrors
+  // copilotStore's runningCopilotId). True only while a run
+  // is live; the run sets it on start and clears it in its
+  // finally, so the button below and the run never disagree.
+  const agentRunInFlight = useAgentRunStore((s) => s.inFlightByTab[tabId] ?? false);
   const isAgentModeRef = useRef(false);
   useEffect(() => {
     isAgentModeRef.current = isAgentMode;
@@ -1947,7 +1955,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // lives (below, next to composerHasInput) and read at call
   // time, after it is initialized.
   const renderPrompterComposer = (hintPlaceholder: string | null) => (
-    <div data-testid="prompter-composer" className={luciferAiEnabled ? (!devMode && prompterActive ? 'rounded-none bg-[var(--bg-tertiary)]/50' : 'rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50') : 'flex items-center gap-2'}>
+    <div data-testid="prompter-composer" className={luciferAiEnabled ? (!devMode && prompterActive ? 'flex items-center gap-2 rounded-none bg-[var(--bg-tertiary)]/50' : 'flex items-center gap-2 rounded-none border border-[var(--border)] bg-[var(--bg-tertiary)]/50') : 'flex items-center gap-2'}>
       {!luciferAiEnabled && (
         <>
           <Tooltip content="Send" shortcut="Enter">
@@ -1966,7 +1974,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
           <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
         </>
       )}
-      <div className={luciferAiEnabled ? '' : 'flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
+      <div className={luciferAiEnabled ? 'min-w-0 flex-1' : 'flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
         <InputArea
           input={devInput}
           setInput={setDevInput}
@@ -1994,6 +2002,30 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
           onEscape={handleComposerEscape}
         />
       </div>
+      {/* Zed Stop button (2026-11-15) — a SEPARATE chrome
+          button beside the composer, mirroring the copilot
+          tab's stop/send swap (CopilotView, copilot-stop).
+          It is deliberately NOT mounted on InputArea's
+          onInterrupt: that prop is the shell Ctrl+C interrupt
+          (\x03 to the PTY via handleComposerInterrupt) — a
+          different action from aborting an agent run. The
+          button shows only while this tab is in agent mode
+          AND a run is in flight (the reactive signal), and
+          disappears the moment the run ends. In guest it
+          never shows: agent mode is refused there, so no run
+          can be in flight. The delinked dev bar below DEFCON
+          3 never runs agent prompts, so it has no button. */}
+      {isAgentMode && agentRunInFlight && (
+        <button
+          type="button"
+          data-testid="agent-stop"
+          aria-label="Stop the agent run"
+          onClick={() => stopAgentRun(tabId)}
+          className="shrink-0 rounded border border-[var(--border)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+        >
+          <StopCircle size={18} />
+        </button>
+      )}
     </div>
   );
 

@@ -42,6 +42,7 @@ import { dropAgentIndex, runAgentTurn, type AgentTurnResult } from './agentLoop'
 import { cancelAgentReviewsForRun, requestAgentReview } from './agentReview';
 import type { ToolRegistry } from './agentTools';
 import { useAgentPermissionStore } from '../stores/agentPermissionStore';
+import { useAgentRunStore } from '../stores/agentRunStore';
 import { useFileStore } from '../stores/fileStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import {
@@ -62,18 +63,21 @@ export function isAgentRunInFlight(tabId: string): boolean {
 }
 
 /** Test reset: forget in-flight runs (no abort — the
- *  runs finish on their own). */
+ *  runs finish on their own). Clears the reactive signal
+ *  too, so a test never leaks a Stop button into the next
+ *  one. */
 export function resetAgentSessionForTests(): void {
   inFlight.clear();
+  useAgentRunStore.getState().resetAgentRunStoreForTests();
 }
 
 /** Stop the in-flight run for a tab, if any — aborts the
  *  loop's signal, so a review the run is paused on resolves
  *  as denied (the run's finally cancels any review still
  *  pending). False when no run is in flight for the tab.
- *  The Terminal's Stop button is owed on top of this — the
- *  run's in-flight state is module-level, not reactive, so
- *  the button needs a reactive signal first. */
+ *  The Terminal's Stop button (agent-stop) calls this; the
+ *  button reads the reactive signal in agentRunStore, which
+ *  the run sets below and clears in the finally. */
 export function stopAgentRun(tabId: string): boolean {
   const controller = inFlight.get(tabId);
   if (!controller) return false;
@@ -156,6 +160,9 @@ export async function runAgentTurnForTab(
 
   const controller = new AbortController();
   inFlight.set(tabId, controller);
+  // The reactive signal the Stop button reads — set here,
+  // cleared in the finally, so the button and the run agree.
+  useAgentRunStore.getState().setAgentRunInFlight(tabId, true);
 
   // The run id ties the run's reviews + checkpoints
   // together (Keep All / Reject All + revert are per-run).
@@ -266,6 +273,7 @@ export async function runAgentTurnForTab(
     };
   } finally {
     inFlight.delete(tabId);
+    useAgentRunStore.getState().setAgentRunInFlight(tabId, false);
     // A review still pending when the run ends (the tab
     // closed, the run aborted) must not linger as pending
     // in the feed — it is resolved as denied.

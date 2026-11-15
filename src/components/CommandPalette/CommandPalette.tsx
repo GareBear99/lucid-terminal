@@ -146,7 +146,13 @@ function FinderModal({ switchView }: { switchView: (view: View) => void }) {
       open
       placeholder="Open a file…  (type :12 to jump to a line)"
       items={items}
-      emptyText={index.indexing ? 'Indexing files…' : 'No files in this project'}
+      emptyText={
+        index.indexing
+          ? 'Indexing files…'
+          : index.timedOut
+            ? 'Indexing timed out — open a file in the project first, then try again'
+            : 'No files in this project'
+      }
       indexing={index.indexing}
       onQueryChange={setQuery}
       onSelect={async (item) => {

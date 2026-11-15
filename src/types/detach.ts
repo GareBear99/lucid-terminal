@@ -32,6 +32,15 @@ export interface DetachedFile {
   content: string;
   originalContent: string;
   isDirty: boolean;
+  /**
+   * Read-only preview of a file over the open cap — the full file
+   * is not loaded. Carried across the detach so the other window
+   * keeps the preview read-only (and can never save the preview
+   * buffer over the real file).
+   */
+  isTruncated?: boolean;
+  /** The file's full size in bytes; set with isTruncated. */
+  fullSize?: number;
 }
 
 export function toDetachedFile(file: OpenFile): DetachedFile {
@@ -41,6 +50,8 @@ export function toDetachedFile(file: OpenFile): DetachedFile {
     content: file.content,
     originalContent: file.originalContent,
     isDirty: file.isDirty,
+    isTruncated: file.isTruncated,
+    fullSize: file.fullSize,
   };
 }
 

@@ -2,7 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Plus, X, Terminal, Bell, Columns2, Equal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { useSplitPaneStore, findGroupForTab, groupTabIds, orderTabsForRender } from '../../stores/splitPaneStore';
+import {
+  useSplitPaneStore,
+  findGroupForTab,
+  groupTabIds,
+  orderTabsForRender,
+} from '../../stores/splitPaneStore';
 import { useHistoryStore } from '../../stores/historyStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
@@ -52,11 +57,17 @@ import { useTerminalTabDrag } from '../../lib/tabDrag';
  * stage it when any target is used or in a split group,
  * naming the count and how many are panes.
  */
-export type TabCloseAskKind = 'detached' | 'used' | 'unsplit-all' | 'close-multiple';
+export type TabCloseAskKind =
+  'detached' | 'used' | 'unsplit-all' | 'close-multiple';
 export type TabCloseAsk =
   | { tabId: string; title: string; kind: 'detached' | 'used' }
   | { tabId: string; title: string; kind: 'unsplit-all'; paneCount: number }
-  | { tabIds: string[]; title: string; kind: 'close-multiple'; paneCount: number };
+  | {
+      tabIds: string[];
+      title: string;
+      kind: 'close-multiple';
+      paneCount: number;
+    };
 
 export interface TerminalTabsViewProps {
   tabs: TerminalTab[];
@@ -202,7 +213,9 @@ export function TerminalTabsView({
   onClearAllNotifications,
 }: TerminalTabsViewProps) {
   const unread = unreadCount(notifications);
-  const hasUnreadError = notifications.some((n) => !n.read && n.type === 'error');
+  const hasUnreadError = notifications.some(
+    (n) => !n.read && n.type === 'error',
+  );
 
   // Close ask: Escape dismisses — keep the tab, do nothing
   // (never a destructive default).
@@ -265,10 +278,14 @@ export function TerminalTabsView({
     } else if (index <= 0) {
       x = (nodes[0] as HTMLElement).getBoundingClientRect().left - barRect.left;
     } else if (index >= nodes.length) {
-      const last = (nodes[nodes.length - 1] as HTMLElement).getBoundingClientRect();
+      const last = (
+        nodes[nodes.length - 1] as HTMLElement
+      ).getBoundingClientRect();
       x = last.right - barRect.left;
     } else {
-      x = (nodes[index] as HTMLElement).getBoundingClientRect().left - barRect.left;
+      x =
+        (nodes[index] as HTMLElement).getBoundingClientRect().left -
+        barRect.left;
     }
     setMarkerLeft(x);
   }, [drag.dropIndicator, tabs]);
@@ -289,7 +306,9 @@ export function TerminalTabsView({
       data-testid="terminal-tabs-bar"
       data-drop-target={drag.dropIndicator ? 'true' : undefined}
       className={`relative h-9 flex items-center rounded-none border-b border-[var(--border)] bg-black/50 backdrop-blur-md ${
-        drag.dropIndicator ? 'shadow-[inset_0_0_24px_rgba(88,166,255,0.35)] ring-1 ring-inset ring-[rgba(88,166,255,0.85)]' : ''
+        drag.dropIndicator
+          ? 'shadow-[inset_0_0_24px_rgba(88,166,255,0.35)] ring-1 ring-inset ring-[rgba(88,166,255,0.85)]'
+          : ''
       }`}
       {...drag.barHandlers}
     >
@@ -327,7 +346,9 @@ export function TerminalTabsView({
             style={{ left: drag.dragGhost.x, top: drag.dragGhost.y }}
           >
             <Terminal size={14} />
-            <span className="text-sm whitespace-nowrap">{drag.dragGhost.tab.title}</span>
+            <span className="text-sm whitespace-nowrap">
+              {drag.dragGhost.tab.title}
+            </span>
           </div>,
           document.body,
         )}
@@ -350,7 +371,11 @@ export function TerminalTabsView({
         {showBloodDrop && (
           <div
             data-testid="blood-drop-tab"
-            title={bloodDropDisabled ? "LuciferAI silenced \u2014 the terminal link is disabled" : "LuciferAI prompt commands"}
+            title={
+              bloodDropDisabled
+                ? 'LuciferAI silenced \u2014 the terminal link is disabled'
+                : 'LuciferAI prompt commands'
+            }
             aria-label="LuciferAI prompt commands"
             aria-disabled={bloodDropDisabled || undefined}
             className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] transition-colors ${
@@ -360,7 +385,9 @@ export function TerminalTabsView({
                   ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)] cursor-pointer'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 cursor-pointer'
             }`}
-            onClick={() => { if (!bloodDropDisabled) onBloodDropActiveChange?.(true); }}
+            onClick={() => {
+              if (!bloodDropDisabled) onBloodDropActiveChange?.(true);
+            }}
           >
             <BloodDropIcon size={14} />
           </div>
@@ -371,7 +398,9 @@ export function TerminalTabsView({
             key={tab.id}
             data-testid={`tab-${tab.id}`}
             data-tab-id={tab.id}
-            data-split-group={splitGroupTabIds.includes(tab.id) ? 'true' : undefined}
+            data-split-group={
+              splitGroupTabIds.includes(tab.id) ? 'true' : undefined
+            }
             className={`group flex items-center gap-2 px-3 h-9 border-r border-[var(--border)] cursor-pointer transition-colors ${
               tab.id === activeTabId
                 ? 'bg-black/60 text-[var(--text-primary)] tab-active shadow-[inset_0_-2px_0_0_rgba(88,166,255,0.85)]'
@@ -493,7 +522,10 @@ export function TerminalTabsView({
           is 32px long in a 48px rail (2/3, 8px inset each side);
           this one is 24px (h-6) in the 36px bar - the same 2/3.
           It sits between the tabs and the bell. */}
-      <div className="h-6 border-l border-[var(--border)] mx-1 shrink-0" aria-hidden="true" />
+      <div
+        className="h-6 border-l border-[var(--border)] mx-1 shrink-0"
+        aria-hidden="true"
+      />
 
       {/* Notifications Button */}
       <button
@@ -519,7 +551,9 @@ export function TerminalTabsView({
       {notificationsOpen && (
         <div className="absolute right-0 top-9 z-50 w-80 max-w-[90vw] rounded-none border border-[var(--border)] bg-black/70 backdrop-blur-md shadow-xl">
           <div className="flex items-center justify-between px-3 h-9 border-b border-[var(--border)]">
-            <span className="text-sm font-medium text-[var(--text-primary)]">Notifications</span>
+            <span className="text-sm font-medium text-[var(--text-primary)]">
+              Notifications
+            </span>
             {notifications.length > 0 && (
               <button
                 onClick={onClearAllNotifications}
@@ -531,7 +565,9 @@ export function TerminalTabsView({
             )}
           </div>
           {notifications.length === 0 ? (
-            <p className="px-3 py-4 text-sm text-[var(--text-muted)] text-center">No notifications</p>
+            <p className="px-3 py-4 text-sm text-[var(--text-muted)] text-center">
+              No notifications
+            </p>
           ) : (
             <div className="max-h-80 overflow-y-auto">
               {notifications.map((notification) => {
@@ -542,8 +578,13 @@ export function TerminalTabsView({
                     key={notification.id}
                     className={`flex items-start gap-2 px-3 py-2 border-b border-[var(--border)] last:border-b-0 ${styles.bg}`}
                   >
-                    <Icon size={16} className={`flex-shrink-0 mt-0.5 ${styles.text}`} />
-                    <p className={`text-sm flex-1 ${styles.text}`}>{notification.message}</p>
+                    <Icon
+                      size={16}
+                      className={`flex-shrink-0 mt-0.5 ${styles.text}`}
+                    />
+                    <p className={`text-sm flex-1 ${styles.text}`}>
+                      {notification.message}
+                    </p>
                     <button
                       onClick={() => onDismissNotification(notification.id)}
                       className={`p-0.5 rounded hover:bg-white/10 transition-colors ${styles.text}`}
@@ -563,74 +604,107 @@ export function TerminalTabsView({
           outside click, Escape closes it too. "Close Tabs to
           the Right" is disabled on the last tab; Reopen
           Closed Tab is a silent no-op when nothing was closed
-          (the closed-item stack is session-only). */}
-      {contextMenu && (
-        <div
-          className="fixed inset-0 z-[60]"
-          data-testid="tab-context-menu-overlay"
-          onClick={() => setContextMenu(null)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setContextMenu(null);
-          }}
-        >
+          (the closed-item stack is session-only).
+          PORTALED TO THE BODY (step 6, 2026-11-15 — Gary:
+          "that should never happen"): the tab context menu was
+          stuck open, blurred and unclickable live. Same trap
+          the drag ghost (above) and the close ask (below) were
+          already portaled out of: the bar carries
+          backdrop-blur, which makes it a containing block for
+          fixed descendants AND a stacking context — inside
+          the bar the `fixed inset-0` overlay covered only the
+          36px strip (so outside clicks never reached it) and
+          the menu itself painted UNDER the terminal surface
+          below the strip (the DEFCON 2 merge veil
+          `bg-black/25 backdrop-blur-sm`, or the devmode
+          frosted xterm box), which blurred it and swallowed
+          its clicks. In the body it is truly viewport-fixed
+          and above everything, so the overlay covers the
+          screen and the items are clickable. The menu keeps
+          the theme secondary, painted over solid black, so
+          it is opaque in every theme (Full Glass secondary
+          is translucent rgba) — no mist shows through it. */}
+      {contextMenu &&
+        createPortal(
           <div
-            role="menu"
-            aria-label={`Tab actions for ${contextMenu.tab.title}`}
-            data-testid="tab-context-menu"
-            className="absolute w-56 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] py-1 shadow-xl"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[60]"
+            data-testid="tab-context-menu-overlay"
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu(null);
+            }}
           >
-            {[
-              {
-                label: 'Split This Tab',
-                onClick: () => onSplitTabId?.(contextMenu.tab.id),
-                disabled: false,
-              },
-              {
-                label: 'Copy Working Directory',
-                onClick: () => onCopyTabCwd?.(contextMenu.tab.id),
-                disabled: false,
-              },
-              {
-                label: 'Reopen Closed Tab',
-                onClick: () => onReopenClosedTab?.(),
-                disabled: false,
-              },
-              {
-                label: 'Close Tab',
-                onClick: () => onCloseTab(contextMenu.tab.id),
-                disabled: false,
-              },
-              {
-                label: 'Close Other Tabs',
-                onClick: () => onCloseOtherTabs?.(contextMenu.tab.id),
-                disabled: tabs.length <= 1,
-              },
-              {
-                label: 'Close Tabs to the Right',
-                onClick: () => onCloseTabsToTheRight?.(contextMenu.tab.id),
-                disabled:
-                  tabs.findIndex((t) => t.id === contextMenu.tab.id) >= tabs.length - 1,
-              },
-            ].map((item) => (
-              <button
-                key={item.label}
-                role="menuitem"
-                disabled={item.disabled}
-                onClick={() => {
-                  setContextMenu(null);
-                  item.onClick();
-                }}
-                className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 disabled:hover:bg-transparent"
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+            <div
+              role="menu"
+              aria-label={`Tab actions for ${contextMenu.tab.title}`}
+              data-testid="tab-context-menu"
+              className="absolute w-56 rounded-md border border-[var(--border)] py-1 shadow-xl"
+              style={{
+                left: contextMenu.x,
+                top: contextMenu.y,
+                // Opaque backing: paint the theme secondary over
+                // solid black, so the menu is solid in every
+                // theme (opaque themes render exactly their own
+                // colour; Full Glass's translucent secondary
+                // composites over black instead of over the mist).
+                backgroundImage:
+                  'linear-gradient(var(--bg-secondary), var(--bg-secondary))',
+                backgroundColor: '#000',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {[
+                {
+                  label: 'Split This Tab',
+                  onClick: () => onSplitTabId?.(contextMenu.tab.id),
+                  disabled: false,
+                },
+                {
+                  label: 'Copy Working Directory',
+                  onClick: () => onCopyTabCwd?.(contextMenu.tab.id),
+                  disabled: false,
+                },
+                {
+                  label: 'Reopen Closed Tab',
+                  onClick: () => onReopenClosedTab?.(),
+                  disabled: false,
+                },
+                {
+                  label: 'Close Tab',
+                  onClick: () => onCloseTab(contextMenu.tab.id),
+                  disabled: false,
+                },
+                {
+                  label: 'Close Other Tabs',
+                  onClick: () => onCloseOtherTabs?.(contextMenu.tab.id),
+                  disabled: tabs.length <= 1,
+                },
+                {
+                  label: 'Close Tabs to the Right',
+                  onClick: () => onCloseTabsToTheRight?.(contextMenu.tab.id),
+                  disabled:
+                    tabs.findIndex((t) => t.id === contextMenu.tab.id) >=
+                    tabs.length - 1,
+                },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  role="menuitem"
+                  disabled={item.disabled}
+                  onClick={() => {
+                    setContextMenu(null);
+                    item.onClick();
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
       {/* Close ask (Gary, 2026-11-14) — the dialog pattern
           from LocalAccessPromptDialog: role="dialog",
           aria-modal, fixed inset-0 z-60 backdrop, w-96 card,
@@ -729,7 +803,8 @@ export function TerminalTabsView({
                       data-testid="tab-close-ask-close-tabs"
                       className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
                     >
-                      Close {closeAsk.tabIds.length} {closeAsk.tabIds.length === 1 ? 'tab' : 'tabs'}
+                      Close {closeAsk.tabIds.length}{' '}
+                      {closeAsk.tabIds.length === 1 ? 'tab' : 'tabs'}
                     </button>
                   </>
                 ) : (
@@ -775,9 +850,20 @@ interface TerminalTabsProps {
   bloodDropDisabled?: boolean;
 }
 
-function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDropActive = false, onBloodDropActiveChange, bloodDropDisabled = false }: TerminalTabsProps) {
-  const { tabs: storeTabs, activeTabId, createTab, updateTabTitle, setActiveTab } =
-    useTerminalStore();
+function TerminalTabs({
+  detachedWindow = false,
+  showBloodDrop = false,
+  bloodDropActive = false,
+  onBloodDropActiveChange,
+  bloodDropDisabled = false,
+}: TerminalTabsProps) {
+  const {
+    tabs: storeTabs,
+    activeTabId,
+    createTab,
+    updateTabTitle,
+    setActiveTab,
+  } = useTerminalStore();
   const splitGroups = useSplitPaneStore((s) => s.groups);
   // The strip follows the pane order (Atom steal #17 — pane
   // item ordering): every split group's leaves first, then
@@ -789,9 +875,14 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   const tabs = orderTabsForRender(storeTabs, splitGroups);
   // The active tab's split group (this window's own store —
   // a detached window reads its own groups, never main's).
-  const activeGroup = activeTabId ? findGroupForTab(splitGroups, activeTabId) : null;
-  const activeGroupPaneCount = activeGroup ? groupTabIds(activeGroup).length : 0;
-  const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
+  const activeGroup = activeTabId
+    ? findGroupForTab(splitGroups, activeTabId)
+    : null;
+  const activeGroupPaneCount = activeGroup
+    ? groupTabIds(activeGroup).length
+    : 0;
+  const { notifications, removeNotification, clearAll, markAllRead } =
+    useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   // Close asks (Gary, 2026-11-14): the strip asks before two
@@ -812,10 +903,15 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   // that dissolved or shrank below two panes while the ask
   // sat open hides the ask, and the effect below clears it.
   const unsplitAllAsk = useSplitPaneStore((s) => s.unsplitAllAsk);
-  const unsplitAllGroup = unsplitAllAsk ? findGroupForTab(splitGroups, unsplitAllAsk.tabId) : null;
-  const unsplitAllPaneCount = unsplitAllGroup ? groupTabIds(unsplitAllGroup).length : 0;
+  const unsplitAllGroup = unsplitAllAsk
+    ? findGroupForTab(splitGroups, unsplitAllAsk.tabId)
+    : null;
+  const unsplitAllPaneCount = unsplitAllGroup
+    ? groupTabIds(unsplitAllGroup).length
+    : 0;
   const unsplitAllTabTitle = unsplitAllAsk
-    ? (tabs.find((t) => t.id === unsplitAllAsk.tabId)?.title ?? unsplitAllAsk.tabId)
+    ? (tabs.find((t) => t.id === unsplitAllAsk.tabId)?.title ??
+      unsplitAllAsk.tabId)
     : '';
   const closeAskToShow: TabCloseAsk | null =
     closeAsk ??
@@ -929,9 +1025,16 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
     if (ids.length === 0) return;
     const targets = tabs.filter((t) => ids.includes(t.id));
     if (targets.length === 0) return;
-    const paneCount = targets.filter((t) => findGroupForTab(splitGroups, t.id)).length;
+    const paneCount = targets.filter((t) =>
+      findGroupForTab(splitGroups, t.id),
+    ).length;
     if (targets.some((t) => isTabUsed(t)) || paneCount > 0) {
-      setCloseAsk({ tabIds: targets.map((t) => t.id), title, kind: 'close-multiple', paneCount });
+      setCloseAsk({
+        tabIds: targets.map((t) => t.id),
+        title,
+        kind: 'close-multiple',
+        paneCount,
+      });
       return;
     }
     for (const target of targets) {
@@ -981,7 +1084,13 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
         const active = document.activeElement as HTMLElement | null;
         if (active) {
           const tag = active.tagName;
-          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) return;
+          if (
+            tag === 'INPUT' ||
+            tag === 'TEXTAREA' ||
+            tag === 'SELECT' ||
+            active.isContentEditable
+          )
+            return;
         }
         if (!activeTabId) return;
         e.preventDefault();
@@ -998,7 +1107,13 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
         const active = document.activeElement as HTMLElement | null;
         if (active) {
           const tag = active.tagName;
-          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) return;
+          if (
+            tag === 'INPUT' ||
+            tag === 'TEXTAREA' ||
+            tag === 'SELECT' ||
+            active.isContentEditable
+          )
+            return;
         }
         if (!activeTabId) return;
         e.preventDefault();
@@ -1010,8 +1125,17 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
       const active = document.activeElement as HTMLElement | null;
       if (active) {
         const tag = active.tagName;
-        const inComposer = active.closest?.('[data-testid="prompter-composer-wrap"], [data-testid="dev-command-bar"]');
-        if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) && !inComposer) return;
+        const inComposer = active.closest?.(
+          '[data-testid="prompter-composer-wrap"], [data-testid="dev-command-bar"]',
+        );
+        if (
+          (tag === 'INPUT' ||
+            tag === 'TEXTAREA' ||
+            tag === 'SELECT' ||
+            active.isContentEditable) &&
+          !inComposer
+        )
+          return;
       }
       const target = tabs[n - 1];
       if (!target) return;
@@ -1043,11 +1167,13 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
       }}
       showSplitButton={!detachedWindow}
       onSplitTab={() => {
-        if (activeTabId) void useSplitPaneStore.getState().splitTab(activeTabId);
+        if (activeTabId)
+          void useSplitPaneStore.getState().splitTab(activeTabId);
       }}
       showEqualizeButton={activeGroupPaneCount >= 2}
       onEqualizePanes={() => {
-        if (activeGroup) useSplitPaneStore.getState().equalizeGroup(activeGroup.id);
+        if (activeGroup)
+          useSplitPaneStore.getState().equalizeGroup(activeGroup.id);
       }}
       splitGroupTabIds={activeGroup ? groupTabIds(activeGroup) : []}
       onCloseTab={handleCloseTab}
@@ -1068,7 +1194,10 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
         const index = tabs.findIndex((t) => t.id === id);
         if (index < 0) return;
         const ids = tabs.slice(index + 1).map((t) => t.id);
-        handleCloseMultipleTabs(ids, `Close ${ids.length} ${ids.length === 1 ? 'tab' : 'tabs'} to the right?`);
+        handleCloseMultipleTabs(
+          ids,
+          `Close ${ids.length} ${ids.length === 1 ? 'tab' : 'tabs'} to the right?`,
+        );
       }}
       onReopenClosedTab={() => {
         void useTerminalStore.getState().reopenClosedTab();
@@ -1082,7 +1211,9 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
       onCloseAskCloseSession={handleCloseAskCloseSession}
       onCloseAskCloseTab={handleCloseAskCloseTab}
       onCloseAskKeepTab={handleCloseAskKeepTab}
-      onCloseAskCloseAllPanes={() => useSplitPaneStore.getState().confirmUnsplitAll()}
+      onCloseAskCloseAllPanes={() =>
+        useSplitPaneStore.getState().confirmUnsplitAll()
+      }
       onCloseAskCloseTabs={handleCloseAskCloseTabs}
       onCloseAskKeepTabs={handleCloseAskKeepTabs}
       onDismissCloseAsk={handleDismissCloseAsk}

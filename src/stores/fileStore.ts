@@ -51,12 +51,75 @@ export function withFileEntryChildren(
   });
 }
 
+/**
+ * Batch form of withFileEntryChildren (files-section fix step 4):
+ * apply several folders' children in ONE pass over the tree, so a
+ * restore of N expanded dirs costs one rebuild + one set instead of
+ * N rebuilds + N re-renders. A path missing from the tree is a
+ * no-op; other branches are returned untouched (same object when
+ * nothing under them changed). A replaced subtree is itself walked,
+ * so a batch that loads both a folder and one of its children lands
+ * both in the same pass.
+ */
+export function withFileEntryChildrenBatch(
+  entries: FileEntry[],
+  childrenByPath: Map<string, FileEntry[]>,
+): FileEntry[] {
+  if (childrenByPath.size === 0) return entries;
+  return entries.map((entry) => {
+    const replacement = childrenByPath.get(entry.path);
+    if (replacement !== undefined) {
+      return { ...entry, children: withFileEntryChildrenBatch(replacement, childrenByPath) };
+    }
+    if (entry.children) {
+      return { ...entry, children: withFileEntryChildrenBatch(entry.children, childrenByPath) };
+    }
+    return entry;
+  });
+}
+
+/**
+ * File-open cap (files-section fix step 3): a file at or under
+ * this size opens whole; a larger file opens as a read-only
+ * preview of its first LARGE_FILE_PREVIEW_BYTES. 2 MB matches
+ * the existing git-gutter skip (CodeEditor
+ * MAX_GUTTER_BUFFER_BYTES) and the EOL-convert cap.
+ */
+export const MAX_OPEN_FILE_BYTES = 2 * 1024 * 1024;
+/** How much of an over-cap file the read-only preview holds. */
+export const LARGE_FILE_PREVIEW_BYTES = 1 * 1024 * 1024;
+/** Line cap on the preview, on top of the byte cap — a 1 MB
+ * single-line file must not hand Monaco one giant line. */
+export const LARGE_FILE_PREVIEW_MAX_LINES = 10_000;
+
+/** Human-readable byte count ('1.0 MB', '3.2 GB') for the
+ * preview toast + banner. No src-level formatBytes existed;
+ * the electron copies stay where they are. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
 export interface OpenFile {
   path: string;
   name: string;
   content: string;
   originalContent: string;
   isDirty: boolean;
+  /** Read-only preview of a file over MAX_OPEN_FILE_BYTES:
+   * content holds only the first LARGE_FILE_PREVIEW_BYTES
+   * (capped to LARGE_FILE_PREVIEW_MAX_LINES lines), never the
+   * whole file. Set only on truncated opens. */
+  isTruncated?: boolean;
+  /** The file's full size in bytes; set with isTruncated. */
+  fullSize?: number;
 }
 
 interface FileState {
@@ -79,6 +142,15 @@ interface FileState {
   toggleDir: (path: string) => Promise<void>;
   /** Load a directory's children (top level only) and merge them into the tree. */
   loadChildren: (path: string) => Promise<void>;
+  /**
+   * Batch form of loadChildren (step 4): fetch several folders'
+   * children first, then merge them ALL in one set, so an
+   * expanded-dir restore costs one rebuild + one re-render
+   * instead of one per folder. A failed child behaves like
+   * loadChildren's failure (toast, that folder stays unloaded)
+   * and never drops the other folders' children.
+   */
+  loadChildrenBatch: (paths: string[]) => Promise<void>;
   selectPath: (path: string) => void;
   openFile: (path: string) => Promise<boolean>;
   closeFile: (path: string) => void;
@@ -170,7 +242,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       // read of that folder; a folder the user explicitly opened
       // prompts once for itself, which is correct).
       const expanded = [...get().expandedDirs];
-      await Promise.allSettled(expanded.map((p) => get().loadChildren(p)));
+      await get().loadChildrenBatch(expanded);
       // Track + diagnose the load: since the 4dd778a fix the
       // startup load reads the top level only (depth 1) — no
       // recursive walk, no TCC prompts. A user folder-open is a
@@ -210,6 +282,31 @@ export const useFileStore = create<FileState>((set, get) => ({
       const message = errorMessage(error);
       useToastStore.getState().error(`Could not open folder: ${message}`);
       throw error;
+    }
+  },
+
+  loadChildrenBatch: async (paths) => {
+    // Dedupe: the same expanded path must be read once, not once
+    // per entry in expandedDirs (a Set already dedupes, but callers
+    // may pass a plain list). An empty batch is a no-op — no read,
+    // no set, no re-render.
+    const unique = [...new Set(paths)];
+    if (unique.length === 0) return;
+    // Fetch everything FIRST, then apply it all in ONE set below.
+    // A failed child behaves like loadChildren's failure (toast +
+    // that folder stays unloaded) and never drops the others.
+    const results = await Promise.allSettled(unique.map((p) => window.lucidAPI.fs.readDir(p)));
+    const childrenByPath = new Map<string, FileEntry[]>();
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        childrenByPath.set(unique[i], result.value);
+      } else {
+        const message = errorMessage(result.reason);
+        useToastStore.getState().error(`Could not open folder: ${message}`);
+      }
+    });
+    if (childrenByPath.size > 0) {
+      set((state) => ({ entries: withFileEntryChildrenBatch(state.entries, childrenByPath) }));
     }
   },
 
@@ -259,9 +356,56 @@ export const useFileStore = create<FileState>((set, get) => ({
     }
 
     try {
-      const content = await window.lucidAPI.fs.readFile(path);
       const name = path.split(/[\\/]/).pop() || path;
 
+      // Resolve the size FIRST — the tree entry already knows
+      // it when the file was listed; otherwise stat it. A stat
+      // failure (or a bridge without getStats) falls back to
+      // the old whole-read path below, never a refused open.
+      let size: number | null = null;
+      const entry = findFileEntry(get().entries, path);
+      if (entry && entry.size > 0) size = entry.size;
+      if (size === null) {
+        try {
+          const stats = await window.lucidAPI.fs.getStats(path);
+          size = typeof stats?.size === 'number' ? stats.size : null;
+        } catch {
+          size = null;
+        }
+      }
+
+      if (size !== null && size > MAX_OPEN_FILE_BYTES) {
+        // Over the cap: a read-only preview of the head. The
+        // whole file never crosses IPC and never reaches
+        // Monaco — this is the choke point, so every funnel
+        // (Explorer, Finder, terminal /open, FindReplacePanel)
+        // is covered here and nowhere else.
+        const head = await window.lucidAPI.fs.readFileHead(path, LARGE_FILE_PREVIEW_BYTES);
+        const lines = head.content.split('\n');
+        const preview =
+          lines.length > LARGE_FILE_PREVIEW_MAX_LINES
+            ? lines.slice(0, LARGE_FILE_PREVIEW_MAX_LINES).join('\n')
+            : head.content;
+        const newFile: OpenFile = {
+          path,
+          name,
+          content: preview,
+          originalContent: preview,
+          isDirty: false,
+          isTruncated: true,
+          fullSize: head.fullSize,
+        };
+        set((state) => ({
+          openFiles: [...state.openFiles, newFile],
+          activeFilePath: path,
+        }));
+        useToastStore.getState().info(
+          `Opened the first 1 MB of ${name} (${formatBytes(head.fullSize)}) — read-only preview`,
+        );
+        return true;
+      }
+
+      const content = await window.lucidAPI.fs.readFile(path);
       const newFile: OpenFile = {
         path,
         name,
@@ -354,7 +498,9 @@ export const useFileStore = create<FileState>((set, get) => ({
     set((state) => ({
       openFiles: state.openFiles.map((f) =>
         f.path === path
-          ? { ...f, content, isDirty: content !== f.originalContent }
+          ? f.isTruncated
+            ? f // A preview is read-only: never accept edits to it.
+            : { ...f, content, isDirty: content !== f.originalContent }
           : f
       ),
     }));
@@ -364,6 +510,14 @@ export const useFileStore = create<FileState>((set, get) => ({
     const { openFiles } = get();
     const file = openFiles.find((f) => f.path === path);
     if (!file) return;
+    if (file.isTruncated) {
+      // The full file is not loaded — writing the preview
+      // buffer would destroy it. Refuse, never write.
+      useToastStore.getState().error(
+        'Cannot save a read-only preview — the full file is not loaded',
+      );
+      return;
+    }
 
     // Whitespace-on-save (Atom steal #20): the enabled
     // transforms run before the write, and the in-memory

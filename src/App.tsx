@@ -19,7 +19,7 @@ import AIPanel from './components/AI/AIPanel';
 import { Dock } from './components/Layout/Dock';
 import { GitPanel } from './components/Git/GitPanel';
 import { useDockStore } from './stores/dockStore';
-import { useWorkspaceStore } from './stores/workspaceStore';
+import { useWorkspaceStore, readSavedWorkspace } from './stores/workspaceStore';
 import CodeEditor from './components/Editor/CodeEditor';
 import SettingsPanel, { type SettingsTab } from './components/Settings/SettingsPanel';
 import { SynthView } from './components/Synth/SynthView';
@@ -35,6 +35,7 @@ import { AtomModals } from './components/CommandPalette/CommandPalette';
 import { registerBuiltinCommands } from './lib/builtinCommands';
 import type { CommandContext } from './lib/commandRegistry';
 import { refreshProjectFileIndex } from './lib/projectFileIndex';
+import { resolveStartupExplorerRoot } from './lib/explorerStartupRoot';
 import { subscribeMenuModals } from './lib/menuModals';
 import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
@@ -515,16 +516,31 @@ function App() {
       // (Gary, 2026-11-08 — track when + why).
       try {
         const homeDir = await window.lucidAPI.fs.getHomeDir();
-        await setCurrentDir(homeDir, 'startup');
+        // Files-section fix step 1 (2026-11-15): resolve the
+        // explorer root BEFORE loading it — settings.explorerRoot,
+        // then the active profile's saved workspace dir, then
+        // home. The old code loaded home first and let workspace
+        // restore re-root after, so the owner paid for a wasted
+        // home load and a guest stayed home-rooted (and the
+        // Finder with it). A guest has no saved workspace, so
+        // step 2 yields nothing for guests by construction.
+        const resolved = await resolveStartupExplorerRoot({
+          explorerRoot: useSettingsStore.getState().settings.explorerRoot ?? null,
+          profileId: useProfileStore.getState().activeProfileId,
+          readSavedWorkspace,
+          homeDir,
+          exists: (path) => window.lucidAPI.fs.exists(path),
+        });
+        await setCurrentDir(resolved.root, 'startup');
         // Warm the fuzzy finder's project index (Atom steal
         // #2) so the first ⌘P is instant. Best-effort, no
         // await — a failed read keeps the empty list, and the
-        // finder warms on first open as a fallback. The
-        // refresh detects the project root from the seed, so
-        // this home-dir warm stays home-rooted until a file
-        // is open; the finder re-roots to the project then.
-        void refreshProjectFileIndex(homeDir);
-        console.log('[INIT] ✅ File explorer ready');
+        // finder warms on first open as a fallback. Seeded
+        // from the RESOLVED root (not home), so the warm
+        // roots at the project when the explorer does; the
+        // finder re-roots to the project on first file open.
+        void refreshProjectFileIndex(resolved.root);
+        console.log(`[INIT] ✅ File explorer ready (${resolved.source}: ${resolved.root})`);
       } catch (error) {
         console.log('[INIT] File explorer unavailable');
       }

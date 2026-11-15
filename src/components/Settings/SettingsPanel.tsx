@@ -2404,6 +2404,52 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 
               <section>
                 <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
+                  Explorer root
+                </h3>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2">
+                  The folder the file explorer opens at startup. Empty means automatic: your last workspace folder, else your home directory. Opening a folder from the sidebar does not change this.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input"
+                    value={settings.explorerRoot ?? ''}
+                    onChange={(e) => updateSetting('explorerRoot', e.target.value || null)}
+                    placeholder="Automatic — last workspace, else home"
+                  />
+                  <Tooltip content="Choose the explorer root">
+                    <button
+                      onClick={async () => {
+                        const dir = await window.lucidAPI.fs.selectDirectory();
+                        // Track + diagnose the folder picker:
+                        // WHEN it opened and WHY (the user chose
+                        // the explorer root here).
+                        // (Gary, 2026-11-08 — track when + why.)
+                        useEventLogStore.getState().logDirectoryDialog(
+                          'Settings — choose the explorer root',
+                          dir ? 'completed' : 'cancelled',
+                        );
+                        if (dir) updateSetting('explorerRoot', dir);
+                      }}
+                      className="btn btn-secondary"
+                    >
+                      Browse
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Clear — back to automatic">
+                    <button
+                      onClick={() => updateSetting('explorerRoot', null)}
+                      disabled={!settings.explorerRoot}
+                      className="btn btn-secondary"
+                    >
+                      Clear
+                    </button>
+                  </Tooltip>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
                   Dev mode
                 </h3>
                 <label className="flex items-center gap-2 cursor-pointer py-1">

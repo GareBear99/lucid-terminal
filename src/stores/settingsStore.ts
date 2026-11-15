@@ -150,6 +150,9 @@ const defaultSettings: Settings = {
   editorAutosave: false,
   shell: 'powershell.exe',
   startupDirectory: '',
+  // Explorer root (2026-11-15, files-section fix step 1) —
+  // null = auto (saved workspace dir, else home).
+  explorerRoot: null,
   cursorStyle: 'block',
   cursorBlink: true,
   scrollback: 10000,

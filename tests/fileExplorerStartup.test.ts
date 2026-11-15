@@ -18,10 +18,32 @@
  * - The explorer lazy-loads children on expand (toggleDir fetches
  *   them), and setCurrentDir restores expanded dirs' children.
  *
+ * Step 5 note (2026-11-15): recursive reads now run in a worker
+ * thread (`readDirTreeViaWorker`), which the vitest `fs/promises`
+ * mock below cannot reach — a worker reads with the real fs. So
+ * the depth-10 tests below build a REAL temp tree and assert on
+ * the returned tree shape, while the depth-1 test still uses the
+ * mock (depth-1 stays in-process). The beforeAll ensures the
+ * compiled worker exists, like tests/readDirWorker.test.ts.
+ *
  * Run with: npm test
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from 'vitest';
 import type { IpcMain } from 'electron';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  ensureReadDirWorkerBuilt,
+  compiledReadDirWorkerPath,
+} from './readDirWorkerBuild';
 
 /** Fake directory tree, keyed by absolute path. */
 const FAKE_TREE: Record<string, { name: string; isDir: boolean }[]> = {
@@ -113,6 +135,53 @@ const mockIpcMain = {
 const HOME = '/home/testuser';
 const PROTECTED = ['Desktop', 'Documents', 'Downloads', 'Library'].map((n) => `${HOME}/${n}`);
 
+// The recursive (depth > 1) handler path runs in a worker thread
+// with the real fs, so the depth-10 tests below need the compiled
+// worker to exist. Build it when stale (shared locked helper —
+// vitest runs test files in parallel, so two builders must not
+// run `tsc -p` on the same project at once).
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+const compiledWorker = compiledReadDirWorkerPath(repoRoot);
+
+beforeAll(() => {
+  ensureReadDirWorkerBuilt(repoRoot);
+  expect(existsSync(compiledWorker)).toBe(true);
+}, 300_000);
+
+// Real temp trees for the depth-10 tests (the worker reads real
+// fs — the `fs/promises` mock above cannot serve it). Same shape
+// as FAKE_TREE. Sync `node:fs` APIs: the mock only replaces
+// 'fs/promises', not 'node:fs'.
+const realRoots: string[] = [];
+
+function buildRealHomeTree(): string {
+  const root = mkdtempSync(join(tmpdir(), 'lucid-startup-'));
+  realRoots.push(root);
+  for (const dir of [
+    'Desktop',
+    'Documents',
+    'Downloads',
+    'Library/Mail',
+    'Projects/app',
+  ]) {
+    mkdirSync(join(root, dir), { recursive: true });
+  }
+  writeFileSync(join(root, 'Desktop', 'notes.txt'), 'x');
+  writeFileSync(join(root, 'Documents', 'resume.pdf'), 'x');
+  writeFileSync(join(root, 'Downloads', 'installer.dmg'), 'x');
+  writeFileSync(join(root, 'Library', 'Mail', 'inbox.mbox'), 'x');
+  writeFileSync(join(root, 'Projects', 'README.md'), 'x');
+  writeFileSync(join(root, 'Projects', 'app', 'main.ts'), 'x');
+  writeFileSync(join(root, 'notes.txt'), 'x');
+  return root;
+}
+
+afterEach(() => {
+  for (const root of realRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 beforeEach(() => {
   handlers = {};
   readdirCalls.length = 0;
@@ -145,41 +214,43 @@ describe('fs:readDir — the 3 startup prompts', () => {
   });
 
   it('deeper reads still skip the protected folders below the root', async () => {
+    // Real temp tree through the real worker (step 5): the
+    // `fs/promises` mock cannot serve a worker thread, so the
+    // assertions are on the returned tree shape, not on which
+    // paths the mock's readdir saw.
+    const realHome = buildRealHomeTree();
     const readDir = handlers['fs:readDir'];
-    const entries = (await readDir({}, HOME, { depth: 10 })) as {
+    const entries = (await readDir({}, realHome, { depth: 10 })) as {
       name: string;
       path: string;
       isDirectory: boolean;
-      children?: { name: string }[];
+      children?: { name: string; children?: { name: string }[] }[];
     }[];
 
     // A normal subdir IS recursed into.
     const projects = entries.find((e) => e.name === 'Projects');
     expect(projects?.children?.map((c) => c.name)).toEqual(['app', 'README.md']);
-    expect(readdirCalls).toContain(`${HOME}/Projects`);
-    expect(readdirCalls).toContain(`${HOME}/Projects/app`);
-    // The protected folders are listed but never descended into.
+    expect(projects?.children?.find((c) => c.name === 'app')?.children).toBeDefined();
+    // The protected folders are listed but never descended into
+    // (their contents would otherwise appear in the tree).
     for (const name of ['Desktop', 'Documents', 'Downloads', 'Library']) {
       const entry = entries.find((e) => e.name === name);
       expect(entry).toBeDefined();
       expect(entry?.children).toBeUndefined();
     }
-    for (const protectedPath of PROTECTED) {
-      expect(readdirCalls).not.toContain(protectedPath);
-    }
-    expect(readdirCalls).not.toContain(`${HOME}/Library/Mail`);
+    expect(JSON.stringify(entries)).not.toContain('inbox.mbox');
+    expect(JSON.stringify(entries)).not.toContain('installer.dmg');
   });
 
   it('a protected folder opened as the root IS listed and recursed', async () => {
+    const realHome = buildRealHomeTree();
     const readDir = handlers['fs:readDir'];
-    const entries = (await readDir({}, `${HOME}/Desktop`, { depth: 10 })) as {
+    const entries = (await readDir({}, `${realHome}/Desktop`, { depth: 10 })) as {
       name: string;
       children?: unknown[];
     }[];
 
     expect(entries.map((e) => e.name)).toEqual(['notes.txt']);
-    // The root itself was read (the user explicitly opened it).
-    expect(readdirCalls).toContain(`${HOME}/Desktop`);
   });
 
   it('names the four protected folders', () => {

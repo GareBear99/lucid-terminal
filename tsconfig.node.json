@@ -1,14 +1,35 @@
 {
   "compilerOptions": {
+    // ES2020 like the root tsconfig (and the Electron runtime):
+    // without it the target defaults to ES5, which cannot
+    // iterate Set/Map (TS2802) all over electron/core.
+    "target": "ES2020",
     "composite": true,
     "skipLibCheck": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    // CommonJS, not ESNext: the node build output is loaded by plain
+    // Node (worker_threads loads dist-electron/.../*.js as CJS — the
+    // repo has no "type": "module", so ESNext emit is ESM syntax no
+    // loader will accept). The runtime main is the vite bundle, not
+    // this emit; nothing executes the ESM form.
+    "module": "CommonJS",
+    // "node", not "bundler": module CommonJS (see above) cannot pair
+    // with bundler resolution (TS5095); node resolution handles the
+    // extensionless relative imports this tree already uses.
+    "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
+    // esModuleInterop: the node emit is EXECUTED (the worker
+    // runs from it), and a bare `import fs from 'fs/promises'`
+    // compiles to `io = require(...).default` without it —
+    // undefined at runtime, since builtins have no .default.
+    "esModuleInterop": true,
     "strict": true,
     "outDir": "dist-electron",
     "declaration": true,
     "declarationMap": true
   },
-  "include": ["vite.config.ts", "electron/**/*"]
+  // src/lib/gitignore.ts is imported by electron/ipc/readDirTree;
+  // a composite project must list every file it compiles, so
+  // the matcher is listed explicitly (the rest of src/lib is
+  // the root project's, not this one's).
+  "include": ["vite.config.ts", "electron/**/*", "src/lib/gitignore.ts"]
 }

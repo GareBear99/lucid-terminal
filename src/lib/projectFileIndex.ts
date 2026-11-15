@@ -22,8 +22,11 @@
  * (package.json / .git / …), so the index roots at the
  * project and the depth is measured from there. Depth is 6
  * from the project root (Settings files sit at depth 4);
- * from the home root (no project detected) the same depth
- * applies, still capped at 5,000 files.
+ * from the home root (no project detected) the walk is
+ * capped at depth 2 / 2,000 entries (2026-11-15 fix) so it
+ * settles instead of timing out empty, and a build that
+ * does time out surfaces `timedOut` (partial results kept)
+ * instead of an empty list that reads as "no files".
  *
  * In-memory and session-scoped only — nothing persists, so the
  * guest rule holds (the guest's index dies with the session).
@@ -38,12 +41,22 @@ import type { FileEntry } from '../types';
  *  measured from the project root. */
 export const PROJECT_INDEX_DEPTH = 6;
 /** Depth for a home-rooted index (no project marker found).
- *  The wave-1 depth: a depth-6 walk of a whole home tree
- *  (Pictures/Music/caches/projects — none of them skipped)
- *  never settles on a real home, so ⌘P sat on "Indexing
- *  files…" forever (Atom rest live check, 2026-11-14).
- *  Depth 6 applies only when a project root was detected. */
-export const HOME_INDEX_DEPTH = 4;
+ *  The wave-1 depth was 4 — a depth-4 walk of a whole home
+ *  tree (Pictures/Music/caches/projects — none of them
+ *  skipped) never settles inside the 30 s budget, so ⌘P sat
+ *  on "Indexing files…" then flipped to "No files in this
+ *  project" with the list still empty (guest live check,
+ *  2026-11-14). Depth 2 from home: the top level plus one
+ *  level of folders — enough to reach a file the user just
+ *  opened one level down, small enough to settle. Depth 6
+ *  applies only when a project root was detected. */
+export const HOME_INDEX_DEPTH = 2;
+/** Walk-entry budget for a home-rooted index (files +
+ *  directories), passed to readDir. The project-rooted
+ *  budget is PROJECT_INDEX_MAX_WALK_ENTRIES below; a home
+ *  walk gets the smaller cap because its entries are
+ *  mostly cache/hidden dirs, not project files. */
+export const HOME_INDEX_MAX_WALK_ENTRIES = 2000;
 /** Hard cap on indexed files — a huge tree stops here. */
 export const PROJECT_INDEX_MAX_FILES = 5000;
 /** Wall-time budget for one index build. A build that never
@@ -157,6 +170,11 @@ export interface ProjectFileIndexState {
   root: string;
   files: string[];
   indexing: boolean;
+  /** True when the last build hit the 30 s timeout: the list
+   *  (if any) is partial, not complete — the Finder says so
+   *  instead of "No files in this project". Cleared when a
+   *  new build starts, or when a build lands. */
+  timedOut: boolean;
   lastOpenedPath: string | null;
 }
 
@@ -203,6 +221,7 @@ let state: ProjectFileIndexState = {
   root: '',
   files: [],
   indexing: false,
+  timedOut: false,
   lastOpenedPath: null,
 };
 
@@ -254,10 +273,11 @@ let buildEpoch = 0;
  * every later refresh a silent no-op, so ⌘P sat on
  * "Indexing files…" for 3+ minutes with 0% CPU and no
  * results. The build now races a PROJECT_INDEX_TIMEOUT_MS
- * timer: on timeout the flag clears (the finder degrades to
- * the stale list / "No files in this project") and the next
- * open retries. A late build that still lands is applied
- * only if no newer build started (the epoch check).
+ * timer: on timeout the flag clears and `timedOut` is set
+ * (the finder says the index timed out, and keeps whatever
+ * files were collected) and the next open retries. A late
+ * build that still lands is applied only if no newer build
+ * started (the epoch check).
  */
 export async function refreshProjectFileIndex(
   root: string,
@@ -265,11 +285,17 @@ export async function refreshProjectFileIndex(
 ): Promise<void> {
   if (!root || state.indexing) return;
   const epoch = ++buildEpoch;
-  state = { ...state, indexing: true };
+  // A new build clears the previous timeout flag — the
+  // partial/timeout state belongs to the old build.
+  state = { ...state, indexing: true, timedOut: false };
   emit();
   const timeout = setTimeout(() => {
     if (epoch === buildEpoch && state.indexing) {
-      state = { ...state, indexing: false };
+      // Timeout: keep whatever files were collected (usually
+      // none — the build never landed) and say so, instead
+      // of silently clearing to an empty list that reads as
+      // "no files exist". The next open retries.
+      state = { ...state, indexing: false, timedOut: true };
       emit();
     }
   }, PROJECT_INDEX_TIMEOUT_MS);
@@ -292,14 +318,19 @@ export async function refreshProjectFileIndex(
       emit();
       return;
     }
-    // Home-rooted (no project marker): the wave-1 depth — a
-    // depth-6 walk of a whole home tree never settles on a
-    // real home. Project-rooted: depth 6. The walk itself is
-    // capped (maxEntries) so a huge tree stops being walked.
+    // Home-rooted (no project marker): the shallow walk —
+    // depth 2, 2,000 entries — so a whole-home build settles
+    // inside the timeout instead of timing out empty.
+    // Project-rooted: depth 6, 8,000 entries. The walk
+    // itself is capped (maxEntries) so a huge tree stops
+    // being walked.
     const depth = foundMarker ? PROJECT_INDEX_DEPTH : HOME_INDEX_DEPTH;
+    const maxEntries = foundMarker
+      ? PROJECT_INDEX_MAX_WALK_ENTRIES
+      : HOME_INDEX_MAX_WALK_ENTRIES;
     const entries = await api.readDir(projectRoot, {
       depth,
-      maxEntries: PROJECT_INDEX_MAX_WALK_ENTRIES,
+      maxEntries,
       branchTimeoutMs: PROJECT_INDEX_BRANCH_TIMEOUT_MS,
     });
     if (epoch !== buildEpoch) return;
@@ -308,6 +339,7 @@ export async function refreshProjectFileIndex(
       ...state,
       files: hoistLastOpened(files, state.lastOpenedPath),
       indexing: false,
+      timedOut: false,
     };
   } catch {
     // A failed read keeps the previous list (see above).
@@ -330,6 +362,6 @@ export function markProjectFileOpened(path: string): void {
 
 /** Test seam: reset the index and the subscribers. */
 export function resetProjectFileIndexForTests(): void {
-  state = { root: '', files: [], indexing: false, lastOpenedPath: null };
+  state = { root: '', files: [], indexing: false, timedOut: false, lastOpenedPath: null };
   listeners.clear();
 }

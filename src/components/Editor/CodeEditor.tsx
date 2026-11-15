@@ -5,7 +5,11 @@ import { ViewHeader } from '../Layout/ViewHeader';
 import Editor, { loader } from '@monaco-editor/react';
 import '../../lib/monacoLoader';
 import { MONACO_LOAD_TIMEOUT_MS } from '../../lib/monacoLoader';
-import { useFileStore } from '../../stores/fileStore';
+import {
+  formatBytes,
+  LARGE_FILE_PREVIEW_BYTES,
+  useFileStore,
+} from '../../stores/fileStore';
 import { useFileTabDrag } from '../../lib/tabDrag';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useToastStore } from '../../stores/toastStore';
@@ -220,6 +224,12 @@ function CodeEditor() {
       layer.clear();
       return;
     }
+    // A truncated preview must never be diffed against git
+    // HEAD: the whole tail would read as deleted lines.
+    if (file?.isTruncated) {
+      layer.clear();
+      return;
+    }
     const api = window.lucidAPI?.git;
     if (!api || typeof api.getDiff !== 'function') return;
     const dir = path.split('/').slice(0, -1).join('/') || '/';
@@ -307,13 +317,17 @@ function CodeEditor() {
       selectionCount: 0,
     });
     const file = useFileStore.getState().openFiles.find((f) => f.path === activeFilePath);
-    if (file) {
+    if (file && !file.isTruncated) {
       void updateFileTree(file.path, file.content || '');
       engineClient.openDocument(file.path, file.content || '');
       scheduleDiagnostics();
       scheduleGutter();
       scheduleModelStatus();
     }
+    // A truncated preview is a read-only 1 MB head: no
+    // tree-sitter parse, no LSP document, no diagnostics,
+    // no gutter, no model status — none of it may
+    // run over the preview as if it were the whole file.
     // A jump requested while this file was not active yet —
     // consume it now that the model is in place.
     const pendingJump = getPendingEditorJump();
@@ -770,6 +784,15 @@ function CodeEditor() {
       {/* Editor */}
       {activeFile && (
         <div className="flex-1 overflow-hidden">
+          {activeFile.isTruncated && (
+            <div
+              data-testid="large-file-banner"
+              className="px-3 py-1.5 text-xs bg-[var(--bg-secondary)] text-[var(--text-muted)] border-b border-[var(--border)]"
+            >
+              Large file — showing the first {formatBytes(LARGE_FILE_PREVIEW_BYTES)} of{' '}
+              {formatBytes(activeFile.fullSize ?? 0)}. Read-only preview; editing is disabled.
+            </div>
+          )}
           {monacoFailed ? (
             <Tooltip content="Monaco unavailable — plain text editing">
               <textarea
@@ -782,6 +805,7 @@ function CodeEditor() {
                   scheduleDiagnostics();
                 }}
                 spellCheck={false}
+                readOnly={activeFile.isTruncated === true}
                 placeholder="Plain text editing — Monaco unavailable"
                 className="w-full h-full bg-transparent text-[var(--text-primary)] font-mono text-sm p-3 outline-none resize-none overflow-auto whitespace-pre"
                 style={{ fontFamily: settings.fontFamily, fontSize: settings.fontSize }}
@@ -806,6 +830,9 @@ function CodeEditor() {
               options={{
                 fontFamily: settings.fontFamily,
                 fontSize: settings.fontSize,
+                // A truncated preview is read-only; normal
+                // files are untouched.
+                readOnly: activeFile.isTruncated === true,
                 minimap: { enabled: true },
                 // The git gutter renders in the glyph margin
                 // (Atom steal #6 — `gutter` decorations).

@@ -492,6 +492,13 @@ export interface Settings {
   editorAutosave: boolean;
   shell: string;
   startupDirectory: string;
+  // Explorer root (2026-11-15, files-section fix step 1): the
+  // directory the file explorer opens at startup. Null = auto:
+  // the active profile's saved workspace directory, else home.
+  // Set in Settings > General > Explorer root; the Sidebar
+  // folder picker does NOT write this (the last workspace dir
+  // is already persisted by workspaceStore).
+  explorerRoot: string | null;
   cursorStyle: 'block' | 'underline' | 'bar';
   cursorBlink: boolean;
   scrollback: number;
@@ -1264,6 +1271,7 @@ declare global {
       fs: {
         readDir: (dirPath: string, options?: { depth?: number; maxEntries?: number; branchTimeoutMs?: number }) => Promise<FileEntry[]>;
         readFile: (filePath: string) => Promise<string>;
+        readFileHead: (filePath: string, maxBytes: number) => Promise<{ content: string; truncated: boolean; fullSize: number }>;
         writeFile: (filePath: string, content: string) => Promise<void>;
         createFile: (filePath: string, content?: string) => Promise<void>;
         createDir: (dirPath: string) => Promise<void>;

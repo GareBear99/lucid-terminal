@@ -81,6 +81,7 @@ describe('projectFileIndex state', () => {
       root: '',
       files: [],
       indexing: false,
+      timedOut: false,
       lastOpenedPath: null,
     });
   });
@@ -297,10 +298,11 @@ describe('refreshProjectFileIndex with a project root', () => {
     expect(getProjectFileIndex().indexing).toBe(false);
   });
 
-  test('a home-rooted index walks at depth 4, a project-rooted one at depth 6', async () => {
+  test('a home-rooted index walks at depth 2 (capped), a project-rooted one at depth 6', async () => {
     const {
       refreshProjectFileIndex,
       PROJECT_INDEX_MAX_WALK_ENTRIES,
+      HOME_INDEX_MAX_WALK_ENTRIES,
     } = await import('../src/lib/projectFileIndex');
     const calls: Array<{ dir: string; depth?: number; maxEntries?: number }> = [];
     installReadDir(
@@ -311,13 +313,14 @@ describe('refreshProjectFileIndex with a project root', () => {
     );
     const listNames = async (dir: string) =>
       dir === '/Users/gary/lucid-terminal' ? ['package.json', 'src'] : [];
-    // Home seed, no marker anywhere up the tree: the shallow walk.
+    // Home seed, no marker anywhere up the tree: the shallow,
+    // capped walk (2026-11-15 fix — depth 4 never settled).
     await refreshProjectFileIndex('/Users/gary', listNames);
     expect(calls).toEqual([
       {
         dir: '/Users/gary',
-        depth: 4,
-        maxEntries: PROJECT_INDEX_MAX_WALK_ENTRIES,
+        depth: 2,
+        maxEntries: HOME_INDEX_MAX_WALK_ENTRIES,
       },
     ]);
     // Project seed — re-roots and walks at full depth.
@@ -349,14 +352,90 @@ describe('refreshProjectFileIndex with a project root', () => {
       // cleared and the guard blocked every later refresh.
       await vi.advanceTimersByTimeAsync(PROJECT_INDEX_TIMEOUT_MS);
       expect(getProjectFileIndex().indexing).toBe(false);
+      // The timeout is surfaced, not swallowed: the Finder
+      // says the index timed out instead of "No files in
+      // this project" (2026-11-15 fix).
+      expect(getProjectFileIndex().timedOut).toBe(true);
       // The flag is not stuck: a retry starts and populates.
       installReadDir(async () => [entry('/Users/gary/project/a.ts', false)]);
       await refreshProjectFileIndex('/Users/gary/project/src', listNames);
       expect(getProjectFileIndex().files).toEqual(['/Users/gary/project/a.ts']);
       expect(getProjectFileIndex().indexing).toBe(false);
+      // A build that lands clears the timeout flag.
+      expect(getProjectFileIndex().timedOut).toBe(false);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test('a timeout keeps the previous list and marks timedOut', async () => {
+    const {
+      refreshProjectFileIndex,
+      getProjectFileIndex,
+      PROJECT_INDEX_TIMEOUT_MS,
+    } = await import('../src/lib/projectFileIndex');
+    vi.useFakeTimers();
+    try {
+      installReadDir(async (dir: string) => {
+        if (dir === '/Users/gary/project-b') {
+          return new Promise<FileEntry[]>(() => {});
+        }
+        return [entry('/Users/gary/project-a/a.ts', false)];
+      });
+      const listNames = async (dir: string) =>
+        dir === '/Users/gary/project-a' || dir === '/Users/gary/project-b'
+          ? ['package.json']
+          : [];
+      await refreshProjectFileIndex('/Users/gary/project-a', listNames);
+      expect(getProjectFileIndex().files).toEqual(['/Users/gary/project-a/a.ts']);
+      // The next build hangs — the timeout must not wipe the
+      // list the Finder is already showing.
+      void refreshProjectFileIndex('/Users/gary/project-b', listNames);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getProjectFileIndex().indexing).toBe(true);
+      await vi.advanceTimersByTimeAsync(PROJECT_INDEX_TIMEOUT_MS);
+      expect(getProjectFileIndex().indexing).toBe(false);
+      expect(getProjectFileIndex().timedOut).toBe(true);
+      expect(getProjectFileIndex().files).toEqual(['/Users/gary/project-a/a.ts']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a home-rooted refresh settles with a fake FS instead of timing out empty', async () => {
+    const {
+      refreshProjectFileIndex,
+      getProjectFileIndex,
+      HOME_INDEX_DEPTH,
+      HOME_INDEX_MAX_WALK_ENTRIES,
+    } = await import('../src/lib/projectFileIndex');
+    expect(HOME_INDEX_DEPTH).toBe(2);
+    expect(HOME_INDEX_MAX_WALK_ENTRIES).toBe(2000);
+    const calls: Array<{ dir: string; depth?: number; maxEntries?: number }> = [];
+    installReadDir(
+      async (dir: string, opts?: { depth?: number; maxEntries?: number }) => {
+        calls.push({ dir, depth: opts?.depth, maxEntries: opts?.maxEntries });
+        return [
+          entry(`${dir}/notes.txt`, false),
+          entry(`${dir}/Projects`, true, [
+            entry(`${dir}/Projects/app.ts`, false),
+          ]),
+        ];
+      },
+    );
+    // No marker anywhere up the tree: home-rooted.
+    const listNames = async () => ['notes.txt'];
+    await refreshProjectFileIndex('/Users/gary', listNames);
+    expect(calls).toEqual([
+      { dir: '/Users/gary', depth: 2, maxEntries: 2000 },
+    ]);
+    expect(getProjectFileIndex().root).toBe('/Users/gary');
+    expect(getProjectFileIndex().files).toEqual([
+      '/Users/gary/notes.txt',
+      '/Users/gary/Projects/app.ts',
+    ]);
+    expect(getProjectFileIndex().indexing).toBe(false);
+    expect(getProjectFileIndex().timedOut).toBe(false);
   });
 
   test('a late build that settles after its timeout is discarded', async () => {
@@ -380,10 +459,12 @@ describe('refreshProjectFileIndex with a project root', () => {
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(PROJECT_INDEX_TIMEOUT_MS);
       expect(getProjectFileIndex().indexing).toBe(false);
+      expect(getProjectFileIndex().timedOut).toBe(true);
       // A newer build starts and lands first.
       installReadDir(async () => [entry('/Users/gary/project/b.ts', false)]);
       await refreshProjectFileIndex('/Users/gary/project/src', listNames);
       expect(getProjectFileIndex().files).toEqual(['/Users/gary/project/b.ts']);
+      expect(getProjectFileIndex().timedOut).toBe(false);
       // Now the stale build settles — it must not clobber the newer list.
       resolveFirst?.([entry('/Users/gary/project/a.ts', false)]);
       await vi.advanceTimersByTimeAsync(0);

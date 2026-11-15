@@ -122,3 +122,180 @@ describe('readDirTree', () => {
     expect(JSON.stringify(tree)).not.toContain('no-such-target');
   });
 });
+
+describe('readDirTree skip list (step 5)', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lucid-readdir-skip-'));
+    // One skipped dir per name, each holding a file + a subdir
+    // with a file, plus a control dir that must be walked.
+    const skipped = [
+      '.Trash',
+      '.thumbnails',
+      '.npm',
+      '.cache',
+      '.openclaw',
+      '.matplotlib',
+      '.warp',
+      '.vscode',
+      '.luciferai',
+      'Applications',
+      '.next',
+      '.turbo',
+    ];
+    for (const name of skipped) {
+      const dir = join(root, name, 'sub');
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(root, name, `inside-${name}.txt`), 'x');
+      await writeFile(join(dir, `deep-${name}.txt`), 'x');
+    }
+    await mkdir(join(root, 'keep', 'sub'), { recursive: true });
+    await writeFile(join(root, 'keep', 'inside-keep.txt'), 'x');
+    await writeFile(join(root, 'keep', 'sub', 'deep-keep.txt'), 'x');
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test('skipped dirs are listed at depth 1 but never descended into', async () => {
+    const tree = await readDirTree(root, { depth: 6 });
+    const skipped = [
+      '.Trash',
+      '.thumbnails',
+      '.npm',
+      '.cache',
+      '.openclaw',
+      '.matplotlib',
+      '.warp',
+      '.vscode',
+      '.luciferai',
+      'Applications',
+      '.next',
+      '.turbo',
+    ];
+    // Listed (depth-1 read shows them) …
+    for (const name of skipped) {
+      const entry = tree.find((e) => e.name === name);
+      expect(entry, `${name} should be listed`).toBeDefined();
+      // … but never walked into: children undefined, contents absent.
+      expect(entry?.children).toBeUndefined();
+      expect(JSON.stringify(tree)).not.toContain(`inside-${name}.txt`);
+      expect(JSON.stringify(tree)).not.toContain(`deep-${name}.txt`);
+    }
+    // The control dir IS walked.
+    const keep = tree.find((e) => e.name === 'keep');
+    expect(keep?.children?.map((e) => e.name)).toContain('inside-keep.txt');
+    expect(JSON.stringify(tree)).toContain('deep-keep.txt');
+  });
+
+  test('the root itself is always read even when named like a skipped dir', async () => {
+    // .cache AS the root: its own entries are listed and its
+    // subdirs are descended into — the skip only gates recursion
+    // BELOW the root.
+    const cacheRoot = join(root, '.cache');
+    const tree = await readDirTree(cacheRoot, { depth: 3 });
+    expect(tree.map((e) => e.name)).toContain('inside-.cache.txt');
+    const sub = tree.find((e) => e.name === 'sub');
+    expect(sub?.children?.map((e) => e.name)).toContain('deep-.cache.txt');
+  });
+});
+
+describe('readDirTree .gitignore (step 5)', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lucid-readdir-gitignore-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test('root + nested .gitignore: patterns, negation, dir-only, stacking', async () => {
+    await writeFile(
+      join(root, '.gitignore'),
+      '# comment\n\n*.log\nbuild/\n!important.log\n',
+    );
+    await writeFile(join(root, 'a.log'), 'x');
+    await writeFile(join(root, 'important.log'), 'x');
+    await writeFile(join(root, 'keep.txt'), 'x');
+    await mkdir(join(root, 'build'), { recursive: true });
+    await writeFile(join(root, 'build', 'out.txt'), 'x');
+    await mkdir(join(root, 'sub'), { recursive: true });
+    await writeFile(join(root, 'sub', '.gitignore'), '!b.log\n*.tmp\n');
+    await writeFile(join(root, 'sub', 'b.log'), 'x');
+    await writeFile(join(root, 'sub', 'c.log'), 'x');
+    await writeFile(join(root, 'sub', 'x.tmp'), 'x');
+    await writeFile(join(root, 'sub', 'keep2.txt'), 'x');
+
+    const tree = await readDirTree(root, { depth: 6 });
+    const flat = JSON.stringify(tree);
+    // Root rules: *.log ignored, important.log re-included,
+    // build/ pruned whole (unlike the bare skip list, it is not
+    // even listed).
+    expect(flat).not.toContain('a.log');
+    expect(flat).toContain('important.log');
+    expect(flat).toContain('keep.txt');
+    expect(tree.find((e) => e.name === 'build')).toBeUndefined();
+    expect(flat).not.toContain('out.txt');
+    // Nested rules: sub re-includes b.log, ignores *.tmp, and the
+    // root *.log still applies to c.log.
+    expect(flat).toContain('b.log');
+    expect(flat).not.toContain('c.log');
+    expect(flat).not.toContain('x.tmp');
+    expect(flat).toContain('keep2.txt');
+    // The .gitignore files themselves stay listed.
+    expect(tree.find((e) => e.name === '.gitignore')).toBeDefined();
+  });
+
+  test('a fake FS serving .gitignore files is honoured', async () => {
+    await writeFile(join(root, 'a.log'), 'x');
+    await writeFile(join(root, 'keep.txt'), 'x');
+    const gitignores = new Map<string, string>([
+      [join(root, '.gitignore'), '*.log\n'],
+    ]);
+    const io: ReadDirTreeFS = {
+      readdir: (p, opts) => readdir(p, opts),
+      lstat: (p) => lstat(p),
+      readFile: async (p) => {
+        const content = gitignores.get(p);
+        if (content === undefined) throw new Error('ENOENT');
+        return content;
+      },
+    };
+    const tree = await readDirTree(root, { depth: 2 }, io);
+    expect(tree.map((e) => e.name)).toEqual(['keep.txt']);
+  });
+
+  test('missing/unreadable .gitignore means no rules', async () => {
+    await writeFile(join(root, 'a.log'), 'x');
+    await writeFile(join(root, 'keep.txt'), 'x');
+    const io: ReadDirTreeFS = {
+      readdir: (p, opts) => readdir(p, opts),
+      lstat: (p) => lstat(p),
+      readFile: async () => {
+        throw new Error('EACCES');
+      },
+    };
+    const tree = await readDirTree(root, { depth: 2 }, io);
+    expect(tree.map((e) => e.name).sort()).toEqual(['a.log', 'keep.txt']);
+  });
+
+  test('ignored entries do not consume the maxEntries budget', async () => {
+    await writeFile(join(root, '.gitignore'), '*.log\n');
+    for (let i = 0; i < 10; i++) {
+      await writeFile(join(root, `f-${i}.log`), 'x');
+    }
+    for (let i = 0; i < 5; i++) {
+      await writeFile(join(root, `keep-${i}.txt`), 'x');
+    }
+    const tree = await readDirTree(root, { depth: 1, maxEntries: 6 });
+    // 6 non-ignored entries exist (.gitignore + 5 keeps) and the
+    // budget collects all of them — the 10 ignored .log files
+    // consume none of it.
+    expect(tree).toHaveLength(6);
+    expect(tree.every((e) => !e.name.endsWith('.log'))).toBe(true);
+  });
+});

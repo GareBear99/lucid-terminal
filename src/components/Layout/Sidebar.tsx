@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, Fragment } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from 'react';
 import {
   FolderOpen,
   BookOpen,
@@ -31,6 +31,12 @@ import { DocsPanel } from '../Sidebar/DocsPanel';
 import { FileTypeIcon } from '../Editor/FileTypeIcon';
 import { subscribeDocsPanelRequest } from '../../lib/docsPanelRequest';
 import { Tooltip } from '../Tooltip/Tooltip';
+import {
+  flattenVisibleFileTree,
+  computeVisibleWindow,
+  FILE_TREE_ROW_HEIGHT_PX,
+  FILE_TREE_OVERSCAN_ROWS,
+} from '../../lib/fileTreeVirtualization';
 import { View, FileEntry } from '../../types';
 
 interface SidebarProps {
@@ -626,6 +632,59 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     isDirectory: boolean;
   } | null>(null);
 
+  // --- File-tree virtualization (files-section fix step 4) ------
+  // The tree renders only the rows in the scroll window (plus
+  // overscan); top/bottom spacers stand in for the rest, so the
+  // scrollbar still spans the whole tree. Row height is fixed at
+  // 28px (h-7 on the row div) — the windowing math is exact.
+  // Scroll position is tracked via rAF: one state update per
+  // frame at most, no matter how many scroll events fire.
+  const treeScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [treeScrollTop, setTreeScrollTop] = useState(0);
+  const [treeViewportHeight, setTreeViewportHeight] = useState(0);
+  const treeScrollRafRef = useRef<number | null>(null);
+  const treeScrollPendingRef = useRef<{ scrollTop: number; clientHeight: number } | null>(null);
+
+  const handleTreeScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    treeScrollPendingRef.current = { scrollTop: target.scrollTop, clientHeight: target.clientHeight };
+    if (treeScrollRafRef.current !== null) return;
+    treeScrollRafRef.current = requestAnimationFrame(() => {
+      treeScrollRafRef.current = null;
+      const pending = treeScrollPendingRef.current;
+      if (!pending) return;
+      setTreeScrollTop(pending.scrollTop);
+      setTreeViewportHeight(pending.clientHeight);
+    });
+  };
+
+  // Measure the viewport whenever the Explorer panel is (re)mounted
+  // — before paint, so the first render already windows on the real
+  // height instead of the 10-row fallback — and on resize. The
+  // container only exists while the Explorer panel is open, so the
+  // effect keys on the panel state, not just on mount.
+  useLayoutEffect(() => {
+    const el = treeScrollContainerRef.current;
+    if (!el) return;
+    setTreeViewportHeight(el.clientHeight);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      setTreeViewportHeight(el.clientHeight);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [activePanel, collapsedPanels.explorer]);
+
+  // A pending scroll rAF must not fire after unmount.
+  useEffect(() => {
+    return () => {
+      if (treeScrollRafRef.current !== null) {
+        cancelAnimationFrame(treeScrollRafRef.current);
+        treeScrollRafRef.current = null;
+      }
+    };
+  }, []);
+
   const handleOpenDirectory = async () => {
     const dir = await window.lucidAPI.fs.selectDirectory();
     // Track + diagnose the folder picker: WHEN it opened
@@ -705,84 +764,101 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
 
 
 
-  const renderFileTree = (items: FileEntry[], level = 0) => {
-    return items.map((item) => (
-      <div key={item.path}>
-        <div
-          className={`flex items-center gap-1 py-1 px-2 cursor-pointer hover:bg-[var(--bg-tertiary)] rounded text-sm ${selectedPath === item.path ? 'bg-[var(--bg-tertiary)]' : ''
-            }`}
-          style={{ paddingLeft: `${8 + level * 16}px` }}
-          onClick={async () => {
-            selectPath(item.path);
-            if (item.isDirectory) {
-              await toggleDir(item.path);
-            } else {
-              // Only switch to the editor when the file actually opened —
-              // a failed open shows the error instead of an empty editor.
-              const opened = await openFile(item.path);
-              if (opened) {
-                onViewChange('editor');
-              }
+  // One tree row — the markup and handlers are EXACTLY the old
+  // recursive render's row (same classes, same onClick /
+  // onContextMenu, same rename input, same chevrons/icons/
+  // selection), with one addition: an explicit `h-7` (28px) so the
+  // windowing math is a contract, not an assumption. The old
+  // recursion into expanded children is gone — flattening decides
+  // visibility now (see visibleFileTreeRows below).
+  const renderFileTreeRow = (item: FileEntry, level = 0) => (
+    <div key={item.path}>
+      <div
+        className={`flex h-7 items-center gap-1 py-1 px-2 cursor-pointer hover:bg-[var(--bg-tertiary)] rounded text-sm ${selectedPath === item.path ? 'bg-[var(--bg-tertiary)]' : ''
+          }`}
+        style={{ paddingLeft: `${8 + level * 16}px` }}
+        onClick={async () => {
+          selectPath(item.path);
+          if (item.isDirectory) {
+            await toggleDir(item.path);
+          } else {
+            // Only switch to the editor when the file actually opened —
+            // a failed open shows the error instead of an empty editor.
+            const opened = await openFile(item.path);
+            if (opened) {
+              onViewChange('editor');
             }
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            selectPath(item.path);
-            // Clamp so the menu never opens off-screen.
-            setContextMenu({
-              x: Math.min(e.clientX, window.innerWidth - 180),
-              y: Math.min(e.clientY, window.innerHeight - 100),
-              path: item.path,
-              name: item.name,
-              isDirectory: item.isDirectory,
-            });
-          }}
-        >
-          {item.isDirectory ? (
-            <>
-              {expandedDirs.has(item.path) ? (
-                <ChevronDown size={14} className="text-[var(--text-muted)] flex-shrink-0" />
-              ) : (
-                <ChevronRight size={14} className="text-[var(--text-muted)] flex-shrink-0" />
-              )}
-              <Folder size={14} className="text-[var(--accent)] flex-shrink-0" />
-            </>
-          ) : (
-            <>
-              <span className="w-3.5" />
-              <FileTypeIcon path={item.path} />
-            </>
-          )}
-          {renamingPath === item.path ? (
-            <input
-              type="text"
-              className="input text-xs h-6 flex-1 min-w-0"
-              placeholder="Rename to..."
-              aria-label="Rename file or folder"
-              value={renameName}
-              onChange={(e) => setRenameName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  void handleConfirmRename();
-                } else if (e.key === 'Escape') {
-                  handleCancelRename();
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-              autoFocus
-            />
-          ) : (
-            <span className="truncate text-[var(--text-primary)]">{item.name}</span>
-          )}
-        </div>
-        {item.isDirectory && expandedDirs.has(item.path) && item.children && (
-          <div>
-            {renderFileTree(item.children, level + 1)}
-          </div>
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          selectPath(item.path);
+          // Clamp so the menu never opens off-screen.
+          setContextMenu({
+            x: Math.min(e.clientX, window.innerWidth - 180),
+            y: Math.min(e.clientY, window.innerHeight - 100),
+            path: item.path,
+            name: item.name,
+            isDirectory: item.isDirectory,
+          });
+        }}
+      >
+        {item.isDirectory ? (
+          <>
+            {expandedDirs.has(item.path) ? (
+              <ChevronDown size={14} className="text-[var(--text-muted)] flex-shrink-0" />
+            ) : (
+              <ChevronRight size={14} className="text-[var(--text-muted)] flex-shrink-0" />
+            )}
+            <Folder size={14} className="text-[var(--accent)] flex-shrink-0" />
+          </>
+        ) : (
+          <>
+            <span className="w-3.5" />
+            <FileTypeIcon path={item.path} />
+          </>
+        )}
+        {renamingPath === item.path ? (
+          <input
+            type="text"
+            className="input text-xs h-6 flex-1 min-w-0"
+            placeholder="Rename to..."
+            aria-label="Rename file or folder"
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                void handleConfirmRename();
+              } else if (e.key === 'Escape') {
+                handleCancelRename();
+              }
+            }}
+            onClick={(e) => e.stopPropagation()}
+            autoFocus
+          />
+        ) : (
+          <span className="truncate text-[var(--text-primary)]">{item.name}</span>
         )}
       </div>
-    ));
-  };
+    </div>
+  );
+
+  // The virtualized window: flatten the visible tree once per
+  // entries / expandedDirs change, then render only the rows in
+  // the scroll window (plus overscan). When the list fits the
+  // viewport the window is the whole list — nothing changes for
+  // small trees.
+  const visibleFileTreeRows = useMemo(
+    () => flattenVisibleFileTree(entries, expandedDirs),
+    [entries, expandedDirs],
+  );
+  const visibleFileTreeWindow = computeVisibleWindow(
+    visibleFileTreeRows.length,
+    treeScrollTop,
+    treeViewportHeight,
+    FILE_TREE_ROW_HEIGHT_PX,
+    FILE_TREE_OVERSCAN_ROWS,
+  );
 
   return (
     <div className="flex h-full">
@@ -980,7 +1056,11 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
         )}
 
         {/* File Tree */}
-        <div className="flex-1 overflow-y-auto py-1">
+        <div
+          className="flex-1 overflow-y-auto py-1"
+          ref={treeScrollContainerRef}
+          onScroll={handleTreeScroll}
+        >
           {/* File access error — inline, so a denied/failed folder reads
               as blocked instead of empty or stale. */}
           {error && (
@@ -1008,7 +1088,25 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
               {entries.length === 0 && !error && !isLoading ? (
                 <p className="px-3 py-2 text-xs leading-[1.5] text-[var(--text-muted)]">Folder is empty</p>
               ) : (
-                renderFileTree(entries)
+                <>
+                  {/* Top spacer: stands in for the rows above the window. */}
+                  <div
+                    style={{ height: visibleFileTreeWindow.start * FILE_TREE_ROW_HEIGHT_PX }}
+                    aria-hidden="true"
+                  />
+                  {visibleFileTreeRows
+                    .slice(visibleFileTreeWindow.start, visibleFileTreeWindow.end)
+                    .map((row) => renderFileTreeRow(row.entry, row.level))}
+                  {/* Bottom spacer: stands in for the rows below the window. */}
+                  <div
+                    style={{
+                      height:
+                        (visibleFileTreeRows.length - visibleFileTreeWindow.end) *
+                        FILE_TREE_ROW_HEIGHT_PX,
+                    }}
+                    aria-hidden="true"
+                  />
+                </>
               )}
             </>
           ) : (

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Plus, X, Terminal, Bell, Columns2 } from 'lucide-react';
+import { Plus, X, Terminal, Bell, Columns2, Equal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSplitPaneStore, findGroupForTab, groupTabIds, orderTabsForRender } from '../../stores/splitPaneStore';
@@ -86,6 +86,19 @@ export interface TerminalTabsViewProps {
    */
   onSplitTab?: () => void;
   /**
+   * Equal size button (Gary, 2026-11-15 — "when in terminal
+   * split there needs to be an equal size button that appears
+   * in tab bar when you have 2+"): make all panes of the
+   * active split equal sized. The container shows it only
+   * when the active tab's group has 2+ panes; every window
+   * gets its own — the button equalizes this window's panes
+   * only, never another window's (each window owns its own
+   * split store). Detached windows render the same strip, so
+   * a detached window with 2+ panes shows its own button.
+   */
+  showEqualizeButton?: boolean;
+  onEqualizePanes?: () => void;
+  /**
    * Per-tab context menu (Atom steal #17 — tabs
    * punch-list): right-click a tab for Close Tab, Close
    * Other Tabs, Close Tabs to the Right, Reopen Closed Tab,
@@ -154,6 +167,8 @@ export function TerminalTabsView({
   onCloseAskKeepTab,
   onDismissCloseAsk,
   onSplitTab,
+  showEqualizeButton = false,
+  onEqualizePanes,
   onSplitTabId,
   onCloseOtherTabs,
   onCloseTabsToTheRight,
@@ -437,6 +452,23 @@ export function TerminalTabsView({
             <Columns2 size={18} />
           </button>
         )}
+
+        {/* Equalize Button — split panes (Gary, 2026-11-15):
+            make all panes of the active split equal sized.
+            Shown only at 2+ panes (the container owns that
+            count); every window gets its own, equalizing
+            this window's panes only. */}
+        {showEqualizeButton && (
+          <button
+            onClick={onEqualizePanes}
+            data-testid="equalize-panes"
+            className="h-9 px-3 shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors"
+            title="Equalize pane sizes"
+            aria-label="Equalize pane sizes"
+          >
+            <Equal size={18} />
+          </button>
+        )}
       </div>
 
       {/* Divider - mirrors the line that separates the plugin icons
@@ -686,6 +718,10 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
   // switching and the view all read this same ordered list,
   // so a drag's index is the rendered index.
   const tabs = orderTabsForRender(storeTabs, splitGroups, activeTabId);
+  // The active tab's split group (this window's own store —
+  // a detached window reads its own groups, never main's).
+  const activeGroup = activeTabId ? findGroupForTab(splitGroups, activeTabId) : null;
+  const activeGroupPaneCount = activeGroup ? groupTabIds(activeGroup).length : 0;
   const { notifications, removeNotification, clearAll, markAllRead } = useToastStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -838,7 +874,11 @@ function TerminalTabs({ detachedWindow = false, showBloodDrop = false, bloodDrop
       onSplitTab={() => {
         if (activeTabId) void useSplitPaneStore.getState().splitTab(activeTabId);
       }}
-      splitGroupTabIds={activeTabId ? (() => { const g = findGroupForTab(splitGroups, activeTabId); return g ? groupTabIds(g) : []; })() : []}
+      showEqualizeButton={activeGroupPaneCount >= 2}
+      onEqualizePanes={() => {
+        if (activeGroup) useSplitPaneStore.getState().equalizeGroup(activeGroup.id);
+      }}
+      splitGroupTabIds={activeGroup ? groupTabIds(activeGroup) : []}
       onCloseTab={handleCloseTab}
       // Per-tab context menu (Atom steal #17): "to the right"
       // is computed in the RENDERED (pane-ordered) list, not

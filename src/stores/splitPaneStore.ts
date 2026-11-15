@@ -65,7 +65,11 @@
  * SIZES: percentages per split node, summing to 100, each pane
  * clamped to 15–85%. Splitting a pane always starts the new
  * node at 50/50; the divider drag (SplitDivider.tsx) moves one
- * node's boundary.
+ * node's boundary. EQUALIZE (Gary, 2026-11-15 — the equal size
+ * button in the tab bar): equalizeGroup resets every node so
+ * each leaf gets an equal share (leaf-count-proportional, see
+ * equalizeSplitNode) — exact equal shares, without the drag
+ * clamp, since with 7+ panes an equal share is below 15%.
  */
 
 import { create } from 'zustand';
@@ -143,6 +147,20 @@ export interface SplitPaneState {
    *  normalised to 100. An unknown group, an unknown node, or a
    *  wrong-length sizes array is a no-op. */
   setSplitSizes: (groupId: string, nodeId: string, sizes: [number, number]) => void;
+  /**
+   * Equalize a group's panes (Gary, 2026-11-15 — the equal
+   * size button in the tab bar): reset every split node's
+   * sizes so all panes get an equal share (see
+   * equalizeSplitNode). Membership, order, sessions and
+   * content are untouched — only the ratios change. A resize
+   * after equalizing works as today (unequal again until the
+   * button is pressed again). An unknown group is a no-op.
+   * Scoped by group id: other groups are never touched — and
+   * each window owns its own store instance, so a main-window
+   * press never touches a detached window's panes and a
+   * detached window's press never touches the main window's.
+   */
+  equalizeGroup: (groupId: string) => void;
   /** Test-only reset: clears groups, the group/node counters, and
    *  the guest stash (same precedent as sessionStore.resetForTests). */
   resetForTests: () => void;
@@ -324,6 +342,50 @@ export function setNodeSizes(
   };
 }
 
+/** The panes (leaves) under a node. */
+export function countSplitLeaves(node: SplitNode): number {
+  if (node.type === 'leaf') return 1;
+  return countSplitLeaves(node.first) + countSplitLeaves(node.second);
+}
+
+/**
+ * Equalize a PaneAxis tree (pure, exported for tests): every
+ * split node divides its space between its two children in
+ * proportion to their pane counts. In a single-direction tree
+ * that gives every leaf an equal share of the total — a
+ * right-deep [a | [b | [c | d]]] becomes 25/75, 33.33/66.67,
+ * 50/50, each leaf 25% wide — where a flat 50/50 at every node
+ * would leave a at 50% and d at 12.5%. In a mixed-direction
+ * tree each split still divides by pane count on its own axis
+ * (a vertical 1-vs-2 split is 33.33/66.67 even when the pair
+ * is stacked), so a stacked pair spans the wider column —
+ * equal shares per split, not equal leaf areas. Each pair sums
+ * to exactly 100 (the second share is the complement of the
+ * rounded first, 2 decimals).
+ *
+ * Sizes are exact equal shares, WITHOUT the 15–85% drag
+ * clamp: the clamp is a divider-drag rule (a pane should not
+ * be dragged below 15%), and an explicit equalize overrides
+ * it — with 7+ panes an equal share is below 15%, and
+ * clamping would make the panes unequal again. A later drag
+ * re-clamps its own node as usual. Membership, order,
+ * sessions and content are untouched — only the ratios.
+ */
+export function equalizeSplitNode(node: SplitNode): SplitNode {
+  if (node.type === 'leaf') return node;
+  const firstCount = countSplitLeaves(node.first);
+  const secondCount = countSplitLeaves(node.second);
+  const total = firstCount + secondCount;
+  const first = Math.round(((100 * firstCount) / total) * 100) / 100;
+  const second = Math.round((100 - first) * 100) / 100;
+  return {
+    ...node,
+    sizes: [first, second],
+    first: equalizeSplitNode(node.first),
+    second: equalizeSplitNode(node.second),
+  };
+}
+
 /**
  * Drop every leaf whose tab id is not live, collapsing parents
  * as removeLeaf does. Returns null when nothing survives.
@@ -438,6 +500,19 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
 
   focusPane: (tabId) => {
     useTerminalStore.getState().setActiveTab(tabId);
+  },
+
+  equalizeGroup: (groupId) => {
+    set((state) => {
+      const group = state.groups[groupId];
+      if (!group) return state;
+      return {
+        groups: {
+          ...state.groups,
+          [groupId]: { ...group, root: equalizeSplitNode(group.root) },
+        },
+      };
+    });
   },
 
   setSplitSizes: (groupId, nodeId, sizes) => {

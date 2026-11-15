@@ -227,7 +227,13 @@ export function doesChangeInvalidate(
 }
 
 /** The minimal editor surface the layer needs (Monaco's
- *  `IStandaloneCodeEditor` subset, so tests can stub it). */
+ *  `IStandaloneCodeEditor` subset, so tests can stub it).
+ *  NOTE: monaco-editor 0.57's EditorDecorationsCollection has
+ *  NO dispose method (set/clear/append/has only) — the
+ *  collection is GC'd with the editor, so the layer clears it
+ *  on dispose instead. The old interface declared a dispose
+ *  here and MarkerLayer.dispose() called it, which crashed
+ *  the live app on Editor unmount (2026-11-14). */
 export interface MarkerEditor {
   createDecorationsCollection: (
     decorations?: Array<{
@@ -242,7 +248,6 @@ export interface MarkerEditor {
       }>,
     ) => void;
     clear: () => void;
-    dispose: () => void;
   };
   onDidChangeModelContent: (
     listener: (changes: ModelChange[]) => void,
@@ -342,7 +347,11 @@ export class MarkerLayer {
     if (this.disposed) return;
     this.disposed = true;
     this.changeDisposable.dispose();
-    this.collection.dispose();
+    // Monaco 0.57's EditorDecorationsCollection has no dispose()
+    // — clear() drops the decorations; the collection itself is
+    // GC'd with the editor. (Calling dispose() here crashed the
+    // live app on Editor unmount, 2026-11-14.)
+    this.collection.clear();
     this.markers.clear();
   }
 

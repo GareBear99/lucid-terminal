@@ -37,8 +37,26 @@ import type { FileEntry } from '../types';
 /** How deep the recursive read goes (readDir's depth option),
  *  measured from the project root. */
 export const PROJECT_INDEX_DEPTH = 6;
+/** Depth for a home-rooted index (no project marker found).
+ *  The wave-1 depth: a depth-6 walk of a whole home tree
+ *  (Pictures/Music/caches/projects — none of them skipped)
+ *  never settles on a real home, so ⌘P sat on "Indexing
+ *  files…" forever (Atom rest live check, 2026-11-14).
+ *  Depth 6 applies only when a project root was detected. */
+export const HOME_INDEX_DEPTH = 4;
 /** Hard cap on indexed files — a huge tree stops here. */
 export const PROJECT_INDEX_MAX_FILES = 5000;
+/** Wall-time budget for one index build. A build that never
+ *  settles (a hung IPC read) used to leave `indexing: true`
+ *  forever and block every later refresh — see
+ *  refreshProjectFileIndex. */
+export const PROJECT_INDEX_TIMEOUT_MS = 30_000;
+/** Entry budget for the walk itself (files + directories),
+ *  passed to readDir so a huge tree stops being walked —
+ *  above the 5,000-file flatten cap to leave headroom for
+ *  directories. Without it the cap only applied after the
+ *  whole tree was built and shipped over IPC. */
+export const PROJECT_INDEX_MAX_WALK_ENTRIES = 8000;
 
 /** Directory entries that mark a project root (Atom: the
  *  added folder). The first ancestor containing one of these
@@ -81,6 +99,14 @@ export async function listDirectoryNames(dir: string): Promise<string[]> {
   }
 }
 
+export interface ProjectRootDetection {
+  root: string;
+  /** True when an ancestor (the seed first) held a project
+   *  marker. False means the seed itself is the root — the
+   *  home-rooted index, which walks at HOME_INDEX_DEPTH. */
+  foundMarker: boolean;
+}
+
 /**
  * Walk up from a directory to the nearest project root — the
  * first ancestor (the seed itself first) containing a project
@@ -88,11 +114,11 @@ export async function listDirectoryNames(dir: string): Promise<string[]> {
  * within PROJECT_ROOT_MAX_UP levels (the home-rooted index,
  * as before). Never walks above the filesystem root.
  */
-export async function detectProjectRoot(
+export async function detectProjectRootDetailed(
   seedDir: string,
   listNames: ProjectRootLister = listDirectoryNames,
   maxUp: number = PROJECT_ROOT_MAX_UP,
-): Promise<string> {
+): Promise<ProjectRootDetection> {
   let dir = seedDir || '/';
   for (let level = 0; level <= maxUp; level++) {
     let names: string[] = [];
@@ -103,13 +129,22 @@ export async function detectProjectRoot(
       names = [];
     }
     if (names.some((name) => PROJECT_ROOT_MARKERS.includes(name))) {
-      return dir;
+      return { root: dir, foundMarker: true };
     }
     const parent = dirnameOf(dir);
-    if (parent === dir) return seedDir;
+    if (parent === dir) return { root: seedDir, foundMarker: false };
     dir = parent;
   }
-  return seedDir;
+  return { root: seedDir, foundMarker: false };
+}
+
+export async function detectProjectRoot(
+  seedDir: string,
+  listNames: ProjectRootLister = listDirectoryNames,
+  maxUp: number = PROJECT_ROOT_MAX_UP,
+): Promise<string> {
+  const { root } = await detectProjectRootDetailed(seedDir, listNames, maxUp);
+  return root;
 }
 
 export interface ProjectFileIndexState {
@@ -188,6 +223,11 @@ export function subscribeProjectFileIndex(listener: Listener): () => void {
   };
 }
 
+/** Monotonic build generation: only the latest build may
+ *  write the index. A build that settles late (after its
+ *  timeout fired and a newer build started) is discarded. */
+let buildEpoch = 0;
+
 /**
  * (Re)build the index for a seed directory. The seed is
  * usually the active file's directory (or the file store's
@@ -201,31 +241,61 @@ export function subscribeProjectFileIndex(listener: Listener): () => void {
  * finder shows the stale list, never an error in the user's
  * face. No-op when the seed is empty or a refresh is in
  * flight.
+ *
+ * Timeout (Atom rest live check, 2026-11-14): a build that
+ * never settles — a hung IPC read — used to leave
+ * `indexing: true` forever, and the guard above then made
+ * every later refresh a silent no-op, so ⌘P sat on
+ * "Indexing files…" for 3+ minutes with 0% CPU and no
+ * results. The build now races a PROJECT_INDEX_TIMEOUT_MS
+ * timer: on timeout the flag clears (the finder degrades to
+ * the stale list / "No files in this project") and the next
+ * open retries. A late build that still lands is applied
+ * only if no newer build started (the epoch check).
  */
 export async function refreshProjectFileIndex(
   root: string,
   listNames?: ProjectRootLister,
 ): Promise<void> {
   if (!root || state.indexing) return;
+  const epoch = ++buildEpoch;
   state = { ...state, indexing: true };
   emit();
-  const projectRoot = await detectProjectRoot(root, listNames);
-  // Already warm for this project — a re-open is a no-op.
-  if (state.root === projectRoot && state.files.length > 0) {
-    state = { ...state, indexing: false };
-    emit();
-    return;
-  }
-  state = { ...state, root: projectRoot };
-  emit();
+  const timeout = setTimeout(() => {
+    if (epoch === buildEpoch && state.indexing) {
+      state = { ...state, indexing: false };
+      emit();
+    }
+  }, PROJECT_INDEX_TIMEOUT_MS);
   try {
+    const { root: projectRoot, foundMarker } =
+      await detectProjectRootDetailed(root, listNames);
+    // Superseded — a newer build owns the state now.
+    if (epoch !== buildEpoch) return;
+    // Already warm for this project — a re-open is a no-op.
+    if (state.root === projectRoot && state.files.length > 0) {
+      state = { ...state, indexing: false };
+      emit();
+      return;
+    }
+    state = { ...state, root: projectRoot };
+    emit();
     const api = window.lucidAPI?.fs;
     if (!api || typeof api.readDir !== 'function') {
       state = { ...state, indexing: false };
       emit();
       return;
     }
-    const entries = await api.readDir(projectRoot, { depth: PROJECT_INDEX_DEPTH });
+    // Home-rooted (no project marker): the wave-1 depth — a
+    // depth-6 walk of a whole home tree never settles on a
+    // real home. Project-rooted: depth 6. The walk itself is
+    // capped (maxEntries) so a huge tree stops being walked.
+    const depth = foundMarker ? PROJECT_INDEX_DEPTH : HOME_INDEX_DEPTH;
+    const entries = await api.readDir(projectRoot, {
+      depth,
+      maxEntries: PROJECT_INDEX_MAX_WALK_ENTRIES,
+    });
+    if (epoch !== buildEpoch) return;
     const files = flattenFileEntries(entries);
     state = {
       ...state,
@@ -234,7 +304,9 @@ export async function refreshProjectFileIndex(
     };
   } catch {
     // A failed read keeps the previous list (see above).
-    state = { ...state, indexing: false };
+    if (epoch === buildEpoch) state = { ...state, indexing: false };
+  } finally {
+    clearTimeout(timeout);
   }
   emit();
 }

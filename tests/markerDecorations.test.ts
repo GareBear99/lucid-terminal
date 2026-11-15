@@ -118,21 +118,25 @@ describe('doesChangeInvalidate', () => {
 
 function stubEditor(): {
   editor: MarkerEditor;
+  /** The fake collection — models monaco 0.57.0 faithfully:
+   *  EditorDecorationsCollection has set/clear/append/has and
+   *  NO dispose method (see the dispose regression test below). */
+  collection: { set: (decorations: unknown) => void; clear: () => void };
   setCalls: Array<unknown>;
   fireChange: (changes: { range: MarkerRange; text: string }[]) => void;
 } {
   const setCalls: Array<unknown> = [];
   let listener: ((changes: { range: MarkerRange; text: string }[]) => void) | null = null;
+  const collection = {
+    set: (decorations: unknown) => {
+      setCalls.push(decorations);
+    },
+    clear: () => {
+      setCalls.push('clear');
+    },
+  };
   const editor: MarkerEditor = {
-    createDecorationsCollection: () => ({
-      set: (decorations) => {
-        setCalls.push(decorations);
-      },
-      clear: () => {
-        setCalls.push('clear');
-      },
-      dispose: () => {},
-    }),
+    createDecorationsCollection: () => collection,
     onDidChangeModelContent: (fn) => {
       listener = fn;
       return { dispose: () => { listener = null; } };
@@ -140,6 +144,7 @@ function stubEditor(): {
   };
   return {
     editor,
+    collection,
     setCalls,
     fireChange: (changes) => listener?.(changes),
   };
@@ -213,5 +218,25 @@ describe('MarkerLayer', () => {
     const layer = new MarkerLayer(editor);
     const marker = layer.markRange(range(1, 1, 1, 5));
     expect(marker.invalidate).toBe('overlap');
+  });
+
+  test('dispose clears the decorations and never throws (monaco 0.57 has no collection.dispose)', () => {
+    const { editor, collection, setCalls } = stubEditor();
+    // The stub models monaco-editor 0.57.0: EditorDecorationsCollection
+    // has set/clear/append/has — no dispose method at all. The live
+    // crash (Atom rest deploy, 2026-11-14: open a file, switch
+    // Editor → Terminal) was MarkerLayer.dispose() calling
+    // this.collection.dispose() — "TypeError: this.collection.dispose
+    // is not a function" — from CodeEditor's unmount cleanup.
+    expect('dispose' in collection).toBe(false);
+    const layer = new MarkerLayer(editor);
+    const marker = layer.markRange(range(2, 1, 2, 5));
+    layer.decorateMarker(marker, { type: 'gutter', className: 'git-line-added' });
+    expect(() => layer.dispose()).not.toThrow();
+    // The decorations are dropped through clear(), not dispose().
+    expect(setCalls[setCalls.length - 1]).toBe('clear');
+    const callsAfterFirstDispose = setCalls.length;
+    expect(() => layer.dispose()).not.toThrow();
+    expect(setCalls.length).toBe(callsAfterFirstDispose);
   });
 });

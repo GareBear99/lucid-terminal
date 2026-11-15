@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   flattenFileEntries,
   hoistLastOpened,
@@ -169,13 +169,32 @@ describe('detectProjectRoot (Atom rest — finder coverage gap)', () => {
       '/Users/gary/project',
     );
   });
+
+  test('detailed detection reports whether a marker was found', async () => {
+    const { detectProjectRootDetailed } = await import('../src/lib/projectFileIndex');
+    const listNames = async (dir: string) =>
+      dir === '/Users/gary/lucid-terminal' ? ['package.json', 'src'] : [];
+    expect(
+      await detectProjectRootDetailed(
+        '/Users/gary/lucid-terminal/src',
+        listNames,
+      ),
+    ).toEqual({ root: '/Users/gary/lucid-terminal', foundMarker: true });
+    expect(await detectProjectRootDetailed('/Users/gary', listNames)).toEqual({
+      root: '/Users/gary',
+      foundMarker: false,
+    });
+  });
 });
 
 describe('refreshProjectFileIndex with a project root', () => {
   const originalWindow = (globalThis as unknown as { window?: unknown }).window;
 
   function installReadDir(
-    readDir: (dir: string, opts?: { depth?: number }) => Promise<FileEntry[]>,
+    readDir: (
+      dir: string,
+      opts?: { depth?: number; maxEntries?: number },
+    ) => Promise<FileEntry[]>,
   ) {
     (globalThis as unknown as { window?: unknown }).window = {
       lucidAPI: { fs: { readDir } },
@@ -276,5 +295,102 @@ describe('refreshProjectFileIndex with a project root', () => {
     await refreshProjectFileIndex('/Users/gary/project-b', listNames);
     expect(getProjectFileIndex().files).toEqual(['/Users/gary/project-a/a.ts']);
     expect(getProjectFileIndex().indexing).toBe(false);
+  });
+
+  test('a home-rooted index walks at depth 4, a project-rooted one at depth 6', async () => {
+    const {
+      refreshProjectFileIndex,
+      PROJECT_INDEX_MAX_WALK_ENTRIES,
+    } = await import('../src/lib/projectFileIndex');
+    const calls: Array<{ dir: string; depth?: number; maxEntries?: number }> = [];
+    installReadDir(
+      async (dir: string, opts?: { depth?: number; maxEntries?: number }) => {
+        calls.push({ dir, depth: opts?.depth, maxEntries: opts?.maxEntries });
+        return [entry(`${dir}/a.ts`, false)];
+      },
+    );
+    const listNames = async (dir: string) =>
+      dir === '/Users/gary/lucid-terminal' ? ['package.json', 'src'] : [];
+    // Home seed, no marker anywhere up the tree: the shallow walk.
+    await refreshProjectFileIndex('/Users/gary', listNames);
+    expect(calls).toEqual([
+      {
+        dir: '/Users/gary',
+        depth: 4,
+        maxEntries: PROJECT_INDEX_MAX_WALK_ENTRIES,
+      },
+    ]);
+    // Project seed — re-roots and walks at full depth.
+    await refreshProjectFileIndex('/Users/gary/lucid-terminal/src', listNames);
+    expect(calls[1]).toEqual({
+      dir: '/Users/gary/lucid-terminal',
+      depth: 6,
+      maxEntries: PROJECT_INDEX_MAX_WALK_ENTRIES,
+    });
+  });
+
+  test('a hung read clears indexing after the timeout and the next refresh retries', async () => {
+    const {
+      refreshProjectFileIndex,
+      getProjectFileIndex,
+      PROJECT_INDEX_TIMEOUT_MS,
+    } = await import('../src/lib/projectFileIndex');
+    vi.useFakeTimers();
+    try {
+      installReadDir(() => new Promise<FileEntry[]>(() => {}));
+      const listNames = async (dir: string) =>
+        dir === '/Users/gary/project' ? ['package.json'] : [];
+      // Do not await: this build never settles by design.
+      void refreshProjectFileIndex('/Users/gary/project/src', listNames);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getProjectFileIndex().indexing).toBe(true);
+      // The live failure (Atom rest, 2026-11-14): ⌘P sat on
+      // "Indexing files…" for 3+ minutes because the flag never
+      // cleared and the guard blocked every later refresh.
+      await vi.advanceTimersByTimeAsync(PROJECT_INDEX_TIMEOUT_MS);
+      expect(getProjectFileIndex().indexing).toBe(false);
+      // The flag is not stuck: a retry starts and populates.
+      installReadDir(async () => [entry('/Users/gary/project/a.ts', false)]);
+      await refreshProjectFileIndex('/Users/gary/project/src', listNames);
+      expect(getProjectFileIndex().files).toEqual(['/Users/gary/project/a.ts']);
+      expect(getProjectFileIndex().indexing).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a late build that settles after its timeout is discarded', async () => {
+    const {
+      refreshProjectFileIndex,
+      getProjectFileIndex,
+      PROJECT_INDEX_TIMEOUT_MS,
+    } = await import('../src/lib/projectFileIndex');
+    vi.useFakeTimers();
+    try {
+      let resolveFirst: ((entries: FileEntry[]) => void) | null = null;
+      installReadDir(
+        () =>
+          new Promise<FileEntry[]>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      );
+      const listNames = async (dir: string) =>
+        dir === '/Users/gary/project' ? ['package.json'] : [];
+      void refreshProjectFileIndex('/Users/gary/project/src', listNames);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(PROJECT_INDEX_TIMEOUT_MS);
+      expect(getProjectFileIndex().indexing).toBe(false);
+      // A newer build starts and lands first.
+      installReadDir(async () => [entry('/Users/gary/project/b.ts', false)]);
+      await refreshProjectFileIndex('/Users/gary/project/src', listNames);
+      expect(getProjectFileIndex().files).toEqual(['/Users/gary/project/b.ts']);
+      // Now the stale build settles — it must not clobber the newer list.
+      resolveFirst?.([entry('/Users/gary/project/a.ts', false)]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getProjectFileIndex().files).toEqual(['/Users/gary/project/b.ts']);
+      expect(getProjectFileIndex().indexing).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

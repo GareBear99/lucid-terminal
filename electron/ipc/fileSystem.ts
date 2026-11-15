@@ -29,7 +29,16 @@ export interface ReadDirOptions {
    * on expand). Deeper levels recurse that far. Defaults to 1.
    */
   depth?: number;
+  /**
+   * Stop collecting once this many entries (files + directories)
+   * have been gathered — bounds the walk and the IPC payload for
+   * huge trees (the fuzzy finder's home-rooted walk used to walk
+   * the whole home tree before the renderer capped it at 5,000
+   * files). Omit for no cap (the file explorer's shallow reads).
+   */
+  maxEntries?: number;
 }
+
 
 /**
  * Directories macOS protects with a per-folder prompt (TCC "Files
@@ -54,79 +63,106 @@ export const TCC_PROTECTED_DIR_NAMES: readonly string[] = [
   'Library',
 ];
 
-export function setupFileSystemHandlers(ipcMain: IpcMain): void {
-  // Read directory contents. Depth 1 by default: the top level
-  // only, children left undefined for lazy loading on expand.
-  // The startup file-explorer load reads only the top level, so
-  // it never descends into Desktop / Documents / Downloads and
-  // never prompts. Deeper reads still skip the protected folders
-  // below the root (defense in depth) — a caller that recurses
-  // from the home directory must not silently walk into them.
-  ipcMain.handle(
-    'fs:readDir',
-    async (_, dirPath: string, options?: ReadDirOptions): Promise<FileEntry[]> => {
-      const depth = Math.max(1, Math.floor(options?.depth ?? 1));
-      async function readDirRecursive(
-        currentPath: string,
-        remainingDepth: number,
-      ): Promise<FileEntry[]> {
+/**
+ * Recursive directory read (the `fs:readDir` work, extracted so
+ * tests can run it without Electron). Depth 1 by default: the top
+ * level only, children left undefined for lazy loading on expand.
+ * The startup file-explorer load reads only the top level, so it
+ * never descends into Desktop / Documents / Downloads and never
+ * prompts. Deeper reads still skip the protected folders below
+ * the root (defense in depth) — a caller that recurses from the
+ * home directory must not silently walk into them.
+ */
+export async function readDirTree(
+  dirPath: string,
+  options?: ReadDirOptions,
+): Promise<FileEntry[]> {
+  const depth = Math.max(1, Math.floor(options?.depth ?? 1));
+  const maxEntries = options?.maxEntries;
+  let collected = 0;
+  async function readDirRecursive(
+    currentPath: string,
+    remainingDepth: number,
+  ): Promise<FileEntry[]> {
+    try {
+      const entries = await fs.readdir(currentPath, { withFileTypes: true });
+      const results: FileEntry[] = [];
+
+      for (const entry of entries) {
+        // Budget hit — stop collecting (and stop descending: the
+        // check below keeps parents from recursing further once
+        // the recursive call returns with the budget spent).
+        if (maxEntries !== undefined && collected >= maxEntries) break;
         try {
-          const entries = await fs.readdir(currentPath, { withFileTypes: true });
-          const results: FileEntry[] = [];
+          const fullPath = path.join(currentPath, entry.name);
+          const stats = await fs.stat(fullPath);
+          const isDirectory = entry.isDirectory();
 
-          for (const entry of entries) {
-            try {
-              const fullPath = path.join(currentPath, entry.name);
-              const stats = await fs.stat(fullPath);
-              const isDirectory = entry.isDirectory();
-
-              let children: FileEntry[] | undefined;
-              if (isDirectory && remainingDepth > 1) {
-                // Limit recursion depth or ignore node_modules/git to prevent hanging.
-                // Never descend into a TCC-protected folder below the
-                // root — the root itself is always listed (the user
-                // explicitly opened it), but its protected subfolders
-                // are not walked into uninvited.
-                const isProtected = TCC_PROTECTED_DIR_NAMES.includes(entry.name);
-                const isRoot = fullPath === dirPath;
-                if (
-                  entry.name !== 'node_modules' &&
-                  entry.name !== '.git' &&
-                  entry.name !== '.DS_Store' &&
-                  entry.name !== 'dist' &&
-                  entry.name !== 'build' &&
-                  !(isProtected && !isRoot)
-                ) {
-                  children = await readDirRecursive(fullPath, remainingDepth - 1);
-                }
-              }
-
-              results.push({
-                name: entry.name,
-                path: fullPath,
-                isDirectory,
-                isFile: entry.isFile(),
-                size: stats.size,
-                modified: stats.mtimeMs,
-                children,
-              });
-            } catch {
-              // Skip entries we can't access
+          let children: FileEntry[] | undefined;
+          if (isDirectory && remainingDepth > 1) {
+            // Limit recursion depth or ignore node_modules/git to prevent hanging.
+            // Never descend into a TCC-protected folder below the
+            // root — the root itself is always listed (the user
+            // explicitly opened it), but its protected subfolders
+            // are not walked into uninvited.
+            const isProtected = TCC_PROTECTED_DIR_NAMES.includes(entry.name);
+            const isRoot = fullPath === dirPath;
+            if (
+              entry.name !== 'node_modules' &&
+              entry.name !== '.git' &&
+              entry.name !== '.DS_Store' &&
+              entry.name !== 'dist' &&
+              entry.name !== 'build' &&
+              !(isProtected && !isRoot) &&
+              (maxEntries === undefined || collected < maxEntries)
+            ) {
+              children = await readDirRecursive(fullPath, remainingDepth - 1);
             }
           }
 
-          // Sort: directories first, then alphabetically
-          return results.sort((a, b) => {
-            if (a.isDirectory && !b.isDirectory) return -1;
-            if (!a.isDirectory && b.isDirectory) return 1;
-            return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+          // The budget was spent while recursing into this
+          // entry's children — drop the entry (with its
+          // children) rather than exceed the budget.
+          if (maxEntries !== undefined && collected >= maxEntries) {
+            continue;
+          }
+
+          results.push({
+            name: entry.name,
+            path: fullPath,
+            isDirectory,
+            isFile: entry.isFile(),
+            size: stats.size,
+            modified: stats.mtimeMs,
+            children,
           });
-        } catch (error) {
-          throw new Error(`Failed to read directory: ${error}`);
+          collected += 1;
+        } catch {
+          // Skip entries we can't access
         }
       }
 
-      return await readDirRecursive(dirPath, depth);
+      // Sort: directories first, then alphabetically
+      return results.sort((a, b) => {
+        if (a.isDirectory && !b.isDirectory) return -1;
+        if (!a.isDirectory && b.isDirectory) return 1;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      });
+    } catch (error) {
+      throw new Error(`Failed to read directory: ${error}`);
+    }
+  }
+
+  return await readDirRecursive(dirPath, depth);
+}
+
+export function setupFileSystemHandlers(ipcMain: IpcMain): void {
+  // Read directory contents. Depth 1 by default: the top level
+  // only, children left undefined for lazy loading on expand.
+  ipcMain.handle(
+    'fs:readDir',
+    async (_, dirPath: string, options?: ReadDirOptions): Promise<FileEntry[]> => {
+      return readDirTree(dirPath, options);
     },
   );
 

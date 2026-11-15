@@ -43,7 +43,7 @@ import { ProfilesScreen } from './components/Profiles/ProfilesScreen';
 import { useProfileStore } from './stores/profileStore';
 import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
-import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, orderTabsForRender } from './stores/splitPaneStore';
+import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, groupTabIds, orderTabsForRender } from './stores/splitPaneStore';
 import { SplitPaneTree } from './components/Terminal/SplitPaneTree';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
@@ -81,7 +81,7 @@ function App() {
   const visibleTabIds = getVisibleTabIds(splitGroups, activeTabId);
   const visibleTabIdSet = new Set(visibleTabIds);
   const isSplitVisible = visibleTabIds.length > 1;
-  const renderTabs = orderTabsForRender(tabs, splitGroups, activeTabId);
+  const renderTabs = orderTabsForRender(tabs, splitGroups);
   // The active tab's split group, when it is split — the tree
   // the terminal view renders (PaneAxis, Atom steal #9). Null
   // when the active tab is not in a group.
@@ -92,6 +92,38 @@ function App() {
   // sized boxes; the flat render wraps it in the h-full div below.
   const terminalForTab = (tab: TerminalTab) => (
     <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} onOpenFiles={() => setCurrentView('editor')} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
+  );
+  // P1 (2026-11-15) — one stable home per tab: a tab's
+  // <Terminal> is a NORMAL child of exactly one wrapper,
+  // and that wrapper never changes parents. A tab in a split
+  // group renders inside its group's tree (the leaf div,
+  // keyed by tab id); a tab in no group renders in its flat
+  // host div. Every group's tree stays mounted while the
+  // group exists — the active one lays out, the rest are
+  // hidden with CSS — so clicking off a split tab and back
+  // never unmounts a pane. The old code swapped two render
+  // branches on isSplitVisible (tree vs flat divs, different
+  // parents), so React unmounted and remounted every pane on
+  // every click off: xterm disposed, scrollback gone, a
+  // running command's output dropped, the draft lost.
+  // Portals were tried first and REJECTED (same day): React
+  // 18 unmounts and remounts a portal's children when its
+  // container changes, so moving a Terminal between a leaf
+  // slot and a host div remounted it exactly like the branch
+  // swap did (proven by a minimal repro: state lost on the
+  // first container change). A portal container must never
+  // change — so there are no portals here at all.
+  // Known limits, both pre-existing (the old branch swap
+  // did the same): joining a group (split) and leaving one
+  // (the final unsplit, when the group dissolves) move the
+  // pane between the tree and its flat host, so that pane's
+  // Terminal remounts — its tab and session survive, but its
+  // xterm scrollback resets. Clicking off a split, closing
+  // a pane, shrinking a group, or switching groups never
+  // remounts anything: the trees and their leaf divs persist
+  // by key.
+  const groupedTabIdSet = new Set(
+    Object.values(splitGroups).flatMap((group) => groupTabIds(group)),
   );
   // Tab detach + remount pushes (Gary, 2026-11-09): tabs/files
   // returning to the main window land here.
@@ -440,6 +472,9 @@ function App() {
           const pending = await detach.getPendingMainTabs();
           for (const { tab, index } of pending) {
             useTerminalStore.getState().addDetachedTab({ ...tab, isActive: true }, index);
+            // A pane popping back rejoins its split at its
+            // recorded position (P3) — no stash, no rejoin.
+            useSplitPaneStore.getState().rejoinDetachedPane(tab.id);
             detach.claimTab(tab.id);
           }
           pendingTabsAdded = pending.length > 0;
@@ -717,55 +752,50 @@ function App() {
 
                   {/* Terminal Container */}
                   <div className="flex-1 flex overflow-hidden">
-                    {/* Terminal — split panes (2026-11-14): the inner
-                        container is a flex row only while a split is
-                        visible; otherwise it renders exactly as
-                        before (one visible tab, the rest hidden). */}
-                    <div className={`flex-1 overflow-hidden${isSplitVisible ? ' flex' : ''}`}>
-                      {bloodDropActive && luciferAiEnabled ? (
-                        // Blood drop tab selected: the blood drop panel,
-                        // not a terminal. The terminals stay mounted
-                        // underneath (hidden), so switching back is
-                        // instant and nothing is lost. Render-gated on
-                        // the plugin being enabled (Gary, 2026-11-09
-                        // ~12:38 PST — the blood drop screen must NOT
-                        // exist when LuciferAI is disabled): the
-                        // effect below only closes the state AFTER a
-                        // render, so without this gate the panel
-                        // flashed for one frame on the toggle itself.
-                        // With the gate, disabling falls back to the
-                        // terminals (or the default create screen when
-                        // there are no tabs) in the same render.
-                        <LuciferAITabPanel />
-                      ) : (
-                        <>
-                      {isSplitVisible && activeGroup ? (
-                        // Split visible: the PaneAxis tree renders
-                        // the visible panes (nested flex, one
-                        // divider per split node); every other tab
-                        // stays mounted but hidden, exactly as the
-                        // flat render did — its PTY keeps running.
-                        <>
-                          <SplitPaneTree
-                            group={activeGroup}
-                            renderPane={(tabId) => {
-                              const tab = tabById.get(tabId);
-                              if (!tab) return null;
-                              return (
-                                <div key={tab.id} className="h-full w-full block min-w-0">
-                                  {terminalForTab(tab)}
-                                </div>
-                              );
-                            }}
-                          />
-                          {renderTabs.filter((tab) => !visibleTabIdSet.has(tab.id)).map((tab) => (
-                            <div key={tab.id} className="hidden">
-                              {terminalForTab(tab)}
-                            </div>
-                          ))}
-                        </>
-                      ) : (
-                        renderTabs.map((tab) => {
+                    {/* Terminal — split panes (2026-11-14) + P1
+                        stable tree (2026-11-15): the inner
+                        container is a flex row only while a split
+                        is visible; otherwise it renders exactly as
+                        before (one visible tab, the rest hidden).
+                        Every group's tree stays mounted while the
+                        group exists — the active one lays out, the
+                        rest are hidden with CSS — and every pane
+                        is a NORMAL child of its tree's leaf div
+                        (keyed by tab id), so clicking off a split
+                        tab never unmounts a pane. Tabs in no group
+                        render in their flat host divs below. The
+                        blood drop panel is a SIBLING, not a branch:
+                        the terminal div is hidden, never unmounted,
+                        while the panel is up — the old ternary
+                        unmounted the whole terminal subtree despite
+                        the comment claiming the terminals stayed
+                        mounted (P1c). */}
+                    <div className={`flex-1 overflow-hidden${isSplitVisible ? ' flex' : ''}${bloodDropActive && luciferAiEnabled ? ' hidden' : ''}`}>
+                      {Object.values(splitGroups).map((group) => {
+                        const isActiveGroup = activeGroup?.id === group.id;
+                        return (
+                          <div
+                            key={group.id}
+                            className={isActiveGroup && isSplitVisible ? 'flex-1 flex min-h-0 min-w-0' : 'hidden'}
+                          >
+                            <SplitPaneTree
+                              group={group}
+                              renderPane={(tabId) => {
+                                const tab = tabById.get(tabId);
+                                if (!tab) return null;
+                                return (
+                                  <div key={tab.id} className="h-full w-full block min-w-0">
+                                    {terminalForTab(tab)}
+                                  </div>
+                                );
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                      {renderTabs
+                        .filter((tab) => !groupedTabIdSet.has(tab.id))
+                        .map((tab) => {
                           const visible = visibleTabIdSet.has(tab.id);
                           return (
                             <div
@@ -775,8 +805,7 @@ function App() {
                               {terminalForTab(tab)}
                             </div>
                           );
-                        })
-                      )}
+                        })}
                       {tabs.length === 0 && (
                         <EmptyTerminalState
                           onCreateTerminal={() => createTab()}
@@ -796,9 +825,23 @@ function App() {
                           onOpenBloodDrop={luciferAiEnabled && !luciferAiSilenced ? () => setBloodDropActive(true) : undefined}
                         />
                       )}
-                        </>
-                      )}
                     </div>
+                    {bloodDropActive && luciferAiEnabled && (
+                      // Blood drop tab selected: the blood drop panel,
+                      // not a terminal. Render-gated on the plugin
+                      // being enabled (Gary, 2026-11-09 ~12:38 PST —
+                      // the blood drop screen must NOT exist when
+                      // LuciferAI is disabled): the effect below only
+                      // closes the state AFTER a render, so without
+                      // this gate the panel flashed for one frame on
+                      // the toggle itself. With the gate, disabling
+                      // falls back to the terminals (or the default
+                      // create screen when there are no tabs) in the
+                      // same render.
+                      <div className="flex-1 overflow-hidden">
+                        <LuciferAITabPanel />
+                      </div>
+                    )}
                   </div>
                 </>
               </div>

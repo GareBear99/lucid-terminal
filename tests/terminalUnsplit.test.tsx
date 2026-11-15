@@ -186,11 +186,12 @@ describe('Terminal: chained unsplit (Gary, 2026-11-15)', () => {
     await screen.findByTestId('xterm-surface');
 
     submitCommand('/unsplit all');
-    await waitForOutput('Unsplit all — close 4 panes? Confirm in the tab bar.');
+    await waitForOutput('Unsplit all — close the other 3 panes? Confirm in the tab bar.');
 
-    // The ask is pending, named with the pane count — and
-    // nothing has been destroyed.
-    expect(useSplitPaneStore.getState().unsplitAllAsk).toEqual({ tabId: a, paneCount: 4 });
+    // The ask is pending — tab id only (P4: the pane count is
+    // derived live by the strip) — and nothing has been
+    // destroyed.
+    expect(useSplitPaneStore.getState().unsplitAllAsk).toEqual({ tabId: a });
     expect(destroyMock).not.toHaveBeenCalled();
     expect(Object.keys(useSplitPaneStore.getState().groups).length).toBe(1);
     expect(useTerminalStore.getState().tabs).toHaveLength(4);
@@ -213,5 +214,81 @@ describe('Terminal: chained unsplit (Gary, 2026-11-15)', () => {
     submitCommand('/unsplit');
     await waitForOutput('Already one terminal — nothing to unsplit.');
     expect(destroyMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('Terminal: /unsplit honesty (P7, P10)', () => {
+  test('/unsplit on a plain tab names the split group open on another tab', async () => {
+    const a = await makeFourPaneSplit();
+    // A plain tab beside the group.
+    const b = await useTerminalStore.getState().createTab();
+    useTerminalStore.getState().setActiveTab(b);
+    render(<Terminal tabId={b} />);
+    await screen.findByTestId('xterm-surface');
+
+    submitCommand('/unsplit');
+    // The message names the other group instead of pretending
+    // no split exists — the pill's title does the same.
+    await waitForOutput('Already one terminal — a split group is open on Terminal 1.');
+    // Nothing destroyed: the group is untouched.
+    expect(destroyMock).not.toHaveBeenCalled();
+    expect(Object.keys(useSplitPaneStore.getState().groups).length).toBe(1);
+    expect(a).toBeDefined();
+  });
+
+  test('/unsplit with no split anywhere is the plain no-op', async () => {
+    const a = await useTerminalStore.getState().createTab();
+    render(<Terminal tabId={a} />);
+    await screen.findByTestId('xterm-surface');
+
+    submitCommand('/unsplit');
+    await waitForOutput('Already one terminal — nothing to unsplit.');
+    expect(destroyMock).not.toHaveBeenCalled();
+  });
+
+  test('/unsplit on an inconsistent tree says so — it never lies "already one terminal"', async () => {
+    const a = await makeFourPaneSplit();
+    // Corrupt the tree by hand: the newest node's second child
+    // is a split node, not a leaf — the defensive guard in
+    // unsplitOneTab fires (the invariant test locks it there).
+    const group = findGroupForTab(useSplitPaneStore.getState().groups, a)!;
+    const newest = group.root.type === 'split' ? group.root : null;
+    expect(newest).not.toBeNull();
+    useSplitPaneStore.setState({
+      groups: {
+        [group.id]: {
+          ...group,
+          root: {
+            type: 'split',
+            id: 'node-99',
+            direction: 'vertical',
+            sizes: [50, 50],
+            first: { type: 'leaf', tabId: a },
+            second: group.root,
+          },
+        },
+      },
+    });
+    render(<Terminal tabId={a} />);
+    await screen.findByTestId('xterm-surface');
+
+    submitCommand('/unsplit');
+    await waitForOutput("Couldn't unsplit — the split tree is inconsistent.");
+    expect(destroyMock).not.toHaveBeenCalled();
+  });
+
+  test('the split pill names the other group in its title when this tab is single-pane', async () => {
+    const a = await makeFourPaneSplit();
+    const b = await useTerminalStore.getState().createTab();
+    useTerminalStore.getState().setActiveTab(b);
+    render(<Terminal tabId={b} />);
+    await screen.findByTestId('xterm-surface');
+
+    const pill = screen.getByTestId('split-toggle-pill');
+    expect(pill.textContent).toBe('Split');
+    expect(pill.getAttribute('title')).toBe(
+      'Split terminal (⌘D) — a split group already exists on Terminal 1',
+    );
+    expect(a).toBeDefined();
   });
 });

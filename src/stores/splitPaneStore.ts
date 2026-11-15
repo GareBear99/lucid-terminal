@@ -32,13 +32,27 @@
  * top-to-bottom) is the visible order and the order the
  * terminal view shows.
  *
+ * DETACH + REJOIN (Gary, 2026-11-15 — the split pair
+ * conjoins until unsplit): detaching a pane's tab out of a
+ * split drops it from the group (the prune subscription
+ * below), but the split store stashes where it sat
+ * (noteDetachedPane, recorded by the detach push listeners
+ * before the tab leaves) and rejoinDetachedPane puts it back
+ * at that exact position — same side, same direction, same
+ * sizes — when the tab pops back in (called from every
+ * addDetachedTab site). If the group dissolved while the pane
+ * was out (a two-pane group), the stash rebuilds it beside
+ * the surviving sibling; if the sibling is gone, the stash
+ * is dropped and the pane stays a normal tab.
+ *
  * Terminal view only: the editor, Files and AI panel never split.
  *
  * MAIN WINDOW ONLY: detached windows (MiniTerminal, `?mini=
  * terminal`) render one tab and show no split control — the split
  * button and ⌘D are main-window only. Detaching a pane's tab out
  * of a split drops it from the group (the prune subscription
- * below); popping it back in returns it as a normal tab.
+ * below) and stashes its position (see DETACH + REJOIN above);
+ * popping it back in rejoins it at that position.
  *
  * FOCUS follows the clicked pane: Terminal.tsx's root mousedown
  * makes a visible-but-inactive pane the active tab, so its
@@ -121,6 +135,26 @@ export interface SplitGroup {
   root: SplitNode;
 }
 
+/**
+ * Where a detached pane sat (P3): everything rejoin needs
+ * to put it back at its recorded position. `siblingLeafIds`
+ * are the other child's leaves in visible order (one id
+ * when the sibling is a single pane); `siblingNodeId` is
+ * the other child's node id when it is a split node
+ * (a subtree), else null. `side` is which side of the
+ * parent node the detached pane occupied; `direction` and
+ * `sizes` are the parent node's, so the rejoin restores the
+ * exact proportions. Module-level, like the guest stash —
+ * session-only, never persisted.
+ */
+export interface DetachedPaneStash {
+  siblingLeafIds: string[];
+  siblingNodeId: string | null;
+  side: 'first' | 'second';
+  direction: SplitDirection;
+  sizes: [number, number];
+}
+
 export interface SplitPaneState {
   /** Groups by id. A tab is in at most one group. */
   groups: Record<string, SplitGroup>;
@@ -190,8 +224,15 @@ export interface SplitPaneState {
    * state. Per window (each window owns its own store
    * instance); a detached window can never hold one,
    * because nothing there can create a split.
+   *
+   * The ask stores ONLY the tab id (P4, 2026-11-15): the
+   * pane count is derived live by the strip at render
+   * time, so the ask can never go stale — a group that
+   * shrank, dissolved, or was replaced while the dialog
+   * sat open shows its live count, and an ask whose group
+   * is gone does not show at all.
    */
-  unsplitAllAsk: { tabId: string; paneCount: number } | null;
+  unsplitAllAsk: { tabId: string } | null;
   /**
    * Ask before collapsing all of a tab's group: stage the
    * close ask (the strip shows it; nothing is destroyed
@@ -201,9 +242,28 @@ export interface SplitPaneState {
   requestUnsplitAll: (tabId: string) => void;
   /** Dismiss the pending collapse-all ask — keep every pane. */
   dismissUnsplitAllAsk: () => void;
-  /** Confirm the pending collapse-all ask — run
-   *  unsplitAllTabs on the asked tab and clear the ask. */
+  /**
+   * Confirm the pending collapse-all ask — run
+   * unsplitAllTabs on the asked tab and clear the ask.
+   * Re-validates first: an ask whose group dissolved or
+   * shrank below two panes while it sat open is a no-op
+   * (the strip hides it; this is the belt to its braces).
+   */
   confirmUnsplitAll: () => void;
+  /**
+   * Record where a pane sat before it is detached
+   * (P3): the detach push listeners call this before the
+   * tab leaves, so the prune subscription's collapse does
+   * not lose the position. A tab in no group is a no-op.
+   */
+  noteDetachedPane: (tabId: string) => void;
+  /**
+   * Put a popped-back pane back into its split (P3): the
+   * addDetachedTab sites call this right after the tab
+   * lands. No stash, or no live sibling, is a no-op — the
+   * pane stays a normal tab.
+   */
+  rejoinDetachedPane: (tabId: string) => void;
   /** Focus a pane — the tab strip's setActiveTab. */
   focusPane: (tabId: string) => void;
   /** Set one split node's sizes (divider drag). The sizes must
@@ -330,28 +390,43 @@ export function getVisibleTabIds(
 }
 
 /**
- * Render order for App.tsx's tab map: the visible panes first, in
- * group order (a group's order is the split order, which can
- * differ from strip order when a middle pane is split again),
- * then every other tab in strip order (they render hidden, so
- * their order is invisible). With no split this returns the tabs
- * unchanged.
+ * Render order for App.tsx's tab map (P11, 2026-11-15):
+ * EVERY split group's leaves first (group order is the
+ * split order, which can differ from strip order when a
+ * middle pane is split again), then every other tab in
+ * strip order. Groups are ordered by their first leaf's
+ * strip position. The order depends only on the groups and
+ * the strip — never on which tab is active — so clicking
+ * off a split tab and back never reshuffles the strip (the
+ * old rule put only the ACTIVE tab's group first, so ⌘1–⌘9
+ * retargeted on every click off and back). With no split
+ * this returns the tabs unchanged.
  */
 export function orderTabsForRender(
   tabs: TerminalTab[],
   groups: Record<string, SplitGroup>,
-  activeTabId: string | null,
 ): TerminalTab[] {
-  const visible = getVisibleTabIds(groups, activeTabId);
-  if (visible.length < 2) return tabs;
+  if (Object.keys(groups).length === 0) return tabs;
   const byId = new Map(tabs.map((t) => [t.id, t]));
+  const stripIndex = new Map(tabs.map((t, i) => [t.id, i]));
   const ordered: TerminalTab[] = [];
-  for (const id of visible) {
-    const tab = byId.get(id);
-    if (tab) ordered.push(tab);
+  const seen = new Set<string>();
+  const groupsInStripOrder = Object.values(groups).sort((a, b) => {
+    const aFirst = splitNodeTabIds(a.root)[0];
+    const bFirst = splitNodeTabIds(b.root)[0];
+    return (stripIndex.get(aFirst) ?? 0) - (stripIndex.get(bFirst) ?? 0);
+  });
+  for (const group of groupsInStripOrder) {
+    for (const id of groupTabIds(group)) {
+      const tab = byId.get(id);
+      if (tab && !seen.has(id)) {
+        ordered.push(tab);
+        seen.add(id);
+      }
+    }
   }
   for (const tab of tabs) {
-    if (!visible.includes(tab.id)) ordered.push(tab);
+    if (!seen.has(tab.id)) ordered.push(tab);
   }
   return ordered;
 }
@@ -389,6 +464,44 @@ export function removeLeaf(node: SplitNode, tabId: string): SplitNode | null {
   if (second === null) return node.first;
   if (first === node.first && second === node.second) return node;
   return { ...node, first, second };
+}
+
+/**
+ * Tree surgery (pure, exported for tests). Replace the split
+ * node with `nodeId` by `replacement`, returning a new tree —
+ * the old tree is never mutated. The rejoin path uses it to
+ * put a detached pane back beside a whole subtree (the
+ * sibling the pane sat next to), where replaceLeaf can only
+ * target one leaf. Returns the node unchanged when the id is
+ * not under it, and a leaf unchanged.
+ */
+export function replaceSplitNode(
+  node: SplitNode,
+  nodeId: string,
+  replacement: SplitNode,
+): SplitNode {
+  if (node.type === 'split' && node.id === nodeId) return replacement;
+  if (node.type === 'leaf') return node;
+  const first = replaceSplitNode(node.first, nodeId, replacement);
+  const second = replaceSplitNode(node.second, nodeId, replacement);
+  if (first === node.first && second === node.second) return node;
+  return { ...node, first, second };
+}
+
+/**
+ * The parent split node of the leaf holding `tabId`, with
+ * which side the leaf sits on (pure, exported for tests).
+ * Null when the tab is not a leaf under a split node (the
+ * tree is a single leaf). The detach stash reads it.
+ */
+export function findParentSplitNode(
+  node: SplitNode,
+  tabId: string,
+): { node: Extract<SplitNode, { type: 'split' }>; side: 'first' | 'second' } | null {
+  if (node.type === 'leaf') return null;
+  if (node.first.type === 'leaf' && node.first.tabId === tabId) return { node, side: 'first' };
+  if (node.second.type === 'leaf' && node.second.tabId === tabId) return { node, side: 'second' };
+  return findParentSplitNode(node.first, tabId) ?? findParentSplitNode(node.second, tabId);
 }
 
 /** The numeric part of a split node id (`node-12` → 12). */
@@ -530,6 +643,9 @@ export function pruneSplitNode(node: SplitNode, liveIds: Set<string>): SplitNode
 let groupCounter = 0;
 let nodeCounter = 0;
 
+/** Detached-pane positions (P3): keyed by the detached tab id. */
+let detachedPanes: Record<string, DetachedPaneStash> = {};
+
 export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
   groups: {},
 
@@ -540,6 +656,36 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     // terminal starts where this terminal is. createTab makes
     // the new tab active, so focus follows the new pane.
     const newId = await useTerminalStore.getState().createTab(source.cwd);
+    // The source can die while createTab awaits (its PTY is
+    // created in main; the user can × the source tab, or a
+    // bulk close can take it, before this resumes). Writing
+    // the node then would leave a dead leaf — a blank
+    // half-pane with no session (P6, 2026-11-15). Re-check
+    // both tabs synchronously: if the source is gone, the
+    // new tab is an orphan the user never asked for, so it
+    // is closed and the split is a no-op; if the new tab is
+    // gone, there is nothing to group. The check-then-set is
+    // synchronous, so nothing can interleave between it and
+    // the write below.
+    // The source's id alone is NOT enough: closeTab frees
+    // the tab number synchronously, so a source that died
+    // mid-flight has its number reused by a later tab — and
+    // an id-liveness check alone would pass with a node
+    // holding the same id twice. A new tab can never take a
+    // live tab's id (its number is in use), so newId ===
+    // tabId proves the source died. (createTab reserves its
+    // number synchronously before the await, so the reuse
+    // cannot happen through this path today — the guard
+    // stays as the belt to the liveness check's braces,
+    // because the hazard is real if that order ever changes.)
+    const live = useTerminalStore.getState().tabs;
+    if (newId === tabId || !live.some((t) => t.id === tabId)) {
+      if (live.some((t) => t.id === newId)) {
+        useTerminalStore.getState().closeTab(newId);
+      }
+      return null;
+    }
+    if (!live.some((t) => t.id === newId)) return null;
     set((state) => {
       nodeCounter += 1;
       const node: SplitNode = {
@@ -670,7 +816,10 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     if (!group) return;
     const paneCount = groupTabIds(group).length;
     if (paneCount < 2) return;
-    set({ unsplitAllAsk: { tabId, paneCount } });
+    // The ask stores only the tab id — the pane count is
+    // derived live by the strip (P4), so it can never go
+    // stale while the dialog sits open.
+    set({ unsplitAllAsk: { tabId } });
   },
 
   dismissUnsplitAllAsk: () => {
@@ -681,7 +830,115 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     const ask = get().unsplitAllAsk;
     if (!ask) return;
     set({ unsplitAllAsk: null });
+    // Re-validate: the group may have dissolved or shrunk
+    // below two panes while the ask sat open (P4) — then
+    // there is nothing to collapse, and the ask is simply
+    // gone. The strip hides the ask in the same case, so
+    // this is the belt to its braces.
+    const group = findGroupForTab(get().groups, ask.tabId);
+    if (!group || groupTabIds(group).length < 2) return;
     get().unsplitAllTabs(ask.tabId);
+  },
+
+  noteDetachedPane: (tabId) => {
+    const group = findGroupForTab(get().groups, tabId);
+    if (!group) return;
+    const parent = findParentSplitNode(group.root, tabId);
+    if (!parent) return;
+    const sibling = parent.side === 'first' ? parent.node.second : parent.node.first;
+    detachedPanes[tabId] = {
+      siblingLeafIds: splitNodeTabIds(sibling),
+      siblingNodeId: sibling.type === 'split' ? sibling.id : null,
+      side: parent.side,
+      direction: parent.node.direction,
+      sizes: [...parent.node.sizes] as [number, number],
+    };
+  },
+
+  rejoinDetachedPane: (tabId) => {
+    const stash = detachedPanes[tabId];
+    if (!stash) return;
+    // Consumed on first attempt — a stale stash must never
+    // rejoin a later tab that reused the id.
+    delete detachedPanes[tabId];
+    const state = get();
+    if (findGroupForTab(state.groups, tabId)) return;
+    const live = useTerminalStore.getState().tabs;
+    if (!live.some((t) => t.id === tabId)) return;
+    // A live sibling leaf decides where the pane lands:
+    // the first recorded sibling leaf still in a group wins
+    // (its group is the one to rejoin); with no group, the
+    // first live sibling leaf is the one to rebuild beside.
+    let group: SplitGroup | null = null;
+    let siblingLeafId: string | null = null;
+    for (const id of stash.siblingLeafIds) {
+      const g = findGroupForTab(state.groups, id);
+      if (g) {
+        group = g;
+        siblingLeafId = id;
+        break;
+      }
+    }
+    if (!group) {
+      siblingLeafId = stash.siblingLeafIds.find((id) => live.some((t) => t.id === id)) ?? null;
+    }
+    if (!siblingLeafId) return;
+    const detachedLeaf: SplitNode = { type: 'leaf', tabId };
+    const siblingLeaf: SplitNode = { type: 'leaf', tabId: siblingLeafId };
+    nodeCounter += 1;
+    const node: SplitNode = {
+      type: 'split',
+      id: `node-${nodeCounter}`,
+      direction: stash.direction,
+      sizes: stash.sizes,
+      first: stash.side === 'first' ? detachedLeaf : siblingLeaf,
+      second: stash.side === 'first' ? siblingLeaf : detachedLeaf,
+    };
+    if (group) {
+      // The sibling sat beside a whole subtree: put the pane
+      // back beside that subtree, at the recorded position,
+      // with the recorded proportions. When the subtree is
+      // gone (it collapsed while the pane was out), fall back
+      // to rejoining beside the sibling leaf itself — the pane
+      // lands next to its sibling, the group intact, no
+      // session lost.
+      const groupId = group.id;
+      const leafId = siblingLeafId;
+      if (!leafId) return;
+      const siblingNodeId = stash.siblingNodeId;
+      set((s) => {
+        const current = s.groups[groupId];
+        if (!current) return s;
+        let root = current.root;
+        let replacement: SplitNode = node;
+        if (siblingNodeId) {
+          const subtree = findSplitNode(current, siblingNodeId);
+          if (subtree) {
+            replacement = {
+              ...node,
+              first: stash.side === 'first' ? detachedLeaf : subtree,
+              second: stash.side === 'first' ? subtree : detachedLeaf,
+            };
+            root = replaceSplitNode(root, siblingNodeId, replacement);
+          } else {
+            root = replaceLeaf(root, leafId, node);
+          }
+        } else {
+          root = replaceLeaf(root, leafId, node);
+        }
+        if (root === current.root) return s;
+        return { groups: { ...s.groups, [groupId]: { ...current, root } } };
+      });
+      return;
+    }
+    // The group dissolved while the pane was out (the
+    // two-pane case): rebuild it beside the surviving
+    // sibling, at the recorded position and proportions.
+    groupCounter += 1;
+    const id = `split-${groupCounter}`;
+    set((s) => ({
+      groups: { ...s.groups, [id]: { id, root: node } },
+    }));
   },
 
   focusPane: (tabId) => {
@@ -729,6 +986,7 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
   resetForTests: () => {
     groupCounter = 0;
     nodeCounter = 0;
+    detachedPanes = {};
     stashedGroups = null;
     guestWasActive = useHistoryStore.getState().guestSessionActive;
     set({ groups: {}, unsplitAllAsk: null });
@@ -759,6 +1017,14 @@ useTerminalStore.subscribe((state) => {
     next[id] = root === group.root ? group : { ...group, root };
   }
   if (changed) useSplitPaneStore.setState({ groups: next });
+  // A detach stash whose sibling leaves are all gone can
+  // never rejoin (P3): drop it, so a later tab reusing the
+  // id is never rejoined into a group it never sat in.
+  for (const [tabId, stash] of Object.entries(detachedPanes)) {
+    if (!stash.siblingLeafIds.some((id) => liveIds.has(id))) {
+      delete detachedPanes[tabId];
+    }
+  }
 });
 
 // A guest session veiling in stashes the split groups and clears
@@ -778,9 +1044,13 @@ useHistoryStore.subscribe((state) => {
   guestWasActive = guestActive;
   if (guestActive) {
     stashedGroups = useSplitPaneStore.getState().groups;
-    if (Object.keys(stashedGroups).length > 0) {
-      useSplitPaneStore.setState({ groups: {} });
-    }
+    // A pending collapse-all ask does not survive a guest
+    // enter (P4): the guest starts with a single pane, and
+    // the ask's group is stashed with the rest.
+    const patch: { groups?: Record<string, SplitGroup>; unsplitAllAsk?: null } = {};
+    if (Object.keys(stashedGroups).length > 0) patch.groups = {};
+    if (useSplitPaneStore.getState().unsplitAllAsk) patch.unsplitAllAsk = null;
+    if (Object.keys(patch).length > 0) useSplitPaneStore.setState(patch);
   } else if (stashedGroups !== null) {
     const liveIds = new Set(useTerminalStore.getState().tabs.map((t) => t.id));
     const restored: Record<string, SplitGroup> = {};
@@ -791,6 +1061,6 @@ useHistoryStore.subscribe((state) => {
       }
     }
     stashedGroups = null;
-    useSplitPaneStore.setState({ groups: restored });
+    useSplitPaneStore.setState({ groups: restored, unsplitAllAsk: null });
   }
 });

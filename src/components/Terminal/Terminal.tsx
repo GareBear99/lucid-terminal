@@ -9,7 +9,7 @@ import { useHistoryStore, EMPTY_BLOCKS } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
 import { useModalStore } from '../../stores/modalStore';
 import { usePlanStore } from '../../stores/planStore';
-import { useSplitPaneStore, getVisibleTabIds } from '../../stores/splitPaneStore';
+import { useSplitPaneStore, getVisibleTabIds, findGroupForTab, groupTabIds } from '../../stores/splitPaneStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useProfileStore } from '../../stores/profileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
@@ -1025,16 +1025,38 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
           return;
         }
         useSplitPaneStore.getState().requestUnsplitAll(tabId);
+        const others = visible.length - 1;
         await write(
-          `Unsplit all — close ${visible.length} panes? Confirm in the tab bar.`,
+          `Unsplit all — close the other ${others} ${others === 1 ? 'pane' : 'panes'}? Confirm in the tab bar.`,
         );
         return;
       }
-      const wasSplit =
-        getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1;
+      // The group on THIS tab decides the message (P7, P10,
+      // 2026-11-15): no group here is "already one terminal"
+      // — and when a split group is open on ANOTHER tab, the
+      // message says so, instead of pretending no split
+      // exists. A group here whose unsplit hits the defensive
+      // guard is a different failure ("couldn't unsplit"), not
+      // a no-op lie — the guard means the tree is
+      // inconsistent, and the message must say so.
+      const groups = useSplitPaneStore.getState().groups;
+      const group = findGroupForTab(groups, tabId);
+      if (!group) {
+        const otherGroup = Object.values(groups)[0];
+        const otherTabId = otherGroup ? groupTabIds(otherGroup)[0] : null;
+        const otherTitle = otherTabId
+          ? (useTerminalStore.getState().tabs.find((t) => t.id === otherTabId)?.title ?? otherTabId)
+          : null;
+        await write(
+          otherTitle
+            ? `Already one terminal — a split group is open on ${otherTitle}.`
+            : 'Already one terminal — nothing to unsplit.',
+        );
+        return;
+      }
       const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
-      if (!wasSplit || removed === null) {
-        await write('Already one terminal — nothing to unsplit.');
+      if (removed === null) {
+        await write("Couldn't unsplit — the split tree is inconsistent.");
         return;
       }
       const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
@@ -2110,6 +2132,19 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // terminal panes, session-only, dropped on exit).
   const splitGroups = useSplitPaneStore((s) => s.groups);
   const splitVisible = getVisibleTabIds(splitGroups, tabId).length > 1;
+  // The pill is honest about groups on OTHER tabs (P7,
+  // 2026-11-15): when this tab is single-pane but a split
+  // group is open elsewhere, the pill's title says so —
+  // pressing it still starts a second group (multiple groups
+  // are legitimate, one per tab), but never silently.
+  const otherSplitGroupTabTitle = (() => {
+    if (splitVisible) return null;
+    const otherGroup = Object.values(splitGroups)[0];
+    if (!otherGroup) return null;
+    const otherTabId = groupTabIds(otherGroup)[0];
+    if (!otherTabId) return null;
+    return useTerminalStore.getState().tabs.find((t) => t.id === otherTabId)?.title ?? otherTabId;
+  })();
   const handleToggleSplit = () => {
     if (getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1) {
       useSplitPaneStore.getState().unsplitOneTab(tabId);
@@ -2645,6 +2680,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
               }
               drivingAgentPickerDisabled={isGuest}
               splitVisible={splitVisible}
+              otherSplitGroupTabTitle={otherSplitGroupTabTitle}
               onToggleSplit={handleToggleSplit}
             />
             {/* The non-devmode composer no longer sits below this

@@ -15,6 +15,7 @@
  */
 import { useEffect } from 'react';
 import { useTerminalStore } from '../stores/terminalStore';
+import { useSplitPaneStore } from '../stores/splitPaneStore';
 import { useFileStore } from '../stores/fileStore';
 
 export function useDetachPushListeners(): void {
@@ -26,12 +27,20 @@ export function useDetachPushListeners(): void {
       cleanups.push(
         detach.onTabAdded((tab, index) => {
           useTerminalStore.getState().addDetachedTab({ ...tab, isActive: true }, index);
+          // A pane pushed back in rejoins its split at its
+          // recorded position (P3) — no stash, no rejoin.
+          useSplitPaneStore.getState().rejoinDetachedPane(tab.id);
           detach.claimTab(tab.id);
         }),
         detach.onTabRemoved((id) => {
+          // Record where the pane sat BEFORE it leaves (P3):
+          // the prune subscription collapses the group the
+          // moment the tab is gone, and the position with it.
+          useSplitPaneStore.getState().noteDetachedPane(id);
           useTerminalStore.getState().detachTab(id);
         }),
         detach.onTabDetached((id) => {
+          useSplitPaneStore.getState().noteDetachedPane(id);
           useTerminalStore.getState().detachTab(id);
         }),
         detach.onReleaseNumber((id) => {

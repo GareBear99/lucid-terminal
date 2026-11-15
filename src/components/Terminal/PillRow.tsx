@@ -95,6 +95,15 @@ interface PillRowProps {
   /** A split is visible for this tab (more than one pane) —
    *  the split pill renders "Unsplit" + active styling. */
   splitVisible?: boolean;
+  /**
+   * A split group open on ANOTHER tab (P7, 2026-11-15):
+   * the tab's title, or null. When this tab is single-pane
+   * and a group exists elsewhere, the split pill's title
+   * says so — pressing it still starts a second group
+   * (multiple groups are legitimate, one per tab), but
+   * never silently.
+   */
+  otherSplitGroupTabTitle?: string | null;
   /** Toggle the split for this tab (split when single-pane,
    *  unsplit when split). Absent = no split pill — the parent
    *  passes no handler in a detached window, where splits
@@ -116,6 +125,7 @@ export function PillRow({
   onPickDrivingAgent,
   drivingAgentPickerDisabled = false,
   splitVisible = false,
+  otherSplitGroupTabTitle = null,
   onToggleSplit,
 }: PillRowProps) {
   const [copiedCwd, setCopiedCwd] = useState(false);
@@ -198,7 +208,9 @@ export function PillRow({
           title={
             splitVisible
               ? 'Unsplit — undo the last split'
-              : 'Split terminal (⌘D)'
+              : otherSplitGroupTabTitle
+                ? `Split terminal (⌘D) — a split group already exists on ${otherSplitGroupTabTitle}`
+                : 'Split terminal (⌘D)'
           }
           aria-label={splitVisible ? 'Unsplit panes' : 'Split panes'}
           className={

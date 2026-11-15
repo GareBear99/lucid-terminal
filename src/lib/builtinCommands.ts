@@ -318,8 +318,9 @@ export function registerBuiltinCommands(
   registry.register({
     id: 'terminal:unsplit',
     title: 'Unsplit Terminal',
-    description: 'Undo the last split (the /unsplit command)',
+    description: 'Undo the last split (the /unsplit command, ⌘U)',
     tags: ['unsplit', 'pane', 'terminal'],
+    keybinding: '⌘U',
     when: inTerminal,
     run: () => {
       const tabId = useTerminalStore.getState().activeTabId;

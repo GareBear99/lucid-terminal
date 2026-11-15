@@ -38,8 +38,8 @@ import { usePlanStore, type Plan } from '../src/stores/planStore';
 import { useAIStore } from '../src/stores/aiStore';
 import { useHistoryStore } from '../src/stores/historyStore';
 import { useProfileStore, type Profile } from '../src/stores/profileStore';
-import { useEventLogStore } from '../src/stores/eventLogStore';
-import { createEvent } from '../src/lib/eventLog';
+import { useEventLogStore, eventRing } from '../src/stores/eventLogStore';
+import { createEvent, EVENT_RING_CAPACITY } from '../src/lib/eventLog';
 import { issueAiChatTick, resetAiChatTickChannel } from '../src/lib/aiChatTicks';
 import type { TerminalBlock, ChatSession } from '../src/types';
 
@@ -236,6 +236,36 @@ describe('Memory tab', () => {
     expect(tick.textContent).toContain('latest: tick 3 · chat chat-1');
     expect(event.textContent).toContain('4.0/s in');
     expect(event.textContent).toContain('latest: two');
+  });
+
+  it('the tick stream shows WHICH producer was refused, most-refused first', () => {
+    // Fill the event ring directly, then refuse through the store.
+    for (let i = 0; i < EVENT_RING_CAPACITY; i++) {
+      eventRing.enqueue(
+        createEvent({
+          phase: 'throughout',
+          type: 'file.directory-read',
+          what: `fill ${i}`,
+          at: NOW + i,
+        }),
+      );
+    }
+    useEventLogStore.getState().logDirectoryRead('/tmp/overflow-1', 'completed');
+    useEventLogStore.getState().logDirectoryRead('/tmp/overflow-2', 'completed');
+    useEventLogStore.getState().logPermissionRequest('microphone', 'granted');
+    render(<MemoryTab />);
+    const event = screen.getByTestId('memory-ring-event');
+    expect(event.textContent).toContain('refused 3');
+    const refusedBy = screen.getByTestId('memory-ring-event-refused-by');
+    expect(refusedBy.textContent).toContain('file.directory-read ×2');
+    expect(refusedBy.textContent).toContain('permission.prompt ×1');
+    // Most-refused first.
+    expect(refusedBy.textContent!.indexOf('file.directory-read')).toBeLessThan(
+      refusedBy.textContent!.indexOf('permission.prompt'),
+    );
+    // No refused-by line on the tick channel — it has one
+    // producer (tick issuance), so there is nothing to break down.
+    expect(screen.queryByTestId('memory-ring-tick-refused-by')).toBeNull();
   });
 
   it('Download memory exports the profile (Blob, Settings export pattern)', () => {

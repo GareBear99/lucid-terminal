@@ -39,7 +39,8 @@
  * lock-freedom (one thread) or blocking backpressure (the
  * producer cannot block the event loop). When the ring is
  * full, `issueAiChatTick` returns false and the refusal is
- * COUNTED (`aiChatTickRefusedCount`) — the tick itself is
+ * COUNTED — by the ring itself (`aiChatTickRing.counts()`),
+ * so no wrapper can forget to count it — the tick itself is
  * NOT lost: it is already stamped on the message (the
  * message is the tick's durable home; the ring is the
  * bounded transport the tick passed through on its way to
@@ -93,20 +94,18 @@ export const AI_CHAT_TICK_RECENT_LIMIT = 50;
  */
 export const aiChatTickRing = new SpscRing<AiChatTick>(AI_CHAT_TICK_RING_CAPACITY);
 
-/** Ticks refused by ring backpressure (ring full). Counted,
- *  never silent. */
-let refusedCount = 0;
-
 /**
- * Cumulative ticks accepted into the ring since the channel
- * started, and cumulative ticks drained out of it (Memory tab,
- * 2026-11-14: the live tick-stream view's per-second rates are
- * measured from these counters' deltas — the ring itself has
- * no rate, only a depth. Counts only, no timing; the view
- * does the timing. Reset with the channel (test/support only).
+ * Cumulative counts are owned by the ring (ring update,
+ * 2026-11-14 — `SpscRing.counts()`): accepted into the ring,
+ * drained out of it, refused by backpressure. This module
+ * surfaces them (`aiChatTickCounts()`), it does not keep its
+ * own — the count happens in `enqueue`, where the refusal
+ * happens. The Memory tab's live tick-stream view measures
+ * per-second rates from these counters' deltas — the ring
+ * itself has no rate, only a depth. Counts only, no timing;
+ * the view does the timing. Reset with the channel (test /
+ * support only).
  */
-let acceptedCount = 0;
-let drainedCount = 0;
 
 /** The consumer's output: drained ticks in FIFO (causal)
  *  order, oldest first, capped at AI_CHAT_TICK_RECENT_LIMIT. */
@@ -147,12 +146,10 @@ export function issueAiChatTick(
   if (messageId === undefined) return false;
   const record: AiChatTick = { sessionId, messageId, tick, at: Date.now() };
   if (!aiChatTickRing.enqueue(record)) {
-    // Backpressure: do NOT drop silently. Count it and tell
-    // the caller with false.
-    refusedCount += 1;
+    // Backpressure: do NOT drop silently. The ring counted
+    // the refusal; tell the caller with false.
     return false;
   }
-  acceptedCount += 1;
   scheduleDrain();
   return true;
 }
@@ -175,7 +172,6 @@ export function takeAiChatTick(): AiChatTick | undefined {
 export function drainAiChatTicks(): AiChatTick[] {
   const drained = aiChatTickRing.drain();
   if (drained.length === 0) return drained;
-  drainedCount += drained.length;
   // FIFO (causal) order, oldest first, capped — the oldest
   // tick falls off the window when it is full (it is still
   // on its message; the window is a view, not storage).
@@ -189,9 +185,9 @@ export function getRecentAiChatTicks(): AiChatTick[] {
   return [...recentTicks];
 }
 
-/** Ticks refused by backpressure so far. */
+/** Ticks refused by backpressure so far (the ring's count). */
 export function aiChatTickRefusedCount(): number {
-  return refusedCount;
+  return aiChatTickRing.counts().refused;
 }
 
 /**
@@ -199,13 +195,14 @@ export function aiChatTickRefusedCount(): number {
  * (Memory tab, 2026-11-14): accepted into the ring, drained
  * out of it, refused by backpressure. The view measures
  * per-second rates from successive reads of these counters.
+ * The counts come from the ring itself.
  */
 export function aiChatTickCounts(): {
   accepted: number;
   drained: number;
   refused: number;
 } {
-  return { accepted: acceptedCount, drained: drainedCount, refused: refusedCount };
+  return aiChatTickRing.counts();
 }
 
 /**
@@ -239,9 +236,7 @@ export function publishNewTicks(
  *  channel (ticks are history). */
 export function resetAiChatTickChannel(): void {
   aiChatTickRing.drain();
+  aiChatTickRing.resetCounts();
   recentTicks = [];
-  refusedCount = 0;
-  acceptedCount = 0;
-  drainedCount = 0;
   drainScheduled = false;
 }

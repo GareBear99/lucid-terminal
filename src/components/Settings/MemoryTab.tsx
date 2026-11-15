@@ -32,7 +32,10 @@
  *   counters' deltas (see ringStats.ts) — nothing is
  *   hardcoded, and Gary's recollection ("15k/s from a 1.8M
  *   run") is unverified, so the view shows whatever the
- *   counters actually measure.
+ *   counters actually measure. The event channel also shows
+ *   WHICH producer the refusals came from, by event type —
+ *   a flooded producer is visible, not hidden behind the
+ *   channel total (ring update, 2026-11-14).
  *
  * GUEST — the blank-slate rule holds: a guest has no memory.
  * In guest the memory sections show the empty state only:
@@ -83,6 +86,10 @@ interface ChannelLive {
   accepted: number;
   drained: number;
   refused: number;
+  /** Top refused producers (event channel only — the tick
+   *  channel has one producer, tick issuance, so it has no
+   *  breakdown). Most-refused first, at most 3. */
+  refusedBy: { label: string; count: number }[];
   acceptedPerSec: number;
   drainedPerSec: number;
   latest: string | null;
@@ -94,6 +101,7 @@ interface RawChannel {
   accepted: number;
   drained: number;
   refused: number;
+  refusedBy: { label: string; count: number }[];
   latest: string | null;
 }
 
@@ -103,6 +111,14 @@ function readChannels(): { event: RawChannel; tick: RawChannel } {
   const recentTicks = getRecentAiChatTicks();
   const lastTick = recentTicks[recentTicks.length - 1];
   const lastEvent = eventState.events[0];
+  // The flooded producer, most-refused first (top 3) — the
+  // per-type refusal map the store keeps. A type absent from
+  // the map was never refused.
+  const refusedBy = Object.entries(eventState.refusedByType)
+    .map(([label, count]) => ({ label, count: count ?? 0 }))
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
   return {
     event: {
       capacity: EVENT_RING_CAPACITY,
@@ -110,6 +126,7 @@ function readChannels(): { event: RawChannel; tick: RawChannel } {
       accepted: eventState.acceptedCount,
       drained: eventState.drainedCount,
       refused: eventState.refusedCount,
+      refusedBy,
       latest: lastEvent ? lastEvent.what : null,
     },
     tick: {
@@ -118,6 +135,7 @@ function readChannels(): { event: RawChannel; tick: RawChannel } {
       accepted: tickCounts.accepted,
       drained: tickCounts.drained,
       refused: tickCounts.refused,
+      refusedBy: [],
       latest: lastTick
         ? `tick ${lastTick.tick} · chat ${lastTick.sessionId.slice(0, 12)}`
         : null,
@@ -140,6 +158,7 @@ function toLive(
     accepted: raw.accepted,
     drained: raw.drained,
     refused: raw.refused,
+    refusedBy: raw.refusedBy,
     acceptedPerSec: computeRatePerSec(
       prev ? { count: prev.accepted, atMs: prev.atMs } : null,
       { count: raw.accepted, atMs: nowMs },
@@ -538,6 +557,17 @@ export function MemoryTab() {
                   {ch.refused}
                 </span>
               </div>
+              {ch.refusedBy.length > 0 && (
+                <p
+                  data-testid={`memory-ring-${ch.id}-refused-by`}
+                  className="mt-1 text-xs text-[var(--text-muted)] truncate"
+                >
+                  refused by:{' '}
+                  {ch.refusedBy
+                    .map((r) => `${r.label} ×${r.count}`)
+                    .join(' · ')}
+                </p>
+              )}
               <div
                 className="mt-2 h-1.5 rounded bg-[var(--bg-primary)] overflow-hidden"
                 aria-label={`${ch.label} ring depth ${ch.inFlight} of ${ch.capacity}`}

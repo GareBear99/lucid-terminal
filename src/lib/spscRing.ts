@@ -35,6 +35,16 @@
  *   runaway producer cannot pile events up without limit —
  *   the ring refuses past capacity instead of growing.
  *
+ * COUNTS BY CONSTRUCTION (ring update, 2026-11-14): the ring
+ * counts every accept, every refusal, and every drain
+ * itself — `counts()` is the single source of truth, and the
+ * channels (event log, AI chat ticks) surface the ring's
+ * counts instead of keeping their own. No wrapper can forget
+ * to count a refusal: the count happens in `enqueue`, where
+ * the refusal happens. Reset with `resetCounts()` — the
+ * channels reset the counts when they reset (clear / test
+ * reset), never in normal operation.
+ *
  * Pure, no dependencies, unit-testable in Node.
  */
 export class SpscRing<T> {
@@ -47,6 +57,14 @@ export class SpscRing<T> {
   private head = 0;
   /** Producer-owned: the next slot to write. */
   private tail = 0;
+  /** Cumulative counts, owned by the ring (see the header):
+   *  accepted into the ring, refused by backpressure, and
+   *  drained out of it. The ring counts them where they
+   *  happen, so the channels surface them instead of keeping
+   *  their own. */
+  private accepted = 0;
+  private refused = 0;
+  private drained = 0;
 
   constructor(capacity: number) {
     if (!Number.isInteger(capacity) || capacity < 1) {
@@ -73,12 +91,17 @@ export class SpscRing<T> {
    * Producer: write one item. Returns true when accepted.
    * Returns FALSE (backpressure) when the ring is full — the
    * item is NOT stored and NOT dropped silently; the caller
-   * is told and must handle the refusal.
+   * is told and must handle the refusal. Either way the
+   * attempt is counted (accepted or refused).
    */
   enqueue(item: T): boolean {
-    if (this.isFull) return false;
+    if (this.isFull) {
+      this.refused += 1;
+      return false;
+    }
     this.buffer[this.tail] = item;
     this.tail = (this.tail + 1) % this.buffer.length;
+    this.accepted += 1;
     return true;
   }
 
@@ -93,6 +116,7 @@ export class SpscRing<T> {
     // slot is reusable — the buffer never grows.
     this.buffer[this.head] = undefined;
     this.head = (this.head + 1) % this.buffer.length;
+    this.drained += 1;
     return item;
   }
 
@@ -104,5 +128,26 @@ export class SpscRing<T> {
       if (item !== undefined) out.push(item);
     }
     return out;
+  }
+
+  /**
+   * Cumulative counts for the live tick-stream view: accepted
+   * into the ring, refused by backpressure, drained out of
+   * it. The view measures per-second rates from successive
+   * reads of these counters. A snapshot — the counts keep
+   * moving after the read.
+   */
+  counts(): { accepted: number; refused: number; drained: number } {
+    return { accepted: this.accepted, refused: this.refused, drained: this.drained };
+  }
+
+  /** Zero the cumulative counts. The channels call this when
+   *  they reset (clear / test reset) — never in normal
+   *  operation, and never while items are in flight (drain
+   *  first, then reset, so a reset never hides a refusal). */
+  resetCounts(): void {
+    this.accepted = 0;
+    this.refused = 0;
+    this.drained = 0;
   }
 }

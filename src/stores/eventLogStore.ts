@@ -58,6 +58,7 @@ import {
   EVENT_RING_CAPACITY,
   SNAPSHOT_STREAM_STORAGE_KEY,
   type EventOutcome,
+  type EventType,
   type PermissionProbeOrigin,
   type TrackedEvent,
 } from '../lib/eventLog';
@@ -191,16 +192,25 @@ interface EventLogState {
   /** Newest first, capped at EVENT_LOG_LIMIT. */
   events: TrackedEvent[];
   /** Events refused by ring backpressure (ring full). Counted
-   *  and shown in the UI — a refusal is visible, never silent. */
+   *  and shown in the UI — a refusal is visible, never silent.
+   *  Mirrors the ring's own count (`eventRing.counts()`). */
   refusedCount: number;
+  /** Refusals per producer, by event type (cumulative since
+   *  the log started, reset by clear()). The event channel has
+   *  many producers — startup, permissions, snapshot updates,
+   *  browser prompts — and one channel-wide total cannot say
+   *  which one flooded. This map can: the tick-stream view
+   *  shows the top refused types. Keys are event types; a type
+   *  absent from the map was never refused. */
+  refusedByType: Partial<Record<EventType, number>>;
   /** Events accepted into the ring since the log started
    *  (cumulative, Memory tab 2026-11-14: the live tick-stream
    *  view measures per-second rates from this counter's
-   *  deltas). Reset by clear(). */
+   *  deltas). Mirrors the ring's own count. Reset by clear(). */
   acceptedCount: number;
   /** Events drained out of the ring into the log since the log
    *  started (cumulative, same purpose as acceptedCount).
-   *  Reset by clear(). */
+   *  Mirrors the ring's own count. Reset by clear(). */
   drainedCount: number;
   /** The last snapshot update stream's time + strain
    *  (Gary, 2026-11-09 ~15:00 PST): one sample per phase
@@ -320,12 +330,24 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
    *  when accepted, or null on backpressure (ring full). */
   const enqueueEvent = (event: TrackedEvent): TrackedEvent | null => {
     if (!eventRing.enqueue(event)) {
-      // Backpressure: do NOT drop silently. Count it (the UI
-      // shows refusedCount) and tell the caller with null.
-      set((s) => ({ refusedCount: s.refusedCount + 1 }));
+      // Backpressure: do NOT drop silently. The ring counted
+      // the refusal; the store mirrors the ring's count into
+      // state (the UI reads state) and records WHICH producer
+      // was refused, by event type — so a flooded producer is
+      // visible in the tick-stream view instead of hiding
+      // behind the channel total. The caller is told with null.
+      const counts = eventRing.counts();
+      set((s) => ({
+        refusedCount: counts.refused,
+        refusedByType: {
+          ...s.refusedByType,
+          [event.type]: (s.refusedByType[event.type] ?? 0) + 1,
+        },
+      }));
       return null;
     }
-    set((s) => ({ acceptedCount: s.acceptedCount + 1 }));
+    // The ring counted the accept; mirror it into state.
+    set({ acceptedCount: eventRing.counts().accepted });
     scheduleDrain();
     return event;
   };
@@ -333,6 +355,7 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
   return {
     events: readPersisted(),
     refusedCount: 0,
+    refusedByType: {},
     acceptedCount: 0,
     drainedCount: 0,
     snapshotStream: readPersistedSnapshotStream(),
@@ -371,7 +394,8 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
       set({
         events,
         snapshotStream: nextStream,
-        drainedCount: get().drainedCount + drained.length,
+        // The ring counted the drains; mirror its count.
+        drainedCount: eventRing.counts().drained,
       });
     },
 
@@ -572,12 +596,17 @@ export const useEventLogStore = create<EventLogState>((set, get) => {
     clear: () => {
       // Discard anything still in flight in the ring — the
       // user cleared the log, so the in-flight events go too.
+      // Drain first, then reset the ring's counts (a reset
+      // never hides a refusal — the drained items are gone
+      // with the log they belonged to).
       eventRing.drain();
+      eventRing.resetCounts();
       persist([]);
       persistSnapshotStream(null);
       set({
         events: [],
         refusedCount: 0,
+        refusedByType: {},
         acceptedCount: 0,
         drainedCount: 0,
         snapshotStream: null,

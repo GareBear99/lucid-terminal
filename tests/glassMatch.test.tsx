@@ -19,7 +19,6 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { HelpModal } from '../src/components/Help/HelpModal';
-import { HelpPanel } from '../src/components/Help/HelpPanel';
 import { PlanningPanel } from '../src/components/Planning/PlanningPanel';
 import { DaemonLogViewer } from '../src/components/Daemon/DaemonLogViewer';
 import { AccountButton } from '../src/components/Account/AccountButton';
@@ -49,17 +48,6 @@ describe('glass match — modal cards are glass, not solid slabs', () => {
     // No solid slab left anywhere in the modal.
     expect(t).not.toContain('bg-[var(--bg-secondary)]');
     expect(t).not.toContain('bg-[var(--bg-primary)]');
-    expect(t).not.toContain('bg-[var(--bg-tertiary)]');
-  });
-
-  it('Help panel: card and header are translucent + blurred', () => {
-    const html = renderToStaticMarkup(<HelpPanel onClose={noop} />);
-    const t = tokens(html);
-    expect(t).toContain('bg-[var(--bg-secondary)]/80');
-    expect(t).toContain('backdrop-blur-xl');
-    expect(t).toContain('bg-[var(--bg-tertiary)]/60');
-    expect(t).toContain('backdrop-blur-md');
-    expect(t).not.toContain('bg-[var(--bg-secondary)]');
     expect(t).not.toContain('bg-[var(--bg-tertiary)]');
   });
 

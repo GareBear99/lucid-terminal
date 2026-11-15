@@ -248,11 +248,14 @@ describe('DEFCON 3 blocks — created on composer submit', () => {
     expect(block.command).toBe('/fixnet stats');
     expect(block.durationMs).toBeDefined();
     expect(block.output).toContain('fixnet stats output');
-    // The `$` echo is the feed's, not the block's — the command
-    // is already the block header.
+    // The `$` echo was the xterm's — and the xterm is
+    // unmounted at level 3 in devmode too (the sweep settle),
+    // so there is no echo any more; the command is the block
+    // header, and the feed is the sole surface.
     expect(block.output).not.toContain('$ /fixnet stats');
-    // ...but the feed still shows it (Phase 1 behavior kept).
-    expect(screen.getByTestId('xterm-fallback-output').textContent).toContain('$ /fixnet stats');
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
+    expect(screen.queryByTestId('xterm-fallback-output')).toBeNull();
+    expect(screen.getByTestId('block-header').textContent).toContain('/fixnet stats');
   });
 });
 
@@ -446,9 +449,13 @@ describe('below 3, no blocks are created by the old paths', () => {
 
     // The non-devmode composer is the same InputArea (fallback
     // textarea in jsdom) — submitted from the prompt section,
-    // not the dev bar.
+    // not the dev bar. Found by element, not placeholder text:
+    // the true-placeholder ghost words suppress the textarea's
+    // native placeholder while they show (Gary, 2026-11-13
+    // ~02:02 PST) — the overlay IS the placeholder there.
     const wrap = screen.getByTestId('prompter-composer-wrap');
-    const input = within(wrap).getByPlaceholderText(/Monaco unavailable/);
+    const input = wrap.querySelector('textarea') as HTMLTextAreaElement;
+    expect(input).not.toBeNull();
     fireEvent.change(input, { target: { value: 'echo hi' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => {

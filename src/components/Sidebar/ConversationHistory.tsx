@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Clock, Terminal as TerminalIcon, Trash2, Search } from 'lucide-react';
+import { ChevronRight, Clock, Minus, Star, Terminal as TerminalIcon, Trash2, Search } from 'lucide-react';
 import { TerminalBlock } from '../../types';
 import { Tooltip } from '../Tooltip/Tooltip';
 
@@ -33,6 +33,8 @@ interface HistoryItem {
   timestamp: number;
   preview: string;
   type: 'shell' | 'llm' | 'fixnet' | 'system';
+  /** Bookmarked in the feed (sweep item 7) — the star. */
+  isBookmarked: boolean;
 }
 
 export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, width, collapsed, onToggleCollapsed }: ConversationHistoryProps) {
@@ -48,6 +50,7 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
     else setInternalCollapsed(value);
   };
   const [searchQuery, setSearchQuery] = useState('');
+  const [bookmarksOnly, setBookmarksOnly] = useState(false);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -73,19 +76,23 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
         command: block.command,
         timestamp: block.timestamp,
         preview,
-        type
+        type,
+        isBookmarked: block.isBookmarked === true,
       };
     });
 
     setHistoryItems(items);
   }, [blocks]);
 
-  const filteredItems = searchQuery
-    ? historyItems.filter(item => 
-        item.command.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.preview.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : historyItems;
+  // Bookmarks first (sweep item 7): the star filter narrows
+  // to bookmarked blocks; the search then narrows further.
+  const filteredItems = historyItems
+    .filter((item) => !bookmarksOnly || item.isBookmarked)
+    .filter((item) =>
+      !searchQuery ||
+      item.command.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.preview.toLowerCase().includes(searchQuery.toLowerCase()),
+    );
 
   const handleItemClick = (item: HistoryItem) => {
     setSelectedId(item.id);
@@ -199,12 +206,20 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
               </button>
             </Tooltip>
           )}
-          <Tooltip content="Collapse sidebar">
+          {/* Minimize — the Minus glyph with "Minimize
+              history" (sweep item 9), matching Explorer and
+              Docs: the same action (minimize a sidebar panel
+              to the w-12 rail) uses the same glyph and the
+              same word everywhere. The collapsed rail's
+              ChevronRight ("Show conversation history") is
+              the expand direction and stays. */}
+          <Tooltip content="Minimize history">
             <button
               onClick={() => setIsCollapsed(true)}
               className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+              aria-label="Minimize history"
             >
-              <ChevronLeft size={16} className="text-[var(--text-muted)]" />
+              <Minus size={16} className="text-[var(--text-muted)]" />
             </button>
           </Tooltip>
         </div>
@@ -228,14 +243,29 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
       <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
         <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
           <span>{filteredItems.length} command{filteredItems.length !== 1 ? 's' : ''}</span>
-          {searchQuery && (
+          <div className="flex items-center gap-2">
+            {/* Bookmarks-only filter (sweep item 7): show just
+                the starred blocks. */}
             <button
-              onClick={() => setSearchQuery('')}
-              className="text-[var(--accent)] hover:underline"
+              type="button"
+              data-testid="history-bookmarks-only"
+              aria-pressed={bookmarksOnly}
+              title="Show bookmarked only"
+              onClick={() => setBookmarksOnly((v) => !v)}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[var(--bg-primary)] ${bookmarksOnly ? 'text-[var(--text-primary)]' : ''}`}
             >
-              Clear search
+              <Star size={12} className={bookmarksOnly ? 'fill-[var(--accent)] text-[var(--accent)]' : ''} />
+              <span>Bookmarked</span>
             </button>
-          )}
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-[var(--accent)] hover:underline"
+              >
+                Clear search
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -245,10 +275,10 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <TerminalIcon size={48} className="text-[var(--text-muted)] opacity-50 mb-3" />
             <p className="text-sm text-[var(--text-muted)] mb-1">
-              {searchQuery ? 'No matching commands' : 'No commands yet'}
+              {searchQuery ? 'No matching commands' : bookmarksOnly ? 'No bookmarked commands yet' : 'No commands yet'}
             </p>
             <p className="text-xs text-[var(--text-muted)] opacity-70">
-              {searchQuery ? 'Try a different search query' : 'Start typing commands to see them here'}
+              {searchQuery ? 'Try a different search query' : bookmarksOnly ? 'Star a block in the feed to find it here' : 'Start typing commands to see them here'}
             </p>
           </div>
         ) : (
@@ -285,6 +315,14 @@ export function ConversationHistory({ blocks, onJumpToBlock, onClearHistory, wid
                       <span className="text-sm font-mono font-semibold text-[var(--text-primary)] truncate">
                         {item.command}
                       </span>
+                      {item.isBookmarked && (
+                        <Star
+                          size={12}
+                          data-testid={`history-item-bookmarked-${item.id}`}
+                          aria-label="Bookmarked"
+                          className="shrink-0 fill-[var(--accent)] text-[var(--accent)]"
+                        />
+                      )}
                     </div>
 
                     {/* Preview */}

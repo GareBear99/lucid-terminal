@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Save } from 'lucide-react';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { ViewHeader } from '../Layout/ViewHeader';
 import Editor, { loader } from '@monaco-editor/react';
 import '../../lib/monacoLoader';
 import { MONACO_LOAD_TIMEOUT_MS } from '../../lib/monacoLoader';
@@ -687,6 +688,15 @@ function CodeEditor() {
   if (openFiles.length === 0) {
     return (
       <div className="h-full flex flex-col bg-[var(--bg-primary)] text-[var(--text-muted)]">
+        {/* View header (sweep item 17) — the empty state is its
+            own return, so the header lives here too; the Editor
+            view carries it with no files open as well as with. */}
+        <div className="px-4 pt-4">
+          <ViewHeader
+            title="Editor"
+            description="Edit your files — pick one in the Explorer to open it."
+          />
+        </div>
         <div className="flex-1 flex items-center justify-center bg-[var(--bg-primary)]">
           <p>No files open. Select a file from the explorer.</p>
         </div>
@@ -697,6 +707,16 @@ function CodeEditor() {
 
   return (
     <div className="h-full flex flex-col">
+      {/* View header (sweep item 17): the one pattern — title +
+          one-line description — above the file tabs. The same
+          header shows in the detached Files window (MiniFiles
+          renders this same CodeEditor): same view, same header. */}
+      <div className="px-4 pt-4">
+        <ViewHeader
+          title="Editor"
+          description="Edit your files — pick one in the Explorer to open it."
+        />
+      </div>
       {/* File Tabs */}
       <div
         ref={fileStripRef}

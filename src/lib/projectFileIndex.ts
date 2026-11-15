@@ -57,6 +57,12 @@ export const PROJECT_INDEX_TIMEOUT_MS = 30_000;
  *  directories. Without it the cap only applied after the
  *  whole tree was built and shipped over IPC. */
 export const PROJECT_INDEX_MAX_WALK_ENTRIES = 8000;
+/** Per-branch wall-clock deadline for the index walk (see
+ *  readDirTree): a hung branch is dropped after this long
+ *  instead of bricking the index. Well inside the 30 s
+ *  renderer timeout so the build settles with partial
+ *  results rather than timing out empty. */
+export const PROJECT_INDEX_BRANCH_TIMEOUT_MS = 10_000;
 
 /** Directory entries that mark a project root (Atom: the
  *  added folder). The first ancestor containing one of these
@@ -294,6 +300,7 @@ export async function refreshProjectFileIndex(
     const entries = await api.readDir(projectRoot, {
       depth,
       maxEntries: PROJECT_INDEX_MAX_WALK_ENTRIES,
+      branchTimeoutMs: PROJECT_INDEX_BRANCH_TIMEOUT_MS,
     });
     if (epoch !== buildEpoch) return;
     const files = flattenFileEntries(entries);

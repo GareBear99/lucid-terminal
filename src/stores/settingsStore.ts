@@ -112,6 +112,9 @@ const defaultSettings: Settings = {
   terminalLetterSpacing: 0,
   terminalLigatures: false,
   terminalFontWeight: '400',
+  // Feed density (sweep item 20) — comfortable by default:
+  // the feed keeps its current spacing; compact tightens it.
+  feedDensity: 'comfortable',
   // Atom rest (2026-11-14): custom keybindings + snippets,
   // both empty by default (the defaults / built-ins apply).
   customKeybindings: [],
@@ -145,6 +148,13 @@ const defaultSettings: Settings = {
   // the Mist section of Settings is flipped on. First toggle in the
   // Mist section; one toggle per surface (see src/types/index.ts).
   filesMist: false,
+  // AI Chat mist (sweep item 12) — OFF by default: the AI Chat
+  // panel shows its solid theme, no mist, unless the AI Chat mist
+  // toggle is flipped on. Second toggle in the Mist section.
+  // NOT the full mist theme (Gary, 2026-11-14 ~20:31 PST) — that
+  // comes LATER, gated on verified client-side yield + a verified
+  // temp for that profile. This is only the per-surface toggle.
+  aiChatMist: false,
   aiModel: 'gpt-4',
   aiTemperature: 0.7,
   copilots: [],

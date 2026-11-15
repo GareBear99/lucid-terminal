@@ -65,6 +65,9 @@ vi.mock('fs/promises', () => ({
       }));
     }),
     stat: vi.fn(async () => ({ size: 100, mtimeMs: 1000 })),
+    // readDirTree stats each entry with lstat (sweep item 0:
+    // symlinks are never followed) — same shape as stat here.
+    lstat: vi.fn(async () => ({ size: 100, mtimeMs: 1000 })),
     readFile: vi.fn(async () => ''),
     writeFile: vi.fn(async () => undefined),
     mkdir: vi.fn(async () => undefined),

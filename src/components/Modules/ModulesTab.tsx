@@ -38,6 +38,7 @@ import { detectStarship } from '../../lib/starshipDetection';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { SegmentsPanel } from './SegmentsPanel';
 import { PluginVoiceButton } from '../PluginVoiceButton';
+import { ViewHeader } from '../Layout/ViewHeader';
 import { pluginVoiceSrc } from '../../lib/pluginVoice';
 
 export function ModulesTab() {
@@ -50,30 +51,30 @@ export function ModulesTab() {
 
   return (
     <div className="space-y-6">
-      <section>
-        <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">Modules</h3>
-        <div className="flex items-center gap-3">
-          <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm">{MODULES_PLUGIN.name}</span>
-            <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
-              {MODULES_PLUGIN.description}
-            </span>
-          </span>
-          <span className="text-xs text-[var(--text-muted)] shrink-0">
-            Built-in · Anchored
-          </span>
-        </div>
-        {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST): plugins
-            have voice recordings all throughout. */}
-        <div className="mt-3">
-          <PluginVoiceButton
-            voiceId="modules-main"
-            title="Modules"
-            src={pluginVoiceSrc('modules-main')}
-          />
-        </div>
-      </section>
+      {/* View header (sweep item 17): the one pattern — title +
+          one-line description. Modules lives in Settings, but it
+          is a top-level surface (the map of the whole plugin),
+          so it carries the same header as the toolbar views
+          instead of a Settings-scale h3. The voice button and
+          the anchored badge stay below it as content. */}
+      <ViewHeader
+        title="Modules"
+        description={MODULES_PLUGIN.description}
+        icon={<Icon size={20} />}
+      >
+        <span className="mt-1 block text-xs text-[var(--text-muted)]">
+          Built-in · Anchored
+        </span>
+      </ViewHeader>
+      {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST): plugins
+          have voice recordings all throughout. */}
+      <div>
+        <PluginVoiceButton
+          voiceId="modules-main"
+          title="Modules"
+          src={pluginVoiceSrc('modules-main')}
+        />
+      </div>
 
       {/* What lives here — the inventory. Every segment group in
           Modules, with its live status. A status is read from the

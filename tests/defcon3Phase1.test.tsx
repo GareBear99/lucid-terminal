@@ -11,10 +11,12 @@
  * via terminal.write into the real shell; output sinks to the
  * terminal feed in ALL THREE LuciferAI states (on / off /
  * silenced) — the dev console is retired as a composer sink.
- * While the composer owns typing, xterm keystrokes must not also
- * reach the PTY; the xterm cursor is hidden always at level 3.
- * One InputArea across LuciferAI on/off (dragged height lifted
- * into Terminal), so toggling never resets it.
+ * The sweep settle (2026-11-15) unmounts the xterm at level 3
+ * in devmode too — the feed is the sole surface in both modes,
+ * so there is no xterm cursor to hide and no raw stream to
+ * duplicate the feed; below 3 the xterm stays and its cursor
+ * is present. One InputArea across LuciferAI on/off (dragged
+ * height lifted into Terminal), so toggling never resets it.
  *
  * Below 3 today's behavior is unchanged (typing at the xterm
  * cursor; dev bar delinked in devmode) — covered by
@@ -22,7 +24,8 @@
  * level-2 check here. Non-devmode landing is Phase 5
  * (tests/defcon3Phase5.test.tsx): at level 3 in non-devmode
  * the same composer lands in the prompt section, the xterm
- * surface is unmounted, and the BlockList is the feed.
+ * surface is unmounted, and the BlockList is the feed. The
+ * sweep settle extends the same unmount to devmode.
  *
  * Harness: same as tests/devModeTerminal.test.tsx — jsdom has no
  * canvas, so XtermSurface renders its plain-text fallback and
@@ -139,8 +142,12 @@ function submitToTerminal(command: string) {
   fireEvent.keyDown(input, { key: 'Enter' });
 }
 
+/** The feed's block output — the sole surface at level 3 in
+ *  both modes since the sweep settle (the xterm is unmounted,
+ *  so there is no fallback output to read). Null-safe so
+ *  waitFor polls until the block's output lands. */
 function terminalOutputText(): string {
-  return screen.getByTestId('xterm-fallback-output').textContent ?? '';
+  return screen.queryByTestId('block-output')?.textContent ?? '';
 }
 
 describe('defconPrompterActive — the level is the switch (DEFCON 2 precedent)', () => {
@@ -163,11 +170,10 @@ describe('DEFCON 3 linked composer in devmode — submit routing', () => {
     await waitFor(() => {
       expect(commandMock).toHaveBeenCalledWith('fixnet stats');
     });
-    // The composed slash line is echoed into the feed above its
-    // output — and the output lands in the terminal feed.
-    await waitFor(() => {
-      expect(terminalOutputText()).toContain('$ /fixnet stats');
-    });
+    // The command is the block header (the `$` echo was the
+    // xterm's, and the xterm is unmounted at level 3 — the
+    // settle) — and the output lands in the block.
+    expect(screen.getByTestId('block-header').textContent).toContain('/fixnet stats');
     await waitFor(() => {
       expect(terminalOutputText()).toContain('fixnet stats output');
     });
@@ -246,14 +252,18 @@ describe('DEFCON 3 linked composer in devmode — submit routing', () => {
   });
 });
 
-describe('DEFCON 3 cursor — hidden always at level 3, present below 3', () => {
-  test('level 3, devmode: cursor hidden', async () => {
+describe('DEFCON 3 cursor — no surface at level 3, present below 3', () => {
+  test('level 3, devmode: the settle — no xterm surface, so no cursor at all', async () => {
     setDevMode(true);
     setDefconLevel(3);
     render(<Terminal tabId="tab-1" />);
-    await screen.findByTestId('xterm-surface');
+    await screen.findByTestId('dev-command-bar');
 
-    expect(screen.getByTestId('xterm-surface').getAttribute('data-cursor-hidden')).toBe('true');
+    // The xterm is unmounted at level 3 in devmode too (the
+    // sweep settle) — there is no cursor to hide, and no raw
+    // stream duplicating the feed.
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
+    expect(screen.getByTestId('prompter-composer')).not.toBeNull();
   });
 
   test('level 1, devmode: cursor present', async () => {
@@ -292,17 +302,26 @@ describe('DEFCON 3 cursor — hidden always at level 3, present below 3', () => 
 });
 
 describe('DEFCON 3 input ownership — the composer owns typing', () => {
-  test('xterm keystrokes do not reach the PTY while the composer owns typing', async () => {
+  test('level 3, DEVMODE: the settle — xterm unmounted, composer owns typing, feed is the sole surface', async () => {
     setDevMode(true);
     setDefconLevel(3);
     render(<Terminal tabId="tab-1" />);
     await screen.findByTestId('dev-command-bar');
 
-    submitToTerminal('echo hi');
-    // Let any ungated path settle — nothing may be written.
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(writeMock).not.toHaveBeenCalled();
-    expect(terminalOutputText()).not.toContain('echo hi');
+    // No xterm surface at all — no fallback input to type
+    // into, no raw stream duplicating the feed. The composer
+    // still owns typing: a bare line reaches the PTY.
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
+    expect(screen.queryByTestId('xterm-fallback-input')).toBeNull();
+    expect(screen.queryByTestId('xterm-fallback-output')).toBeNull();
+    submitToComposer('echo hi');
+    await waitFor(() => {
+      expect(writeMock).toHaveBeenCalledWith('tab-1', 'echo hi\r');
+    });
+    // ...and its block is the feed.
+    await waitFor(() =>
+      expect(useHistoryStore.getState().blocksByTab['tab-1']).toHaveLength(1),
+    );
   });
 
   test('below 3, xterm input still reaches the PTY (unchanged behavior)', async () => {
@@ -326,12 +345,12 @@ describe('DEFCON 3 input ownership — the composer owns typing', () => {
 
     const bar = screen.getByTestId('dev-command-bar');
     const composer = within(bar).getByPlaceholderText(/Monaco unavailable/) as HTMLElement;
-    const xtermInput = screen.getByTestId('xterm-fallback-input');
     composer.focus();
     expect(document.activeElement).toBe(composer);
     fireEvent.click(screen.getByTestId('prompt-section'));
     expect(document.activeElement).toBe(composer);
-    expect(document.activeElement).not.toBe(xtermInput);
+    // The settle: there is no xterm to focus any more.
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
   });
 });
 

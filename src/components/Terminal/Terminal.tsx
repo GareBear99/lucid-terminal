@@ -7,6 +7,7 @@ import { useLoadingStore } from '../../stores/loadingStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useHistoryStore, EMPTY_BLOCKS } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
+import { useModalStore } from '../../stores/modalStore';
 import { usePlanStore } from '../../stores/planStore';
 import { useSplitPaneStore, getVisibleTabIds } from '../../stores/splitPaneStore';
 import { useFileStore } from '../../stores/fileStore';
@@ -16,9 +17,10 @@ import { useHornWiggleStore } from '../../stores/hornWiggleStore';
 import { XtermSurface, XtermSurfaceHandle } from './XtermSurface';
 import { InputArea } from './InputArea';
 import { UnifiedFeed } from './UnifiedFeed';
+import { CommandHistoryPalette } from './CommandHistoryPalette';
 import { HintLine } from './HintLine';
 import { PillRow } from './PillRow';
-import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, dropPendingEscape, newBlock, parseOsc133ExitCodes } from '../../lib/terminalBlocks';
+import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, createScrollbackMirror, dropPendingEscape, newBlock, parseOsc133ExitCodes, type ScrollbackMirror } from '../../lib/terminalBlocks';
 import {
   useSessionStore,
   getTabMode,
@@ -39,7 +41,7 @@ import { openFileInWorkspace } from '../../lib/workspace';
 import { getPromptHintWords } from '../../lib/promptHintWords';
 import type { TerminalBlock } from '../../types';
 import { parseCommand, getFallbackMessage, findClosestCommand, requiresLLM } from '../../utils/commandRouter';
-import { HelpPanel } from '../Help/HelpPanel';
+import { HelpModal } from '../Help/HelpModal';
 import { PlanningPanel } from '../Planning/PlanningPanel';
 import { SentinelFace } from '../Synth/SentinelFace';
 import { shouldDrip } from '../Synth/blood';
@@ -231,9 +233,9 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       blockQuietTimerRef.current = null;
     }
   };
-  const updateCurrentBlock = (fn: (b: TerminalBlock) => TerminalBlock) => {
-    const id = currentBlockIdRef.current;
-    if (id === null) return;
+  /** Apply fn to one block by id (store update, no-op when
+   *  the block is gone). */
+  const updateBlock = (id: string, fn: (b: TerminalBlock) => TerminalBlock) => {
     const prev = useHistoryStore.getState().blocksByTab[tabId] ?? EMPTY_BLOCKS;
     const idx = prev.findIndex((b) => b.id === id);
     if (idx === -1) return;
@@ -243,17 +245,26 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     next[idx] = nextBlock;
     useHistoryStore.getState().setBlocks(tabId, next);
   };
+  const updateCurrentBlock = (fn: (b: TerminalBlock) => TerminalBlock) => {
+    const id = currentBlockIdRef.current;
+    if (id === null) return;
+    updateBlock(id, fn);
+  };
   /** Close the current block: stamp it complete with
    *  durationMs = close − submit. No-op when there is no
    *  current block or it already closed — the first close
    *  wins, so a quiet-close followed by a force-close at
-   *  next submit cannot restamp the duration. */
-  const closeCurrentBlock = () => {
+   *  next submit cannot restamp the duration.
+   *  `lowerBound` is true only for the quiet-timer close
+   *  (sweep item 15): the duration is a lower bound, not
+   *  the run time. Force-closes (next submit, slash resolve,
+   *  shell exit) close on proof the prompt returned. */
+  const closeCurrentBlock = (lowerBound = false) => {
     if (currentBlockIdRef.current === null || currentBlockClosedRef.current) return;
     currentBlockClosedRef.current = true;
     clearBlockQuietTimer();
     const now = Date.now();
-    updateCurrentBlock((b) => closeBlock(b, now));
+    updateCurrentBlock((b) => closeBlock(b, now, { lowerBound }));
   };
   /** Re-arm the quiet timer: when the PTY stream stays quiet
    *  for BLOCK_QUIET_CLOSE_MS the prompt is taken to have
@@ -262,7 +273,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     clearBlockQuietTimer();
     blockQuietTimerRef.current = window.setTimeout(() => {
       blockQuietTimerRef.current = null;
-      closeCurrentBlock();
+      closeCurrentBlock(true);
     }, BLOCK_QUIET_CLOSE_MS);
   };
   /** Append transcript text to the current block (capped —
@@ -272,6 +283,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
    *  (see the LIVE BUG note on the sanitizer). */
   const appendToCurrentBlock = (text: string, source: 'pty' | 'write' = 'pty') => {
     updateCurrentBlock((b) => appendBlockOutput(b, text, { source }));
+  };
+  /** Append transcript text to a SPECIFIC block by id — the
+   *  write's attribution, fixed at call time (see
+   *  termWriteLines): a write belongs to the block current
+   *  when it was issued, never to a block opened while its
+   *  echo-wait was pending. */
+  const appendToBlock = (blockId: string, text: string, source: 'pty' | 'write' = 'pty') => {
+    updateBlock(blockId, (b) => appendBlockOutput(b, text, { source }));
   };
   /** Open a block for a composer submit: the previous block
    *  closes first (a new submit proves a fresh prompt had
@@ -431,6 +450,67 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // tab's instance (hidden tabs render their own terminal view).
   const tabMode = useSessionStore((s) => s.tabMode);
   const isAgentMode = isActiveTab && getTabMode(tabMode, tabId) === 'agent';
+  const isAgentModeRef = useRef(false);
+  useEffect(() => {
+    isAgentModeRef.current = isAgentMode;
+  });
+  /** Scrollback mirror (sweep item 16): while the xterm surface
+   *  is mounted, every chunk it shows is mirrored into a
+   *  transcript; on landing (DEFCON 3, or agent-mode entry)
+   *  the mirror snapshots into ONE 'scrollback' block in the
+   *  feed, so the pre-landing transcript survives the surface
+   *  unmounting. Lazy-init: one mirror per Terminal instance
+   *  (per tab — the component is mounted per tab). Lives here,
+   *  after isAgentMode (the landing effect reads it). */
+  const scrollbackMirrorRef = useRef<ScrollbackMirror | null>(null);
+  const getScrollbackMirror = (): ScrollbackMirror => {
+    if (!scrollbackMirrorRef.current) {
+      scrollbackMirrorRef.current = createScrollbackMirror(tabId);
+    }
+    return scrollbackMirrorRef.current;
+  };
+  /** Mirror one surface write into the transcript — only while
+   *  the surface is mounted (below 3, not agent mode). At level
+   *  3+ the feed's blocks are the record, and mirroring them
+   *  would double-count them at the next landing. Refs only,
+   *  so this is stable for the write paths' deps. */
+  const mirrorSurfaceWrite = useCallback((data: string, source: 'pty' | 'write') => {
+    if (prompterActiveRef.current || isAgentModeRef.current) return;
+    getScrollbackMirror().mirror(data, source);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /** Carry the pre-landing transcript into the feed as one
+   *  'scrollback' block (no-op when the mirror is empty —
+   *  e.g. landing with a fresh surface). */
+  const carryScrollbackToFeed = useCallback((label: string) => {
+    const block = getScrollbackMirror().snapshot(label, Date.now());
+    if (!block) return;
+    useHistoryStore.getState().setBlocks(tabId, (prev) => [...prev, block]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /** Landing (sweep item 16): the surface unmounts when the
+   *  prompter takes over (level 3+) or on agent-mode entry —
+   *  the mirror snapshots into the feed first, so the
+   *  pre-landing transcript is not lost with the surface.
+   *  The mirror is data already captured, so the effect
+   *  running after the unmount commit is fine (an unmount
+   *  callback could not have read the buffer — see
+   *  terminalBlocks.ts). Mounting already at level 3 (or in
+   *  agent mode) carries nothing: no surface ever mounted in
+   *  this session, so the mirror is empty. */
+  const wasPrompterActiveRef = useRef(prompterActive);
+  const wasAgentModeRef = useRef(isAgentMode);
+  useEffect(() => {
+    const landed = !wasPrompterActiveRef.current && prompterActive;
+    const enteredAgent = !wasAgentModeRef.current && isAgentMode;
+    if (landed) {
+      carryScrollbackToFeed('Scrollback — terminal transcript before DEFCON 3');
+    } else if (enteredAgent) {
+      carryScrollbackToFeed('Scrollback — terminal transcript before agent mode');
+    }
+    wasPrompterActiveRef.current = prompterActive;
+    wasAgentModeRef.current = isAgentMode;
+  }, [prompterActive, isAgentMode, carryScrollbackToFeed]);
   // The mode pill is disabled in a guest build (Gary, 2026-11-13
   // ~10:58 PST: guest stays terminal-only — the Default account
   // is the full account). The pill greys out instead of silently
@@ -440,6 +520,31 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
 
   // Help panel state
   const [showHelpPanel, setShowHelpPanel] = useState(false);
+
+  // Command history palette state (sweep item 5) — Ctrl+R
+  // over the command history. The binding is below, next to
+  // the other window-level keys.
+  const [historyPaletteOpen, setHistoryPaletteOpen] = useState(false);
+
+  // Command history palette binding (sweep item 5): Ctrl+R
+  // opens it — but ONLY while the composer owns typing
+  // (level 3+ terminal mode). Below 3 Ctrl+R is the shell's
+  // readline reverse-search (XtermSurface forwards \x12) and
+  // must not be hijacked; in agent mode the composer takes
+  // prompts, not shell commands, so there is no command to
+  // re-input. Skipped while an Atom modal is open (the modal
+  // owns the keys then).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.key.toLowerCase() !== 'r') return;
+      if (!prompterActive || isAgentMode) return;
+      if (useModalStore.getState().openModal !== null) return;
+      e.preventDefault();
+      setHistoryPaletteOpen(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [prompterActive, isAgentMode]);
 
   // Planning panel state
   const [showPlanningPanel, setShowPlanningPanel] = useState(false);
@@ -595,6 +700,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       // timer, no block completion, no re-parse: xterm.js owns the
       // screen and the ANSI.
       termRef.current?.write(cleaned);
+      mirrorSurfaceWrite(cleaned, 'pty');
 
       // DEFCON 3 Phase 2 — blocks: every PTY chunk while a
       // composer block is current is that block's output (the
@@ -619,6 +725,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       shellExitedRef.current = true;
       setShellExited({ code });
       termRef.current?.write(`\r\n\x1b[31mShell exited (code ${code}).\x1b[0m\r\n`);
+      mirrorSurfaceWrite(`\r\nShell exited (code ${code}).\r\n`, 'write');
       if (code !== 0 && Date.now() - terminalCreatedAt.current <= 10000) {
         const message = (lastTerminalData.current || '').trim()
           || `Shell exited with code ${code}`;
@@ -672,18 +779,29 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   }, []);
 
   const termWriteLines = useCallback(async (text: string, opts?: { captureToBlock?: boolean }) => {
+    // Attribution is fixed at CALL time: the write belongs to
+    // the block current when it was issued (and to the
+    // prompter state then). The echo-wait below can take up to
+    // 80 ms — a fast next submit must not inherit the previous
+    // command's output. (The /defcon 3 confirmation used to
+    // land in the next command's block this way once the xterm
+    // was gone at level 3: the write resolved after the next
+    // block opened and the resolve-time check adopted it.)
+    const blockIdAtCall = currentBlockIdRef.current;
+    const prompterAtCall = prompterActiveRef.current;
     await waitForPromptEcho();
     const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
     termRef.current?.write(`\r\n${normalized}\r\n`);
+    mirrorSurfaceWrite(`\r\n${normalized}\r\n`, 'write');
     // DEFCON 3 Phase 2 — slash output is captured into the
     // current block: it never reaches the PTY, so handleData
     // cannot see it. The `$ <line>` echo is excluded by its
     // caller (captureToBlock: false) — the command is already
     // the block header.
-    if (opts?.captureToBlock !== false && prompterActiveRef.current && currentBlockIdRef.current !== null) {
-      appendToCurrentBlock(text.replace(/\r\n/g, '\n'), 'write');
+    if (opts?.captureToBlock !== false && prompterAtCall && blockIdAtCall !== null) {
+      appendToBlock(blockIdAtCall, text.replace(/\r\n/g, '\n'), 'write');
     }
-  }, [waitForPromptEcho]);
+  }, [waitForPromptEcho, mirrorSurfaceWrite]);
 
   // Write into the dev console (dev mode ON only): appends lines,
   // capped at the last DEV_CONSOLE_CAP. The terminal screen is
@@ -1668,7 +1786,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // user gets the detached bar instead of a dead prompt bar. Dev
   // mode ON (delinked): a click must NOT focus the terminal, or the
   // detached bar could never be typed in. DEFCON 3 Phase 5: at
-  // level 3+ in non-devmode the prompter owns typing — the xterm
+  // level 3+ the prompter owns typing — the xterm
   // surface is UNMOUNTED there, so the focus check below would
   // read termRef null and fire the failsafe for a surface that is
   // deliberately gone. Instead a click in the section focuses the
@@ -1882,8 +2000,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   //   suggestion and never become one: the post-first-entry
   //   auto-detection ghost text is FUTURE design (Gary,
   //   2026-11-12 ~10:17 PST — "we're nowhere near it").
-  // - The composer IS the input line at DEFCON 3+ in non-devmode
-  //   (the xterm surface is unmounted there), so it renders
+  // - The composer IS the input line at DEFCON 3+ (the xterm surface is unmounted there), so it renders
   //   INSIDE this row — flex-1 — and its caret is on the same
   //   line as the drop. Below 3 the row keeps the static hint
   //   (the xterm above is the input there); devmode keeps its
@@ -2138,12 +2255,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
               when the prompter is active. Empty until the first
               composer submit, so no layout shift before then.
               DEFCON 3 Phase 5 — the non-devmode landing: at
-              level 3+ in NON-devmode the list IS the feed
-              (`fill` — it takes the terminal column, and the
-              xterm surface below is unmounted, so output
-              appears exactly once; see the duplication decision
-              in BlockList.tsx). In devmode it stays the capped
-              panel above the live xterm.
+              level 3+ the list IS the feed (`fill` — it takes
+              the terminal column, and the xterm surface below
+              is unmounted, so output appears exactly once; see
+              the duplication decision in BlockList.tsx). The
+              sweep settle (2026-11-15) extends the same shape
+              to devmode: at level 3+ in devmode the feed is
+              the sole surface too — the capped panel above the
+              live xterm is gone, duplication and all.
               Heavy terminal work (2026-11-13 — the unified
               feed): agent mode renders the same list at any
               level (UnifiedFeed — one list, one block model:
@@ -2151,26 +2270,40 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
               In agent mode the list is the feed in both modes
               (no xterm below — the prompt goes to the agent). */}
           {(prompterActive || isAgentMode) && (
-            <UnifiedFeed tabId={tabId} onReinput={(command) => setDevInput(command)} fill={!devMode || isAgentMode} />
+            <UnifiedFeed tabId={tabId} onReinput={(command) => setDevInput(command)} fill />
           )}
 
+          {/* Command history palette (sweep item 5) — Ctrl+R
+              over the command history. Rendered here (a fixed
+              overlay, so its position in the tree is
+              irrelevant); the binding is above. Selecting a
+              command re-inputs it into the composer. */}
+          <CommandHistoryPalette
+            open={historyPaletteOpen}
+            onReinput={(command) => setDevInput(command)}
+            onClose={() => setHistoryPaletteOpen(false)}
+          />
+
           {/* DEFCON 3 Phase 5 — the xterm surface is UNMOUNTED
-              at level 3+ in NON-devmode (see the duplication
-              decision in BlockList.tsx): the BlockList above is
-              the sole feed, so output appears exactly once — no
-              live stream duplicating the block transcript, no
+              at level 3+ (see the duplication decision in
+              BlockList.tsx): the BlockList above is the sole
+              feed, so output appears exactly once — no live
+              stream duplicating the block transcript, no
               flashing cursor as the input. The PTY keeps
               running in the main process (it is tab-owned, not
               surface-owned), so dropping back below 3 remounts
-              a fresh surface on the live shell. In devmode the
-              surface stays: the war zone keeps the raw stream
-              visible, duplication and all (documented devmode
-              state, not the settle). Below 3 in non-devmode
-              this is exactly today's surface. Agent mode
-              unmounts it too, at any level — in agent mode the
-              prompt goes to the agent, and the feed is the sole
-              surface (same duplication rule as DEFCON 3+). */}
-          {!((prompterActive || isAgentMode) && !devMode) && (
+              a fresh surface on the live shell. The sweep
+              settle (2026-11-15) applies this in devmode too:
+              the war zone no longer keeps the raw stream
+              visible at level 3+ — the feed is the sole
+              surface in both modes, duplication and all.
+              Below 3 this is exactly today's surface in both
+              modes. Agent mode unmounts it too, at any level —
+              in agent mode the prompt goes to the agent, and
+              the feed is the sole surface (same duplication
+              rule as DEFCON 3+). Whether the DEFCON 3 item is
+              satisfied by this landing is Gary's call. */}
+          {!(prompterActive || isAgentMode) && (
           <div className="flex-1 overflow-hidden p-4">
             <div data-testid="prompt-input-wrap"
                  className={defconMerge
@@ -2655,10 +2788,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         </div>
       </div>
 
-      {/* Help Panel */}
-      {showHelpPanel && (
-        <HelpPanel onClose={() => setShowHelpPanel(false)} />
-      )}
+      {/* Help — one surface (sweep item 11): the shared
+          HelpModal/HelpContent (also the App-level Cmd+//F1
+          modal and the blood-drop tab). The old standalone
+          HelpPanel was a third copy of the same browser with
+          its own divergent search/filter logic — deleted.
+          App always passes onOpenHelp, so this fallback only
+          fires when Terminal is mounted standalone. */}
+      <HelpModal isOpen={showHelpPanel} onClose={() => setShowHelpPanel(false)} />
 
       {/* Planning Panel */}
       {showPlanningPanel && (

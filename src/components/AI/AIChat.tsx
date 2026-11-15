@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Send, X, Sparkles, Copy, StopCircle, Key, Plus, Minus, MessageSquare, Trash2, Menu, Folder, FolderOpen, Loader, Volume2, VolumeX } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { aiChatPanelBackground } from '../../lib/mist';
 import { useAIStore } from '../../stores/aiStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useFileStore } from '../../stores/fileStore';
@@ -656,13 +657,13 @@ function AIChat({ onClose }: AIChatProps) {
   // even with ping off and no key/model (see snapshotInstalled).
   if (!hasApiKey && !isLocalModelAvailable && !settings.pingServerEnabled && !snapshotInstalled) {
     return (
-      <div className="h-full flex flex-col bg-[var(--bg-primary)]">
+      <div className={`h-full flex flex-col ${aiChatPanelBackground(settings.aiChatMist ?? false)}`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-[var(--accent)]" />
             <span className="font-semibold">Lucid AI</span>
           </div>
-          <button onClick={onClose} className="btn-ghost p-1 rounded">
+          <button onClick={onClose} className="btn-ghost p-1 rounded" title="Hide AI panel" aria-label="Hide AI panel">
             <X size={18} />
           </button>
         </div>
@@ -758,7 +759,7 @@ function AIChat({ onClose }: AIChatProps) {
   }
 
   return (
-    <div className="h-full flex bg-[var(--bg-primary)] relative">
+    <div className={`h-full flex ${aiChatPanelBackground(settings.aiChatMist ?? false)} relative`}>
       {/* Sidebar (Overlay) */}
       {showSidebar && (
         <div className="absolute inset-y-0 left-0 w-64 bg-[var(--bg-secondary)] border-r border-[var(--border)] z-10 shadow-xl flex flex-col">
@@ -903,7 +904,7 @@ function AIChat({ onClose }: AIChatProps) {
                 {speakEnabled ? <Volume2 size={18} className="text-[var(--accent)]" /> : <VolumeX size={18} className="text-[var(--text-muted)]" />}
               </button>
             )}
-            <button onClick={onClose} className="btn-ghost p-1 rounded">
+            <button onClick={onClose} className="btn-ghost p-1 rounded" title="Hide AI panel" aria-label="Hide AI panel">
               <X size={18} />
             </button>
           </div>

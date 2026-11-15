@@ -166,7 +166,6 @@ textarea::selection {
 
 /* Block containers should contain selection */
 [class*="Block"],
-.terminal-block,
 .command-block {
   contain: paint; /* Contain visual effects */
   isolation: isolate; /* Isolate stacking context */

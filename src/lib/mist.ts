@@ -4,10 +4,10 @@
  *
  * Pattern, one per surface: a settings key (default off) + one
  * toggle in the Mist section + one conditional mist render gated
- * on that key. The Files toggle (`filesMist`) is the first; an AI
- * Chat mist toggle follows the same pattern — add the key, add the
- * toggle to the Mist section, gate that surface's <SplashMist />
- * on it. Nothing here is built for AI Chat yet (Files only).
+ * on that key. The Files toggle (`filesMist`) is the first; the AI
+ * Chat toggle (`aiChatMist`, sweep item 12) is the second — its
+ * conditional render is the panel shell going transparent (see
+ * aiChatPanelBackground below), not a second mist layer.
  *
  * Before this file the Files screen's mist was hidden by
  * `showSplashMistForView` in filesScreen.ts, which also forced the
@@ -33,4 +33,21 @@ export function isFilesScreen(view: View): boolean {
  */
 export function showSplashMistForView(view: View, filesMist: boolean): boolean {
   return !isFilesScreen(view) || filesMist;
+}
+
+/**
+ * The AI Chat panel shell's background (sweep item 12). The panel
+ * is a dock over the app-level mist, and its solid background is
+ * what hides that mist inside the panel — so the toggle's
+ * conditional render is the shell going transparent: the same one
+ * mist (rendered once by the App root, behind everything) shows
+ * through the panel instead of the solid theme. No second mist
+ * layer is rendered — two would mean two sets of puffs and two
+ * `splash-mist` testids. When the app-level mist itself is off
+ * (Files view with filesMist off) the transparent panel shows the
+ * black behind it, same as the rest of the screen — mist off
+ * everywhere, consistently.
+ */
+export function aiChatPanelBackground(aiChatMist: boolean): string {
+  return aiChatMist ? 'bg-transparent' : 'bg-[var(--bg-primary)]';
 }

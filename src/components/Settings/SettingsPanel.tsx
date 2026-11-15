@@ -148,7 +148,21 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   // has no settings page by design (Gary, 2026-11-14: it has 0 to
   // do with Lucid beyond the catalogue entry) — it falls through
   // to the default toast below.
+  //
+  // Sweep item 18: the button only renders where a settings surface
+  // exists (addonHasSettings, below) — an add-on with no surface
+  // shows NO Settings button instead of one that only toasts. The
+  // handler's toast stays as the fallback for any caller that
+  // reaches it without a surface (no UI path does now).
   const { info: toastInfo } = useToastStore();
+  /** The add-ons with a settings surface — MUST match the routes
+   *  in handleAddonSettings below. When a new add-on gains a
+   *  settings surface, add its route there AND its id here, or
+   *  its button stays hidden. */
+  const addonHasSettings = (addonId: string): boolean =>
+    addonId === 'persona-plex' ||
+    addonId === 'android-emulator' ||
+    addonId === 'segments';
   const handleAddonSettings = (addonId: string, addonName: string) => {
     if (addonId === 'persona-plex') {
       if (onOpenPersonaPlex) onOpenPersonaPlex();
@@ -915,10 +929,12 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
               {/* Mist — its own section for toggles (Gary, 2026-11-09
                   ~08:15 PST): one toggle per surface, each its own
                   settings key, default off. The Files toggle is the
-                  first; the section is built so an AI Chat mist
-                  toggle slots straight in next to it (same pattern:
-                  key + toggle + conditional render — see
-                  src/lib/mist.ts). No AI Chat toggle is built yet. */}
+                  first; the AI Chat toggle (sweep item 12) is the
+                  second, same pattern: key + toggle + conditional
+                  render — see src/lib/mist.ts. NOT the full mist
+                  theme (Gary, 2026-11-14 ~20:31 PST) — that comes
+                  LATER, gated on verified client-side yield + a
+                  verified temp for that profile. */}
               <section data-testid="mist-section">
                 <div className="flex items-center gap-2 mb-3">
                   <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Mist</h3>
@@ -935,6 +951,15 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                         onChange={(checked) => updateSetting('filesMist', checked)}
                       />
                       <span className="text-sm">Files mist</span>
+                    </label>
+                  </Tooltip>
+                  <Tooltip content="Show the splash mist in the AI Chat panel">
+                    <label className="flex items-center gap-2 cursor-pointer py-1">
+                      <Toggle
+                        checked={settings.aiChatMist ?? false}
+                        onChange={(checked) => updateSetting('aiChatMist', checked)}
+                      />
+                      <span className="text-sm">AI Chat mist</span>
                     </label>
                   </Tooltip>
                 </div>
@@ -1681,6 +1706,22 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 </Tooltip>
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">Feed density</label>
+<Tooltip content="Feed density — comfortable spacing, or compact (tighter blocks)">
+                        <select
+                          className="input"
+                          data-testid="feed-density"
+                          value={settings.feedDensity ?? 'comfortable'}
+                          onChange={(e) => updateSetting('feedDensity', e.target.value as 'comfortable' | 'compact')}
+                        >
+                          <option value="comfortable">Comfortable</option>
+                          <option value="compact">Compact</option>
+                        </select>
+</Tooltip>
+                    </div>
+                  </div>
                   <div>
                     <label className="block text-xs text-[var(--text-muted)] mb-1">
                       Line height — {(settings.terminalLineHeight ?? 1.5).toFixed(1)}×
@@ -1985,13 +2026,15 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                               </button>
                             ) : installed ? (
                               <>
-                                <button data-addon-settings={addon.id}
-                                  onClick={() => handleAddonSettings(addon.id, addon.name)}
-                                  className="btn btn-secondary text-xs shrink-0"
-                                  title={`Open ${addon.name} settings`}
-                                >
-                                  Settings
-                                </button>
+                                {addonHasSettings(addon.id) && (
+                                  <button data-addon-settings={addon.id}
+                                    onClick={() => handleAddonSettings(addon.id, addon.name)}
+                                    className="btn btn-secondary text-xs shrink-0"
+                                    title={`Open ${addon.name} settings`}
+                                  >
+                                    Settings
+                                  </button>
+                                )}
                                 {userInstalled && addon.removable && (
                                   <button data-addon-remove={addon.id}
                                     onClick={() => void handleArcServerRemove()}
@@ -2015,13 +2058,15 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                             <span className="text-xs text-[var(--text-muted)] shrink-0">
                               Installed{anchorLabel ? ` · ${anchorLabel}` : ''}
                             </span>
-                            <button data-addon-settings={addon.id}
-                              onClick={() => handleAddonSettings(addon.id, addon.name)}
-                              className="btn btn-secondary text-xs shrink-0"
-                              title={`Open ${addon.name} settings`}
-                            >
-                              Settings
-                            </button>
+                            {addonHasSettings(addon.id) && (
+                              <button data-addon-settings={addon.id}
+                                onClick={() => handleAddonSettings(addon.id, addon.name)}
+                                className="btn btn-secondary text-xs shrink-0"
+                                title={`Open ${addon.name} settings`}
+                              >
+                                Settings
+                              </button>
+                            )}
                             {userInstalled && addon.removable && (
                               <button data-addon-remove={addon.id}
                                 onClick={() => void updateSetting('installedAddons', (settings.installedAddons ?? []).filter((id) => id !== addon.id))}

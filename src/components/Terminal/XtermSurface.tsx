@@ -280,6 +280,21 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       termRef.current = term;
       fitRef.current = fit;
 
+      // Feed block navigation (sweep item 4): ⌘↑/⌘↓ (and Ctrl)
+      // move the focused block in the feed. xterm.js would
+      // otherwise turn them into modified-arrow escapes for the
+      // shell — returning false lets the event reach the feed's
+      // window listener instead (the shell never sees it).
+      term.attachCustomKeyEventHandler((e) => {
+        if (
+          (e.metaKey || e.ctrlKey) &&
+          (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End')
+        ) {
+          return false;
+        }
+        return true;
+      });
+
       const fitAndReport = () => {
         try {
           fit.fit();
@@ -428,10 +443,14 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
         } else if (e.key === 'Tab') {
           e.preventDefault();
           onInput('\t');
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === 'ArrowUp' && !e.metaKey && !e.ctrlKey) {
+          // Plain arrows only: ⌘↑/⌘↓ (and Ctrl) are feed block
+          // navigation (sweep item 4) — the feed's window
+          // listener owns them, so they must not also reach
+          // the shell here.
           e.preventDefault();
           onInput('\x1b[A');
-        } else if (e.key === 'ArrowDown') {
+        } else if (e.key === 'ArrowDown' && !e.metaKey && !e.ctrlKey) {
           e.preventDefault();
           onInput('\x1b[B');
         } else if (e.key === 'ArrowLeft') {

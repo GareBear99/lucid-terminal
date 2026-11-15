@@ -33,10 +33,10 @@
  * - At level 3 the detached window gets the FULL prompter, no
  *   different from the main window: the linked composer
  *   (InputArea) is the input and the live blocks feed
- *   (UnifiedFeed) is the terminal surface — in non-devmode the
+ *   (UnifiedFeed) is the terminal surface — in both modes the
  *   feed IS the feed (fill, xterm unmounted, output exactly
- *   once), in devmode the capped feed sits above the live
- *   xterm. The block lifecycle (open on composer submit, PTY
+ *   once; the sweep settle, 2026-11-15, extends the unmount
+ *   to devmode here too). The block lifecycle (open on composer submit, PTY
  *   chunks append, quiet-timer close, OSC 133 exit codes) is
  *   the same machinery as Terminal.tsx, running here in this
  *   renderer against this window's historyStore.
@@ -60,7 +60,7 @@
  * main delivers them on 'closed', so the tab is never lost.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CornerUpLeft, X } from 'lucide-react';
+import { BookOpen, ChevronRight, CornerUpLeft, History, Minus, X } from 'lucide-react';
 import TerminalTabs from './TerminalTabs';
 import { XtermSurface, type XtermSurfaceHandle } from './XtermSurface';
 import { UnifiedFeed } from './UnifiedFeed';
@@ -68,11 +68,13 @@ import { InputArea } from './InputArea';
 import { PillRow } from './PillRow';
 import { HintLine } from './HintLine';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
+import { ConversationHistory } from '../Sidebar/ConversationHistory';
+import { DocsPanel } from '../Sidebar/DocsPanel';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
-import { EMPTY_BLOCKS, useHistoryStore } from '../../stores/historyStore';
+import { EMPTY_BLOCKS, selectHistoryBlocksForTab, useHistoryStore } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
 import { usePlanStore } from '../../stores/planStore';
 import { useCopilotStore } from '../../stores/copilotStore';
@@ -107,9 +109,11 @@ import {
   appendBlockOutput,
   BLOCK_QUIET_CLOSE_MS,
   closeBlock,
+  createScrollbackMirror,
   dropPendingEscape,
   newBlock,
   parseOsc133ExitCodes,
+  type ScrollbackMirror,
 } from '../../lib/terminalBlocks';
 import { getCachedGitStatus, useGitStatus } from '../../lib/useGitStatus';
 import { parseCommand } from '../../utils/commandRouter';
@@ -130,6 +134,27 @@ export default function MiniTerminal() {
     useTerminalStore();
   const [shellExited, setShellExited] = useState<{ code: number } | null>(null);
   const [waiting, setWaiting] = useState(true);
+  // Side panels (sweep item 8): History + Docs, the same
+  // components and stores as the main window's sidebar
+  // panels — one open at a time, toggled from the rail.
+  // History minimizes to its own tick rail (the
+  // ConversationHistory collapsed form); Docs minimizes to
+  // its w-12 rail. In a guest session the History panel
+  // shows the empty state (selectHistoryBlocksForTab veils
+  // the owner's blocks), exactly as in the main window.
+  const [miniPanel, setMiniPanel] = useState<'history' | 'docs' | null>(null);
+  const [miniHistoryCollapsed, setMiniHistoryCollapsed] = useState(false);
+  const [miniDocsCollapsed, setMiniDocsCollapsed] = useState(false);
+  const miniHistoryBlocks = useHistoryStore((s) => selectHistoryBlocksForTab(s, activeTabId));
+  const handleJumpToBlock = (blockId: string) => {
+    const el = document.getElementById(`block-${blockId}`);
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'center' });
+    }
+  };
+  const handleClearHistory = () => {
+    if (activeTabId) useHistoryStore.getState().clearBlocks(activeTabId);
+  };
   const termRef = useRef<XtermSurfaceHandle>(null);
   const hadTabsRef = useRef(false);
   // Global DEFCON state (Gary, 2026-11-13 — "terminal tabs
@@ -175,6 +200,41 @@ export default function MiniTerminal() {
   useEffect(() => {
     prompterActiveRef.current = prompterActive;
   }, [prompterActive]);
+  /** Scrollback mirror (sweep item 16 — same shape as
+   *  Terminal.tsx, but keyed by the ACTIVE tab: the detached
+   *  window is one component whose active tab changes, so the
+   *  mirror is recreated when the tab changes. Switching tabs
+   *  drops the old tab's mirror — the same loss the tab switch
+   *  already had (its surface unmounts with its buffer); the
+   *  landing carry is per active tab. */
+  const scrollbackMirrorRef = useRef<{ tabId: string; mirror: ScrollbackMirror } | null>(null);
+  const getScrollbackMirror = (tabId: string): ScrollbackMirror => {
+    if (!scrollbackMirrorRef.current || scrollbackMirrorRef.current.tabId !== tabId) {
+      scrollbackMirrorRef.current = { tabId, mirror: createScrollbackMirror(tabId) };
+    }
+    return scrollbackMirrorRef.current.mirror;
+  };
+  const mirrorSurfaceWrite = (tabId: string, data: string, source: 'pty' | 'write') => {
+    if (prompterActiveRef.current) return;
+    getScrollbackMirror(tabId).mirror(data, source);
+  };
+  const carryScrollbackToFeed = (tabId: string, label: string) => {
+    const block = getScrollbackMirror(tabId).snapshot(label, Date.now());
+    if (!block) return;
+    useHistoryStore.getState().setBlocks(tabId, (prev) => [...prev, block]);
+  };
+  /** Landing (sweep item 16): the surface unmounts when the
+   *  prompter takes over (level 3+) — the mirror snapshots
+   *  into the feed first. No agent mode in the detached
+   *  window. */
+  const wasPrompterActiveRef = useRef(prompterActive);
+  useEffect(() => {
+    if (!wasPrompterActiveRef.current && prompterActive && activeTab) {
+      carryScrollbackToFeed(activeTab.id, 'Scrollback — terminal transcript before DEFCON 3');
+    }
+    wasPrompterActiveRef.current = prompterActive;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompterActive]);
 
   useDetachPushListeners();
 
@@ -214,13 +274,16 @@ export default function MiniTerminal() {
    *  durationMs = close − submit. No-op when there is no
    *  current block or it already closed — the first close
    *  wins. The block is looked up in the given tab's list, so
-   *  a block opened for another tab is never touched. */
-  const closeCurrentBlock = (tabId: string) => {
+   *  a block opened for another tab is never touched.
+   *  `lowerBound` is true only for the quiet-timer close
+   *  (sweep item 15): the duration is a lower bound, not
+   *  the run time. */
+  const closeCurrentBlock = (tabId: string, lowerBound = false) => {
     if (currentBlockIdRef.current === null || currentBlockClosedRef.current) return;
     currentBlockClosedRef.current = true;
     clearBlockQuietTimer();
     const now = Date.now();
-    updateCurrentBlock(tabId, (b) => closeBlock(b, now));
+    updateCurrentBlock(tabId, (b) => closeBlock(b, now, { lowerBound }));
   };
 
   /** Re-arm the quiet timer: when the PTY stream stays quiet
@@ -230,7 +293,7 @@ export default function MiniTerminal() {
     clearBlockQuietTimer();
     blockQuietTimerRef.current = window.setTimeout(() => {
       blockQuietTimerRef.current = null;
-      closeCurrentBlock(tabId);
+      closeCurrentBlock(tabId, true);
     }, BLOCK_QUIET_CLOSE_MS);
   };
 
@@ -315,6 +378,7 @@ export default function MiniTerminal() {
   const miniWriteLines = (tabId: string, text: string, opts?: { captureToBlock?: boolean }) => {
     const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
     termRef.current?.write(`\r\n${normalized}\r\n`);
+    mirrorSurfaceWrite(tabId, `\r\n${normalized}\r\n`, 'write');
     if (opts?.captureToBlock !== false && currentBlockIdRef.current !== null) {
       appendToCurrentBlock(tabId, text.replace(/\r\n/g, '\n'), 'write');
     }
@@ -812,6 +876,7 @@ export default function MiniTerminal() {
         }
       }
       termRef.current?.write(data);
+      mirrorSurfaceWrite(tabId, cleaned, 'pty');
       if (prompterActiveRef.current && currentBlockIdRef.current !== null) {
         appendToCurrentBlock(tabId, cleaned, 'pty');
         armBlockQuietClose(tabId);
@@ -824,6 +889,7 @@ export default function MiniTerminal() {
       markTabExited(tabId, code);
       setShellExited({ code });
       termRef.current?.write(`\r\n\x1b[31mShell exited (code ${code}).\x1b[0m\r\n`);
+      mirrorSurfaceWrite(tabId, `\r\nShell exited (code ${code}).\r\n`, 'write');
     };
     const handleCwd = (id: string, cwd: string) => {
       if (id !== tabId) return;
@@ -983,6 +1049,104 @@ export default function MiniTerminal() {
 
       <TerminalTabs detachedWindow showBloodDrop={false} />
 
+      {/* Side panels row (sweep item 8): the rail + the open
+          panel sit beside the terminal column, the same shape
+          as the main window's sidebar. */}
+      <div className="flex min-h-0 flex-1 flex-row">
+        {/* Panels rail: History + Docs. Always present; an
+            icon toggles its panel (a second click closes it). */}
+        <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-[var(--border)] bg-[var(--bg-secondary)] py-3">
+          <Tooltip content="History" placement="right">
+            <button
+              type="button"
+              data-testid="mini-panel-history"
+              aria-label="History"
+              aria-pressed={miniPanel === 'history'}
+              onClick={() => {
+                setMiniPanel((p) => (p === 'history' ? null : 'history'));
+                setMiniHistoryCollapsed(false);
+              }}
+              className={`rounded-lg p-2 hover:bg-[var(--bg-tertiary)] ${miniPanel === 'history' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
+            >
+              <History size={20} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Docs" placement="right">
+            <button
+              type="button"
+              data-testid="mini-panel-docs"
+              aria-label="Docs"
+              aria-pressed={miniPanel === 'docs'}
+              onClick={() => {
+                setMiniPanel((p) => (p === 'docs' ? null : 'docs'));
+                setMiniDocsCollapsed(false);
+              }}
+              className={`rounded-lg p-2 hover:bg-[var(--bg-tertiary)] ${miniPanel === 'docs' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
+            >
+              <BookOpen size={20} />
+            </button>
+          </Tooltip>
+        </div>
+        {miniPanel === 'history' && (
+          <ConversationHistory
+            blocks={miniHistoryBlocks}
+            onJumpToBlock={handleJumpToBlock}
+            onClearHistory={handleClearHistory}
+            width={320}
+            collapsed={miniHistoryCollapsed}
+            onToggleCollapsed={setMiniHistoryCollapsed}
+          />
+        )}
+        {miniPanel === 'docs' && !miniDocsCollapsed && (
+          <div
+            data-testid="mini-docs-panel"
+            className="flex h-full w-80 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-primary)]"
+          >
+            {/* Header — the same shape as the Sidebar's Docs
+                header: title + minimize (the dash collapses
+                Docs to its w-12 rail, never a close). */}
+            <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Docs
+              </span>
+              <div className="flex items-center gap-1">
+                <Tooltip content="Minimize docs">
+                  <button
+                    onClick={() => setMiniDocsCollapsed(true)}
+                    className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                    aria-label="Minimize docs"
+                  >
+                    <Minus size={14} />
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+            {/* The docs for the symbol under the editor's
+                cursor — a reader of the engine, never a
+                writer (same component as the main window). */}
+            <div className="flex-1 overflow-y-auto">
+              <DocsPanel />
+            </div>
+          </div>
+        )}
+        {miniPanel === 'docs' && miniDocsCollapsed && (
+          <div className="flex h-full w-12 shrink-0 flex-col items-center border-r border-[var(--border)] bg-[var(--bg-secondary)] py-3">
+            <Tooltip content="Show docs" placement="right">
+              <button
+                onClick={() => setMiniDocsCollapsed(false)}
+                className="rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]"
+                aria-label="Show docs"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
+        {/* Terminal column: the waiting / active / empty
+            states below, unchanged — now beside the panels
+            instead of full-width. */}
+        <div className="flex min-h-0 flex-1 flex-col">
+
       {waiting && tabs.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-sm text-[var(--text-muted)]">Waiting for the tab…</p>
@@ -1006,27 +1170,25 @@ export default function MiniTerminal() {
           )}
           {/* DEFCON 3 prompter — the live blocks feed (same as
               Terminal.tsx: renders when the prompter is active).
-              DEFCON 3 Phase 5 — the non-devmode landing: at
-              level 3+ in NON-devmode the list IS the feed
-              (`fill` — it takes the terminal column, and the
-              xterm surface below is unmounted, so output
-              appears exactly once). In devmode it stays the
-              capped panel above the live xterm. */}
+              The list IS the feed (`fill` — it takes the
+              terminal column, and the xterm surface below is
+              unmounted, so output appears exactly once; the
+              sweep settle, 2026-11-15, extends the unmount to
+              devmode here too). */}
           {prompterActive && (
-            <UnifiedFeed tabId={activeTab.id} onReinput={(command) => setDevInput(command)} fill={!devMode} />
+            <UnifiedFeed tabId={activeTab.id} onReinput={(command) => setDevInput(command)} fill />
           )}
           {/* DEFCON 3 Phase 5 — the xterm surface is UNMOUNTED
-              at level 3+ in NON-devmode (see the duplication
+              at level 3+ (see the duplication
               decision in BlockList.tsx): the BlockList above is
               the sole feed, so output appears exactly once — no
               live stream duplicating the block transcript, no
               flashing cursor as the input. The PTY keeps
               running in the main process (it is tab-owned, not
               surface-owned), so dropping back below 3 remounts
-              a fresh surface on the live shell. In devmode the
-              surface stays: the war zone keeps the raw stream
-              visible, duplication and all. */}
-          {!((prompterActive) && !devMode) && (
+              a fresh surface on the live shell. The sweep
+              settle (2026-11-15) applies this in devmode too. */}
+          {!(prompterActive) && (
           <div className="flex-1 overflow-hidden p-4">
             {/* DEFCON 2 merge (same as Terminal.tsx): at DEFCON
                 2+ the terminal box is GONE — this wrap drops its
@@ -1156,6 +1318,8 @@ export default function MiniTerminal() {
           <p className="text-sm text-[var(--text-muted)]">No terminal tab</p>
         </div>
       )}
+        </div>
+      </div>
       </div>
     </div>
   );

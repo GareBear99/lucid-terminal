@@ -177,6 +177,16 @@ interface HistoryState {
   setBlocks: (tabId: string, updater: BlocksUpdater) => void;
   /** Clear one tab's blocks (the clear-history action). */
   clearBlocks: (tabId: string) => void;
+  /** Flip one block's collapsed state (feed fold, sweep item
+   *  3 — the chevron in the block header). Session-only
+   *  visual state; persisted with the block like the rest of
+   *  its fields. No-op when the tab or block is not found. */
+  toggleBlockCollapsed: (tabId: string, blockId: string) => void;
+  /** Flip one block's bookmark (sweep item 7 — the star in
+   *  the block actions). Persisted with the block per
+   *  tab/profile like isCollapsed; the History panel filters
+   *  on it. No-op when the tab or block is not found. */
+  toggleBlockBookmarked: (tabId: string, blockId: string) => void;
   /**
    * Drop the driving intelligence's working memory (Memory tab,
    * 2026-11-14): the agent-prompt and agent-response blocks in
@@ -246,6 +256,34 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       // escapes (if any) die with them.
       for (const b of state.blocksByTab[tabId] ?? EMPTY_BLOCKS) dropPendingEscape(b.id);
       return { blocksByTab: { ...state.blocksByTab, [tabId]: [] } };
+    }),
+
+  toggleBlockCollapsed: (tabId, blockId) =>
+    set((state) => {
+      const prev = state.blocksByTab[tabId] ?? EMPTY_BLOCKS;
+      if (!prev.some((b) => b.id === blockId)) return state;
+      return {
+        blocksByTab: {
+          ...state.blocksByTab,
+          [tabId]: prev.map((b) =>
+            b.id === blockId ? { ...b, isCollapsed: !b.isCollapsed } : b,
+          ),
+        },
+      };
+    }),
+
+  toggleBlockBookmarked: (tabId, blockId) =>
+    set((state) => {
+      const prev = state.blocksByTab[tabId] ?? EMPTY_BLOCKS;
+      if (!prev.some((b) => b.id === blockId)) return state;
+      return {
+        blocksByTab: {
+          ...state.blocksByTab,
+          [tabId]: prev.map((b) =>
+            b.id === blockId ? { ...b, isBookmarked: !b.isBookmarked } : b,
+          ),
+        },
+      };
     }),
 
   clearAgentBlocks: () => {

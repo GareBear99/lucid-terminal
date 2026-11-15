@@ -203,10 +203,6 @@ function submitToTerminal(command: string) {
   fireEvent.keyDown(input, { key: 'Enter' });
 }
 
-function terminalOutputText(): string {
-  return screen.getByTestId('xterm-fallback-output').textContent ?? '';
-}
-
 /** Drive a PTY chunk into the Terminal, as the shell would. */
 function emitPty(data: string) {
   expect(dataHandler).not.toBeNull();
@@ -438,35 +434,43 @@ describe('DEFCON 3 Phase 5 — the BlockList fill variant', () => {
     expect(list.className).not.toContain('max-h-72');
   });
 
-  test('devmode: the list stays the capped panel above the live xterm', async () => {
+  test('devmode: the settle — the list IS the feed too, xterm unmounted', async () => {
     renderDevmode(3);
     await screen.findByTestId('dev-command-bar');
 
     submitToDevComposer('echo hi');
     await waitFor(() => expect(blocks()).toHaveLength(1));
     const list = screen.getByTestId('terminal-blocks');
-    expect(list.className).toContain('max-h-72');
-    expect(list.className).not.toContain('flex-1');
-    expect(screen.getByTestId('xterm-surface')).not.toBeNull();
+    expect(list.className).toContain('flex-1');
+    expect(list.className).toContain('border-0');
+    expect(list.className).toContain('bg-transparent');
+    expect(list.className).not.toContain('max-h-72');
+    // The sweep settle (2026-11-15): at level 3+ in devmode
+    // the feed is the sole surface — no capped panel above a
+    // live xterm any more, no double output.
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
   });
 });
 
 describe('DEFCON 3 Phase 4 — criteria through the real /defcon command', () => {
-  test('/defcon 3 from level 2 shows the first two met and the third open', async () => {
-    // Devmode keeps the xterm mounted across the level change,
-    // so the set output is durable here (in non-devmode the
-    // surface unmounts as the level lands — see the report).
+  test('/defcon 3 from level 2 lands the level — the confirmation text is not durable', async () => {
+    // The settle (2026-11-15): the xterm unmounts on the
+    // level change in devmode too, so the set confirmation —
+    // written after the level lands, to a surface that is
+    // already gone, with no block to capture into (the submit
+    // came from the xterm below 3) — is not observable in the
+    // DOM. What IS observable: the level landed, the composer
+    // is live, and the xterm is gone. The criteria content is
+    // covered by the bare read below.
     renderDevmode(2);
     await screen.findByTestId('xterm-surface');
 
     submitToTerminal('/defcon 3');
     await waitFor(() => {
-      expect(terminalOutputText()).toContain('Still open:');
+      expect(settingsSetMock).toHaveBeenCalledWith('defconLevel', 3);
     });
-    expect(terminalOutputText()).toContain('[ ] Everything sorted out');
-    expect(terminalOutputText()).not.toContain('[ ] DEFCON 2 complete');
-    expect(terminalOutputText()).not.toContain('[ ] The prompter built');
-    expect(settingsSetMock).toHaveBeenCalledWith('defconLevel', 3);
+    await screen.findByTestId('dev-command-bar');
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
   });
 
   test('a bare /defcon read at level 3 shows all three met', async () => {
@@ -475,7 +479,7 @@ describe('DEFCON 3 Phase 4 — criteria through the real /defcon command', () =>
 
     submitToTerminal('/defcon 3');
     await waitFor(() => {
-      expect(terminalOutputText()).toContain('Still open:');
+      expect(settingsSetMock).toHaveBeenCalledWith('defconLevel', 3);
     });
     // The order landed: the level is 3 now, so the composer
     // is live in devmode — read the settled state from it.

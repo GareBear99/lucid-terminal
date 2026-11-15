@@ -261,9 +261,13 @@ export interface TerminalBlock {
    *  driving-intelligence placeholder in an agent session);
    *  'agent-review' is a Keep/Reject review of one edit the agent
    *  wants to make (steal #6 — Zed): the diff preview + the
-   *  decision buttons live in `review`. The feed renders all
+   *  decision buttons live in `review`. 'scrollback' (sweep item
+   *  16) is the pre-landing terminal transcript, carried into the
+   *  feed as one block when the xterm unmounts at DEFCON 3 (or
+   *  on agent-mode entry) — it is not a command, so it has no
+   *  re-input and no duration. The feed renders all
    *  kinds in one list. */
-  kind?: 'command' | 'agent-prompt' | 'agent-response' | 'notice' | 'agent-review';
+  kind?: 'command' | 'agent-prompt' | 'agent-response' | 'notice' | 'agent-review' | 'scrollback';
   /** The review data, for 'agent-review' blocks only (steal #6
    *  — Zed): the proposed edit's diff, the decision state, and
    *  the checkpoint the decision can revert to. Undefined for
@@ -279,7 +283,20 @@ export interface TerminalBlock {
    *  src/lib/terminalBlocks.ts). Undefined while the block is
    *  still open. Git branch is NOT in scope for this build. */
   durationMs?: number;
+  /** Sweep item 15: the duration is a LOWER BOUND, not the run
+   *  time — the block closed on PTY quiescence (no output for
+   *  BLOCK_QUIET_CLOSE_MS), and the command may have been
+   *  still running (e.g. `sleep 2; echo done` closes at 0.5s).
+   *  The header renders "≥" for these so it never states a
+   *  false number. False/absent for force-closes (next submit,
+   *  slash resolve, shell exit), which close on proof the
+   *  prompt returned. */
+  durationIsLowerBound?: boolean;
   isCollapsed?: boolean;
+  /** Bookmarked (sweep item 7): a per-block star, persisted
+   *  with the block per tab/profile like isCollapsed. The
+   *  History panel filters on it. */
+  isBookmarked?: boolean;
   /**
    * Restored from the previous session (Gary, 2026-11-09 — command
    * history must survive a relaunch): this block was NOT run in
@@ -432,6 +449,12 @@ export interface Settings {
   terminalLetterSpacing: number;
   terminalLigatures: boolean;
   terminalFontWeight: string;
+  /** Feed density (sweep item 20): comfortable (the current
+   *  spacing) or compact (tighter blocks — less padding per
+   *  block, tighter output leading). Default comfortable.
+   *  Runtime version is NOT carried in block headers (decided
+   *  — only if Gary wants it; do not add it on spec). */
+  feedDensity: 'comfortable' | 'compact';
   // Custom keybindings (Atom steal #13 — keymaps,
   // 2026-11-14): user overrides merged onto the default
   // keymap (src/lib/keymap.ts). Empty = the defaults.
@@ -477,11 +500,13 @@ export interface Settings {
   // Settings holds one toggle per surface. Each toggle is its own
   // settings key, default off, and that surface renders its mist
   // only when its toggle is on. `filesMist` is the first (the Files
-  // screen); the pattern is one key + one toggle + one conditional
-  // render per surface, so an AI Chat mist toggle slots straight in
-  // next to it. Missing keys in older persisted settings count as
-  // OFF (loadSettings merges defaults over persisted).
+  // screen); `aiChatMist` is the second (the AI Chat panel — its
+  // solid background goes transparent so the app-level mist shows
+  // through it; see src/lib/mist.ts). Missing keys in older
+  // persisted settings count as OFF (loadSettings merges defaults
+  // over persisted).
   filesMist: boolean;
+  aiChatMist: boolean;
   aiModel: string;
   aiTemperature: number;
   // Copilots (Gary, 2026-11-13): the AI chat's copilot tab runs
@@ -1227,7 +1252,7 @@ declare global {
         create: () => void;
       };
       fs: {
-        readDir: (dirPath: string, options?: { depth?: number; maxEntries?: number }) => Promise<FileEntry[]>;
+        readDir: (dirPath: string, options?: { depth?: number; maxEntries?: number; branchTimeoutMs?: number }) => Promise<FileEntry[]>;
         readFile: (filePath: string) => Promise<string>;
         writeFile: (filePath: string, content: string) => Promise<void>;
         createFile: (filePath: string, content?: string) => Promise<void>;

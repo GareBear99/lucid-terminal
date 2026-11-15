@@ -648,10 +648,14 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             if (value) {
                 onSubmit(value);
             }
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === 'ArrowUp' && !e.metaKey && !e.ctrlKey) {
+            // Plain arrows only: ⌘↑/⌘↓ (and Ctrl) are feed
+            // block navigation (sweep item 4) — the feed's
+            // window listener owns them, so they must not also
+            // step the prompt history here.
             e.preventDefault();
             onHistoryUp();
-        } else if (e.key === 'ArrowDown') {
+        } else if (e.key === 'ArrowDown' && !e.metaKey && !e.ctrlKey) {
             e.preventDefault();
             onHistoryDown();
         }

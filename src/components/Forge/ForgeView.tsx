@@ -28,6 +28,7 @@ import { detectDualUnison } from '../../lib/dualUnison';
 import { RosterCard } from './RosterCard';
 import { SummonsSection } from './SummonsSection';
 import { PipelinePanel } from './PipelinePanel';
+import { ViewHeader } from '../Layout/ViewHeader';
 import { ScoreboardPanel } from './ScoreboardPanel';
 import { BiographyEditor } from './BiographyEditor';
 import { DualUnisonPanel } from './DualUnisonPanel';
@@ -178,22 +179,17 @@ export function ForgeView() {
     // misty black (Gary, 2026-11-07), so the App root's mist shows
     // through — the panels keep their own fills.
     <div className="p-4">
-      <header className="mb-3 shrink-0">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">
-          Forge
-        </h1>
-        <p className="text-xs text-[var(--text-muted)]">
-          Train your Homunculi — build, benchmark, and promote small
-          models. A Homunculus is a bot with a gaining growth of
-          intelligence: each promotion grows what it knows.
-        </p>
+      <ViewHeader
+        title="Forge"
+        description="Train your Homunculi — build, benchmark, and promote small models. A Homunculus is a bot with a gaining growth of intelligence: each promotion grows what it knows."
+      >
         <p className="mt-1 text-xs text-[var(--text-muted)]">
           Honest scale: the tiny and small models do toy text completion,
           not conversation. A Homunculus brain answers from its training
           records — it says what it can&apos;t answer rather than making
           something up.
         </p>
-      </header>
+      </ViewHeader>
 
       {setupStatus && !setupStatus.ready && (
         <p

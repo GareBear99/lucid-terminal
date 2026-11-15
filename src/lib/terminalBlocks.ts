@@ -27,12 +27,17 @@
  *       arrived for BLOCK_QUIET_CLOSE_MS, the prompt is taken to
  *       have returned and the block closes with
  *       durationMs = close − submit. LIMITATION, recorded
- *       honestly: a command that pauses output longer than the
- *       window mid-run (e.g. `sleep 2; echo done`) closes early
- *       on header/duration only — its late output STILL lands
- *       in the same block (output attribution runs until the
- *       next submit, not until the close), so nothing is lost,
- *       only the duration understates the run.
+ *       honestly and FIXED in the sweep (item 15): a command
+ *       that pauses output longer than the window mid-run (e.g.
+ *       `sleep 2; echo done`) closes early on header/duration
+ *       only — its late output STILL lands in the same block
+ *       (output attribution runs until the next submit, not
+ *       until the close), so nothing is lost. The fix marks
+ *       the quiet-closed duration as a lower bound
+ *       (`durationIsLowerBound`, rendered "≥" in the header)
+ *       so the header never states a false number; a
+ *       force-close (next submit / slash resolve / shell exit)
+ *       closes on proof the prompt returned and stays plain.
  *   (b) NEXT SUBMIT — a new composer submit proves a fresh
  *       prompt had returned (the shell could only accept a new
  *       command at a prompt), so submitting force-closes the
@@ -327,10 +332,24 @@ export function appendBlockOutput(
 /** Close a block: mark it complete and stamp the duration
  *  (submit → close). Closing an already-closed block is a
  *  no-op — the first close wins, so a quiet-close followed by
- *  a force-close at next submit cannot restamp the duration. */
-export function closeBlock(block: TerminalBlock, now: number): TerminalBlock {
+ *  a force-close at next submit cannot restamp the duration.
+ *
+ *  `lowerBound` (sweep item 15): the close was on PTY
+ *  quiescence, not on proof the prompt returned — the command
+ *  may have been still running, so the stamped duration is a
+ *  lower bound and the header renders it with "≥". */
+export function closeBlock(
+  block: TerminalBlock,
+  now: number,
+  opts?: { lowerBound?: boolean },
+): TerminalBlock {
   if (block.isComplete) return block;
-  return { ...block, isComplete: true, durationMs: Math.max(0, now - block.timestamp) };
+  return {
+    ...block,
+    isComplete: true,
+    durationMs: Math.max(0, now - block.timestamp),
+    ...(opts?.lowerBound ? { durationIsLowerBound: true } : {}),
+  };
 }
 
 /** OSC 133 shell-integration exit codes (see the header note).
@@ -365,6 +384,95 @@ export function parseOsc133ExitCodes(
 export function formatBlockDuration(durationMs: number): string {
   if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
   return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Scrollback carried into the feed (sweep item 16). Landing at
+ * DEFCON 3 unmounts the xterm surface, and with it the
+ * pre-landing transcript — the feed started empty. The fix is a
+ * live mirror, not an unmount callback: the landing and the
+ * unmount are the same render, so nothing read after the flip
+ * survives (the surface is disposed before any effect runs).
+ * Instead, every chunk the surface shows is mirrored into a
+ * transcript block while the surface is mounted (below 3, not
+ * agent mode); on landing the mirror snapshots into ONE
+ * 'scrollback' block and resets. The mirror is the same
+ * sanitized transcript the blocks use (appendBlockOutput), so
+ * it reads like the terminal showed — same class of text as
+ * every block, not the raw PTY bytes.
+ *
+ * Fidelity limits, recorded honestly: the mirror replays the
+ * stream through the sanitizer (it does not read the xterm
+ * buffer — that dies with the surface), so a `clear` is only
+ * honoured when its `\x1b[2J` arrives whole in one chunk (a
+ * sequence split across chunks is missed and the pre-clear
+ * text survives in the mirror); and line-wrap reflow is the
+ * sanitizer's, not xterm's. The transcript is capped at
+ * BLOCK_OUTPUT_CAP, like every block.
+ */
+export function newScrollbackBlock(
+  output: string,
+  label: string,
+  now: number,
+): TerminalBlock | null {
+  const text = output.replace(/\n+$/, '');
+  if (!text.trim()) return null;
+  return {
+    id: newBlockId(now),
+    command: label,
+    output: text,
+    timestamp: now,
+    isComplete: true,
+    kind: 'scrollback',
+  };
+}
+
+export interface ScrollbackMirror {
+  /** Feed text the surface showed (a PTY chunk or a Lucid write). */
+  mirror: (text: string, source: 'pty' | 'write') => void;
+  /** Snapshot the transcript as one scrollback block (null when
+   *  the mirror is empty) and reset the mirror. */
+  snapshot: (label: string, now: number) => TerminalBlock | null;
+  /** The screen was cleared — drop the transcript. */
+  reset: () => void;
+}
+
+export function createScrollbackMirror(tabId: string): ScrollbackMirror {
+  const mirrorId = `scrollback-mirror-${tabId}`;
+  let current: TerminalBlock | null = null;
+  const fresh = (): TerminalBlock => ({
+    id: mirrorId,
+    command: '',
+    output: '',
+    timestamp: 0,
+    isComplete: false,
+  });
+  return {
+    mirror: (text, source) => {
+      if (!text) return;
+      // A whole clear-screen sequence in this chunk: the screen
+      // was cleared, so the pre-clear transcript is gone from
+      // view — drop it and keep only what follows the clear.
+      const clearIdx = text.lastIndexOf('\x1b[2J');
+      if (clearIdx !== -1) {
+        dropPendingEscape(mirrorId);
+        current = null;
+        text = text.slice(clearIdx + 4);
+        if (!text) return;
+      }
+      current = appendBlockOutput(current ?? fresh(), text, { source });
+    },
+    snapshot: (label, now) => {
+      const block = current ? newScrollbackBlock(current.output, label, now) : null;
+      if (current) dropPendingEscape(mirrorId);
+      current = null;
+      return block;
+    },
+    reset: () => {
+      if (current) dropPendingEscape(mirrorId);
+      current = null;
+    },
+  };
 }
 
 /** Copy text to the clipboard where one exists. Returns false

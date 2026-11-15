@@ -49,6 +49,7 @@ import {
 import { Toggle } from '../Settings/Toggle';
 import { PluginVoiceButton } from '../PluginVoiceButton';
 import { pluginVoiceSrc } from '../../lib/pluginVoice';
+import { ViewHeader } from '../Layout/ViewHeader';
 import { usePersonaRoster } from './usePersonaRoster';
 
 export function PersonaPlexView() {
@@ -112,17 +113,12 @@ export function PersonaPlexView() {
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="max-w-2xl mx-auto space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Users size={20} />
-            Persona Plex
-          </h2>
-          <p className="text-sm text-[var(--text-muted)] mt-1">
-            One plex embodiment, personas inside. The roster starts from
-            your existing souls — custom personas are added below. Local
-            only, no servers.
-          </p>
-          <p className="text-xs text-[var(--text-muted)] mt-1">
+        <ViewHeader
+          title="Persona Plex"
+          description="One plex embodiment, personas inside. The roster starts from your existing souls — custom personas are added below. Local only, no servers."
+          icon={<Users size={20} />}
+        >
+          <p className="text-xs text-[var(--text-muted)] mt-1 leading-[1.5]">
             Voices + options also live in the Forge-to-Persona Plex
             segment (Modules &gt; Segments) — the bridge where a
             persona&rsquo;s voice meets its Homunculus. A voice picked
@@ -130,22 +126,22 @@ export function PersonaPlexView() {
             voice — press the speaker next to a persona&rsquo;s voice
             to hear that persona speak.
           </p>
-          {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST):
-              plugins have voice recordings all throughout. */}
-          <div className="mt-2">
-            <PluginVoiceButton
-              voiceId="persona-plex-view"
-              title="Persona Plex"
-              src={pluginVoiceSrc('persona-plex-view')}
-            />
-          </div>
-        </header>
+        </ViewHeader>
+        {/* Voice explanation (Gary, 2026-11-07 ~02:54 PST):
+            plugins have voice recordings all throughout. */}
+        <div className="mt-2">
+          <PluginVoiceButton
+            voiceId="persona-plex-view"
+            title="Persona Plex"
+            src={pluginVoiceSrc('persona-plex-view')}
+          />
+        </div>
 
         {/* Speak — the right-click Speak toggle (Gary, 2026-11-06).
             When on, right-clicking a message in AI chat shows Speak,
             read aloud in the active persona's voice. */}
         <section className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-3">
-          <label className="flex items-center gap-3 cursor-pointer">
+          <label className="flex items-center gap-3 cursor-pointer py-1">
             <Toggle
               checked={speakEnabled}
               onChange={(checked) => void updateSetting('personaPlexSpeakEnabled', checked)}
@@ -156,7 +152,7 @@ export function PersonaPlexView() {
                 <Volume2 size={14} />
                 Speak on right-click
               </span>
-              <span className="block text-xs text-[var(--text-muted)]">
+              <span className="block text-xs text-[var(--text-muted)] leading-[1.5]">
                 When on, right-clicking a message in AI chat shows Speak —
                 read aloud in the active persona&rsquo;s voice. Off hides it.
               </span>
@@ -170,10 +166,10 @@ export function PersonaPlexView() {
             Personas ({roster.length})
           </h3>
           {!soulsLoaded && (
-            <p className="text-xs text-[var(--text-muted)]">Loading souls…</p>
+            <p className="text-xs text-[var(--text-muted)] leading-[1.5]">Loading souls…</p>
           )}
           {soulsLoaded && roster.length === 0 && (
-            <p className="text-sm text-[var(--text-muted)]">
+            <p className="text-sm text-[var(--text-muted)] leading-[1.5]">
               No personas yet — no souls in the Python soul config, and no
               custom personas. Add one below.
             </p>
@@ -191,7 +187,7 @@ export function PersonaPlexView() {
                   <div className="flex items-center gap-3">
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium">{persona.name}</span>
-                      <span className="block text-xs text-[var(--text-muted)]">
+                      <span className="block text-xs text-[var(--text-muted)] mt-2 leading-[1.5]">
                         {persona.source === 'soul'
                           ? `Soul · ${persona.rarity ?? 'common'} · level ${persona.level ?? 1}`
                           : 'Custom persona'}
@@ -278,7 +274,7 @@ export function PersonaPlexView() {
                       ))}
                     </select>
                   </label>
-                  <p className="text-xs text-[var(--text-muted)]">
+                  <p className="text-xs text-[var(--text-muted)] leading-[1.5]">
                     Pairing a Homunculus makes this persona&rsquo;s voice
                     the voice Forge uses for it.
                   </p>

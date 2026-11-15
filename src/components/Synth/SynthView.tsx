@@ -44,6 +44,7 @@ import { synthScaleStyle } from './windowedScale';
 import { WidgetLayer } from './widgets';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { PluginVoiceButton } from '../PluginVoiceButton';
+import { ViewHeader } from '../Layout/ViewHeader';
 import { pluginVoiceSrc } from '../../lib/pluginVoice';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
@@ -592,8 +593,18 @@ export function SynthView() {
     // No background here: the main screen is always splashscreen
     // misty black (Gary, 2026-11-07), so the App root's mist shows
     // through — the shell keeps its own dark canvas.
-    <div className="relative flex-1 overflow-hidden">
-      <div className="flex" style={synthScaleStyle(isMaximized)}>
+    <div className="relative flex-1 flex flex-col overflow-hidden">
+      {/* View header (sweep item 17): the one pattern — title +
+          one-line description. The shell's own HUD stays inside
+          the iframe; this header is Lucid chrome above it, never
+          scaled by the windowed scale. */}
+      <div className="px-4 pt-4">
+        <ViewHeader
+          title="Synth"
+          description="The Matrix Synth shell — mount an embodiment and the Neural Synth thinker renders in the eye."
+        />
+      </div>
+      <div className="flex flex-1 min-h-0" style={synthScaleStyle(isMaximized)}>
       {/* Shell — the vendored v67 MATRIX SYNTH, with the thinker in the eye once mounted */}
       <div className="flex-1 overflow-hidden relative">
         <iframe
@@ -795,12 +806,12 @@ export function SynthView() {
                     </div>
                   )}
                   {!spec?.managesOwnState && modelStatuses === null && statusAvailable && (
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                    <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
                       Checking plugin backend…
                     </p>
                   )}
                   {!spec?.managesOwnState && !statusAvailable && (
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                    <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
                       Plugin backend status unavailable in this build.
                     </p>
                   )}
@@ -815,7 +826,7 @@ export function SynthView() {
                 </>
               ) : (
                 <>
-                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                  <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
                     {spec?.managesOwnState ? (
                       <>
                         The shell is empty — no blueprint loaded. Load
@@ -853,7 +864,7 @@ export function SynthView() {
               )}
             </>
           ) : (
-            <p className="text-xs text-[var(--text-muted)]">
+            <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
               No embodiment registered for this plugin.
             </p>
           )}
@@ -881,7 +892,7 @@ export function SynthView() {
               />
             </VoxelDirectoryPanelErrorBoundary>
           ) : (
-            <p className="text-xs text-[var(--text-muted)]">
+            <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
               {spec?.managesOwnState ? (
                 <>
                   {spec?.name ?? activePluginId} is a blueprint shell —
@@ -936,7 +947,7 @@ export function SynthView() {
             ) : (
               ownBuild && (
                 <>
-                  <p className="text-xs text-[var(--text-primary)]">
+                  <p className="text-xs leading-[1.5] text-[var(--text-primary)]">
                     {creatorBuildSummary(ownBuild)}
                     {mounted ? ' · mounted' : ' · not mounted'}
                   </p>

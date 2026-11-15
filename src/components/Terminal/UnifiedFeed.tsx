@@ -17,7 +17,9 @@
  * The xterm stays the live surface for terminal sessions below
  * DEFCON 3 (interactive programs need a live surface — that
  * cost is documented in BlockList.tsx, not silently removed);
- * at DEFCON 3+ and in agent mode the list IS the feed.
+ * at DEFCON 3+ and in agent mode the list IS the feed, in both
+ * modes (the sweep settle, 2026-11-15 — devmode no longer
+ * keeps the raw stream visible at level 3+).
  */
 
 import { BlockList } from './BlockList';
@@ -28,9 +30,10 @@ interface UnifiedFeedProps {
   /** Put a block's command back into the composer. */
   onReinput: (command: string) => void;
   /** The list IS the feed — it fills the terminal column
-   *  (non-devmode at level 3+, and always in agent mode, which
-   *  has no xterm below). Default (devmode terminal):
-   *  the capped panel above the live xterm. */
+   *  (at level 3+ in both modes, and always in agent mode,
+   *  which has no xterm below). Default: the capped panel
+   *  above the live xterm (below 3, where the feed renders
+   *  only in agent mode). */
   fill?: boolean;
 }
 

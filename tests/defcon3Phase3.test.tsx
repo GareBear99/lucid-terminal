@@ -181,8 +181,12 @@ function submitToComposer(command: string) {
   fireEvent.keyDown(input, { key: 'Enter' });
 }
 
+/** The feed's block output — the sole surface at level 3 in
+ *  both modes since the sweep settle (the xterm is unmounted,
+ *  so there is no fallback output to read). Null-safe so
+ *  waitFor polls until the block's output lands. */
 function terminalOutputText(): string {
-  return screen.getByTestId('xterm-fallback-output').textContent ?? '';
+  return screen.queryByTestId('block-output')?.textContent ?? '';
 }
 
 /** Feed a PTY chunk into the terminal (drives block output + the quiet-close timer). */

@@ -189,7 +189,7 @@ describe('Add-on install flow (Settings > Plugins)', () => {
     });
   });
 
-  test('every installed add-on has a Settings button; uninstalled ones do not', () => {
+  test('only installed add-ons WITH a settings surface have a Settings button (sweep item 18)', () => {
     const base = useSettingsStore.getState().settings;
     useSettingsStore.setState({
       settings: {
@@ -199,8 +199,18 @@ describe('Add-on install flow (Settings > Plugins)', () => {
       },
     });
     renderPlugins();
-    for (const id of ['persona-plex', 'gh-ai-operator', 'desktop-commander', 'android-emulator', 'segments', 'arc-server']) {
+    // A settings surface exists for these three: Persona Plex opens
+    // its setup page; Android Connect and Segments open their anchor
+    // plugin's tab (Devices / Modules).
+    for (const id of ['persona-plex', 'android-emulator', 'segments']) {
       expect(settingsButton(id)).not.toBeNull();
+    }
+    // No surface for these three — no button, instead of one that
+    // only toasts "No settings yet". ARC Server has no settings
+    // page by design (Gary, 2026-11-14); gh-ai-operator and
+    // desktop-commander have none yet.
+    for (const id of ['gh-ai-operator', 'desktop-commander', 'arc-server']) {
+      expect(settingsButton(id)).toBeNull();
     }
   });
 
@@ -238,11 +248,12 @@ describe('Add-on install flow (Settings > Plugins)', () => {
       'arc-server',
     ]);
     // And the UI reflects it: the fetched SHA, no Install button,
-    // a Settings button and a Remove button instead.
+    // a Remove button instead — and NO Settings button (sweep item
+    // 18: ARC Server has no settings page by design).
     await waitFor(() => {
       expect(document.body.textContent).toContain('Fetched a1b2c3d');
       expect(installButton('arc-server')).toBeNull();
-      expect(settingsButton('arc-server')).not.toBeNull();
+      expect(settingsButton('arc-server')).toBeNull();
       expect(removeButton('arc-server')).not.toBeNull();
     });
   });

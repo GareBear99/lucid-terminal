@@ -152,14 +152,26 @@ describe('Prompt bottom-pinned from launch — non-devmode DEFCON 3 empty feed',
     expect(content.lastElementChild).toBe(prompt);
   });
 
-  test('devmode at level 3, 0 blocks: empty list still returns null, xterm is the filler (unchanged)', async () => {
+  test('devmode at level 3, 0 blocks: the settle — empty fill list is the filler, xterm gone', async () => {
     renderDevmode(3);
     // In devmode the composer lives in the dev command bar, not
     // the prompt-section wrap — wait on the composer itself.
     await screen.findByTestId('prompter-composer');
 
-    expect(screen.queryByTestId('terminal-blocks')).toBeNull();
-    expect(screen.getByTestId('xterm-surface')).not.toBeNull();
+    // The settle (2026-11-15): at level 3+ in devmode the feed
+    // is the sole surface — the empty fill-mode list renders
+    // the flex-1 container, so the column has a filler above
+    // the prompt, exactly the non-devmode shape above. No
+    // xterm filler any more.
+    expect(screen.queryByTestId('xterm-surface')).toBeNull();
+    const blocks = screen.getByTestId('terminal-blocks');
+    expect(blocks.className).toContain('flex-1');
+    expect(blocks.children).toHaveLength(0);
+
+    const prompt = screen.getByTestId('prompt-section');
+    expect(prompt.compareDocumentPosition(blocks)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    const content = screen.getByTestId('terminal-content');
+    expect(content.lastElementChild).toBe(prompt);
   });
 
   test('non-devmode below 3: no block list at all in the empty state (unchanged)', async () => {

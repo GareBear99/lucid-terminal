@@ -4,6 +4,8 @@ import { CopilotView } from './CopilotView';
 import BrowserPanel from '../Browser/BrowserPanel';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { useBrowserStore } from '../../stores/browserStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { aiChatPanelBackground } from '../../lib/mist';
 import type { SettingsTab } from '../Settings/SettingsPanel';
 
 /**
@@ -34,6 +36,9 @@ interface AIPanelProps {
 function AIPanel({ onClose, onOpenSettings }: AIPanelProps) {
   const panelTab = useBrowserStore((s) => s.panelTab);
   const setPanelTab = useBrowserStore((s) => s.setPanelTab);
+  // AI Chat mist (sweep item 12): the shell goes transparent so
+  // the app-level mist shows through the panel; solid by default.
+  const aiChatMist = useSettingsStore((s) => s.settings.aiChatMist ?? false);
 
   const tabButton = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-sm ${
@@ -43,7 +48,10 @@ function AIPanel({ onClose, onOpenSettings }: AIPanelProps) {
     }`;
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
+    <div
+      className={`h-full flex flex-col ${aiChatPanelBackground(aiChatMist)}`}
+      data-testid="ai-panel"
+    >
       {/* Panel tab bar — same header style as the "Lucid AI" header */}
       <div className="flex items-center gap-1 px-2 pt-2 border-b border-[var(--border)] shrink-0">
         <Tooltip content="Switch to AI Chat">
@@ -74,10 +82,19 @@ function AIPanel({ onClose, onOpenSettings }: AIPanelProps) {
           </button>
         </Tooltip>
         <div className="flex-1" />
-        <Tooltip content="Close panel">
+        {/* Hide (sweep item 10 — decided once): the AI panel
+            is a right-edge DOCK, not a sidebar panel, so there
+            is no w-12 rail to minimize it to. The X hides the
+            dock (state kept — the toolbar AI button brings it
+            back); the tooltip says so explicitly instead of
+            "Close panel", which read as if the panel were
+            destroyed. The Chats sidebar inside AIChat already
+            minimizes with its own Minus. */}
+        <Tooltip content="Hide AI panel">
           <button
             onClick={onClose}
             className="btn-ghost p-1 rounded"
+            aria-label="Hide AI panel"
           >
             <X size={16} />
           </button>

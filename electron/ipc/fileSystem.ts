@@ -37,6 +37,12 @@ export interface ReadDirOptions {
    * files). Omit for no cap (the file explorer's shallow reads).
    */
   maxEntries?: number;
+  /**
+   * Wall-clock deadline per recursive branch (see
+   * readDirTree). Omit for the default
+   * (READ_DIR_BRANCH_TIMEOUT_MS).
+   */
+  branchTimeoutMs?: number;
 }
 
 
@@ -73,88 +79,186 @@ export const TCC_PROTECTED_DIR_NAMES: readonly string[] = [
  * the root (defense in depth) — a caller that recurses from the
  * home directory must not silently walk into them.
  */
+/**
+ * Per-branch wall-clock deadline for a recursive read. A single
+ * hung filesystem call (a stat/readdir that never returns — a
+ * symlink to a sleeping volume, a stale mount, an iCloud edge)
+ * used to block the whole walk, so the finder's 30 s renderer
+ * timeout fired and ⌘P settled on "No files in this project"
+ * with an empty index (Atom rest live check, 2026-11-14). Each
+ * subdirectory branch now races this deadline; a branch that
+ * never settles is dropped (its entry stays, children
+ * undefined — lazy-loadable like a depth-1 read) and the rest
+ * of the tree still comes back. The renderer timeout is the
+ * outer bound; this is the per-branch one, well inside it.
+ */
+export const READ_DIR_BRANCH_TIMEOUT_MS = 10_000;
+
+/** The filesystem surface readDirTree needs — the real
+ * `fs/promises` module in production, a fake in tests (a hung
+ * branch is only testable with an injected readdir that never
+ * resolves). */
+export interface ReadDirTreeFS {
+  readdir: (
+    path: string,
+    options: { withFileTypes: true },
+  ) => Promise<
+    Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>
+  >;
+  lstat: (path: string) => Promise<{ size: number; mtimeMs: number }>;
+}
+
+/**
+ * Recursive directory read (the `fs:readDir` work, extracted so
+ * tests can run it without Electron). Depth 1 by default: the top
+ * level only, children left undefined for lazy loading on expand.
+ * The startup file-explorer load reads only the top level, so it
+ * never descends into Desktop / Documents / Downloads and never
+ * prompts. Deeper reads still skip the protected folders below
+ * the root (defense in depth) — a caller that recurses from the
+ * home directory must not silently walk into them.
+ *
+ * Two hang classes are closed here (Item 0, sweep fixes):
+ * symlinks are never followed (`lstat`, not `stat` — a symlink
+ * to a sleeping volume used to block the whole walk on its
+ * target), and a subdirectory branch that never settles is
+ * dropped after READ_DIR_BRANCH_TIMEOUT_MS instead of bricking
+ * the index — the rest of the tree still returns.
+ */
 export async function readDirTree(
   dirPath: string,
   options?: ReadDirOptions,
+  io: ReadDirTreeFS = fs,
 ): Promise<FileEntry[]> {
   const depth = Math.max(1, Math.floor(options?.depth ?? 1));
   const maxEntries = options?.maxEntries;
+  const branchTimeoutMs =
+    options?.branchTimeoutMs ?? READ_DIR_BRANCH_TIMEOUT_MS;
   let collected = 0;
+
+  // Race a branch against its deadline; undefined means the
+  // branch never settled (or its readdir threw) and is dropped.
+  // The dangling branch keeps running in the background but its
+  // result is discarded — it can only touch `collected`, never
+  // the returned tree (each level builds its own results array).
+  function withBranchTimeout<T>(
+    promise: Promise<T>,
+    ms: number,
+  ): Promise<T | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), ms);
+    });
+    return Promise.race([
+      promise.then(
+        (value) => value,
+        () => undefined,
+      ),
+      timeout,
+    ]).finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
+  }
+
+  // Never descend into these below the root — the root itself
+  // is always listed (the user explicitly opened it), but its
+  // protected subfolders are not walked into uninvited.
+  function shouldDescend(name: string, fullPath: string): boolean {
+    if (
+      name === 'node_modules' ||
+      name === '.git' ||
+      name === '.DS_Store' ||
+      name === 'dist' ||
+      name === 'build'
+    ) {
+      return false;
+    }
+    const isProtected = TCC_PROTECTED_DIR_NAMES.includes(name);
+    const isRoot = fullPath === dirPath;
+    return !(isProtected && !isRoot);
+  }
+
   async function readDirRecursive(
     currentPath: string,
     remainingDepth: number,
   ): Promise<FileEntry[]> {
+    let entries;
     try {
-      const entries = await fs.readdir(currentPath, { withFileTypes: true });
-      const results: FileEntry[] = [];
-
-      for (const entry of entries) {
-        // Budget hit — stop collecting (and stop descending: the
-        // check below keeps parents from recursing further once
-        // the recursive call returns with the budget spent).
-        if (maxEntries !== undefined && collected >= maxEntries) break;
-        try {
-          const fullPath = path.join(currentPath, entry.name);
-          const stats = await fs.stat(fullPath);
-          const isDirectory = entry.isDirectory();
-
-          let children: FileEntry[] | undefined;
-          if (isDirectory && remainingDepth > 1) {
-            // Limit recursion depth or ignore node_modules/git to prevent hanging.
-            // Never descend into a TCC-protected folder below the
-            // root — the root itself is always listed (the user
-            // explicitly opened it), but its protected subfolders
-            // are not walked into uninvited.
-            const isProtected = TCC_PROTECTED_DIR_NAMES.includes(entry.name);
-            const isRoot = fullPath === dirPath;
-            if (
-              entry.name !== 'node_modules' &&
-              entry.name !== '.git' &&
-              entry.name !== '.DS_Store' &&
-              entry.name !== 'dist' &&
-              entry.name !== 'build' &&
-              !(isProtected && !isRoot) &&
-              (maxEntries === undefined || collected < maxEntries)
-            ) {
-              children = await readDirRecursive(fullPath, remainingDepth - 1);
-            }
-          }
-
-          // The budget was spent while recursing into this
-          // entry's children — drop the entry (with its
-          // children) rather than exceed the budget.
-          if (maxEntries !== undefined && collected >= maxEntries) {
-            continue;
-          }
-
-          results.push({
-            name: entry.name,
-            path: fullPath,
-            isDirectory,
-            isFile: entry.isFile(),
-            size: stats.size,
-            modified: stats.mtimeMs,
-            children,
-          });
-          collected += 1;
-        } catch {
-          // Skip entries we can't access
-        }
-      }
-
-      // Sort: directories first, then alphabetically
-      return results.sort((a, b) => {
-        if (a.isDirectory && !b.isDirectory) return -1;
-        if (!a.isDirectory && b.isDirectory) return 1;
-        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-      });
+      entries = await io.readdir(currentPath, { withFileTypes: true });
     } catch (error) {
       throw new Error(`Failed to read directory: ${error}`);
     }
+    const results: FileEntry[] = [];
+    const branches: Array<{
+      entry: FileEntry;
+      promise: Promise<FileEntry[] | undefined>;
+    }> = [];
+    for (const entry of entries) {
+      // Budget hit — stop collecting at this level (branches
+      // already spawned keep their own budget checks).
+      if (maxEntries !== undefined && collected >= maxEntries) break;
+      const fullPath = path.join(currentPath, entry.name);
+      let stats;
+      try {
+        // lstat, never stat: a symlink's target is never
+        // touched (a link to a sleeping volume used to block
+        // the whole walk). Dirent already reports the link
+        // itself as neither file nor directory.
+        stats = await io.lstat(fullPath);
+      } catch {
+        // Skip entries we can't access
+        continue;
+      }
+      const isDirectory = entry.isDirectory();
+      const fileEntry: FileEntry = {
+        name: entry.name,
+        path: fullPath,
+        isDirectory,
+        isFile: entry.isFile(),
+        size: stats.size,
+        modified: stats.mtimeMs,
+        children: undefined,
+      };
+      // Check + count + push in one synchronous stretch — no
+      // await between them — so concurrent branches can never
+      // push the total past maxEntries.
+      if (maxEntries !== undefined && collected >= maxEntries) break;
+      results.push(fileEntry);
+      collected += 1;
+      if (
+        isDirectory &&
+        remainingDepth > 1 &&
+        shouldDescend(entry.name, fullPath) &&
+        (maxEntries === undefined || collected < maxEntries)
+      ) {
+        branches.push({
+          entry: fileEntry,
+          promise: withBranchTimeout(
+            readDirRecursive(fullPath, remainingDepth - 1),
+            branchTimeoutMs,
+          ),
+        });
+      }
+    }
+    // Branches run concurrently; a timed-out branch keeps its
+    // entry with children undefined (lazy-loadable), like a
+    // depth-1 read.
+    const settled = await Promise.all(branches.map((b) => b.promise));
+    branches.forEach((b, i) => {
+      if (settled[i] !== undefined) b.entry.children = settled[i];
+    });
+
+    // Sort: directories first, then alphabetically
+    return results.sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
   }
 
   return await readDirRecursive(dirPath, depth);
 }
+
 
 export function setupFileSystemHandlers(ipcMain: IpcMain): void {
   // Read directory contents. Depth 1 by default: the top level

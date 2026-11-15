@@ -8,12 +8,16 @@
  * Shortcuts (Atom's keys, Lucid-scoped so they never hijack
  * the terminal):
  * - ⌘⇧P command palette — anywhere (metaKey only; the
- *   terminal's Ctrl-R reverse-search and Ctrl-P history are
- *   untouched because those are Ctrl, not Cmd).
+ *   terminal's Ctrl-P history is untouched because that is
+ *   Ctrl, not Cmd).
  * - ⌘P quick open — anywhere (metaKey only, same reason).
  * - ⌘R go to symbol — anywhere (metaKey only).
  * - Ctrl-G go to line — editor view only (in the terminal
  *   Ctrl-G keeps its readline meaning).
+ * - Ctrl-R is the shell's reverse-search below DEFCON 3 — the
+ *   command-history palette (sweep item 5, Terminal.tsx)
+ *   owns it only while the composer owns typing (level 3+),
+ *   where there is no shell to hijack.
  * A modal that is already open swallows its own keys; the
  * global handler ignores shortcuts while any modal is open.
  */

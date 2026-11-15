@@ -75,7 +75,7 @@ import {
   BUILDER_STEPS_PER_TICK,
   BUILDER_TICK_MS,
 } from './CreatorBuilder';
-import { machineIsTerminal } from '../../lib/synthBoot';
+import { hasBootNoopGrant, machineIsTerminal } from '../../lib/synthBoot';
 import {
   VoxelDirectoryPanel,
   VoxelDirectoryPanelErrorBoundary,
@@ -416,6 +416,17 @@ export function SynthView() {
   // wrapper lays out at 100%/0.75 so the scaled content exactly
   // fills the pane — shell, inspector, and mount button all scale
   // together and stay interactive.
+  //
+  // The wrapper must ACTUALLY lay out at 133% height (2026-11-15,
+  // dead black band): it used to carry `flex flex-1 min-h-0`, and in
+  // the column flex parent `flex: 1` (flex-basis 0%) made its main
+  // size the flex share, ignoring the 133% height — the wrapper laid
+  // out at 100%, scale(0.75) rendered 75%, and the bottom ~25% of
+  // the pane was dead black. So the wrapper carries NO flex sizing
+  // now: it sits inside a plain sizing parent that IS the remaining
+  // pane space (flex-1 min-h-0, overflow hidden to clip the 133%
+  // layout box), and the wrapper lays out at 133% of that parent —
+  // scaled back to exactly 100% of the pane, windowed AND maximized.
   const isMaximized = useWindowMaximized();
 
   // Homunculus colour — purple or pink, chosen on first entry. Pink is
@@ -589,22 +600,94 @@ export function SynthView() {
     [activePluginId, mountPlugin, refreshDirectory, demoLocked],
   );
 
+  // Demo auto-boot + auto-mount — Gary (2026-11-15 ~05:08 PST): the
+  // synth screen presented an empty shell in demo mode ("synth screen
+  // completely fucked" / "the synth may as well jnot be in the
+  // platform at all"). In DEMO mode only the demo boots itself on
+  // entry: the default octagon loads into the machine once, and once
+  // the machine is READY with the NOOP grant, Lucifer auto-mounts
+  // once, so the thinker renders in the eye without the guest having
+  // to discover the inspector button. DEMO mode is a guest
+  // (demo-locked) or the owner with the demo disclaimer choice
+  // ('explore') and no creation and no shell loaded. NEVER for the
+  // owner in build mode, NEVER flips synthDemoReplaced, NEVER loads
+  // the owner's creation for a guest (the restore effect above
+  // already returns early for guests). The demo shell only — a shell
+  // that manages its own state (Iteration 8) has no TS machine to
+  // boot; its own "Load the default octagon" button stays manual.
+  const demoAutoBootRef = useRef(false);
+  useEffect(() => {
+    if (demoAutoBootRef.current) return;
+    if (spec?.managesOwnState) return;
+    const inDemoMode =
+      demoLocked ||
+      (storedSynthDisclaimerChoice === 'explore' &&
+        !demoReplaced &&
+        ownBuild === null);
+    if (!inDemoMode) return;
+    if (useSynthStore.getState().machine.shell) return;
+    demoAutoBootRef.current = true;
+    useSynthStore.getState().loadDefaultShellBlueprint();
+  }, [
+    demoLocked,
+    storedSynthDisclaimerChoice,
+    demoReplaced,
+    ownBuild,
+    spec,
+  ]);
+
+  // Demo auto-mount: once the machine is READY with the NOOP grant,
+  // mount the demo embodiment once (per entry). The postMount effect
+  // posts the mount into the iframe (and handleIframeLoad re-posts
+  // on load), so the thinker renders in the eye. A manual unmount
+  // is respected — this fires once and never re-mounts over the
+  // user's choice.
+  const demoAutoMountedRef = useRef(false);
+  useEffect(() => {
+    if (demoAutoMountedRef.current) return;
+    if (spec?.managesOwnState) return;
+    if (mounted) return;
+    const inDemoMode =
+      demoLocked ||
+      (storedSynthDisclaimerChoice === 'explore' &&
+        !demoReplaced &&
+        ownBuild === null);
+    if (!inDemoMode) return;
+    if (machine.boot !== 'READY') return;
+    if (!hasBootNoopGrant(machine)) return;
+    demoAutoMountedRef.current = true;
+    mountPlugin(activePluginId);
+  }, [
+    demoLocked,
+    storedSynthDisclaimerChoice,
+    demoReplaced,
+    ownBuild,
+    spec,
+    machine,
+    mounted,
+    activePluginId,
+    mountPlugin,
+  ]);
+
   return (
     // No background here: the main screen is always splashscreen
     // misty black (Gary, 2026-11-07), so the App root's mist shows
     // through — the shell keeps its own dark canvas.
     <div className="relative flex-1 flex flex-col overflow-hidden">
       {/* View header (sweep item 17): the one pattern — title +
-          one-line description. The shell's own HUD stays inside
+          title only. The shell's own HUD stays inside
           the iframe; this header is Lucid chrome above it, never
           scaled by the windowed scale. */}
       <div className="px-4 pt-4">
         <ViewHeader
           title="Synth"
-          description="The Matrix Synth shell — mount an embodiment and the Neural Synth thinker renders in the eye."
         />
       </div>
-      <div className="flex flex-1 min-h-0" style={synthScaleStyle(isMaximized)}>
+      {/* Sizing parent: exactly the remaining pane space. The scale
+          wrapper below lays out at 133% of THIS box (never flex-sized
+          itself — see windowedScale.ts) and scales back to 100%. */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex" style={synthScaleStyle(isMaximized)}>
       {/* Shell — the vendored v67 MATRIX SYNTH, with the thinker in the eye once mounted */}
       <div className="flex-1 overflow-hidden relative">
         <iframe
@@ -963,6 +1046,7 @@ export function SynthView() {
           </section>
         )}
 
+      </div>
       </div>
       </div>
       {/* First entry, no colour chosen yet: the Homunculus colour

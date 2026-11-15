@@ -1,4 +1,4 @@
-import { Sparkles, Globe, Bot, X } from 'lucide-react';
+import { Sparkles, Globe, Bot, Minus } from 'lucide-react';
 import AIChat from './AIChat';
 import { CopilotView } from './CopilotView';
 import BrowserPanel from '../Browser/BrowserPanel';
@@ -82,21 +82,24 @@ function AIPanel({ onClose, onOpenSettings }: AIPanelProps) {
           </button>
         </Tooltip>
         <div className="flex-1" />
-        {/* Hide (sweep item 10 — decided once): the AI panel
-            is a right-edge DOCK, not a sidebar panel, so there
-            is no w-12 rail to minimize it to. The X hides the
-            dock (state kept — the toolbar AI button brings it
-            back); the tooltip says so explicitly instead of
-            "Close panel", which read as if the panel were
-            destroyed. The Chats sidebar inside AIChat already
-            minimizes with its own Minus. */}
+        {/* Hide (sweep item 10 — decided once, glyph changed
+            to a Minus 2026-11-15, Gary's minimize rule): the AI
+            panel is a right-edge DOCK, not a sidebar panel, so
+            there is no w-12 rail to minimize it to. The Minus
+            hides the dock (state kept — the toolbar AI button
+            brings it back); the tooltip says so explicitly
+            instead of "Close panel", which read as if the panel
+            were destroyed. A dash reads as minimize/collapse, an
+            X as close/destroy — only this one glyph changed; the
+            AIChat header Xs and the Chats sidebar's own Minus
+            are untouched. */}
         <Tooltip content="Hide AI panel">
           <button
             onClick={onClose}
             className="btn-ghost p-1 rounded"
             aria-label="Hide AI panel"
           >
-            <X size={16} />
+            <Minus size={16} />
           </button>
         </Tooltip>
       </div>

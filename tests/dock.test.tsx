@@ -114,4 +114,42 @@ describe('Dock', () => {
     const handle = getByTestId('dock-resize-bottom');
     expect(handle.getAttribute('aria-orientation')).toBe('horizontal');
   });
+
+  it('hidden: the bottom toggle strip carries the theme background', () => {
+    const { getByTestId } = render(
+      <Dock edge="bottom" label="Git">
+        <div>panel content</div>
+      </Dock>,
+    );
+    // The collapsed strip + the status bar read as ONE
+    // theme-coloured bar (global presentation fix): the strip
+    // was transparent over the app root's black. The fill is
+    // on the toggle strip itself (the button's parent), not
+    // the dock's outer container.
+    const strip = getByTestId('dock-toggle-bottom').parentElement;
+    expect(strip?.className).toContain('bg-[var(--bg-secondary)]');
+  });
+
+  it('hidden: the side dock strips keep no fill (bottom only, by design)', () => {
+    const { getByTestId } = render(
+      <Dock edge="right" label="AI Panel">
+        <div>panel content</div>
+      </Dock>,
+    );
+    // Side strips sit over the view's own background, not
+    // over the root black — only the bottom strip needs the
+    // theme fill.
+    const strip = getByTestId('dock-toggle-right').parentElement;
+    expect(strip?.className ?? '').not.toContain('bg-[var(--bg-secondary)]');
+  });
+
+  it('hidden with no children: the toggle strip carries the theme background too', () => {
+    const { getByTestId } = render(
+      <Dock edge="bottom" label="Nothing">
+        {null}
+      </Dock>,
+    );
+    expect(getByTestId('dock-bottom').className).toContain('bg-[var(--bg-secondary)]');
+    expect(getByTestId('dock-toggle-bottom')).toBeTruthy();
+  });
 });

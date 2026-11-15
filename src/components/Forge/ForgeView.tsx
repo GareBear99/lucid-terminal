@@ -181,7 +181,6 @@ export function ForgeView() {
     <div className="p-4">
       <ViewHeader
         title="Forge"
-        description="Train your Homunculi — build, benchmark, and promote small models. A Homunculus is a bot with a gaining growth of intelligence: each promotion grows what it knows."
       >
         <p className="mt-1 text-xs text-[var(--text-muted)]">
           Honest scale: the tiny and small models do toy text completion,

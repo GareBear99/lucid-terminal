@@ -27,7 +27,11 @@
  * encoding tile, and Lucid's files are UTF-8 throughout. And
  * no launch-mode tile — Lucid has no safe/dev launch mode.
  * The tiles hide themselves when they have nothing to say
- * (no file open, not a repo), never a faked value.
+ * (no file open, not a repo), never a faked value — and the
+ * bar itself hides when no tile has anything to say (global
+ * presentation fix, 2026-11-15): an empty strip is still a
+ * strip, and the Editor view already stacks the bottom dock
+ * and the app status bar below this one.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useEditorStatusBarStore, sortedTiles } from '../../stores/editorStatusBarStore';
@@ -120,12 +124,14 @@ function TileButton({
 }
 
 /** The file path — click copies the absolute path, Shift-click
- *  copies the path relative to the project dir. */
+ *  copies the path relative to the project dir. Hidden with no
+ *  file open (never "No file open" filler — a tile with
+ *  nothing to say hides; see the header comment). */
 function PathTile() {
   const activeFilePath = useFileStore((s) => s.activeFilePath);
   const currentDir = useFileStore((s) => s.currentDir);
   if (!activeFilePath) {
-    return <span className="px-1">No file open</span>;
+    return null;
   }
   const relative =
     currentDir && activeFilePath.startsWith(currentDir + '/')
@@ -301,8 +307,23 @@ function GitTile() {
   );
 }
 
+/** The core tile ids — a tile registered from outside this
+ *  set is assumed to have something to say, so the bar stays
+ *  for it (the tile store is an extension point; the bar must
+ *  not swallow a foreign tile's content). */
+const CORE_TILE_IDS = ['path', 'cursor', 'selection', 'language', 'eol', 'git'];
+
 export function EditorStatusBar() {
   const tiles = useEditorStatusBarStore((s) => s.tiles);
+  // Whether any core tile has anything to say — the same
+  // state the tiles themselves read. The git tile only
+  // renders with a file open, so the path tile's condition
+  // covers it.
+  const activeFilePath = useFileStore((s) => s.activeFilePath);
+  const editorFilePath = useEditorStatusStore((s) => s.filePath);
+  const languageId = useEditorStatusStore((s) => s.languageId);
+  const eol = useEditorStatusStore((s) => s.eol);
+  const selectionCount = useEditorStatusStore((s) => s.selectionCount);
 
   useEffect(() => {
     const store = useEditorStatusBarStore.getState();
@@ -319,6 +340,17 @@ export function EditorStatusBar() {
 
   const left = sortedTiles(tiles, 'left');
   const right = sortedTiles(tiles, 'right');
+
+  // Nothing to say: no bar at all, not an empty strip.
+  const hasCustomTile = tiles.some((tile) => !CORE_TILE_IDS.includes(tile.id));
+  const hasContent =
+    hasCustomTile ||
+    activeFilePath !== null ||
+    editorFilePath !== null ||
+    languageId !== null ||
+    eol !== null ||
+    selectionCount > 0;
+  if (!hasContent) return null;
 
   return (
     <div

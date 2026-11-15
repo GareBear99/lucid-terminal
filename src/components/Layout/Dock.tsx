@@ -30,8 +30,9 @@
  * Atom's hover-revealed one: Lucid's panels already have
  * their own toggles (StatusBar AI button, toolbar icons), so
  * the strip is a third affordance, kept visible so it can be
- * found. The panel's own close button (the AI panel's X)
- * still hides it.
+ * found. The bottom strip carries the theme background, so it
+ * reads as one bar with the status bar below it. The panel's
+ * own close button (the AI panel's Minus) still hides it.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -92,6 +93,16 @@ export function Dock({ edge, children, label }: DockProps) {
   const hasChildren = children !== null && children !== undefined;
   const ShowIcon = EDGE_CHEVRON[edge].show;
 
+  // The bottom dock's collapsed strip is part of the bottom
+  // bar: theme-coloured like the status bar below it, so the
+  // two read as ONE bar (global presentation fix, 2026-11-15).
+  // The strip was transparent over the app root's black, so it
+  // read as a black band between the content and the maroon
+  // status bar — the "disconnected bottom". The side docks
+  // keep no fill: their strips sit over the view's own
+  // background, not over the root black.
+  const stripBg = edge === 'bottom' ? 'bg-[var(--bg-secondary)]' : '';
+
   // The drag: capture the start size + pointer, recompute from
   // the total delta each move (never incrementally), clamp to
   // [100, container - 200] so the center always keeps room.
@@ -132,7 +143,7 @@ export function Dock({ edge, children, label }: DockProps) {
     return (
       <div
         data-testid={`dock-${edge}`}
-        className={`shrink-0 flex ${horizontal ? 'flex-col justify-center' : 'flex-row justify-center'}`}
+        className={`shrink-0 flex ${horizontal ? 'flex-col justify-center' : 'flex-row justify-center'} ${stripBg}`}
       >
         <button
           data-testid={`dock-toggle-${edge}`}
@@ -206,7 +217,7 @@ export function Dock({ edge, children, label }: DockProps) {
         )}
       </div>
       {!dock.visible && (
-        <div className={`shrink-0 flex ${horizontal ? 'flex-col justify-center' : 'flex-row justify-center'}`}>
+        <div className={`shrink-0 flex ${horizontal ? 'flex-col justify-center' : 'flex-row justify-center'} ${stripBg}`}>
           <button
             data-testid={`dock-toggle-${edge}`}
             title={`Show ${label}`}

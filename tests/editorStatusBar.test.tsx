@@ -172,10 +172,10 @@ describe('EditorStatusBar', () => {
     expect(useEditorStatusStore.getState().eol).toBe('LF');
   });
 
-  test('with no file open the bar shows the empty state and no git tile', () => {
+  test('with no file open the bar hides entirely (no filler, no empty strip, no git tile)', () => {
     render(<EditorStatusBar />);
-    const bar = screen.getByTestId('editor-status-bar');
-    expect(bar.textContent).toContain('No file open');
-    expect(bar.textContent).not.toContain('Ln ');
+    // Nothing to say: no bar at all, not an empty strip.
+    expect(screen.queryByTestId('editor-status-bar')).toBeNull();
+    expect(screen.queryByText('No file open')).toBeNull();
   });
 });

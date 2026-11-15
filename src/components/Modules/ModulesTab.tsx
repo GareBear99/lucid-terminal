@@ -51,15 +51,13 @@ export function ModulesTab() {
 
   return (
     <div className="space-y-6">
-      {/* View header (sweep item 17): the one pattern — title +
-          one-line description. Modules lives in Settings, but it
+      {/* View header (sweep item 17): the one pattern — title only. Modules lives in Settings, but it
           is a top-level surface (the map of the whole plugin),
           so it carries the same header as the toolbar views
           instead of a Settings-scale h3. The voice button and
           the anchored badge stay below it as content. */}
       <ViewHeader
         title="Modules"
-        description={MODULES_PLUGIN.description}
         icon={<Icon size={20} />}
       >
         <span className="mt-1 block text-xs text-[var(--text-muted)]">

@@ -57,7 +57,10 @@ describe('Modules tab', () => {
     const html = renderSettings('modules');
     expect(html).toContain('Modules');
     expect(html).toContain('Built-in · Anchored');
-    expect(html).toContain('Container for Segments');
+    // The header no longer renders the plugin description
+    // (global presentation fix) — it lives in the Plugins
+    // tab's card, not in this tab's markup.
+    expect(html).not.toContain('Container for Segments');
   });
 
   it('shows Segments labeled as an extension of the Modules plugin', () => {
@@ -134,7 +137,8 @@ describe('Modules tab overview (heavy update 2026-11-07)', () => {
     expect(MODULES_PLUGIN.description).toContain('pre-installed segments');
     expect(MODULES_PLUGIN.description).toContain('starship segments');
     expect(MODULES_PLUGIN.description).toContain('bridges carried by installed add-ons');
-    const html = renderSettings('modules');
-    expect(html).toContain('pre-installed segments');
+    // The description itself is the data — the header no
+    // longer renders it in this tab (global presentation
+    // fix), so there is no render assertion here.
   });
 });

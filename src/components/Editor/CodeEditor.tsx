@@ -694,7 +694,6 @@ function CodeEditor() {
         <div className="px-4 pt-4">
           <ViewHeader
             title="Editor"
-            description="Edit your files — pick one in the Explorer to open it."
           />
         </div>
         <div className="flex-1 flex items-center justify-center bg-[var(--bg-primary)]">
@@ -708,13 +707,12 @@ function CodeEditor() {
   return (
     <div className="h-full flex flex-col">
       {/* View header (sweep item 17): the one pattern — title +
-          one-line description — above the file tabs. The same
+          title only — above the file tabs. The same
           header shows in the detached Files window (MiniFiles
           renders this same CodeEditor): same view, same header. */}
       <div className="px-4 pt-4">
         <ViewHeader
           title="Editor"
-          description="Edit your files — pick one in the Explorer to open it."
         />
       </div>
       {/* File Tabs */}

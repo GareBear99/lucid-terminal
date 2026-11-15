@@ -115,7 +115,6 @@ export function PersonaPlexView() {
       <div className="max-w-2xl mx-auto space-y-6">
         <ViewHeader
           title="Persona Plex"
-          description="One plex embodiment, personas inside. The roster starts from your existing souls — custom personas are added below. Local only, no servers."
           icon={<Users size={20} />}
         >
           <p className="text-xs text-[var(--text-muted)] mt-1 leading-[1.5]">

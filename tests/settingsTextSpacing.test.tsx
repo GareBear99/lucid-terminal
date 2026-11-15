@@ -129,7 +129,9 @@ describe('Settings text spacing (1.5 leading on description text)', () => {
 
   it('modules: all 12 module descriptions + segment intros breathe at 1.5', () => {
     const html = renderSettings('modules');
-    expect(html).toContain('Container for Segments');
+    // The header no longer renders the plugin description
+    // (global presentation fix) — 'Container for Segments'
+    // lives in the Plugins tab's card, not here.
     expect(html).toContain('An extension of the Modules plugin');
     expect(html).toContain('No starship detected.');
     expect(countLeading(html)).toBeGreaterThanOrEqual(15);

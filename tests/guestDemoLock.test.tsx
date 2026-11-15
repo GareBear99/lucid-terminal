@@ -28,11 +28,20 @@ function validBuild(): CreatorBuild {
   // Positional args — createCreatorBuild takes (version, seedHex,
   // color, blueprint, modules, profileId, createdAt), not an options
   // object. An object form returns null.
+  //
+  // The fixture's blueprint carries its OWN shellId (not the demo
+  // default's SHELL_OCTAGON_ALPHA) so a test can tell the owner's
+  // creation apart from the demo default octagon the demo auto-boot
+  // loads — the two must never be confused for each other.
+  const ownerBlueprint = {
+    ...DEFAULT_SHELL_BLUEPRINT,
+    shellId: 'SHELL_OWNER_BUILD',
+  };
   const build = createCreatorBuild(
     'iteration-8',
     DEFAULT_SYNTH_SEED,
     'pink',
-    DEFAULT_SHELL_BLUEPRINT,
+    ownerBlueprint,
     DEFAULT_MODULES,
     'default',
     '2026-11-12T00:00:00.000Z',
@@ -103,8 +112,14 @@ describe('guest demo-lock — SynthView', () => {
     // No Voxel Directory — it belongs to the owner's creation.
     expect(screen.queryByTestId('voxel-directory-panel')).toBeNull();
     expect(screen.getByText(/Guests stay in demo mode/)).toBeTruthy();
-    // The owner's creation was NOT loaded into the machine.
-    expect(useSynthStore.getState().machine.shell).toBeNull();
+    // The owner's creation was NOT loaded into the machine — the
+    // demo auto-boot (2026-11-15) loads the DEFAULT octagon instead,
+    // so the machine holds the demo shell (SHELL_OCTAGON_ALPHA),
+    // never the owner's build (SHELL_OWNER_BUILD, the fixture's
+    // distinct shellId). The restore path stays guest-blocked.
+    expect(useSynthStore.getState().machine.shell?.shellId).toBe(
+      'SHELL_OCTAGON_ALPHA',
+    );
     // No disclaimer offering the build choice either.
     expect(screen.queryByText('This synth is a demo')).toBeNull();
     // The shell picker still offers BOTH shells — the lock is about

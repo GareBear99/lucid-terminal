@@ -11,11 +11,13 @@
  *
  * 10. The AI panel is a right-edge DOCK, not a sidebar panel,
  *     so there is no w-12 rail to minimize it to — decided once:
- *     the X stays a close, and the tooltip/aria-label says so
- *     explicitly ("Hide AI panel": it hides the dock, state
- *     kept, the toolbar AI button brings it back). Applied to
- *     the AIPanel tab-bar X and both AIChat header X buttons
- *     (the no-key empty state and the main chat header).
+ *     the tab-lane hide button is a DASH (Gary, 2026-11-15 —
+ *     a dash reads as minimize/collapse, an X as close/destroy;
+ *     Gary's minimize rule), and the tooltip/aria-label says
+ *     "Hide AI panel" explicitly (it hides the dock, state
+ *     kept, the toolbar AI button brings it back). Only that
+ *     one X on that lane changed — the AIChat header X buttons
+ *     stay X; they are inside the chat, not on the tab lane.
  *
  * Run with: npx vitest run tests/panelHeaderConsistency.test.tsx
  */
@@ -111,26 +113,34 @@ describe('panel header consistency — sweep items 9 + 10', () => {
     expect(screen.queryByLabelText('Minimize history')).toBeNull();
   });
 
-  test('item 10: the AIPanel X hides the panel and calls onClose', async () => {
+  test('item 10: the AIPanel dash hides the panel and calls onClose', async () => {
     useSettingsStore.setState({ hasApiKey: true });
     const onClose = vi.fn();
     render(<AIPanel onClose={onClose} />);
     // The mount loads sessions async; let the chat settle.
     await waitFor(() => expect(useAIStore.getState().sessions.length).toBe(1));
-    // Two hide buttons: the panel tab-bar X and the main chat
+    // Two hide buttons: the panel tab-bar dash and the main chat
     // header X. Neither says "Close panel" any more.
     const hideButtons = screen.getAllByLabelText('Hide AI panel');
     expect(hideButtons).toHaveLength(2);
     expect(screen.queryByLabelText('Close panel')).toBeNull();
+    // The tab-lane one (first in the DOM) is a dash, not an X —
+    // only that one X on that lane changed.
+    expect(hideButtons[0].querySelector('svg.lucide-minus')).not.toBeNull();
+    expect(hideButtons[0].querySelector('svg.lucide-x')).toBeNull();
 
     fireEvent.click(hideButtons[0]);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  test('item 10: the no-key empty state X is also "Hide AI panel"', () => {
+  test('item 10: the no-key empty state hide button is also "Hide AI panel"', () => {
     useSettingsStore.setState({ hasApiKey: false });
     render(<AIPanel onClose={() => undefined} />);
     expect(screen.getByText('Activate Lucid Terminal')).not.toBeNull();
-    expect(screen.getAllByLabelText('Hide AI panel')).toHaveLength(2);
+    const hideButtons = screen.getAllByLabelText('Hide AI panel');
+    expect(hideButtons).toHaveLength(2);
+    // Tab lane first: dash. The empty-state header keeps its X.
+    expect(hideButtons[0].querySelector('svg.lucide-minus')).not.toBeNull();
+    expect(hideButtons[1].querySelector('svg.lucide-x')).not.toBeNull();
   });
 });

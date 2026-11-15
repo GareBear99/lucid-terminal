@@ -11,6 +11,16 @@ import type { CSSProperties } from 'react';
  * exactly fills its pane — no gap, no clipping, and everything inside
  * (shell iframe, inspector, mount button) stays interactive at its
  * visual position.
+ *
+ * CONTRACT (2026-11-15, dead black band): the wrapper must ACTUALLY
+ * lay out at 133% height. A flex parent defeats this — `flex: 1`
+ * (flex-basis 0%) on the wrapper makes its main size the flex share,
+ * ignoring the height below, so the wrapper lays out at 100% and
+ * scale(0.75) renders 75% with a 25% dead band at the bottom. The
+ * style below must therefore be applied to a wrapper whose parent
+ * does NOT flex-size it: the wrapper sits inside a plain sizing
+ * parent that is exactly the remaining pane space (flex-1 min-h-0),
+ * and the wrapper itself carries no flex sizing — only this style.
  */
 export const WINDOWED_SYNTH_SCALE = 0.75;
 

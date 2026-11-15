@@ -30,7 +30,13 @@
   .btn:hover{box-shadow:0 0 30px rgba(120,255,255,.16);}
   input[type="file"]{display:none;}
   /* HUD sits above the validator strip (pinned to the bottom) to prevent overlap. */
+  /* LUCID PATCH (2026-11-15 — HUD overlap): the status row is one
+     line, never wrapped — it used to wrap onto the canvas info
+     panel's bottom rows (the trailing EMPTY_REPO_READY append was the
+     wrapped second line). nowrap + ellipsis keeps the pill + status
+     on one line at any width. */
   #hud{position:fixed;left:12px;bottom:calc(var(--validator-h) + 16px);z-index:10;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;color:#d6f7ff;pointer-events:none;text-shadow:0 0 12px rgba(0,255,255,.18);max-width:min(920px,calc(100vw - var(--right-dock-w) - 48px));}
+  #hud>div:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(120,255,255,.35);background:rgba(0,0,0,.25);margin-right:6px;}
   /* HUD panels are solid and borderless by design: no backdrop blur, no outline. */
   #overlay{position:fixed;right:12px;top:12px;z-index:11;width:min(560px,52vw);max-height:72vh;overflow:auto;background:#000000;border-radius:14px;padding:10px 12px;display:none;pointer-events:auto;box-shadow:0 0 30px rgba(255,60,210,.10);}
@@ -2584,6 +2590,12 @@
   const cross=(a,b)=>({x:a.y*b.z-a.z*b.y,y:a.z*b.x-a.x*b.z,z:a.x*b.y-a.y*b.x});
   const add=(a,b)=>({x:a.x+b.x,y:a.y+b.y,z:a.z+b.z});
   const mul=(a,s)=>({x:a.x*s,y:a.y*s,z:a.z*s});
+  // LUCID PATCH (2026-11-15 — missing helper): buildAuthorityOccupancy
+  // calls sub(d, shell.origin) to place the entry door, but sub was
+  // never defined — every blueprint without authored doors (including
+  // the fallback octagon) threw "sub is not defined" in loadBlueprint
+  // and the shell emergency-booted. Same shape as add/mul above.
+  const sub=(a,b)=>({x:a.x-b.x,y:a.y-b.y,z:a.z-b.z});
   const slerp=(a,b,t)=>{
     let cos = clamp(dot(a,b), -1, 1);
     if(cos>0.9995) return norm({x:lerp(a.x,b.x,t), y:lerp(a.y,b.y,t), z:lerp(a.z,b.z,t)});
@@ -2880,6 +2892,13 @@ const quatFromTo=(a,b)=>{
   // Wheel / Z zoom still works after load; this is only the initial camera.
   let viewZoom = VIEW_ZOOM_MIN;
   let targetViewZoom = VIEW_ZOOM_MIN;
+  // LUCID PATCH (2026-11-15 — missing declaration): the survey-export
+  // payload reads worldRotation, but it was only ever assigned
+  // (undeclared) when a worldRotation payload arrived — the first
+  // WRITE_TILE export threw "worldRotation is not defined" and the
+  // shell logged an ERROR on its normal boot path. Declared here,
+  // neutral 0.
+  let worldRotation = 0;
   const VIEW_ZOOM_STEP = 0.0012; // wheel delta -> zoom impulse
   const ROLL_SPEED = 2.25; // rad/s for ArrowLeft/ArrowRight map spin
   const TILE_VIEW = { GLOBE:'GLOBE', ZOOM:'TILE_ZOOM', MICRO:'TILE_MICRO', SUBMICRO:'TILE_SUBMICRO' };
@@ -4078,7 +4097,7 @@ function eyeStep(){
       pinnedTargets: sh.pinnedTargets,
       rejectedTargets: sh.rejectedTargets,
       decisionLog: sh.decisionLog,
-      bookmarks,
+      bookmarks: loadBookmarks(),
       eyeMode: EyeCtl.mode,
       scanfx: { evidenceWrites: SCANFX.evidenceWrites, edgeLinks: SCANFX.edgeLinks, result: SCANFX.result },
       microResidency: microSnapshotAll(),
@@ -4330,7 +4349,7 @@ function eyeStep(){
       pinnedTargets: sh.pinnedTargets,
       rejectedTargets: sh.rejectedTargets,
       decisionLog: sh.decisionLog,
-      bookmarks,
+      bookmarks: loadBookmarks(),
       eyeMode: EyeCtl.mode,
       scanfx: { evidenceWrites: SCANFX.evidenceWrites, edgeLinks: SCANFX.edgeLinks, result: SCANFX.result },
       microResidency: microSnapshotAll(light),
@@ -4371,7 +4390,7 @@ function eyeStep(){
     if(typeof payload.pivotIndex === 'number') pivotIndex = clamp(payload.pivotIndex|0,0,Math.max(0,sh.pivotDirs.length-1));
     if(typeof payload.viewZoom === 'number') { viewZoom = clamp(payload.viewZoom, 0.35, 2.4); targetViewZoom = viewZoom; }
     if(typeof payload.worldRotation === 'number') worldRotation = payload.worldRotation;
-    if(Array.isArray(payload.bookmarks)){ bookmarks.length = 0; payload.bookmarks.forEach(b=>bookmarks.push(b)); updateBookmarkUI(); }
+    if(Array.isArray(payload.bookmarks)){ saveBookmarks(payload.bookmarks); }
     EyeCtl.mode = payload.eyeMode || EyeCtl.mode;
     SCANFX.evidenceWrites = payload.scanfx && payload.scanfx.evidenceWrites || SCANFX.evidenceWrites;
     SCANFX.edgeLinks = sh.edgeReconstructionCount;
@@ -4770,9 +4789,16 @@ if(buildState === Build.MAPPING){
           appendReceipt('ping_receipt', res.receipt);
           logLine(`PING GRANT #${res.reqId} ${inflight.req.action}`);
           if(inflight.req.action === 'WRITE_TILE'){
-            // commit tile write
-            sh.mapped[routeIndex] = 1;
-            sh.mappedCount++;
+            // commit tile write — count each tile ONCE: a re-fired
+            // WRITE_TILE grant for an already-mapped tile must not
+            // overcount (LUCID PATCH 2026-11-15: the emergency shell
+            // read mapped=3/1 — a write-event counter, not a set
+            // cardinality). Advancing past the tile stays outside the
+            // guard: the grant was for this tile either way.
+            if(!sh.mapped[routeIndex]){
+              sh.mapped[routeIndex] = 1;
+              sh.mappedCount++;
+            }
             writeTileEvidence(sh, routeIndex);
             routeIndex++;
             denyStreak = 0;
@@ -6493,9 +6519,12 @@ function render(){
     drawTileFocusOverlay(cx, cy, R);
 
     // HUD
+    // LUCID PATCH (2026-11-15 — HUD overlap): the trailing
+    // EMPTY_REPO_READY append is gone — build= already carries it,
+    // and the append was a second wrapped line that rendered on top
+    // of the canvas info panel's bottom rows.
     setText(hudState,
-      `boot=${effectiveBootState()}  build=${buildState}  route=${routeIndex}/${sh.routeTiles.length}  mapped=${sh.mappedCount}/${sh.routeTiles.length}  ${commitPlanSummary(sh)}  zoom=${viewZoom.toFixed(2)}  tile=${TILEVIEW.mode}${TILEVIEW.activeKey?`@${TILEVIEW.activeKey}`:''}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  eye=${EyeCtl.mode}` +
-      (sh.emptyRepoReady ? `  EMPTY_REPO_READY` : ``));
+      `boot=${effectiveBootState()}  build=${buildState}  route=${routeIndex}/${sh.routeTiles.length}  mapped=${sh.mappedCount}/${sh.routeTiles.length}  ${commitPlanSummary(sh)}  zoom=${viewZoom.toFixed(2)}  tile=${TILEVIEW.mode}${TILEVIEW.activeKey?`@${TILEVIEW.activeKey}`:''}  probe=${PRB.plannedKind}${PRB.plannedIndex>=0?`#${PRB.plannedIndex}`:''}  eye=${EyeCtl.mode}`);
   }
 
   // Runtime fix #12: renderOverlay rebuilt innerHTML every frame when on.
@@ -7169,9 +7198,12 @@ function render(){
     }
     glowDot(x, y-5*dpr, 3.2*dpr, COL_WHT, 0.42);
     glowDot(x, y-5*dpr, 6.0*dpr, COL_PNK, 0.18);
-    ctx.fillStyle = 'rgba(255,235,255,0.92)';
-    ctx.font = `${Math.max(10, Math.round(10*dpr))}px monospace`;
-    ctx.fillText('SPAWN', x + 12*dpr, y - 8*dpr);
+    // LUCID PATCH (2026-11-15 — double SPAWN): the hardcoded
+    // 'SPAWN' label here is gone — drawProbeRig already draws the
+    // live mode label (SPAWN while spawn-held, FREE-ROAM otherwise)
+    // at the same spot, so this drew the word twice, slightly offset
+    // (and lied while free-roaming). The rings + dots above still
+    // mark the spawn dock.
     ctx.restore();
   }
 

@@ -335,6 +335,69 @@ describe('vendored v67 shell', () => {
   });
 });
 
+// Vendored v67 shell — 2026-11-15 boot + HUD fixes (Gary, 2026-11-15
+// ~05:08 PST: "synth screen completely fucked"). The shell
+// emergency-booted on every load (INIT_FALLBACK_FALSE) because
+// loadBlueprint threw, and the HUD overlapped itself with
+// contradictory numbers. The jsdom reproduction (harness in /tmp,
+// since cleared) pinned each throw exactly — these tests pin the
+// fixes so they cannot regress silently.
+describe('vendored v67 shell — 2026-11-15 boot + HUD fixes', () => {
+  const shellPath = path.join(
+    process.cwd(),
+    'public',
+    'synth',
+    'matrix-synth-v67.html',
+  );
+  const shellSrc = fs.readFileSync(shellPath, 'utf-8');
+
+  test('the missing sub helper exists — the fallback octagon threw "sub is not defined" in buildAuthorityOccupancy', () => {
+    expect(shellSrc).toContain(
+      'const sub=(a,b)=>({x:a.x-b.x,y:a.y-b.y,z:a.z-b.z});',
+    );
+    expect(shellSrc).toContain('sub(d, shell.origin)');
+  });
+
+  test('worldRotation is declared — the first WRITE_TILE survey export threw "worldRotation is not defined"', () => {
+    expect(shellSrc).toContain('let worldRotation = 0;');
+  });
+
+  test('no bare bookmarks variable — the survey export threw "bookmarks is not defined"', () => {
+    // The export payloads read the real stored bookmarks; the
+    // restore persists them. A bare `bookmarks,` / `bookmarks.length`
+    // against a never-declared variable must never come back.
+    expect(shellSrc).toContain('bookmarks: loadBookmarks(),');
+    expect(shellSrc).toContain(
+      'saveBookmarks(payload.bookmarks);',
+    );
+    expect(shellSrc).not.toMatch(/[^a-zA-Z]bookmarks,/);
+    expect(shellSrc).not.toContain('bookmarks.length = 0');
+  });
+
+  test('the HUD status line has no trailing EMPTY_REPO_READY append — it wrapped onto the canvas panel', () => {
+    // build= already carries EMPTY_REPO_READY; the append was a
+    // second wrapped line rendered on top of the panel's bottom rows.
+    expect(shellSrc).not.toContain('EMPTY_REPO_READY` : ``');
+    expect(shellSrc).not.toContain("? `  EMPTY_REPO_READY`");
+    // And the status row can never wrap again: one line, ellipsized.
+    expect(shellSrc).toContain(
+      '#hud>div:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    );
+  });
+
+  test("SPAWN is drawn once per frame — the rider's hardcoded label duplicated the rig's live mode label", () => {
+    expect(shellSrc).not.toContain("fillText('SPAWN'");
+    // The probe rig's live label (SPAWN while spawn-held, FREE-ROAM
+    // otherwise) is the one that stays.
+    expect(shellSrc).toContain('fillText(modeLabel,');
+  });
+
+  test('mapped counts each tile once — a re-fired WRITE_TILE grant must not overcount (the emergency shell read mapped=3/1)', () => {
+    expect(shellSrc).toContain('if(!sh.mapped[routeIndex]){');
+    expect(shellSrc).toContain('sh.mappedCount++;');
+  });
+});
+
 // Eye / reticle anchor model (Gary 2026-11-08 ~01:52–01:58 PST — final
 // model, supersedes the 00:53 statement; movement split Gary 2026-11-12
 // ~16:38/16:45 PST): the neural synth IS the center of the blueprint; the

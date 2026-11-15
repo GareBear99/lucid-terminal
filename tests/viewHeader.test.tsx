@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
 /**
- * Common view-header pattern (sweep item 17).
+ * Common view-header pattern (sweep item 17; condensed to
+ * title only by the global presentation fix, 2026-11-15).
  *
- * One pattern — title + one-line description, same sizes —
- * taken from Forge (which had it right) and applied to every
- * toolbar view: Forge, PersonaPlex, Synth, Editor, and Modules.
+ * One pattern — title only, same sizes — taken from Forge
+ * (which had it right) and applied to every toolbar view:
+ * Forge, PersonaPlex, Synth, Editor, and Modules. The
+ * sweep's one-line description put a labelled section at
+ * the top of every page — "writing and random space at the
+ * tops of each page" — so the description paragraph is gone:
+ * a page's top is its content, not a labelled section. The
+ * extras a view already carries (Forge's honest-scale note,
+ * PersonaPlex's voice note, the Modules anchored badge) stay
+ * below the title as the view's own content.
  * The Synth shell's own HUD stays inside the iframe; the header
  * is Lucid chrome above it. No close button on any view header:
  * views fall back to Terminal (Gary's toolbar rule).
@@ -36,11 +44,10 @@ vi.mock('@monaco-editor/react', () => ({
 }));
 
 describe('ViewHeader — the one pattern', () => {
-  test('title h1 + one-line description, same sizes; extras below, no close button', () => {
+  test('title h1, same sizes; extras below, no close button, no description', () => {
     render(
       <ViewHeader
         title="Forge"
-        description="Train your Homunculi."
         icon={<span data-testid="header-icon">★</span>}
       >
         <p>An extra line.</p>
@@ -52,9 +59,11 @@ describe('ViewHeader — the one pattern', () => {
     expect(h1?.textContent).toContain('Forge');
     expect(h1?.className).toContain('text-lg');
     expect(h1?.className).toContain('font-semibold');
-    expect(screen.getByText('Train your Homunculi.').className).toContain('text-xs');
     expect(screen.getByTestId('header-icon')).not.toBeNull();
     expect(screen.getByText('An extra line.')).not.toBeNull();
+    // No description paragraph: the only <p> is the view's
+    // own children, nothing else.
+    expect(header.querySelectorAll('p')).toHaveLength(1);
     expect(header.querySelector('button')).toBeNull();
   });
 });
@@ -99,16 +108,16 @@ describe('view headers — sweep item 17', () => {
     vi.restoreAllMocks();
   });
 
-  test('Forge: the shared header, both description lines kept', async () => {
+  test('Forge: the shared header, honest-scale note kept, no description', async () => {
     restoreLucidAPI = installForgeMock([]);
     render(<ForgeView />);
     const header = await screen.findByTestId('view-header');
     expect(header.querySelector('h1')?.textContent).toBe('Forge');
-    expect(screen.getByText(/Train your Homunculi/)).not.toBeNull();
     expect(screen.getByText(/Honest scale/)).not.toBeNull();
+    expect(screen.queryByText(/Train your Homunculi/)).toBeNull();
   });
 
-  test('PersonaPlex: h1 now (was h2), same copy', async () => {
+  test('PersonaPlex: h1 now (was h2), voice note kept, no description line', async () => {
     const win = window as unknown as Record<string, unknown>;
     const prevLucidAPI = win.lucidAPI;
     win.lucidAPI = {
@@ -142,14 +151,15 @@ describe('view headers — sweep item 17', () => {
     const header = await screen.findByTestId('view-header');
     expect(header.querySelector('h1')?.textContent).toContain('Persona Plex');
     expect(header.querySelector('h2')).toBeNull();
-    expect(screen.getByText(/One plex embodiment/)).not.toBeNull();
+    expect(screen.queryByText(/One plex embodiment/)).toBeNull();
+    expect(screen.getByText(/Voices \+ options/)).not.toBeNull();
   });
 
   test('Editor: the header sits above the file tabs (and in the empty state)', () => {
     const first = render(<CodeEditor />);
     const header = screen.getByTestId('view-header');
     expect(header.querySelector('h1')?.textContent).toBe('Editor');
-    expect(screen.getByText(/pick one in the Explorer/)).not.toBeNull();
+    expect(screen.queryByText(/pick one in the Explorer/)).toBeNull();
     // No files open: the empty state, not the tabs bar — but the
     // header is there in both states (the empty state is its own
     // return, so the header lives there too).
@@ -180,7 +190,10 @@ describe('view headers — sweep item 17', () => {
     );
     expect(html).toContain('data-testid="view-header"');
     expect(html).toContain('Modules');
-    expect(html).toContain('Container for Segments');
+    // The header no longer renders the plugin description
+    // (global presentation fix) — it lives in the Plugins
+    // tab's card, not in this tab's markup.
+    expect(html).not.toContain('Container for Segments');
     expect(html).toContain('Built-in · Anchored');
     expect(MODULES_PLUGIN.description).toContain('Container for Segments');
   });
@@ -189,7 +202,6 @@ describe('view headers — sweep item 17', () => {
     render(<SynthView />);
     const header = await screen.findByTestId('view-header');
     expect(header.querySelector('h1')?.textContent).toBe('Synth');
-    expect(screen.getByText(/Matrix Synth shell/)).not.toBeNull();
     // The shell's own HUD stays inside the iframe — the iframe
     // is still there, below the header.
     expect(document.querySelector('iframe[title="Lucid synth shell"]')).not.toBeNull();

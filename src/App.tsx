@@ -821,7 +821,7 @@ function App() {
             {/* AI Panel — tabbed: AI Chat + Copilot + Browser — in the
                 right dock (Atom steal #12). The dock owns the toggle
                 chevron, the resize handle and the open/close mask;
-                the panel's own X hides it. Its allowed edge is
+                the panel's own Minus hides it. Its allowed edge is
                 'right' (see dockLocations.ts). */}
             <Dock edge="right" label="AI Panel">
               <AIPanel

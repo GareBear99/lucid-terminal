@@ -38,28 +38,41 @@ describe('BrainAliveIndicator', () => {
     vi.useRealTimers();
   });
 
-  it('shows ready while the last success is inside the 5s window', () => {
+  it('shows a green dot while the last success is inside the 5s window', () => {
     const { getByTestId } = render(
       <BrainAliveIndicator client={stubClient({ lastSuccessAt: Date.now() - 1000 })} />,
     );
-    expect(getByTestId('brain-alive-indicator').textContent).toContain('Brain: ready');
+    const pill = getByTestId('brain-alive-indicator');
+    // Dot only — no permanent bar text (global presentation
+    // fix): the state is the dot colour + the aria-label.
+    expect(pill.querySelector('.bg-green-500')).not.toBeNull();
+    expect(pill.getAttribute('aria-label')).toBe('Brain: ready');
+    expect(pill.textContent).toBe('');
   });
 
-  it('flips to not responding when the window expires, without a new success', () => {
+  it('flips the dot to red when the window expires, without a new success', () => {
     const client = stubClient({ lastSuccessAt: Date.now() - 1000 });
     const { getByTestId } = render(<BrainAliveIndicator client={client} />);
-    expect(getByTestId('brain-alive-indicator').textContent).toContain('Brain: ready');
+    const pill = getByTestId('brain-alive-indicator');
+    expect(pill.querySelector('.bg-green-500')).not.toBeNull();
+    expect(pill.getAttribute('aria-label')).toBe('Brain: ready');
     act(() => {
       vi.advanceTimersByTime(5000);
     });
-    expect(getByTestId('brain-alive-indicator').textContent).toContain('Brain: not responding');
+    expect(pill.querySelector('.bg-red-500')).not.toBeNull();
+    expect(pill.querySelector('.bg-green-500')).toBeNull();
+    expect(pill.getAttribute('aria-label')).toBe('Brain: not responding');
+    expect(pill.textContent).toBe('');
   });
 
-  it('shows not started before the engine ever runs', () => {
+  it('shows an amber dot before the engine ever runs', () => {
     const { getByTestId } = render(
       <BrainAliveIndicator client={stubClient({ state: 'not-running', lastSuccessAt: null })} />,
     );
-    expect(getByTestId('brain-alive-indicator').textContent).toContain('Brain: not started');
+    const pill = getByTestId('brain-alive-indicator');
+    expect(pill.querySelector('.bg-amber-500')).not.toBeNull();
+    expect(pill.getAttribute('aria-label')).toBe('Brain: not started');
+    expect(pill.textContent).toBe('');
   });
 
   it('clicking probes the engine and toasts the check-status report', async () => {

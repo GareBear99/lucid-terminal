@@ -5,6 +5,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import {
   useSplitPaneStore,
   findGroupForTab,
+  getVisibleTabIds,
   groupTabIds,
   orderTabsForRender,
 } from '../../stores/splitPaneStore';
@@ -1077,6 +1078,23 @@ function TerminalTabs({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
+      // The xterm surface is a text field (xterm.js's hidden
+      // helper textarea) and it is focused essentially always —
+      // but it is the terminal itself, not a prose input, so
+      // the terminal's own shortcuts must work while it is
+      // focused (2026-11-16 — Meta+D / Meta+U / Meta+1 were
+      // dead whenever the terminal was focused, which is
+      // always). The rename input, Settings, and the Monaco
+      // editor keep their own keys; the composer stays guarded
+      // for D/U (it is a text field, not the xterm).
+      const isXtermSurface = (el: HTMLElement | null) =>
+        !!el && el.classList.contains('xterm-helper-textarea');
+      const isTextField = (el: HTMLElement | null) =>
+        !!el &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable);
       // ⌘D — split the active tab (2026-11-14, sweep fix 2):
       // iTerm2's vertical-split key. Plain Cmd+D only (no shift
       // — Cmd+Shift+D is the future horizontal split's key).
@@ -1087,16 +1105,10 @@ function TerminalTabs({
       if ((e.key === 'd' || e.key === 'D') && !e.shiftKey && !e.altKey) {
         if (detachedWindow) return;
         const active = document.activeElement as HTMLElement | null;
-        if (active) {
-          const tag = active.tagName;
-          if (
-            tag === 'INPUT' ||
-            tag === 'TEXTAREA' ||
-            tag === 'SELECT' ||
-            active.isContentEditable
-          )
-            return;
-        }
+        // Meta-only xterm exemption: Ctrl+D is the shell's EOF
+        // and belongs to the shell; Meta is Gary's modifier and
+        // the shell never sees it.
+        if (isTextField(active) && !(e.metaKey && isXtermSurface(active))) return;
         if (!activeTabId) return;
         e.preventDefault();
         void useSplitPaneStore.getState().splitTab(activeTabId);
@@ -1110,16 +1122,9 @@ function TerminalTabs({
       if ((e.key === 'u' || e.key === 'U') && !e.shiftKey && !e.altKey) {
         if (detachedWindow) return;
         const active = document.activeElement as HTMLElement | null;
-        if (active) {
-          const tag = active.tagName;
-          if (
-            tag === 'INPUT' ||
-            tag === 'TEXTAREA' ||
-            tag === 'SELECT' ||
-            active.isContentEditable
-          )
-            return;
-        }
+        // Meta-only xterm exemption (same as Cmd+D: Ctrl+U is
+        // the shell's kill-line and stays the shell's).
+        if (isTextField(active) && !(e.metaKey && isXtermSurface(active))) return;
         if (!activeTabId) return;
         e.preventDefault();
         // The unsplit writes the same feed line as /unsplit
@@ -1132,20 +1137,14 @@ function TerminalTabs({
       const n = Number(e.key);
       if (!Number.isInteger(n) || n < 1 || n > 9) return;
       const active = document.activeElement as HTMLElement | null;
-      if (active) {
-        const tag = active.tagName;
-        const inComposer = active.closest?.(
-          '[data-testid="prompter-composer-wrap"], [data-testid="dev-command-bar"]',
-        );
-        if (
-          (tag === 'INPUT' ||
-            tag === 'TEXTAREA' ||
-            tag === 'SELECT' ||
-            active.isContentEditable) &&
-          !inComposer
-        )
-          return;
-      }
+      const inComposer = active?.closest?.(
+        '[data-testid="prompter-composer-wrap"], [data-testid="dev-command-bar"]',
+      );
+      // The 1-9 have no shell meaning, so both modifiers are
+      // exempt from the xterm surface. Monaco / the rename
+      // input keep their own keys (the xterm and the composer
+      // do not).
+      if (isTextField(active) && !inComposer && !isXtermSurface(active)) return;
       const target = tabs[n - 1];
       if (!target) return;
       e.preventDefault();
@@ -1221,7 +1220,15 @@ function TerminalTabs({
         );
       }}
       onReopenClosedTab={() => {
-        void useTerminalStore.getState().reopenClosedTab();
+        // Reopening while a split is visible must not steal
+        // the split view (same rule as + — 2026-11-16).
+        const groups = useSplitPaneStore.getState().groups;
+        const active = useTerminalStore.getState().activeTabId;
+        const splitVisible =
+          active !== null && getVisibleTabIds(groups, active).length > 1;
+        void useTerminalStore
+          .getState()
+          .reopenClosedTab({ activate: !splitVisible });
       }}
       onCopyTabCwd={(id) => {
         const tab = tabs.find((t) => t.id === id);

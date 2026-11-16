@@ -269,7 +269,15 @@ export function registerBuiltinCommands(
     tags: ['reopen', 'closed', 'tab', 'terminal', 'undo'],
     keybinding: '⇧⌘T',
     run: async () => {
-      await useTerminalStore.getState().reopenClosedTab();
+      // Reopening while a split is visible must not steal
+      // the split view (same rule as + — 2026-11-16).
+      const groups = useSplitPaneStore.getState().groups;
+      const active = useTerminalStore.getState().activeTabId;
+      const splitVisible =
+        active !== null && getVisibleTabIds(groups, active).length > 1;
+      await useTerminalStore
+        .getState()
+        .reopenClosedTab({ activate: !splitVisible });
     },
   });
   registry.register({

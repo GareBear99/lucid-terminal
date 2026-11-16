@@ -34,6 +34,14 @@ import { toDetachedTab, toDetachedFile, type DetachedTab, type DetachedFile } fr
 export const FILE_DETACH_THRESHOLD_PX = 16;
 
 /**
+ * Drag-engage threshold, both strips (2026-11-16): a press
+ * is a click until the pointer moves this far from the press
+ * point. Past click jitter, far below the 16px detach
+ * threshold — a real drag-out still fires exactly as before.
+ */
+export const TAB_DRAG_START_THRESHOLD_PX = 5;
+
+/**
  * Where the drag ghost's top-left goes for a pointer position:
  * the pointer stays at the same spot within the ghost it had
  * within the tab when grabbed, so the tab lifts out from
@@ -95,7 +103,39 @@ export function useTerminalTabDrag({
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ index: number } | null>(null);
   const [dragGhost, setDragGhost] = useState<{ tab: DetachedTab; x: number; y: number } | null>(null);
-  const dragRef = useRef<{ tab: DetachedTab; index: number; pointerId: number } | null>(null);
+  /**
+   * A press is a CLICK until the pointer moves past this
+   * (2026-11-16 — tab clicks were dead: pointer capture on
+   * pointerdown retargeted pointerup, so the click fired on
+   * the bar, never on the tab — "when split you cant go to
+   * any other tabs". Only a press that moves past this
+   * engages the drag, sets capture, and tells main. 5px is
+   * past click jitter and far below main's 16px detach
+   * threshold, so a real drag-out still fires exactly as
+   * before — and a plain click never touches the drag
+   * machinery at all, so the tab's onClick fires on the tab.
+   */
+  const dragRef = useRef<{
+    tab: DetachedTab;
+    index: number;
+    pointerId: number;
+    /** Press point (client coords) — the drag engages when
+     *  the pointer moves past the threshold from here. */
+    startX: number;
+    startY: number;
+    /** True once the drag engaged (capture set, main told). */
+    started: boolean;
+  } | null>(null);
+  /** The pending-press window listeners (added on
+   *  pointerdown, removed on pointerup / cancel / drag
+   *  start) — they watch for the threshold crossing even
+   *  when the pointer leaves the bar before capture is set
+   *  (the bar's React handlers only see moves over the bar).
+   *  Removed at drag start: the draggingTabId-driven window
+   *  listeners + bar handlers take over from there (the
+   *  dedupe would catch doubles, but a handoff is cleaner
+   *  than three live move paths). */
+  const pendingListenersRef = useRef<(() => void) | null>(null);
   /** Pointer position within the dragged tab at grab (the ghost
    *  and main's follow both anchor on this, so the tab stays
    *  under the pointer from lift to drop). */
@@ -177,6 +217,11 @@ export function useTerminalTabDrag({
     setDraggingTabId(null);
     setDropIndicator(null);
     setDragGhost(null);
+    // The pending listeners are gone at drag start (the
+    // handoff); remove them here too, so a press that ends
+    // without engaging leaves nothing behind.
+    pendingListenersRef.current?.();
+    pendingListenersRef.current = null;
     if (drag) {
       try {
         barRef.current?.releasePointerCapture?.(drag.pointerId);
@@ -184,6 +229,55 @@ export function useTerminalTabDrag({
         // The capture was already released (tab unmounted, window moved).
       }
     }
+  };
+
+  /** Drop a press that never became a drag (a click): remove
+   *  the pending listeners and forget the press. No call to
+   *  main — no session was ever started, so there is nothing
+   *  to end, and the click event fires normally on the tab. */
+  const clearPending = () => {
+    pendingListenersRef.current?.();
+    pendingListenersRef.current = null;
+    dragRef.current = null;
+  };
+
+  /**
+   * Engage the drag (the press moved past the threshold):
+   * mark the tab dragging (the opacity + the window
+   * listeners), capture the pointer on the bar, and tell
+   * main a session started — exactly what pointerdown used
+   * to do eagerly, now only for a real drag. The pending
+   * listeners hand off to the draggingTabId-driven window
+   * listeners + bar handlers from here.
+   */
+  const startDrag = () => {
+    const drag = dragRef.current;
+    if (!drag || drag.started) return;
+    drag.started = true;
+    pendingListenersRef.current?.();
+    pendingListenersRef.current = null;
+    setDraggingTabId(drag.tab.id);
+    let captureOk = false;
+    let captureError = '';
+    try {
+      barRef.current?.setPointerCapture?.(drag.pointerId);
+      captureOk = true;
+    } catch (err) {
+      // No capture (jsdom / exotic pointer): the drag still
+      // reports moves while the pointer is over the bar.
+      captureError = err instanceof Error ? err.name : String(err);
+    }
+    // DIAGNOSTIC: capture success/failure decides whether moves
+    // survive past the bar/viewport edge. Sent to main's log.
+    window.lucidAPI?.terminal?.detach?.dragDiag?.(
+      `drag-start tab=${drag.tab.id} pointerId=${drag.pointerId} capture=${captureOk ? 'ok' : `FAILED:${captureError}`} grab=(${grabOffsetRef.current.x},${grabOffsetRef.current.y})`,
+    );
+    moveCountRef.current = 0;
+    window.lucidAPI?.terminal?.detach?.dragStart(
+      drag.tab,
+      drag.index,
+      grabOffsetRef.current,
+    );
   };
 
   // Escape cancels the drag and rolls the tab back (plan §4.6).
@@ -234,9 +328,24 @@ export function useTerminalTabDrag({
   }, [draggingTabId]);
 
   /** Shared move/up/cancel core — the bar's React handlers and
-   *  the window listeners above both feed it (dedupe by event). */
+   *  the window listeners above both feed it (dedupe by event).
+   *  A press is a click until it moves past the threshold:
+   *  handleMove engages the drag on the first move past it
+   *  (and only then reports to main / shows the ghost), and
+   *  handleUp/handleCancel silently drop a press that never
+   *  engaged — no session was started, so main is never told,
+   *  and the click event fires normally on the tab. */
   const handleMove = (clientX: number, clientY: number, timeStamp: number) => {
     if (!dragRef.current) return;
+    if (!dragRef.current.started) {
+      // Not a drag yet: engage only past the threshold, so a
+      // plain click never touches the drag machinery.
+      const dx = clientX - dragRef.current.startX;
+      const dy = clientY - dragRef.current.startY;
+      if (Math.hypot(dx, dy) <= TAB_DRAG_START_THRESHOLD_PX) return;
+      startDrag();
+      if (!dragRef.current) return;
+    }
     if (alreadyHandled(`move:${timeStamp}:${clientX}:${clientY}`)) return;
     moveCountRef.current += 1;
     // DIAGNOSTIC: first move only — proves the handler fires
@@ -256,6 +365,13 @@ export function useTerminalTabDrag({
 
   const handleUp = (clientX: number, clientY: number, timeStamp: number) => {
     if (!dragRef.current) return;
+    if (!dragRef.current.started) {
+      // A click, not a drag: forget the press silently — no
+      // session was started, so main gets no drag-end, and the
+      // click event fires normally on the tab.
+      clearPending();
+      return;
+    }
     if (alreadyHandled(`up:${timeStamp}:${clientX}:${clientY}`)) return;
     // DIAGNOSTIC: move count + last point — if this line never
     // lands in main's log, pointerup never reached the renderer
@@ -269,6 +385,12 @@ export function useTerminalTabDrag({
 
   const handleCancel = (timeStamp: number) => {
     if (!dragRef.current) return;
+    if (!dragRef.current.started) {
+      // A cancelled press that never became a drag: same as a
+      // click — forget it silently.
+      clearPending();
+      return;
+    }
     if (alreadyHandled(`cancel:${timeStamp}`)) return;
     window.lucidAPI?.terminal?.detach?.dragDiag?.(
       `pointercancel moves=${moveCountRef.current}`,
@@ -291,35 +413,50 @@ export function useTerminalTabDrag({
     const bar = barRef.current;
     if (!bar) return;
     const detachedTab = toDetachedTab(tab);
-    dragRef.current = { tab: detachedTab, index, pointerId: e.pointerId };
-    // The grab offset: the pointer's spot within the tab. The
-    // ghost anchors on it, and main anchors the detached
-    // window on it, so the tab stays under the pointer from
-    // lift to drop. currentTarget is the tab element (the
-    // handler is attached to it); in jsdom the rect is zeros,
-    // so the offset is just the pointer position there.
+    // Record the press — DO NOT engage the drag yet (2026-11-16:
+    // engaging here set pointer capture on the bar, which
+    // retargeted pointerup, so the click fired on the bar and
+    // the tab's onClick never ran — every tab click was dead).
+    // A press is a click until it moves past the threshold;
+    // handleMove engages it then. The grab offset: the
+    // pointer's spot within the tab. The ghost anchors on it,
+    // and main anchors the detached window on it, so the tab
+    // stays under the pointer from lift to drop.
+    // currentTarget is the tab element (the handler is attached
+    // to it); in jsdom the rect is zeros, so the offset is just
+    // the pointer position there.
     const rect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect?.();
     grabOffsetRef.current = rect
       ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
       : { x: 0, y: 0 };
-    setDraggingTabId(tab.id);
-    let captureOk = false;
-    let captureError = '';
-    try {
-      bar.setPointerCapture?.(e.pointerId);
-      captureOk = true;
-    } catch (err) {
-      // No capture (jsdom / exotic pointer): the drag still
-      // reports moves while the pointer is over the bar.
-      captureError = err instanceof Error ? err.name : String(err);
-    }
-    // DIAGNOSTIC: capture success/failure decides whether moves
-    // survive past the bar/viewport edge. Sent to main's log.
-    detach.dragDiag?.(
-      `pointerdown tab=${tab.id} pointerId=${e.pointerId} capture=${captureOk ? 'ok' : `FAILED:${captureError}`} grab=(${grabOffsetRef.current.x},${grabOffsetRef.current.y})`,
-    );
+    dragRef.current = {
+      tab: detachedTab,
+      index,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      started: false,
+    };
+    // Pending-press window listeners: they watch for the
+    // threshold crossing even when the pointer leaves the bar
+    // before capture is set (the bar's React handlers only see
+    // moves over the bar). They hand off at drag start (the
+    // draggingTabId-driven listeners + bar handlers take over)
+    // and are removed on pointerup / cancel. The dedupe in
+    // handleMove/handleUp keeps the bar handler and these
+    // listeners from double-reporting the same event.
+    const onMove = (ev: PointerEvent) => handleMove(ev.clientX, ev.clientY, ev.timeStamp);
+    const onUp = (ev: PointerEvent) => handleUp(ev.clientX, ev.clientY, ev.timeStamp);
+    const onCancel = (ev: PointerEvent) => handleCancel(ev.timeStamp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    pendingListenersRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+    };
     moveCountRef.current = 0;
-    detach.dragStart(detachedTab, index, grabOffsetRef.current);
   };
 
   const barHandlers = {
@@ -369,12 +506,29 @@ export function useFileTabDrag({
   barRef: React.RefObject<HTMLDivElement | null>;
 }): FileTabDrag {
   const [draggingPath, setDraggingPath] = useState<string | null>(null);
-  const dragRef = useRef<{ file: DetachedFile; armed: boolean; pointerId: number } | null>(null);
+  const dragRef = useRef<{
+    file: DetachedFile;
+    armed: boolean;
+    pointerId: number;
+    /** Press point (client coords) — the drag engages when
+     *  the pointer moves past the threshold from here. */
+    startX: number;
+    startY: number;
+    /** True once the drag engaged (capture set). */
+    started: boolean;
+  } | null>(null);
+  /** The pending-press window listeners (same pattern as the
+   *  terminal drag: the bar's React handlers only see moves
+   *  over the bar, so the threshold crossing needs window
+   *  listeners until capture is set). */
+  const pendingListenersRef = useRef<(() => void) | null>(null);
 
   const endDrag = () => {
     const drag = dragRef.current;
     dragRef.current = null;
     setDraggingPath(null);
+    pendingListenersRef.current?.();
+    pendingListenersRef.current = null;
     if (drag) {
       try {
         barRef.current?.releasePointerCapture?.(drag.pointerId);
@@ -384,32 +538,122 @@ export function useFileTabDrag({
     }
   };
 
-  const onFileTabPointerDown = (file: OpenFile, e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('button, input, textarea, select')) return;
-    if (!window.lucidAPI?.filesDetach) return;
-    dragRef.current = { file: toDetachedFile(file), armed: false, pointerId: e.pointerId };
-    setDraggingPath(file.path);
+  /** Drop a press that never became a drag (a click): forget
+   *  it silently, so the file tab's onClick fires on the tab
+   *  (the same pointer-capture bug as the terminal strip —
+   *  2026-11-16 — broke file-tab clicks too). */
+  const clearPending = () => {
+    pendingListenersRef.current?.();
+    pendingListenersRef.current = null;
+    dragRef.current = null;
+  };
+
+  /** Engage the drag (the press moved past the threshold):
+   *  mark the file dragging and capture the pointer on the
+   *  strip — exactly what pointerdown used to do eagerly,
+   *  now only for a real drag. */
+  const startDrag = () => {
+    const drag = dragRef.current;
+    if (!drag || drag.started) return;
+    drag.started = true;
+    pendingListenersRef.current?.();
+    pendingListenersRef.current = null;
+    setDraggingPath(drag.file.path);
     try {
       // Capture on the strip (set by the view via barRef below).
-      barRef.current?.setPointerCapture?.(e.pointerId);
+      barRef.current?.setPointerCapture?.(drag.pointerId);
     } catch {
       // No capture: moves still report while over the strip.
     }
   };
 
-  const barHandlers = {
-    onPointerMove: (e: React.PointerEvent) => {
+  /** The move core shared by the bar handler and the pending
+   *  window listener: engage past the threshold, then arm the
+   *  detach once the pointer leaves the window by the detach
+   *  threshold. */
+  const handleMove = (clientX: number, clientY: number) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    if (!drag.started) {
+      const dx = clientX - drag.startX;
+      const dy = clientY - drag.startY;
+      if (Math.hypot(dx, dy) <= TAB_DRAG_START_THRESHOLD_PX) return;
+      startDrag();
+    }
+    // startDrag never clears the ref, but re-read it (the
+    // narrowing above does not survive the block).
+    const current = dragRef.current;
+    if (!current) return;
+    if (
+      !current.armed &&
+      outsideWindowDistance(screenPoint(clientX, clientY)) > FILE_DETACH_THRESHOLD_PX
+    ) {
+      current.armed = true;
+    }
+  };
+
+  const onFileTabPointerDown = (file: OpenFile, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button, input, textarea, select')) return;
+    if (!window.lucidAPI?.filesDetach) return;
+    // Record the press — DO NOT engage the drag yet (same
+    // 2026-11-16 pointer-capture bug as the terminal strip:
+    // capture on pointerdown retargeted the click to the bar,
+    // so the file tab's onClick never ran). A press is a click
+    // until it moves past the threshold.
+    dragRef.current = {
+      file: toDetachedFile(file),
+      armed: false,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      started: false,
+    };
+    const onMove = (ev: PointerEvent) => handleMove(ev.clientX, ev.clientY);
+    const onUp = (ev: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
-      if (!drag.armed && outsideWindowDistance(screenPoint(e.clientX, e.clientY)) > FILE_DETACH_THRESHOLD_PX) {
-        drag.armed = true;
+      if (!drag.started) {
+        clearPending();
+        return;
       }
+      const armed = drag.armed;
+      const f = drag.file;
+      const point = screenPoint(ev.clientX, ev.clientY);
+      endDrag();
+      if (armed) onDetach(f, point);
+    };
+    const onCancel = () => {
+      if (!dragRef.current) return;
+      if (!dragRef.current.started) {
+        clearPending();
+        return;
+      }
+      endDrag();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    pendingListenersRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+    };
+  };
+
+  const barHandlers = {
+    onPointerMove: (e: React.PointerEvent) => {
+      handleMove(e.clientX, e.clientY);
     },
     onPointerUp: (e: React.PointerEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
+      if (!drag.started) {
+        // A click, not a drag: forget the press silently.
+        clearPending();
+        return;
+      }
       const armed = drag.armed;
       const file = drag.file;
       const point = screenPoint(e.clientX, e.clientY);
@@ -418,10 +662,18 @@ export function useFileTabDrag({
     },
     onPointerCancel: () => {
       if (!dragRef.current) return;
+      if (!dragRef.current.started) {
+        clearPending();
+        return;
+      }
       endDrag();
     },
     onLostPointerCapture: () => {
       if (!dragRef.current) return;
+      if (!dragRef.current.started) {
+        clearPending();
+        return;
+      }
       endDrag();
     },
   };

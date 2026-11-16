@@ -73,7 +73,7 @@ export interface TerminalState {
    * or null when nothing was closed. The stack is session-only
    * (never persisted) and holds at most 10.
    */
-  reopenClosedTab: () => Promise<string | null>;
+  reopenClosedTab: (opts?: { activate?: boolean }) => Promise<string | null>;
   /**
    * Detach (Gary, 2026-11-09): drop the tab from THIS window's
    * strip WITHOUT destroying its PTY and WITHOUT freeing its
@@ -177,7 +177,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   exitedTabs: {},
   ptyStateKnown: false,
 
-  createTab: async (cwd?: string, opts?: { detached?: boolean }) => {
+  createTab: async (cwd?: string, opts?: { detached?: boolean; activate?: boolean }) => {
     // Reserve the lowest free number synchronously, before any await:
     // two creates fired back-to-back must still get distinct numbers.
     const tabNumber = lowestFreeTabNumber();
@@ -408,10 +408,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
   },
 
-  reopenClosedTab: async () => {
+  reopenClosedTab: async (opts?: { activate?: boolean }) => {
     const closed = closedTabStack.shift();
     if (!closed) return null;
-    return get().createTab(closed.cwd);
+    // Reopening a closed tab while a split is visible must not
+    // steal the split view (same rule as + — 2026-11-16): the
+    // caller passes activate: false when a split is visible.
+    return get().createTab(closed.cwd, opts);
   },
 
   resetForTests: () => {

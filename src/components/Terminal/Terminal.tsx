@@ -1967,8 +1967,15 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     setShellExited(null);
     setTerminalFailed(null);
     clearCreateError(tabId);
+    // Restarting while a split is visible must not steal the
+    // split view (same rule as + / reopen — 2026-11-16):
+    // computed BEFORE closeTab, while this tab is still in
+    // its group, so the fresh tab lands inactive and the pair
+    // stays on screen.
+    const groups = useSplitPaneStore.getState().groups;
+    const splitVisible = getVisibleTabIds(groups, tabId).length > 1;
     closeTab(tabId);
-    createTab();
+    createTab(undefined, { activate: !splitVisible });
   };
 
   // Prompt-section click (topology sync, dev mode OFF): the section

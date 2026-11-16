@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 
 // ... imports
 import { chat, cancelStream, hasApiKey, ChatMessage } from '../services/openai';
-import { chatPing, cancelPingStream, pingServerHealth, pingServerStatus, isPingServerEnabled, PingRateLimitError } from '../services/pingServer';
+import { chatPing, cancelPingStream, pingServerHealth, pingServerStatus, activateTemp, isPingServerEnabled, PingRateLimitError } from '../services/pingServer';
 import { chatLocal, checkLocalBackendHealth, cancelLocalChat, chatLocalWithBrowserTools } from '../services/local_ai'; // Import local service
 import { historyManager } from '../services/historyManager';
 import { isAnyModelAvailable } from './lucidWorkflow';
@@ -359,6 +359,18 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('ai:pingServerStatus', async () => {
     return pingServerStatus();
   });
+
+  // Temp activation — POST /temp/activate through the client.
+  // The Profiles screen calls it once per temp creation so the
+  // daily grab can verify the profile. Fire-and-forget from the
+  // renderer: a failed activation never blocks entering the
+  // profile, and the retry-once-on-500 lives in activateTemp.
+  ipcMain.handle(
+    'ai:activateTemp',
+    async (_, profileId: string, referralId?: string | null) => {
+      return activateTemp(profileId, referralId ?? null);
+    },
+  );
 
   // Check if local backend is available
   ipcMain.handle('ai:checkLocalBackend', async (): Promise<boolean> => {

@@ -332,6 +332,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     checkLocalBackend: () => ipcRenderer.invoke('ai:checkLocalBackend'),
     pingServerHealth: () => ipcRenderer.invoke('ai:pingServerHealth'),
     pingServerStatus: () => ipcRenderer.invoke('ai:pingServerStatus'),
+    // Temp activation for the daily grab — one call per temp
+    // creation, fire-and-forget from the Profiles screen.
+    activateTemp: (profileId: string, referralId?: string | null) =>
+      ipcRenderer.invoke('ai:activateTemp', profileId, referralId ?? null),
     getSessions: () => ipcRenderer.invoke('ai:getSessions'),
     saveSession: (session: ChatSession) =>
       ipcRenderer.invoke('ai:saveSession', session),
@@ -966,6 +970,7 @@ export interface LucidAPI {
     checkLocalBackend: () => Promise<boolean>;
     pingServerHealth: () => Promise<{ ok: boolean; service?: string; model?: string; mode?: string; quota: PingQuota | null }>;
     pingServerStatus: () => Promise<PingServerStatus>;
+    activateTemp: (profileId: string, referralId?: string | null) => Promise<{ activationTick: number; verificationState: string; windowEnd: string; resumed: boolean }>;
     getSessions: () => Promise<ChatSession[]>;
     saveSession: (session: ChatSession) => Promise<void>;
     deleteSession: (id: string) => Promise<void>;

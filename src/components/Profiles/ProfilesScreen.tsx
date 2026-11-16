@@ -229,6 +229,14 @@ export function ProfilesScreen({ onDone }: { onDone: (profileId: string) => void
     const created = createProfile(name);
     if (!created) return;
     setName('');
+    // Register the temp with the daily pull (fire-and-forget: a
+    // failed activation never blocks entering the profile).
+    // The bridge may be absent in tests / older builds — the
+    // optional chain keeps creation working either way.
+    const activation = window.lucidAPI?.ai?.activateTemp?.(created.id);
+    void activation?.catch((e: unknown) =>
+      console.warn('[profiles] temp activation failed', e),
+    );
     onDone(created.id);
   };
 

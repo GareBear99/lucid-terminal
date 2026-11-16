@@ -42,6 +42,7 @@ vi.mock('electron-store', () => ({
 import {
   chatPing,
   pingServerHealth,
+  activateTemp,
   getOrCreateUserId,
   isPingServerEnabled,
   formatResetTime,
@@ -252,5 +253,144 @@ describe('pingServer client', () => {
     expect(
       formatResetTime({ limit: 200, remaining: 0, reset: Math.floor(Date.UTC(2026, 10, 7, 14, 30) / 1000), reset_in_seconds: 45 * 60 }),
     ).toBe('Resets 14:30 UTC (in 45m)');
+  });
+});
+
+describe('activateTemp — register a temp for the daily grab', () => {
+  const ACTIVATED = {
+    ok: true,
+    id: 'profile-11111111-1111-4111-8111-111111111111',
+    activationTick: 123456,
+    verificationState: 'pending',
+    windowEnd: '2026-11-17T00:00:00.000Z',
+    referralId: null,
+    resumed: false,
+  };
+
+  function activatedResponse(body: Record<string, unknown> = ACTIVATED, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('posts to {endpoint}/temp/activate with pingHeaders and body {id, referralId: null}', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(activatedResponse());
+    const result = await activateTemp(
+      'profile-11111111-1111-4111-8111-111111111111',
+    );
+    // The server's full body comes back (ok/id/referralId included);
+    // the fields the client uses are the four below.
+    expect(result).toMatchObject({
+      activationTick: 123456,
+      verificationState: 'pending',
+      windowEnd: '2026-11-17T00:00:00.000Z',
+      resumed: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${ENDPOINT}/temp/activate`);
+    expect(init.method).toBe('POST');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(headers['x-lucid-user']).toBe('test-user-1');
+    expect(headers['x-lucid-ping-key']).toBe('test-secret');
+    expect(JSON.parse(String(init.body))).toEqual({
+      id: 'profile-11111111-1111-4111-8111-111111111111',
+      referralId: null,
+    });
+  });
+
+  it('sends the referral through when one was captured', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(activatedResponse({ ...ACTIVATED, referralId: 'profile-22222222-2222-4222-8222-222222222222' }));
+    await activateTemp(
+      'profile-11111111-1111-4111-8111-111111111111',
+      'profile-22222222-2222-4222-8222-222222222222',
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      id: 'profile-11111111-1111-4111-8111-111111111111',
+      referralId: 'profile-22222222-2222-4222-8222-222222222222',
+    });
+  });
+
+  it('sends no x-lucid-ping-key header when no key is set', async () => {
+    pingKeyStorage.deletePingKey();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(activatedResponse());
+    await activateTemp('profile-11111111-1111-4111-8111-111111111111');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['x-lucid-user']).toBe('test-user-1');
+    expect(headers).not.toHaveProperty('x-lucid-ping-key');
+  });
+
+  it('throws on 400 (bad id) and 401 (bad key) with no retry', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: 'id must start with profile-' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(activateTemp('bad-id')).rejects.toThrow(
+      'Temp activation failed (400)',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      activateTemp('profile-11111111-1111-4111-8111-111111111111'),
+    ).rejects.toThrow('Temp activation failed (401)');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries once on 500 and returns the resumed result', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: false, error: 'enqueue failed' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        activatedResponse({ ...ACTIVATED, resumed: true }),
+      );
+    const result = await activateTemp(
+      'profile-11111111-1111-4111-8111-111111111111',
+    );
+    expect(result.resumed).toBe(true);
+    expect(result.activationTick).toBe(123456);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The retry posts the same body to the same URL.
+    const [url2, init2] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url2).toBe(`${ENDPOINT}/temp/activate`);
+    expect(JSON.parse(String(init2.body))).toEqual({
+      id: 'profile-11111111-1111-4111-8111-111111111111',
+      referralId: null,
+    });
+  });
+
+  it('throws after the second 500 — exactly two attempts', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: 'enqueue failed' }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      activateTemp('profile-11111111-1111-4111-8111-111111111111'),
+    ).rejects.toThrow('Temp activation failed (500)');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

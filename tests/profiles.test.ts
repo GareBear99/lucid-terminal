@@ -45,6 +45,7 @@ import {
   parsePersistedProfiles,
   useProfileStore,
 } from '../src/stores/profileStore';
+import { PROFILE_GATES, findProfileGate } from '../src/lib/profileGates';
 
 // updateSetting/updateSettings + clearSessions persist through
 // window.lucidAPI; stub just those calls (the convention in the
@@ -312,6 +313,39 @@ describe('verified gates + status', () => {
     expect(
       useProfileStore.getState().profiles[0].verifiedGates,
     ).toEqual(['telegram']);
+  });
+
+  test('the daily-check gate is registered, not available to the user', () => {
+    const gate = findProfileGate('daily-check');
+    expect(gate).not.toBeNull();
+    expect(gate?.label).toBe('Daily verification');
+    // Not completable in the app — it is applied by the server's
+    // verdict, carried down through the FixNet connection.
+    expect(gate?.available).toBe(false);
+    expect(PROFILE_GATES.map((g) => g.id)).toContain('daily-check');
+  });
+
+  test('the daily-check gate turns a temp into verified — never into a user', () => {
+    expect(
+      useProfileStore.getState().markGateVerified('default', 'daily-check'),
+    ).toBe(true);
+    const profile = useProfileStore.getState().profiles[0];
+    expect(profile.verifiedGates).toEqual(['daily-check']);
+    // The temp discards temp status — but only telegram maps to
+    // 'user'; temp → user via the daily feed is the following step.
+    expect(profile.status).toBe('verified');
+  });
+
+  test('a guest can never verify the daily-check gate either', () => {
+    const guest = useProfileStore.getState().createGuestProfile();
+    expect(
+      useProfileStore.getState().markGateVerified(guest.id, 'daily-check'),
+    ).toBe(false);
+    const after = useProfileStore
+      .getState()
+      .profiles.find((p) => p.id === guest.id);
+    expect(after?.status).toBe('guest');
+    expect(after?.verifiedGates).toEqual([]);
   });
 });
 

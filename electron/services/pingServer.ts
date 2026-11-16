@@ -287,6 +287,50 @@ export function cancelPingStream(): void {
   }
 }
 
+/** The server's answer to POST /temp/activate: the activation tick
+ *  it assigned (the client never assigns one), the pending
+ *  verification state, the window end, and whether this id was
+ *  already activated (resumed path — re-activation returns the
+ *  ORIGINAL tick). 0 neurons, 0 SP. */
+export interface TempActivation {
+  activationTick: number;
+  verificationState: string;
+  windowEnd: string;
+  resumed: boolean;
+}
+
+/** Register a temp profile with the ping server for the daily grab
+ *  (POST /temp/activate, shared-secret auth via pingHeaders()).
+ *  The body carries the profile id from createProfile — never an
+ *  invented id — and referralId null until the referral capture
+ *  lands (Q6, its own slice). On a 500, retry once: the server's
+ *  resumed path repairs a /put-without-/enqueue. A second failure
+ *  throws — the CALLER logs and continues, never failing profile
+ *  creation because activation failed. Never called for guests. */
+export async function activateTemp(
+  profileId: string,
+  referralId?: string | null,
+): Promise<TempActivation> {
+  const endpoint = getPingServerEndpoint().replace(/\/$/, '');
+  const post = () =>
+    fetch(`${endpoint}/temp/activate`, {
+      method: 'POST',
+      headers: pingHeaders(),
+      body: JSON.stringify({ id: profileId, referralId: referralId ?? null }),
+    });
+  let response = await post();
+  if (!response.ok && response.status === 500) {
+    // The record may have been created but not queued — the retry
+    // takes the server's resumed path and returns the original tick.
+    response = await post();
+  }
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Temp activation failed (${response.status}): ${errText}`);
+  }
+  return (await response.json()) as TempActivation;
+}
+
 /** Health + echo + free quota lookup. /ping is not metered, so this
  *  never spends quota — the Settings "Test connection" button uses it
  *  to show remaining requests. */

@@ -23,7 +23,7 @@
  * root fade let the dashboard show through for 400ms, "glitches
  * to lucid still on splash").
  */
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProfilesScreen } from '../src/components/Profiles/ProfilesScreen';
 import {
@@ -113,6 +113,64 @@ describe('ProfilesScreen', () => {
     expect(
       (screen.getByTestId('profile-name-input') as HTMLInputElement).value,
     ).toBe('');
+  });
+
+  describe('temp activation (dailies — POST /temp/activate)', () => {
+    const win = window as unknown as { lucidAPI?: unknown };
+    let prevLucidAPI: unknown;
+    let activateTemp: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      prevLucidAPI = win.lucidAPI;
+      activateTemp = vi.fn().mockResolvedValue({
+        activationTick: 123456,
+        verificationState: 'pending',
+        windowEnd: '2026-11-17T00:00:00.000Z',
+        resumed: false,
+      });
+      win.lucidAPI = { ai: { activateTemp } };
+    });
+
+    afterEach(() => {
+      if (prevLucidAPI === undefined) delete win.lucidAPI;
+      else win.lucidAPI = prevLucidAPI;
+      vi.restoreAllMocks();
+    });
+
+    test('creating a profile calls activateTemp once with the created id', () => {
+      const onDone = vi.fn();
+      render(<ProfilesScreen onDone={onDone} />);
+      const created = createProfileViaUi('Gary');
+      expect(activateTemp).toHaveBeenCalledTimes(1);
+      expect(activateTemp).toHaveBeenCalledWith(created.id);
+      expect(onDone).toHaveBeenCalledWith(created.id);
+    });
+
+    test('a failed activation does not block entering the profile', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      activateTemp.mockRejectedValue(new Error('Temp activation failed (500): boom'));
+      const onDone = vi.fn();
+      render(<ProfilesScreen onDone={onDone} />);
+      const created = createProfileViaUi('Gary');
+      // Entering happens synchronously; the failed activation only
+      // logs — the profile exists locally either way.
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(onDone).toHaveBeenCalledWith(created.id);
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(
+          '[profiles] temp activation failed',
+          expect.any(Error),
+        );
+      });
+    });
+
+    test('guest creation does NOT call activateTemp — guests never verify', () => {
+      const onDone = vi.fn();
+      render(<ProfilesScreen onDone={onDone} />);
+      fireEvent.click(screen.getByTestId('profile-guest-card'));
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(activateTemp).not.toHaveBeenCalled();
+    });
   });
 
   test('clicking a card enters it immediately, with no select step', () => {

@@ -34,6 +34,11 @@ import { useEventLogStore } from '../src/stores/eventLogStore';
 import { usePermissionsStore } from '../src/stores/permissionsStore';
 import { useSnapshotUpdateStore } from '../src/stores/snapshotUpdateStore';
 import { useSynthStore } from '../src/stores/synthStore';
+import {
+  DEFAULT_PROFILE_ID,
+  createDefaultProfile,
+  useProfileStore,
+} from '../src/stores/profileStore';
 import { totpCode } from '../src/lib/totpAuth';
 
 /** The Google sign-in the tab reads (Drive segment's OAuth —
@@ -745,5 +750,57 @@ describe('SecurityTab', () => {
     expect(screen.getByText(/the Agent \(local planner\) is refused/)).toBeTruthy();
     expect(screen.getByText(/Copilot is allowed \(carve-out\)/)).toBeTruthy();
     expect(screen.getByText(/Nothing a guest does is persisted/)).toBeTruthy();
+  });
+
+  test('logout confirmations: empty state — every profile asks, Guest always asks', () => {
+    useProfileStore.setState({
+      profiles: [createDefaultProfile()],
+      activeProfileId: DEFAULT_PROFILE_ID,
+      logoutRequestedAt: null,
+    });
+    render(<SecurityTab />);
+    expect(screen.getByText('Logout confirmations')).toBeTruthy();
+    expect(screen.getByText(/Every profile asks before logging out/)).toBeTruthy();
+    expect(screen.getByText(/no opt-out for Guest/)).toBeTruthy();
+  });
+
+  test('logout confirmations: a saved profile that opted out is listed, and Ask again turns it back on', () => {
+    const saved = { ...createDefaultProfile(), id: 'profile-saved', name: 'Saved' };
+    useProfileStore.setState({
+      profiles: [createDefaultProfile(), saved],
+      activeProfileId: DEFAULT_PROFILE_ID,
+      logoutRequestedAt: null,
+    });
+    expect(useProfileStore.getState().setSkipLogoutConfirm('profile-saved', true)).toBe(true);
+    render(<SecurityTab />);
+    expect(screen.getByTestId('security-logout-ask-again-profile-saved')).toBeTruthy();
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(screen.getByText('Confirmation off')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('security-logout-ask-again-profile-saved'));
+    expect(
+      useProfileStore.getState().profiles.find((p) => p.id === 'profile-saved')
+        ?.skipLogoutConfirm,
+    ).toBe(false);
+    // The row leaves the list once the confirmation is back on.
+    expect(screen.queryByText('Confirmation off')).toBeNull();
+  });
+
+  test('logout confirmations: a guest never appears, even with a stale flag on the record', () => {
+    const guest = {
+      ...createDefaultProfile(),
+      id: 'profile-guest',
+      name: 'Guest',
+      status: 'guest' as const,
+      skipLogoutConfirm: true,
+    };
+    useProfileStore.setState({
+      profiles: [createDefaultProfile(), guest],
+      activeProfileId: DEFAULT_PROFILE_ID,
+      logoutRequestedAt: null,
+    });
+    render(<SecurityTab />);
+    expect(screen.getByText(/Every profile asks before logging out/)).toBeTruthy();
+    expect(screen.queryByText('Confirmation off')).toBeNull();
+    expect(screen.queryByTestId('security-logout-ask-again-profile-guest')).toBeNull();
   });
 });

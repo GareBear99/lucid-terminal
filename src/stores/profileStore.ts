@@ -108,7 +108,13 @@
  *   Settings > General has the toggle to turn the confirmation
  *   back on for the current profile ("Ask before logging out").
  *   A profile that disabled it logs out with no prompt until the
- *   toggle is flipped back.
+ *   toggle is flipped back. GUEST IS EXCLUDED (Gary, 2026-11-16):
+ *   a guest session always asks — there is no "Don't ask again"
+ *   and no toggle for Guest, only for saved profiles. The store
+ *   refuses setSkipLogoutConfirm for a guest, and loading strips
+ *   the flag from a guest record written by an older build.
+ *   Settings > Security lists the profiles that turned the
+ *   confirmation off, so it can be turned back on from there too.
  *
  * Persistence: localStorage, versioned key (same pattern as
  * historyStore — guarded, never throws, corrupt storage starts
@@ -155,7 +161,10 @@ export interface Profile {
    * profile" skips the confirmation prompt for THIS profile
    * only. Each profile keeps its own value; absent (older
    * records) means ask. Turned back on from Settings > General
-   * ("Ask before logging out").
+   * ("Ask before logging out") or Settings > Security. A guest
+   * profile NEVER carries this flag — a guest session always
+   * asks before logging out (the store refuses the set, and
+   * loading strips it from a guest record).
    */
   skipLogoutConfirm?: boolean;
 }
@@ -237,6 +246,13 @@ export function parsePersistedProfiles(value: unknown): PersistedProfiles | null
   const v = value as Record<string, unknown>;
   if (!Array.isArray(v.profiles)) return null;
   const profiles = (v.profiles as unknown[]).filter(isValidProfile);
+  // Guest never opts out (Gary, 2026-11-16): a guest record that
+  // somehow carries skipLogoutConfirm (written by the build
+  // before the guest exclusion) loses the flag on load, so a
+  // guest always asks before logging out.
+  for (const p of profiles) {
+    if (isGuestProfile(p)) delete p.skipLogoutConfirm;
+  }
   if (!profiles.some((p) => p.id === DEFAULT_PROFILE_ID)) {
     profiles.unshift(createDefaultProfile());
   }
@@ -570,7 +586,13 @@ export const useProfileStore = create<ProfileState>((set, get) => {
 
     setSkipLogoutConfirm: (profileId, skip) => {
       const state = get();
-      if (!state.profiles.some((p) => p.id === profileId)) return false;
+      const target = state.profiles.find((p) => p.id === profileId);
+      if (!target) return false;
+      // Guest never opts out (Gary, 2026-11-16): a guest session
+      // is ephemeral and always asks before logging out, so there
+      // is no "Don't ask again" for a guest profile — refuse the
+      // set instead of recording a flag the UI can never show.
+      if (isGuestProfile(target)) return false;
       set({
         profiles: state.profiles.map((p) =>
           p.id === profileId ? { ...p, skipLogoutConfirm: skip } : p,

@@ -653,13 +653,51 @@ describe('logout — Settings > General (Gary, 2026-11-16)', () => {
     ).toBeUndefined();
   });
 
-  test('a guest can set skipLogoutConfirm too (the prompt is per-profile, guest included)', () => {
+  test('a guest can never set skipLogoutConfirm — a guest always asks (Gary, 2026-11-16)', () => {
     const guest = useProfileStore.getState().createGuestProfile();
     expect(useProfileStore.getState().setSkipLogoutConfirm(guest.id, true)).toBe(
-      true,
+      false,
     );
     expect(
       useProfileStore.getState().profiles.find((p) => p.id === guest.id)
+        ?.skipLogoutConfirm,
+    ).toBeUndefined();
+    // Turning it back on is a no-op for a guest too.
+    expect(useProfileStore.getState().setSkipLogoutConfirm(guest.id, false)).toBe(
+      false,
+    );
+  });
+
+  test('loading strips skipLogoutConfirm from a guest record written by an older build', () => {
+    const guest = {
+      ...createDefaultProfile(),
+      id: 'profile-guest',
+      name: 'Guest',
+      status: 'guest' as const,
+      skipLogoutConfirm: true,
+    };
+    const parsed = parsePersistedProfiles({
+      profiles: [createDefaultProfile(), guest],
+      activeProfileId: DEFAULT_PROFILE_ID,
+    });
+    expect(parsed).not.toBeNull();
+    expect(
+      parsed?.profiles.find((p) => p.id === 'profile-guest')
+        ?.skipLogoutConfirm,
+    ).toBeUndefined();
+    // A saved profile keeps the flag through the same load.
+    const saved = {
+      ...createDefaultProfile(),
+      id: 'profile-saved',
+      name: 'Saved',
+      skipLogoutConfirm: true,
+    };
+    const parsed2 = parsePersistedProfiles({
+      profiles: [createDefaultProfile(), saved],
+      activeProfileId: DEFAULT_PROFILE_ID,
+    });
+    expect(
+      parsed2?.profiles.find((p) => p.id === 'profile-saved')
         ?.skipLogoutConfirm,
     ).toBe(true);
   });

@@ -148,7 +148,11 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   // state for the modal at the bottom of this panel. The prompt
   // shows unless this profile checked "Don't ask again"
   // (skipLogoutConfirm, saved per profile); the General toggle
-  // below turns the confirmation back on.
+  // below turns the confirmation back on. GUEST IS EXCLUDED
+  // (Gary, 2026-11-16): a guest session always asks — no toggle
+  // in General and no "Don't ask again" checkbox for Guest, only
+  // for saved profiles. Settings > Security lists the profiles
+  // that turned the confirmation off.
   const activeProfile = useProfileStore((s) =>
     s.profiles.find((p) => p.id === s.activeProfileId),
   );
@@ -158,8 +162,10 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   const [logoutDontAskAgain, setLogoutDontAskAgain] = useState(false);
   const handleLogoutClick = () => {
     if (!activeProfile) return;
-    // A profile that checked "Don't ask again" skips the prompt.
-    if (activeProfile.skipLogoutConfirm === true) {
+    // A saved profile that checked "Don't ask again" skips the
+    // prompt. A guest always asks — the flag can never be set
+    // on a guest, and the check here says so outright.
+    if (!isGuestProfile(activeProfile) && activeProfile.skipLogoutConfirm === true) {
       requestLogout();
       return;
     }
@@ -168,7 +174,9 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   };
   const handleLogoutConfirm = () => {
     if (!activeProfile) return;
-    if (logoutDontAskAgain) {
+    // "Don't ask again" is a saved-profile choice only — a
+    // guest has no checkbox, so this never runs for Guest.
+    if (logoutDontAskAgain && !isGuestProfile(activeProfile)) {
       setSkipLogoutConfirm(activeProfile.id, true);
     }
     setLogoutConfirmOpen(false);
@@ -2771,21 +2779,28 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     </button>
                   </Tooltip>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer py-1 mt-2">
-                  <Toggle
-                    checked={activeProfile ? activeProfile.skipLogoutConfirm !== true : true}
-                    onChange={(checked) =>
-                      activeProfile && setSkipLogoutConfirm(activeProfile.id, !checked)
-                    }
-                    disabled={!activeProfile}
-                    ariaLabel="Ask before logging out"
-                  />
-                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
-                    Ask before logging out — {activeProfile?.skipLogoutConfirm === true
-                      ? 'Off — logging out skips the confirmation. Turn this back on to ask again.'
-                      : 'On — Lucid asks before logging out of a profile.'}
-                  </span>
-                </label>
+                {/* "Ask before logging out" is a saved-profile
+                    option only (Gary, 2026-11-16): a guest session
+                    always asks before logging out, so Guest gets
+                    no toggle here. Saved profiles that turned the
+                    confirmation off also show in Security. */}
+                {!isGuestProfile(activeProfile) && (
+                  <label className="flex items-center gap-2 cursor-pointer py-1 mt-2">
+                    <Toggle
+                      checked={activeProfile ? activeProfile.skipLogoutConfirm !== true : true}
+                      onChange={(checked) =>
+                        activeProfile && setSkipLogoutConfirm(activeProfile.id, !checked)
+                      }
+                      disabled={!activeProfile}
+                      ariaLabel="Ask before logging out"
+                    />
+                    <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                      Ask before logging out — {activeProfile?.skipLogoutConfirm === true
+                        ? 'Off — logging out skips the confirmation. Turn this back on to ask again.'
+                        : 'On — Lucid asks before logging out of a profile.'}
+                    </span>
+                  </label>
+                )}
               </section>
             </div>
           )}
@@ -2800,9 +2815,12 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
       {/* Logout confirmation (Gary, 2026-11-16): "Are you sure?"
           before logging out of a profile. A guest session is
           ephemeral — the prompt says its chats and terminal history
-          are discarded. "Don't ask again" saves the choice to this
-          profile only; it can be turned back on in General
-          ("Ask before logging out"). */}
+          are discarded, and a guest always gets the prompt: no
+          "Don't ask again" checkbox for Guest, only for saved
+          profiles. A saved profile's "Don't ask again" saves the
+          choice to that profile only; it can be turned back on in
+          General ("Ask before logging out") or in Security, which
+          lists the profiles that turned it off. */}
       {logoutConfirmOpen && activeProfile && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-[var(--bg-secondary)] rounded-lg w-[480px] max-h-[80vh] overflow-hidden">
@@ -2831,17 +2849,19 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   history and settings are saved — pick the profile again to come back.
                 </p>
               )}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={logoutDontAskAgain}
-                  onChange={(e) => setLogoutDontAskAgain(e.target.checked)}
-                  data-testid="logout-dont-ask-again"
-                />
-                <span className="text-xs text-[var(--text-muted)]">
-                  Don&apos;t ask again — you can turn the confirmation back on in Settings &gt; General.
-                </span>
-              </label>
+              {!isGuestProfile(activeProfile) && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={logoutDontAskAgain}
+                    onChange={(e) => setLogoutDontAskAgain(e.target.checked)}
+                    data-testid="logout-dont-ask-again"
+                  />
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Don&apos;t ask again — you can turn the confirmation back on in Settings &gt; General or Security.
+                  </span>
+                </label>
+              )}
             </div>
             <div className="flex justify-end gap-2 px-4 py-3 border-t border-[var(--border)]">
               <Tooltip content="Stay signed in">

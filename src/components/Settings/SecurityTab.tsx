@@ -202,6 +202,10 @@ import {
   useVoxelLocalAccessGranted,
 } from '../../stores/synthStore';
 import { useSnapshotUpdateStore } from '../../stores/snapshotUpdateStore';
+import {
+  isGuestProfile,
+  useProfileStore,
+} from '../../stores/profileStore';
 
 /** Outcome badge colours — same palette as PermissionsTab, so
  *  the security events read the same way: green = it worked,
@@ -298,6 +302,15 @@ export function SecurityTab() {
   // one source of truth — so a revoke here hides the Local tab in
   // the overlay, live, in every segment at once.
   const voxelAccess = useVoxelLocalAccessGranted();
+  // Logout confirmations (Gary, 2026-11-16): which saved
+  // profiles turned the logout confirmation off ("Don't ask
+  // again"). A guest can never be in this list — a guest
+  // session always asks before logging out.
+  const logoutProfiles = useProfileStore((s) => s.profiles);
+  const setSkipLogoutConfirm = useProfileStore((s) => s.setSkipLogoutConfirm);
+  const logoutConfirmOff = logoutProfiles.filter(
+    (p) => !isGuestProfile(p) && p.skipLogoutConfirm === true,
+  );
 
   const installedVersion = settings.installedSnapshotVersion ?? null;
   const installedHash = settings.installedSnapshotHash ?? null;
@@ -1502,6 +1515,44 @@ export function SecurityTab() {
           The Voxel Directory lists your local files only after you
           grant access in its Local tab. Revoking hides the Local tab
           again.
+        </p>
+      </Section>
+
+      {/* Logout confirmations — which saved profiles turned the
+          "Are you sure?" off (Gary, 2026-11-16). A profile that
+          checked "Don't ask again" logs out with no prompt until
+          the confirmation is turned back on — here, or in General.
+          A guest never appears here: a guest session always asks. */}
+      <Section title="Logout confirmations">
+        {logoutConfirmOff.length === 0 ? (
+          <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+            Every profile asks before logging out. A guest session
+            always asks — there is no opt-out for Guest.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {logoutConfirmOff.map((p) => (
+              <div key={p.id} className="flex items-center gap-2">
+                <span className="text-xs font-semibold flex-1">{p.name}</span>
+                <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-yellow-500/10 text-yellow-500">
+                  Confirmation off
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSkipLogoutConfirm(p.id, false)}
+                  data-testid={`security-logout-ask-again-${p.id}`}
+                  className="btn btn-secondary text-xs"
+                >
+                  Ask again
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+          A profile that checked &ldquo;Don&rsquo;t ask again&rdquo; logs
+          out with no prompt. &ldquo;Ask again&rdquo; turns the
+          confirmation back on for that profile.
         </p>
       </Section>
 

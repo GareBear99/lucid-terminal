@@ -285,8 +285,8 @@ export const CONTEXT_CONTRACT: readonly ContextContractEntry[] = [
     ],
     staysLocal: [
       {
-        item: 'FixNet sync: nothing — it is local-only and does nothing (the local-only rule stands)',
-        source: 'FixNet — sync is a no-op while the rule stands',
+        item: 'FixNet sync: nothing leaves the machine — it pulls the daily data (verified status, yield, corpus data) from GitHub Pages, pull-only, every 6 hours and on startup. Fixes go up through the 12am grab, not the sync.',
+        source: 'FixNet — fixnetSync.ts, pullFixNetDaily (GET-only to GitHub Pages)',
       },
     ],
   },

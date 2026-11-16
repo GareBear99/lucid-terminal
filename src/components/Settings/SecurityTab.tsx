@@ -1486,9 +1486,9 @@ export function SecurityTab() {
                 : ''}
             </Row>
             <Row label="Verified target">
-              {SP_VERIFIED_DAILY} SP a day once verified — a target.
-              Verification is not built yet, so nothing can return
-              verified right now.
+              {SP_VERIFIED_DAILY} SP a day once verified. The 12am
+              grab verifies temps, the status comes down through
+              FixNet, and the client applies it.
             </Row>
           </>
         )}

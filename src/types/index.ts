@@ -31,6 +31,11 @@ import type {
 } from '../lib/synthDisclaimer';
 import type { SnapshotManifest } from '../lib/snapshotUpdate';
 import type { InstalledAppVersion } from '../lib/appUpdate';
+import type {
+  CrashLogFileInfo,
+  CrashLogReadResult,
+  RendererCrashReport,
+} from '../lib/crashLog';
 import type { RawGitStatus } from '../lib/gitStatus';
 import type { Snippet } from '../lib/snippets';
 import type { KeymapBinding } from '../lib/keymap';
@@ -1680,6 +1685,23 @@ declare global {
           raw?: unknown;
           error?: string;
         }>;
+      };
+      // Crash log (Gary, 2026-11-16): the advanced crash log
+      // — main + renderer crashes with full context, on disk
+      // at ~/.lucid/crash-log/. Read-only from the renderer
+      // apart from reporting its own errors and sending its
+      // profile + view. The file is the deliverable; this is
+      // how Settings > Crash log reads it.
+      crashLog: {
+        list: () => Promise<CrashLogFileInfo[]>;
+        readLatest: () => Promise<CrashLogReadResult>;
+        readFile: (name: string) => Promise<CrashLogReadResult>;
+        getPaths: () => Promise<{ dir: string; latestPath: string }>;
+        reportRendererError: (report: RendererCrashReport) => Promise<{
+          ok: boolean;
+          error?: string;
+        }>;
+        setContext: (update: { profile?: string; view?: string }) => void;
       };
       // ARC Server add-on (Gary, 2026-11-14 ~14:53 PST):
       // fetched at install time from its repo, never bundled.

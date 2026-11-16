@@ -93,6 +93,11 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   // gains it at the end (see resolveSettingsTabOrder), not
   // disturbing the settled order above.
   'updates',
+  // Crash log (Gary, 2026-11-16) — the advanced crash log:
+  // every crash with the time, version, profile, view and
+  // stack. Last, after Updates: a stored order that predates
+  // it gains it at the end, not disturbing the settled order.
+  'crash-log',
 ];
 
 /**

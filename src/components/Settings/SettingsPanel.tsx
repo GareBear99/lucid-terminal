@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   User,
   Brain,
+  Bug,
   Volume2,
   Pause,
 } from 'lucide-react';
@@ -95,6 +96,7 @@ import { PermissionsTab } from './PermissionsTab';
 import { AgentPermissionsTab } from './AgentPermissionsTab';
 import { SecurityTab } from './SecurityTab';
 import { UpdatesTab } from './UpdatesTab';
+import { CrashLogTab } from './CrashLogTab';
 import { ProfileTab } from './ProfileTab';
 import { MemoryTab } from './MemoryTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
@@ -112,7 +114,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'memory' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'agent-permissions' | 'security' | 'profile' | 'updates';
+export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'memory' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'agent-permissions' | 'security' | 'profile' | 'updates' | 'crash-log';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
@@ -684,6 +686,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     { id: 'daemon', label: 'Daemon', icon: <Eye size={18} /> },
     { id: 'general', label: 'General', icon: <Settings size={18} /> },
     { id: 'updates', label: 'Updates', icon: <Download size={18} /> },
+    { id: 'crash-log', label: 'Crash log', icon: <Bug size={18} /> },
   ];
 
   // --- Settings tab order + drag-reorder (Gary, 2026-11-06) --------
@@ -2812,6 +2815,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'memory' && (<MemoryTab />)}
           {activeTab === 'profile' && (<ProfileTab />)}
           {activeTab === 'updates' && (<UpdatesTab />)}
+          {activeTab === 'crash-log' && (<CrashLogTab />)}
         </div>
       </div>
 

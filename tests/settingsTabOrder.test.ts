@@ -31,36 +31,39 @@ describe('resolveSettingsTabOrder', () => {
 
   test('the default order is Appearance, Security, Permissions, Agent Permissions, Profile, then the rest', () => {
     expect([...DEFAULT_SETTINGS_TAB_ORDER]).toEqual([
-      'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates',
+      'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log',
     ]);
   });
 
   test('a stored order is respected as-is, except a new default tab takes its default place', () => {
     const stored = ['general', 'appearance', 'security', 'permissions', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon'];
-    // 'agent-permissions', 'profile', 'memory' and 'updates'
-    // are default tabs missing from the stored order — they
-    // land at their default positions (Agent Permissions right
-    // after Permissions, Profile right after it, Memory right
-    // after AI, Updates right after General — its nearest
-    // preceding default in the stored order), not appended at
-    // the end. The stored relative order is untouched.
+    // 'agent-permissions', 'profile', 'memory', 'updates' and
+    // 'crash-log' are default tabs missing from the stored
+    // order — they land at their default positions (Agent
+    // Permissions right after Permissions, Profile right
+    // after it, Memory right after AI, Updates right after
+    // General — its nearest preceding default in the stored
+    // order — and Crash log right after Updates), not
+    // appended at the end. The stored relative order is
+    // untouched.
     expect(resolveSettingsTabOrder(stored)).toEqual([
-      'general', 'updates', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon',
+      'general', 'updates', 'crash-log', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon',
     ]);
   });
 
   test('a default tab missing from the stored order lands at its default position', () => {
     const stored = ['appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general'];
     // 'security', 'permissions', 'agent-permissions', 'profile',
-    // 'customization', 'memory' and 'updates' are in the
-    // defaults but not stored. They land where the default
-    // puts them — Security second (after Appearance),
+    // 'customization', 'memory', 'updates' and 'crash-log' are
+    // in the defaults but not stored. They land where the
+    // default puts them — Security second (after Appearance),
     // Permissions third, Agent Permissions fourth, Profile
     // fifth, Customization after Profile, Memory after AI,
-    // Updates after General — not appended at the end. The
-    // stored relative order is untouched.
+    // Updates after General, Crash log after Updates — not
+    // appended at the end. The stored relative order is
+    // untouched.
     expect(resolveSettingsTabOrder(stored)).toEqual([
-      'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates',
+      'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log',
     ]);
   });
 
@@ -71,16 +74,18 @@ describe('resolveSettingsTabOrder', () => {
     // stored order has it (last here — the stored relative
     // order is respected; the drag feature's contract is that
     // a stored order is not rewritten). Agent Permissions and
-    // Profile and Memory and Updates, also missing, land at
-    // their default positions — Agent Permissions right after
-    // Permissions, Profile right after it, Memory right after
-    // AI, Updates right after General, last here. The PROPER order (Appearance,
+    // Profile and Memory and Updates and Crash log, also
+    // missing, land at their default positions — Agent
+    // Permissions right after Permissions, Profile right
+    // after it, Memory right after AI, Updates right after
+    // General, Crash log right after Updates, last here. The
+    // PROPER order (Appearance,
     // Security, Permissions, Agent Permissions, Profile, then
     // the rest) is the default order, which is what a user with
     // no stored order (settingsTabOrder: []) sees.
     const stored = ['appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'general', 'permissions'];
     expect(resolveSettingsTabOrder(stored)).toEqual([
-      'appearance', 'security', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'permissions', 'agent-permissions', 'profile',
+      'appearance', 'security', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log', 'permissions', 'agent-permissions', 'profile',
     ]);
   });
 
@@ -89,10 +94,11 @@ describe('resolveSettingsTabOrder', () => {
     // lands second (after Appearance), and General stays first
     // with Permissions where the stored order has it (last).
     // Agent Permissions lands after Permissions, Profile after
-    // it, Memory after AI, Updates right after General, last.
+    // it, Memory after AI, Updates right after General, Crash
+    // log right after Updates.
     const stored = ['general', 'appearance', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'daemon', 'permissions'];
     expect(resolveSettingsTabOrder(stored)).toEqual([
-      'general', 'updates', 'appearance', 'security', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'permissions', 'agent-permissions', 'profile',
+      'general', 'updates', 'crash-log', 'appearance', 'security', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'permissions', 'agent-permissions', 'profile',
     ]);
   });
 
@@ -107,13 +113,13 @@ describe('moveSettingsTab', () => {
 
   test('move before a target', () => {
     expect(moveSettingsTab(order, 'general', 'appearance')).toEqual([
-      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'updates',
+      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'updates', 'crash-log',
     ]);
   });
 
   test('move to the very end (end zone, null target)', () => {
     expect(moveSettingsTab(order, 'appearance', null)).toEqual([
-      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'appearance',
+      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log', 'appearance',
     ]);
   });
 
@@ -126,7 +132,7 @@ describe('moveSettingsTab', () => {
     // was a silent no-op (insert-before the next tab is the order
     // you already have), which reads as "the tabs don't move".
     expect(moveSettingsTab(order, 'appearance', 'customization', true)).toEqual([
-      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates',
+      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log',
     ]);
   });
 
@@ -134,7 +140,7 @@ describe('moveSettingsTab', () => {
     expect(moveSettingsTab(order, 'plugins', 'plugins')).toEqual(order);
     expect(moveSettingsTab(order, 'nope', 'appearance')).toEqual(order);
     expect(moveSettingsTab(order, 'appearance', 'nope')).toEqual([
-      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'appearance',
+      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log', 'appearance',
     ]);
   });
 
@@ -147,7 +153,7 @@ describe('moveSettingsTab', () => {
 
 describe('persistence round-trip', () => {
   test('a stored order reloads to the same order', () => {
-    const stored = ['general', 'updates', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon'];
+    const stored = ['general', 'updates', 'crash-log', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon'];
     // Resolving the stored order (as a reload would) returns it unchanged.
     expect(resolveSettingsTabOrder(stored)).toEqual(stored);
     // And after a move, the moved order also reloads unchanged.

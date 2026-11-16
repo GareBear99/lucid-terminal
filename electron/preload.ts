@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { CrashLogFileInfo, CrashLogReadResult } from './services/crashLog';
+import type { RendererCrashReport } from './ipc/crashLog';
 import type { DevicesListResult } from '../src/lib/deviceDetection';
 import type {
   DecodePath,
@@ -803,6 +805,29 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       raw?: unknown;
       error?: string;
     }> => ipcRenderer.invoke('appUpdate:checkLatest'),
+  },
+
+  // Crash log (Gary, 2026-11-16): the advanced crash log —
+  // main + renderer crashes with full context, on disk at
+  // ~/.lucid/crash-log/. Read-only from the renderer apart
+  // from reporting its own errors (reportRendererError) and
+  // sending its profile + view (setContext, fire-and-forget).
+  // The file is the deliverable; this bridge is how Settings
+  // > Crash log reads it.
+  crashLog: {
+    list: (): Promise<CrashLogFileInfo[]> =>
+      ipcRenderer.invoke('crashLog:list'),
+    readLatest: (): Promise<CrashLogReadResult> =>
+      ipcRenderer.invoke('crashLog:readLatest'),
+    readFile: (name: string): Promise<CrashLogReadResult> =>
+      ipcRenderer.invoke('crashLog:readFile', name),
+    getPaths: (): Promise<{ dir: string; latestPath: string }> =>
+      ipcRenderer.invoke('crashLog:getPaths'),
+    reportRendererError: (report: RendererCrashReport): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('crashLog:reportRendererError', report),
+    setContext: (update: { profile?: string; view?: string }): void => {
+      ipcRenderer.send('crashLog:setContext', update);
+    },
   },
 
   // ARC Server add-on (Gary, 2026-11-14 ~14:53 PST): the

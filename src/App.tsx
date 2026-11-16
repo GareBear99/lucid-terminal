@@ -57,6 +57,7 @@ import { useSnapshotUpdateStore } from './stores/snapshotUpdateStore';
 import { AppUpdateAlertDialog } from './components/Settings/AppUpdateAlertDialog';
 import { useAppUpdateStore } from './stores/appUpdateStore';
 import { APP_VERSION } from './lib/appVersion';
+import { setCrashLogContext } from './lib/crashLog';
 
 function App() {
   const { loadSettings, isLoading, storageDegraded, settings, updateSetting } = useSettingsStore();
@@ -174,6 +175,22 @@ function App() {
   }, [appUpdateStatus, appUpdateCheckResult]);
 
   const [currentView, setCurrentView] = useState<View>('terminal');
+  // Crash log context (Gary, 2026-11-16): the crash log
+  // records the profile + view with every entry, so a crash
+  // can be traced to what the user was doing. Best-effort:
+  // a failed send never breaks the app.
+  useEffect(() => {
+    const active =
+      appUpdateProfiles.find((p) => p.id === appUpdateActiveProfileId) ?? null;
+    setCrashLogContext({
+      profile: active
+        ? isGuestProfile(active)
+          ? 'guest'
+          : active.id
+        : 'unknown',
+      view: currentView,
+    });
+  }, [appUpdateProfiles, appUpdateActiveProfileId, currentView]);
   // The command palette's focus point (Atom steal #1): which
   // view is showing, whether a file is active, whether
   // LuciferAI is on — the registry filters on this. It is

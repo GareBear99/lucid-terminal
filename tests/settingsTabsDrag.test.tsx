@@ -106,12 +106,14 @@ describe('Settings tabs drag-reorder + lock', () => {
     // Agent Permissions fourth and Profile fifth (Gary,
     // 2026-11-09 ~15:02 PST: the tabs are ordered properly now)
     // — and a stored order from before the Memory tab existed
-    // gains Memory after AI. resolveSettingsTabOrder places a
-    // default tab missing from the stored order at its default
-    // position, not appended at the end. The stored relative
-    // order is untouched.
+    // gains Memory after AI, and one from before Updates /
+    // Crash log gains Updates then Crash log after General.
+    // resolveSettingsTabOrder places a default tab missing
+    // from the stored order at its default position, not
+    // appended at the end. The stored relative order is
+    // untouched.
     expect(tabOrderInDom()).toEqual([
-      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon',
+      'general', 'updates', 'crash-log', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon',
     ]);
   });
 
@@ -124,7 +126,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     fireEvent.dragOver(appearance);
     fireEvent.drop(appearance);
     const expected = [
-      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon',
+      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'updates', 'crash-log',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -148,7 +150,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     fireEvent.dragOver(appearance);
     fireEvent.drop(appearance);
     const expected = [
-      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon',
+      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'updates', 'crash-log',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -171,7 +173,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     // And the drop commits immediately.
     fireEvent.drop(appearance);
     const expected = [
-      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon',
+      'general', 'appearance', 'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'updates', 'crash-log',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -209,7 +211,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     // Security, Permissions, Agent Permissions and Profile stay
     // second, third, fourth and fifth.
     const expected = [
-      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general',
+      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'appearance', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);
@@ -226,7 +228,7 @@ describe('Settings tabs drag-reorder + lock', () => {
     fireEvent.dragOver(endZone);
     fireEvent.drop(endZone);
     const expected = [
-      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'appearance',
+      'security', 'permissions', 'agent-permissions', 'profile', 'customization', 'plugins', 'devices', 'forge', 'modules', 'models', 'terminal', 'ai', 'memory', 'daemon', 'general', 'updates', 'crash-log', 'appearance',
     ];
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith('settingsTabOrder', expected);

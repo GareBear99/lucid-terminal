@@ -16,6 +16,13 @@ import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupSnapshotHandlers } from './ipc/snapshot';
 import { setupAppUpdateHandlers } from './ipc/appUpdate';
+import { setupCrashLogHandlers } from './ipc/crashLog';
+import {
+  attachWindowCrashHandlers,
+  getCrashLogWriter,
+  installMainCrashHandlers,
+  setCrashContext,
+} from './services/crashLog';
 import { setupArcServerHandlers } from './ipc/arcServer';
 import { setupWorldmapHandlers } from './ipc/worldmap';
 import { setupTerminalDetachHandlers } from './ipc/terminalDetach';
@@ -57,6 +64,26 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.lucid.terminal');
 }
 
+// Crash log (Gary, 2026-11-16: "should make an advanced
+// crash log") — Lucid kept crashing on launch with nothing
+// to read: no macOS DiagnosticReports entry, no Lucid log
+// file, no stack trace. This records main + renderer crashes
+// with full context to ~/.lucid/crash-log/, fsynced on write
+// so the entry survives the crash that writes it. Installed
+// FIRST, at module top, before anything else can throw at
+// startup — that is the crash this log was built to catch.
+// A fatal error still crashes the process (exit(1), Node's
+// default); the log records it, it does not prevent it.
+const crashLogWriter = getCrashLogWriter();
+setCrashContext({
+  appVersion: app.getVersion(),
+  commit: process.env.LUCID_COMMIT ?? 'unknown',
+  // The writer owns the run's session id — entries carry it,
+  // so the session in every entry matches the run's file.
+  sessionId: crashLogWriter.sessionId,
+});
+installMainCrashHandlers(crashLogWriter);
+
 let mainWindow: BrowserWindow | null = null;
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
@@ -88,7 +115,11 @@ async function createWindow() {
     },
   });
 
-
+  // Crash log: a dead / hung renderer is recorded with the
+  // URL it died on (render-process-gone / unresponsive /
+  // responsive) — attached before the page loads, so a crash
+  // during load is caught too.
+  attachWindowCrashHandlers(mainWindow, crashLogWriter);
 
   // Window controls
 
@@ -122,6 +153,12 @@ async function createWindow() {
 
 app.whenReady().then(() => {
   startBackend(); // START LOCAL AI BACKEND
+
+  // Crash log: the session-start entry — the header of
+  // this run's log file, with the full context. Written
+  // first, so even a crash seconds later has a file with
+  // context in it.
+  crashLogWriter.logSessionStart();
 
   // Application menu (Atom steal #13 — menus, 2026-11-14).
   // Lucid never set one, so macOS got Electron's default menu
@@ -202,6 +239,7 @@ app.whenReady().then(() => {
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   setupSnapshotHandlers(ipcMain);
   setupAppUpdateHandlers(ipcMain);
+  setupCrashLogHandlers(ipcMain);
   setupArcServerHandlers(ipcMain);
   setupWorldmapHandlers(ipcMain);
   // GitHub Copilot API client (D9, 2026-11-15) — the copilot

@@ -1,5 +1,5 @@
 /**
- * The scope system (Atom steal #18) — pure descriptor build
+ * The scope system — pure descriptor build
  * and selector matching.
  */
 

@@ -1,6 +1,5 @@
 /**
  * The agent loop, wired into a terminal tab
- * (steal #4 — Continue, 2026-11-14).
  *
  * The JOIN point: Terminal.tsx calls this after
  * `submitAgentPrompt` records the prompt block — the
@@ -197,7 +196,7 @@ export async function runAgentTurnForTab(
       drivingAgent,
       registry: overrides.registry,
       index: overrides.index,
-      // The review UI (steal #6 — Zed) is the approval
+      // The review UI is the approval
       // surface: every write pauses for Keep/Reject, with
       // its diff, before it lands. The old default
       // (logged-in auto-approves) is deliberately NOT
@@ -221,6 +220,30 @@ export async function runAgentTurnForTab(
       signal: controller.signal,
       onEvent: (event) => {
         switch (event.type) {
+          case 'index-progress': {
+            // The full index builds in the background while
+            // the brain plans from the task's files — the
+            // progress is real (files found so far), not a
+            // bare "Working…". One line, updated in place.
+            const total = event.total !== null ? ` of ${event.total.toLocaleString()}` : '';
+            const line = `… indexing workspace — ${event.done.toLocaleString()}${total} files`;
+            if (progress.length > 0 && progress[progress.length - 1].startsWith('… indexing workspace')) {
+              progress[progress.length - 1] = line;
+            } else {
+              progress.push(line);
+            }
+            renderProgress();
+            break;
+          }
+          case 'index-done': {
+            if (progress.length > 0 && progress[progress.length - 1].startsWith('… indexing workspace')) {
+              progress[progress.length - 1] = `✓ index ready — ${event.files.toLocaleString()} files`;
+            } else {
+              progress.push(`✓ index ready — ${event.files.toLocaleString()} files`);
+            }
+            renderProgress();
+            break;
+          }
           case 'tool-start':
             progress.push(`… ${event.status}`);
             renderProgress();
@@ -270,8 +293,7 @@ export async function runAgentTurnForTab(
       verifications: [],
       stopped: 'failed',
       drivingAgent: drivingAgent.agent,
-      // Merge fix: AgentTurnResult gained todos/turns (Claude Code
-      // steal); this failure literal runs no turn, so both are empty.
+      // Merge fix: AgentTurnResult gained todos/turns; this failure literal runs no turn, so both are empty.
       todos: [],
       turns: 0,
     };

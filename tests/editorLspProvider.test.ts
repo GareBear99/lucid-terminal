@@ -1,6 +1,5 @@
 /**
- * Adapter tests for the Monaco LSP providers (steal #3 —
- * 2026-11-14). The provider is driven directly against
+ * Adapter tests for the Monaco LSP providers (*). The provider is driven directly against
  * stubbed monaco / model / position objects — no React, no
  * real Monaco, no real engine. The callbacks are stubs, so
  * these tests pin the ADAPTER: the kind translation, the
@@ -128,7 +127,7 @@ describe('completion provider', () => {
     expect(suggestion.kind).toBe(MONACO_COMPLETION_ITEM_KIND.Variable);
     expect(suggestion.kind).not.toBe(LspCompletionItemKind.Variable);
     // The merge badges every item's detail with its source
-    // (Atom steal #3 — the source is visible in the list).
+    // (the source is visible in the list).
     expect(suggestion.detail).toBe('LSP · const useFileStore: ...');
     expect(suggestion.range).toEqual({
       startLineNumber: 1,
@@ -397,7 +396,7 @@ describe('signature help provider', () => {
     ).toBeNull();
   });
 
-  it('augments the active signature with a Docs link and common invocations (steal #19)', () => {
+  it('augments the active signature with a Docs link and common invocations', () => {
     const { monaco, captured } = makeMonaco();
     // The model the signature provider reads the line from
     // (makeLineModel lives in the pattern describe below).
@@ -467,7 +466,7 @@ describe('signature help provider', () => {
   });
 });
 
-describe('pattern suggestions (steal #7 — Tabnine, patterns only)', () => {
+describe('pattern suggestions (Tabnine, patterns only)', () => {
   const completion = (monaco: any, captured: any[]) =>
     captured.find((c) => c.kind === 'completion').provider;
 
@@ -543,7 +542,7 @@ describe('pattern suggestions (steal #7 — Tabnine, patterns only)', () => {
   });
 
   it('offers patterns in the dead-engine fallback, before the structure names', () => {
-    // Atom steal #3: the merged list is in provider-priority
+    // the merged list is in provider-priority
     // order — pattern (2) before structure (1). The widget
     // still shows patterns last: their sortText is
     // `zz-pattern-…`, which sorts after the structure names.
@@ -666,15 +665,13 @@ describe('pattern suggestions (steal #7 — Tabnine, patterns only)', () => {
       {},
     );
     // The throwing pattern provider contributes nothing — but
-    // the merge still offers the match (the LSP item wins the
-    // dedup over the identical word-provider item, Atom steal
-    // #3). No pattern items, no throw.
+    // the merge still offers the match. No pattern items, no throw.
     expect(list.suggestions.map((s: any) => s.label)).toEqual(['useFileStore']);
     expect(list.suggestions[0].source).toBe('lsp');
   });
 });
 
-describe("Kite's settings toggles (Atom steal #15)", () => {
+describe("Kite's settings toggles", () => {
   it('completions off returns an empty list without calling the service', () => {
     const { monaco, captured } = makeMonaco();
     const getCompletions = vi.fn(() => [lspItem()]);

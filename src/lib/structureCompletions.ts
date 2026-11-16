@@ -1,5 +1,5 @@
 /**
- * Structure completions for the ghost (steal #2 — 2026-11-14).
+ * Structure completions for the ghost.
  *
  * The tree-sitter slice of the completion engine: complete the
  * draft's last token to an identifier the live structure says is

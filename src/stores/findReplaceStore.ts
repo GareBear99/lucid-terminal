@@ -1,5 +1,5 @@
 /**
- * Find-and-replace panel state (Atom steal #5 — 2026-11-14).
+ * Find-and-replace panel state.
  *
  * The panel lives in the editor view (CodeEditor renders it
  * below the editor), but it opens from anywhere the command

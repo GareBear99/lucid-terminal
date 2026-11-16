@@ -747,7 +747,7 @@ describe('SecurityTab', () => {
       "Open files' paths (not contents)",
     );
     // The guest rule is stated: the refusal, the carve-out, no persistence.
-    expect(screen.getByText(/the Agent \(local planner\) is refused/)).toBeTruthy();
+    expect(screen.getByText(/the Agent \(LLMBuilder brain\) is refused/)).toBeTruthy();
     expect(screen.getByText(/Copilot is allowed \(carve-out\)/)).toBeTruthy();
     expect(screen.getByText(/Nothing a guest does is persisted/)).toBeTruthy();
   });

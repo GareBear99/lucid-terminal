@@ -1,5 +1,5 @@
 /**
- * The scope system (Atom steal #18, 2026-11-14) — the minimal
+ * The scope system — the minimal
  * core, not the whole TextMate apparatus.
  *
  * A `ScopeDescriptor` is an ordered array of scope strings

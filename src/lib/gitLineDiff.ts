@@ -1,5 +1,5 @@
 /**
- * Line diffs from a unified diff (Atom steal #6 — 2026-11-14).
+ * Line diffs from a unified diff.
  *
  * Atom's git model exposes `getLineDiffs(path, text)` returning
  * hunks `{oldStart, newStart, oldLines, newLines}` (1-based) —

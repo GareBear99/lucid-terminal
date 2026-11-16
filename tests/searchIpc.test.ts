@@ -1,5 +1,5 @@
 /**
- * Search IPC tests (Atom steal #5 — 2026-11-14).
+ * Search IPC tests.
  *
  * The main process runs `rg --json` (or the Node fallback
  * when ripgrep is missing) and replaces only inside the

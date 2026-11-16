@@ -1,6 +1,5 @@
 /**
- * The project file index for the fuzzy finder (Atom steal #2 —
- * 2026-11-14).
+ * The project file index for the fuzzy finder (*).
  *
  * Atom's fuzzy finder builds its index in a background task at
  * activation so the list is warm before first use, reloads on

@@ -1,5 +1,5 @@
 /**
- * Terminal GPU rendering — the Ghostty steal
+ * Terminal GPU rendering
  * (src/lib/terminalRenderer.ts).
  *
  * Covers the pure lib only, so these run in the node test env
@@ -205,7 +205,7 @@ describe('write coalescer', () => {
   });
 
   it('benchmark note: 1,000 PTY chunks in one frame become 1 term.write (was 1,000)', () => {
-    // The number that matters for the steal: without the
+    // The number that matters for the renderer: without the
     // coalescer the surface pays one term.write (parse +
     // render debounce) per PTY chunk; with it, one frame of
     // chunks pays one. 1,000 x 64-byte chunks = 64,000 bytes,

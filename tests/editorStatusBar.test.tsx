@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Editor status bar component tests (Atom steal #11 — 2026-11-14).
+ * Editor status bar component tests.
  *
  * The bar renders its registered tiles in priority order; the
  * core tiles behave like Atom's: the path tile copies on click

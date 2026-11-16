@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Project symbol index store (Atom steal #22): the build walks
+ * Project symbol index store: the build walks
  * the warm project file index, parses TS/TSX files with the
  * real tree-sitter grammars, and flattens the definitions.
  * Open files contribute in-memory content; the rest is read

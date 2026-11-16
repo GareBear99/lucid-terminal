@@ -1,5 +1,5 @@
 /**
- * Tutorial state (Atom steal #15, Kite half — 2026-11-14).
+ * Tutorial state.
  *
  * Which tutorial is open and which step the user is on.
  * `next()` / `previous()` are Atom's `tutorial.next()` in

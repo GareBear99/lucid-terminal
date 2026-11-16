@@ -1,5 +1,5 @@
 /**
- * TypeScript language service tests (steal #3 — 2026-11-14).
+ * TypeScript language service tests.
  *
  * Runs the REAL TS 6.0.3 language service in the node test
  * environment (the same discipline as the tree-sitter tests:

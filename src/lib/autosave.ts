@@ -1,6 +1,6 @@
 /**
- * Autosave vetoes (Atom steal #20 — the `autosave` package's
- * `dontSaveIf`, 2026-11-14).
+ * Autosave vetoes (the `autosave` package's
+ * `dontSaveIf`).
  *
  * Autosave itself is a blur handler in App: when the window
  * loses focus, dirty files save through the existing save

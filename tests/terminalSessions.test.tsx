@@ -229,7 +229,7 @@ describe('Terminal mode — hand-off and Esc', () => {
     const blocks = tabBlocks();
     expect(blocks.some((b) => b.kind === 'agent-prompt' && b.command === 'fix the build')).toBe(true);
     // The run starts in the same feed: the loop appends its
-    // agent-response block (steal #4 — Continue). There is
+    // agent-response block. There is
     // NO placeholder notice any more — the "driving
     // intelligence isn't built yet, nothing was run" notice
     // was removed when the loop landed (f6a8cd2), because

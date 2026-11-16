@@ -1,5 +1,5 @@
 /**
- * The palette extension / quick-action model (Raycast steal — 2026-11-16).
+ * The palette extension / quick-action model.
  *
  * What Raycast does (official docs, developers.raycast.com +
  * manual.raycast.com, read 2026-11-16 — Manifest, Arguments,

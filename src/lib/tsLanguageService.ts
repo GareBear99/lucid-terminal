@@ -1,6 +1,5 @@
 /**
  * The TypeScript language service, behind the LSP contract
- * (steal #3 — 2026-11-14).
  *
  * The engine: the in-process TS 6 language service
  * (`ts.createLanguageService`), bundled via the `typescript-lsp`
@@ -510,7 +509,7 @@ export function getDiagnostics(path: string): LspDiagnostic[] {
  * Check an edit before it lands: swap in the new content,
  * read the diagnostics, restore the original. Returns whether
  * the edit keeps diagnostics clean — the fact the Aider
- * verify loop (steal #5) and the agent loop (steal #4) will
+ * verify loop and the agent loop will
  * ask after every edit. The swap bumps the version twice; the
  * service re-parses lazily, so the check costs one program
  * update, not a rebuild.

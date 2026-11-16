@@ -1,6 +1,5 @@
 /**
- * SplitPaneTree — renders one split group's PaneAxis tree (Atom
- * steal #9, 2026-11-14).
+ * SplitPaneTree — renders one split group's PaneAxis tree.
  *
  * A split node is a flex container in its direction — row for
  * 'vertical' (side by side), column for 'horizontal' (stacked) —

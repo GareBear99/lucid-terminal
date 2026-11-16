@@ -1,5 +1,5 @@
 /**
- * The open-file funnel (Atom steal #14) — pure, injectable deps.
+ * The open-file funnel — pure, injectable deps.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { openFileInWorkspace, isPathInsideDir, type OpenFileDeps } from '../src/lib/workspace';

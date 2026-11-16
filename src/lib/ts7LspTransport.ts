@@ -248,8 +248,7 @@ type PendingRequest = {
 const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 30000;
 
-/** The client capabilities sent on `initialize` — the steal
- *  note's checklist (§2h): incremental sync, snippet support,
+/** The client capabilities sent on `initialize` — the design note's checklist (§2h): incremental sync, snippet support,
  *  `completionList.itemDefaults`, definition links,
  *  diagnostics support (push + pull). Only what this client
  *  implements is declared. */

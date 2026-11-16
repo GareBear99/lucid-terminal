@@ -1,10 +1,9 @@
 /**
  * The edit-review block — Keep/Reject in the feed
- * (steal #6 — Zed, 2026-11-14).
  *
- * Zed's review surface is a multi-buffer diff tab with
- * per-hunk Keep / Reject + Keep All / Reject All. Lucid's
- * shape of that is a feed block: the loop pauses on the
+ * The review surface is a multi-buffer diff tab with
+ * per-hunk Keep / Reject + Keep All / Reject All. In
+ * Lucid it is a feed block: the loop pauses on the
  * review (agentReview.ts), the block shows the diff
  * preview + the decision buttons, and the run continues
  * when the user decides. The block stays in the feed as

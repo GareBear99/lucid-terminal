@@ -1,5 +1,5 @@
 /**
- * Editor status bar helpers (Atom steal #11 — 2026-11-14).
+ * Editor status bar helpers.
  *
  * Pure functions for the editor status bar: line-ending
  * detection/conversion and the grammar (language) choices.

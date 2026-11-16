@@ -1,15 +1,14 @@
 /**
  * The agent permission model — what the agent may do
- * unsupervised (steal #6 — Zed, 2026-11-14).
+ * unsupervised.
  *
- * Shape stolen from Zed's tool permissions
- * (`docs/src/ai/tool-permissions.md`): per-tool default
- * (`confirm` / `allow` / `deny`) + `always_allow` /
- * `always_deny` / `always_confirm` regex rules matched
- * against the tool input (the file path for edits).
- * Precedence, Zed's: hardcoded safety rules (never
- * overridden) > always_deny > always_confirm >
- * always_allow > tool default > global default.
+ * The shape: per-tool default (`confirm` / `allow` /
+ * `deny`) + `always_allow` / `always_deny` /
+ * `always_confirm` regex rules matched against the tool
+ * input (the file path for edits). Precedence: hardcoded
+ * safety rules (never overridden) > always_deny >
+ * always_confirm > always_allow > tool default > global
+ * default.
  *
  * Lucid's shape of that, in TS:
  * - Per-tool permission: 'auto' (run without asking) /

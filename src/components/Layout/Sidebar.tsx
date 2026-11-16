@@ -170,7 +170,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     (worldmapPlugin ? isCustomPluginEnabled(worldmapPlugin, customPlugins) : false);
   const storedToolbarOrder = useSettingsStore((s) => s.settings.toolbarOrder);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
-  // Kite's docs-panel toggle (Atom steal #15): when the docs
+  // Kite's docs-panel toggle: when the docs
   // panel is off, its toolbar icon leaves silently — the same
   // silent-filter pattern as the blood drop while silenced.
   // The stored order keeps the 'docs' entry, so re-enabling
@@ -566,11 +566,11 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activePanel]);
 
-  // The hover Docs link (Atom steal #7): the editor's link
+  // The hover Docs link: the editor's link
   // opener asks for the docs panel — show it, un-collapsed,
   // with the hovered symbol (the cursor comes from the
   // docs-cursor bus, which the opener publishes first).
-  // Kite's docs-panel toggle (steal #15): a request while
+  // Kite's docs-panel toggle: a request while
   // the panel is off is ignored, so a hover Docs link does
   // nothing while the panel is disabled.
   useEffect(() => {

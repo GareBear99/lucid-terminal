@@ -498,7 +498,7 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         useCommandHistoryStore.getState().enterGuestSession();
         usePlanStore.getState().enterGuestSession();
         useCopilotStore.getState().enterGuestSession();
-        // Workspace (Atom steal #14): flush the owner's
+        // Workspace: flush the owner's
         // workspace, then veil it — a guest never reads it
         // and never persists over it.
         useWorkspaceStore.getState().enterGuestSession();
@@ -531,7 +531,7 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         useWorkspaceStore.getState().switchProfile(id);
         useLucidSessionStore.getState().switchProfile(id);
       }
-      // The palette (Raycast steal): favorites, aliases and
+      // The palette: favorites, aliases and
       // quicklinks are per profile, in the palette store's own
       // key — switching profiles switches them, so a guest
       // never sees the owner's palette state.

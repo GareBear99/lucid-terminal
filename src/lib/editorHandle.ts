@@ -1,5 +1,5 @@
 /**
- * The active Monaco editor handle (Atom steal #11 — 2026-11-14).
+ * The active Monaco editor handle.
  *
  * CodeEditor owns the Monaco instance; the status bar's grammar
  * and line-ending tiles need it to switch the model language

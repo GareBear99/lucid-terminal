@@ -2,13 +2,11 @@
  * Intent + file extraction — the RULE PATH ONLY (Warp-like
  * parsing, 2026-11-14).
  *
- * Shape stolen from LuciferAI Local's `nlp_parser.py`
- * rule path (`_parse_with_rules`) and `command_keywords.py`
- * (Gary's own code — bits, no credit question): keyword
- * intent in a fixed order, file candidates from the text,
- * and the parse-result shape {intent, confidence,
- * fileCandidates, actionType, parameters, needsConfirmation,
- * reasoning}. The model path (`_parse_with_ollama`, a
+ * The shape, from LuciferAI Local (Gary's own code):
+ * keyword intent in a fixed order, file candidates from
+ * the text, and the parse-result shape {intent,
+ * confidence, fileCandidates, actionType, parameters,
+ * needsConfirmation, reasoning}. The model path (a
  * 10-second-timeout LLM call) is deliberately NOT ported —
  * it is the bottleneck Gary forbids in the classifier.
  *
@@ -247,8 +245,8 @@ const CHAIN_VERBS: ReadonlySet<string> = new Set([
   'enable', 'disable', 'install', 'uninstall', 'llm', 'help',
   'list', 'show', 'mainmenu', 'test', 'run', 'fix', 'create',
   'delete', 'open', 'read', 'build', 'update',
-  // The agent planner's verbs (steal #4 — Continue,
-  // 2026-11-14): a chained part starting with one of
+  // The agent planner's verbs (Continue,
+  //): a chained part starting with one of
   // these IS a command — "read X and replace 'a' with 'b'
   // in X" must split into the read and the edit, not join
   // back into one part and lose the read. Without these,

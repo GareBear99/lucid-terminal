@@ -1,18 +1,13 @@
 /**
  * The verify loop — reflect on diagnostics, fix, re-check
- * (steal #5 — Aider, 2026-11-14).
  *
- * Shape stolen from Aider's reflection loop
- * (`aider/coders/base_coder.py`): after an edit, lint the
- * edited files (`lint_edited`); when there are lint
- * errors, ask "Attempt to fix lint errors?" and, when
- * the answer is yes, send the errors back as the next
- * message (`reflected_message = lint_errors`) — up to
- * `max_reflections = 3`, then stop ("Only 3 reflections
- * allowed, stopping."). The loop in Lucid (agentLoop.ts)
- * is the one asking: it calls `fix_diagnostics` after
- * any edit that leaves diagnostics behind, and the tool
- * below is what reflects.
+ * The shape: after an edit, lint the edited files; when
+ * there are lint errors, ask "Attempt to fix lint errors?"
+ * and, when the answer is yes, send the errors back as the
+ * next message — up to 3 reflections, then stop. The loop
+ * in Lucid (agentLoop.ts) is the one asking: it calls
+ * `fix_diagnostics` after any edit that leaves diagnostics
+ * behind, and the tool below is what reflects.
  *
  * The reflection here is DETERMINISTIC, not a model:
  * the fixer only repairs a diagnostic when the repair

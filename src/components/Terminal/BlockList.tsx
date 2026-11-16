@@ -561,8 +561,8 @@ export function BlockList({ tabId, onReinput, onRerun, fill = false, blocks: blo
           {index > 0 && (
             <div data-testid="block-divider" className="border-t border-[var(--border)]" aria-hidden="true" />
           )}
-          {/* A review block is the Keep/Reject surface
-              (steal #6 — Zed): the diff preview + the
+          {/* A review block is the Keep/Reject surface:
+             the diff preview + the
               decision buttons, rendered by its own
               component. It stays in the feed as the record
               of the decision (and of the checkpoint it can

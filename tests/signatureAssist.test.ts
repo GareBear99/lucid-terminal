@@ -1,5 +1,5 @@
 /**
- * Kite signature assist (Atom steal #19 — 2026-11-14):
+ * Kite signature assist:
  * the callee at the cursor, and the augmented signature
  * documentation (Docs link + "How others used this").
  */

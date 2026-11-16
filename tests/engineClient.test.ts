@@ -348,7 +348,7 @@ export const answer = greet('world');
   });
 });
 
-describe('brain-alive activity (Atom steal #16)', () => {
+describe('brain-alive activity', () => {
   it('a successful operation records the last success; a failure records the last error', () => {
     const client = createEngineClient(cannedTransport);
     expect(client.getLastSuccessAt()).toBeNull();

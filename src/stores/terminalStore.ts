@@ -19,7 +19,7 @@ function cleanSpawnError(error: unknown): string {
 }
 
 /**
- * tmux steal — pane liveness bridge (defensive by design): tell
+ * pane liveness bridge (defensive by design): tell
  * main which session a tab's PTY belongs to, so kill-session can
  * destroy exactly those shells. Fire-and-forget, never throws,
  * never blocks tab creation / close / exit handling — when no
@@ -91,7 +91,7 @@ export interface TerminalState {
   createTab: (cwd?: string, opts?: { detached?: boolean; activate?: boolean }) => Promise<string>;
   closeTab: (id: string) => void;
   /**
-   * Close several tabs at once (Atom steal #17 — the tab
+   * Close several tabs at once (the tab
    * context menu's "Close Other Tabs" / "Close Tabs to the
    * Right"). Each close goes through closeTab (PTY destroyed,
    * cwd pushed to the closed-item stack for ⌘⇧T, activation
@@ -100,8 +100,7 @@ export interface TerminalState {
    */
   closeTabs: (ids: string[]) => void;
   /**
-   * Reopen the most recently closed tab (⌘⇧T, Atom steal #13 —
-   * the workspace's closed-item stack). The tab comes back in
+   * Reopen the most recently closed tab (⌘⇧T). The tab comes back in
    * its old cwd, as a fresh PTY — the shell session itself is
    * gone, only the place is remembered. Returns the new tab id,
    * or null when nothing was closed. The stack is session-only
@@ -187,7 +186,7 @@ function lowestFreeTabNumber(): number {
 }
 
 /**
- * The closed-tab stack for ⌘⇧T (Atom steal #13): the cwds of
+ * The closed-tab stack for ⌘⇧T: the cwds of
  * the most recently closed tabs, most recent first. Module
  * level, like usedTabNumbers — no component renders it, only
  * reopenClosedTab reads it. Session-only, never persisted.
@@ -254,7 +253,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       // as dead.
       const exitedTabs = { ...state.exitedTabs };
       delete exitedTabs[id];
-      // Adding a tab while a split is visible must not steal the
+      // Adding a tab while a split is visible must not take over the
       // split view (Gary, 2026-11-16 - "as soon as i add a tab it
       // breaks the pairs"): the caller passes activate:false, the
       // new tab lands in the strip inactive, and the pair stays on
@@ -276,7 +275,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       };
     });
 
-    // tmux steal: the new tab's PTY belongs to the attached
+    // the new tab's PTY belongs to the attached
     // session (when one is attached) — see the bridge above.
     notifySessionPaneTracked(id);
 
@@ -310,7 +309,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   closeTab: (id) => {
     // Remember where this tab was, for ⌘⇧T (the closed-item
-    // stack, Atom steal #13): only the cwd survives — the shell
+    // stack): only the cwd survives — the shell
     // session is gone with the PTY. Tabs that never existed in
     // this window's strip (a stale id) remember nothing.
     const closedTab = get().tabs.find((t) => t.id === id);
@@ -323,7 +322,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (tabNumber !== null) usedTabNumbers.delete(tabNumber);
     // Destroy the PTY process
     window.lucidAPI.terminal.destroy(id);
-    // tmux steal: the pane's shell is gone — untrack it.
+    // the pane's shell is gone — untrack it.
     notifySessionPaneExited(id);
     // A detached window that destroys a PTY tells main, so the
     // main window — which still has this number reserved from
@@ -414,7 +413,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   markTabExited: (id, code) => {
-    // tmux steal: the pane's shell exited on its own — untrack it.
+    // the pane's shell exited on its own — untrack it.
     notifySessionPaneExited(id);
     set((state) => ({ exitedTabs: { ...state.exitedTabs, [id]: code }, ptyStateKnown: true }));
   },
@@ -453,8 +452,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   reopenClosedTab: async (opts?: { activate?: boolean }) => {
     const closed = closedTabStack.shift();
     if (!closed) return null;
-    // Reopening a closed tab while a split is visible must not
-    // steal the split view (same rule as + — 2026-11-16): the
+    // Reopening a closed tab while a split is visible must not take over the split view (same rule as + — 2026-11-16): the
     // caller passes activate: false when a split is visible.
     return get().createTab(closed.cwd, opts);
   },

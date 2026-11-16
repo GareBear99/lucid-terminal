@@ -54,8 +54,8 @@ function runGitDiff(args: string[], cwd: string): Promise<string> {
 }
 
 /**
- * Local-git writes (Atom steal #21 — the git panel, local
- * core only, 2026-11-14). The read-only handlers above shell
+ * Local-git writes (the git panel, local
+ * core only). The read-only handlers above shell
  * out to the `git` CLI; these do the same for writes — no new
  * privilege (the renderer already has unrestricted PTY shell
  * access). Every write:
@@ -68,7 +68,7 @@ function runGitDiff(args: string[], cwd: string): Promise<string> {
  *   an option;
  * - returns { ok, error? } — the panel shows the error, it
  *   never fakes a success.
- * Skipped, per the steal: everything GitHub-remote (login,
+ * Skipped, by design: everything GitHub-remote (login,
  * PRs, issues, reviews, checks) — there is no remote half.
  */
 function isRepo(cwd: string): Promise<boolean> {
@@ -128,7 +128,7 @@ function applyPatch(cwd: string, patch: string, reverse: boolean): Promise<void>
 
 export function setupGitHandlers(ipcMain: IpcMain): void {
   // The unified diff against HEAD — the agent loop's
-  // view_diff tool (steal #5 — Aider). Same read-only
+  // view_diff tool. Same read-only
   // rule as git:status (nothing writes); the renderer
   // only parses git output, it never runs git. Returns
   // null when the cwd is not a repo (or git is missing),
@@ -210,7 +210,7 @@ export function setupGitHandlers(ipcMain: IpcMain): void {
     }
   });
 
-  // ---- Local-git writes (Atom steal #21) ----
+  // ---- Local-git writes ----
 
   ipcMain.handle(
     'git:stage',

@@ -3,7 +3,7 @@
  * tab can pick from (Gary, 2026-11-13: a dropdown to pick which
  * copilot; add as many as desired in the AI settings input).
  *
- * The local planner is always configured (no key, no network).
+ * The LLMBuilder brain is always configured (no key, no network).
  * GitHub Copilot is configured only when Gary's key is saved in
  * Settings > AI — without it the tab shows the copilot as
  * unconfigured, never an error. An unknown model (a stale
@@ -25,17 +25,17 @@ const LOCAL: CopilotConfig = { id: 'c1', name: 'Local', model: 'local-planner' }
 const COPILOT: CopilotConfig = { id: 'c2', name: 'Copilot', model: 'github-copilot' };
 
 describe('copilotModels — the copilot picker catalogue', () => {
-  it('lists the local planner and GitHub Copilot, with a hint each', () => {
+  it('lists the LLMBuilder brain and GitHub Copilot, with a hint each', () => {
     expect(COPILOT_MODELS.map((m) => m.id)).toEqual(['local-planner', 'github-copilot']);
     for (const model of COPILOT_MODELS) {
       expect(model.label.length).toBeGreaterThan(0);
       expect(model.hint.length).toBeGreaterThan(0);
     }
-    expect(copilotModelLabel('local-planner')).toBe('Local planner');
+    expect(copilotModelLabel('local-planner')).toBe('LLMBuilder brain');
     expect(copilotModelLabel('github-copilot')).toBe('GitHub Copilot');
   });
 
-  it('the local planner is configured with or without a key', () => {
+  it('the LLMBuilder brain is configured with or without a key', () => {
     expect(isCopilotConfigured(LOCAL, false)).toBe(true);
     expect(isCopilotConfigured(LOCAL, true)).toBe(true);
     expect(copilotUnconfiguredReason(LOCAL, false)).toBeNull();

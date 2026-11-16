@@ -1,5 +1,5 @@
 /**
- * Keymap dispatch tests (Atom steal #13 — keymaps, 2026-11-14).
+ * Keymap dispatch tests (keymaps).
  *
  * The dispatcher is the one place a keyboard event becomes a
  * command: keymap `when` (coarse) → registry lookup → registry
@@ -201,7 +201,7 @@ describe('detectPlatform (via dispatch)', () => {
   });
 });
 
-describe('dispatchKeyEvent — scroll to cursor (Atom steal #17)', () => {
+describe('dispatchKeyEvent — scroll to cursor', () => {
   const editorCtx = {
     view: 'editor',
     hasActiveFile: true,
@@ -269,7 +269,7 @@ describe('dispatchKeyEvent — scroll to cursor (Atom steal #17)', () => {
   });
 });
 
-describe('scoped bindings (Atom steal #18)', () => {
+describe('scoped bindings', () => {
   it('a scoped binding fires only when the cursor scope matches', () => {
     const { registry, runs } = testRegistry();
     // Rebind go-to-line to a scope: only inside a string.

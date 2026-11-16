@@ -135,7 +135,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
-    // Ghostty steal (GPU renderer + write coalescing): per
+    // GPU renderer + write coalescing: per
     // surface instance, in refs — never in a store. One
     // XtermSurface mounts per tab/split surface, so each tab
     // gets its own renderer attempt, coalescer and metrics;
@@ -182,7 +182,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     const terminalFontWeight = useSettingsStore(
       (s) => s.settings.terminalFontWeight,
     );
-    // Scrollback (Ghostty steal): the Settings UI already
+    // Scrollback: the Settings UI already
     // offers this (1000–100000, default 10000) but the
     // surface hardcoded 5000 and never read it. Read it here;
     // resolveScrollback clamps it to the UI's own range.
@@ -217,7 +217,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
 
     useImperativeHandle(ref, () => ({
       write: (data: string) => {
-        // Ghostty steal: PTY output goes through the write
+        // PTY output goes through the write
         // coalescer (one term.write per frame) when one is
         // live; before mount / after unmount it writes direct,
         // exactly as before — the coalescer never swallows a
@@ -315,7 +315,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       termRef.current = term;
       fitRef.current = fit;
 
-      // Ghostty steal — GPU renderer + write coalescing,
+      // GPU renderer + write coalescing,
       // per surface instance (see the refs above): the
       // coalescer batches PTY chunks into one term.write per
       // frame, and the renderer attempt is GPU-when-available
@@ -408,7 +408,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       if (termRef.current) termRef.current.options.disableStdin = disabled;
     }, [disabled]);
 
-    // Scrollback (Ghostty steal): the mount effect runs once,
+    // Scrollback: the mount effect runs once,
     // so re-apply when the setting moves — live, no remount,
     // and the remount itself never touches tab/split state.
     useEffect(() => {

@@ -1,5 +1,5 @@
 /**
- * Root Search providers (Raycast steal — 2026-11-16).
+ * Root Search providers.
  *
  * Turns Lucid's live sources into Root Search entries: the
  * command registry (adapted — every registry command is a

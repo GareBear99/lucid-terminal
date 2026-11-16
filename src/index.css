@@ -69,8 +69,7 @@
   /* Color-shift accent cycle time (see .lucid-color-shift below). */
   --color-shift-duration: 8s;
 }
-
-/* Full Glass theme — frosted surfaces (Gary, 2026-11-07).
+/* Full Glass theme — frosted surfaces (Gary, 2026-11-07).
    applyTheme marks <html> with data-glass when the Full Glass theme
    is active, and clears it for every other theme. The theme's own bg
    colors are translucent rgba, so the misty black shows through; these
@@ -559,7 +558,7 @@ button {
   }
 }
 
-/* Atom git gutter (steal #6): the glyph-margin marks next to
+/* Atom git gutter: the glyph-margin marks next to
    the line numbers. The colour is the line's state — added
    green, modified amber, removed red (the removed mark sits
    on the line before the gap; a removal at the top of the

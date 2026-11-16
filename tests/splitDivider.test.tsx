@@ -1,6 +1,5 @@
 /**
- * SplitDivider tests (2026-11-14, sweep fix 2; PaneAxis tree,
- * Atom steal #9).
+ * SplitDivider tests.
  *
  * The divider is the draggable boundary between two split panes
  * (role="separator"). It belongs to ONE split node — it carries

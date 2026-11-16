@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The Git panel (Atom steal #21 — the git panel's local core,
- * 2026-11-14): lists, commit box gating, and the diff view
+ * The Git panel (the git panel's local core): lists, commit box gating, and the diff view
  * with per-hunk actions.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';

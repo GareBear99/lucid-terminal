@@ -1,5 +1,5 @@
 /**
- * The application menu (Atom steal #13 — menus, 2026-11-14).
+ * The application menu (menus).
  *
  * Why this file exists: Lucid never called
  * `Menu.setApplicationMenu`, so macOS got Electron's default

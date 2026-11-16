@@ -9,8 +9,8 @@
  * src/types/index.ts.
  *
  * Two models in this slice:
- * - 'local-planner': the deterministic local planner
- *   (src/lib/agentBrain.ts). Runs on this machine, no key, no
+ * - 'local-planner': the LLMBuilder brain
+ *   (src/lib/llmbuilderBrain.ts). Runs on this machine, no key, no
  *   network — the only brain that runs a turn in this slice.
  * - 'github-copilot': Gary's Copilot key, saved in Settings > AI
  *   (Secure Vault), connected in the D9 build (2026-11-15)
@@ -33,7 +33,7 @@ export interface CopilotModelInfo {
 export const COPILOT_MODELS: readonly CopilotModelInfo[] = [
   {
     id: 'local-planner',
-    label: 'Local planner',
+    label: 'LLMBuilder brain',
     hint: 'Runs on this machine. No key, no network.',
   },
   {

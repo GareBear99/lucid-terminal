@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Whitespace-on-save through the file store (Atom steal #20 —
- * settings smalls, 2026-11-14): saveFile runs the enabled
+ * Whitespace-on-save through the file store (settings smalls): saveFile runs the enabled
  * transforms before the write and updates the in-memory
  * content to match; off by default the content is untouched.
  */

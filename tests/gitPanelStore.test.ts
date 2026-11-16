@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Git panel store (Atom steal #21 — the git panel's local
- * core, 2026-11-14): status splitting, diff annotation, and
+ * Git panel store (the git panel's local
+ * core): status splitting, diff annotation, and
  * the write actions through the mocked bridge.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';

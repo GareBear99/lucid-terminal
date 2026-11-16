@@ -1,6 +1,6 @@
 /**
  * Pure-engine tests for the Monaco inline completions (ghost
- * answers, steal #1 — 2026-11-14). No Monaco, no React: the
+ * answers). No Monaco, no React: the
  * engine is `computeInlineCompletion` + `completeOpenFile`.
  */
 

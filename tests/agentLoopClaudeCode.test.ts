@@ -1,8 +1,8 @@
-// Claude Code steal — the autonomous turn loop
+// The autonomous turn loop
 // (query.ts `while (true)` + TodoWriteTool), rebuilt as
 // Lucid's own local loop. Every test here FAILS on
 // unmodified cea360f (one-shot plan, no history, no
-// todos, no turns) and PASSES with the steal.
+// todos, no turns) and PASSES with the loop.
 //
 // Claude Code itself is a closed, paid product — there
 // is no public source, and nothing here embeds it or
@@ -22,12 +22,12 @@
 import { describe, expect, it } from 'vitest';
 import { runAgentTurn, type AgentLoopEvent } from '../src/lib/agentLoop';
 import {
-  LocalPlanner,
   type AgentBrain,
   type BrainContext,
   type BrainPlan,
   type PlannedToolCall,
 } from '../src/lib/agentBrain';
+import { LLMBuilderBrain } from '../src/lib/llmbuilderBrain';
 import { ToolRegistry } from '../src/lib/agentTools';
 import { registerBuiltInTools } from '../src/lib/agentToolsImpl';
 import { AgentFileIndex } from '../src/lib/agentIndex';
@@ -52,7 +52,7 @@ function makeSetup() {
   return { host, index, registry };
 }
 
-describe('claude-code steal — the turn loop re-plans from tool results', () => {
+describe('the turn loop re-plans from tool results', () => {
   it('round 2 plans from round 1 results: read, then edit on the next turn', async () => {
     const { host, index, registry } = makeSetup();
     const brain = new ScriptedBrain([
@@ -188,13 +188,13 @@ describe('claude-code steal — the turn loop re-plans from tool results', () =>
   });
 });
 
-describe('claude-code steal — the todo list (TodoWrite, loop-derived)', () => {
+describe('the todo list (TodoWrite, loop-derived)', () => {
   it('a multi-step run tracks one todo per call, completed in order', async () => {
     const { host, index, registry } = makeSetup();
     const result = await runAgentTurn({
       prompt: "read src/app.ts and replace 'const answer = 42;' with 'const answer = 43;' in src/app.ts",
       workspaceRoot: '/ws',
-      brain: new LocalPlanner(),
+      brain: new LLMBuilderBrain(),
       registry,
       index,
       host,
@@ -219,7 +219,7 @@ describe('claude-code steal — the todo list (TodoWrite, loop-derived)', () => 
     await runAgentTurn({
       prompt: "read src/app.ts and replace 'const answer = 42;' with 'const answer = 43;' in src/app.ts",
       workspaceRoot: '/ws',
-      brain: new LocalPlanner(),
+      brain: new LLMBuilderBrain(),
       registry,
       index,
       host,
@@ -250,7 +250,7 @@ describe('claude-code steal — the todo list (TodoWrite, loop-derived)', () => 
     const result = await runAgentTurn({
       prompt: 'read src/app.ts',
       workspaceRoot: '/ws',
-      brain: new LocalPlanner(),
+      brain: new LLMBuilderBrain(),
       registry,
       index,
       host,
@@ -285,13 +285,13 @@ describe('claude-code steal — the todo list (TodoWrite, loop-derived)', () => 
   });
 });
 
-describe('claude-code steal — the planner follows through on what a search found', () => {
+describe('the planner follows through on what a search found', () => {
   it('search, then fix the file the search named', async () => {
     const { host, index, registry } = makeSetup();
     const result = await runAgentTurn({
       prompt: 'search for greet and fix it',
       workspaceRoot: '/ws',
-      brain: new LocalPlanner(),
+      brain: new LLMBuilderBrain(),
       registry,
       index,
       host,
@@ -313,7 +313,7 @@ describe('claude-code steal — the planner follows through on what a search fou
     const result = await runAgentTurn({
       prompt: 'read src/app.ts',
       workspaceRoot: '/ws',
-      brain: new LocalPlanner(),
+      brain: new LLMBuilderBrain(),
       registry,
       index,
       host,
@@ -322,5 +322,88 @@ describe('claude-code steal — the planner follows through on what a search fou
     expect(result.turns).toBe(1);
     expect(result.toolCalls).toHaveLength(1);
     expect(result.toolCalls[0].name).toBe('read_file');
+  });
+});
+
+describe('llmbuilder brain — end to end: the typo fix (the agent test baseline)', () => {
+  function makeTypoSetup() {
+    const host = new MemoryAgentHost({
+      ...makeTestWorkspace(),
+      '/ws/agent-test-scratch.txt': 'the word wrod is misspelled here\n',
+    });
+    const index = new AgentFileIndex(host);
+    const registry = new ToolRegistry();
+    registerBuiltInTools(registry);
+    return { host, index, registry };
+  }
+
+  it('plans quickly, proposes the diff, nothing applies until Keep, Keep applies it', async () => {
+    const { host, index, registry } = makeTypoSetup();
+    const prompt = "fix the typo in agent-test-scratch.txt — 'wrod' should be 'word'";
+    // (a) It plans quickly: the first tool event arrives
+    // well before a full index build over a home dir
+    // would finish (the baseline sat at "Working…" for
+    // 7+ minutes with no event at all). The fast path
+    // prepares the task's files and plans from those.
+    const started = Date.now();
+    let firstEventMs: number | null = null;
+    const events: AgentLoopEvent[] = [];
+    const onEvent = (event: AgentLoopEvent) => {
+      if (firstEventMs === null) firstEventMs = Date.now() - started;
+      events.push(event);
+    };
+    // (c) Nothing applies until Keep: the first run
+    // denies the write at the approval gate.
+    const denied = await runAgentTurn({
+      prompt,
+      workspaceRoot: '/ws',
+      registry,
+      index,
+      host,
+      autoApproveWrites: false,
+      approve: async () => false,
+      onEvent,
+    });
+    expect(firstEventMs).not.toBeNull();
+    expect(firstEventMs as number).toBeLessThan(5000);
+    // (b) It proposes the diff: a multi_edit with the
+    // right old/new, and the approval was requested.
+    const proposed = denied.toolCalls.find((c) => c.name === 'multi_edit');
+    expect(proposed).toBeDefined();
+    expect(proposed?.args.filepath).toBe('/ws/agent-test-scratch.txt');
+    expect(proposed?.outcome).toBe('approval-denied');
+    expect(events.some((e) => e.type === 'approval-requested')).toBe(true);
+    // The file is untouched — nothing applied until Keep.
+    expect(host.files.get('/ws/agent-test-scratch.txt')).toBe('the word wrod is misspelled here\n');
+    // (d) Keep applies it: the second run approves the
+    // same diff, and the file changes.
+    const kept = await runAgentTurn({
+      prompt,
+      workspaceRoot: '/ws',
+      registry,
+      index,
+      host,
+      autoApproveWrites: false,
+      approve: async () => true,
+    });
+    expect(kept.stopped).toBe('done');
+    expect(host.files.get('/ws/agent-test-scratch.txt')).toBe('the word word is misspelled here\n');
+    // (e) The re-check passes: the edit left no
+    // diagnostics behind (a plain text file has none),
+    // and the run completed without failure.
+    expect(kept.diagnostics).toHaveLength(0);
+  });
+
+  it('the default brain is the LLMBuilder brain (no brain override needed)', async () => {
+    const { host, index, registry } = makeTypoSetup();
+    const result = await runAgentTurn({
+      prompt: 'read src/app.ts',
+      workspaceRoot: '/ws',
+      registry,
+      index,
+      host,
+    });
+    expect(result.stopped).toBe('done');
+    expect(result.toolCalls[0]?.name).toBe('read_file');
   });
 });

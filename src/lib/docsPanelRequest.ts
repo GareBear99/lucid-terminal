@@ -1,5 +1,5 @@
 /**
- * The docs-panel open request (Atom steal #7 — 2026-11-14).
+ * The docs-panel open request.
  *
  * The hover's `Docs` link must open the docs panel — but the
  * panel's active/collapsed state lives in the Sidebar's local

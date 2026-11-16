@@ -1,6 +1,6 @@
 /**
- * Git panel store (Atom steal #21 — the git panel's local
- * core, 2026-11-14).
+ * Git panel store (the git panel's local
+ * core).
  *
  * The state for the Git panel (bottom dock): the branch and
  * ahead/behind, the staged / unstaged / untracked file lists

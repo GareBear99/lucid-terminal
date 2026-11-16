@@ -1,20 +1,15 @@
 /**
  * The workspace file index — the agent's `@codebase`
- * (steal #4 — Continue, 2026-11-14).
  *
- * Shape stolen from Continue's indexing: the
- * content-addressed refresh (`core/indexing/README.md` —
- * a refresh produces compute / delete / addTag / removeTag
- * lists, and each index artifact implements `update()` over
- * them), the SQLite FTS5 trigram index
- * (`core/indexing/FullTextSearchCodebaseIndex.ts` —
- * `CREATE VIRTUAL TABLE fts USING fts5(path, content,
- * tokenize='trigram')`, ranked by bm25 with the path
- * column weighted 10x), the security ignore list
- * (`core/indexing/ignore.ts` — secrets never enter the
- * index), and the hybrid retrieval quota idea (recent /
- * FTS / embeddings — here: recent-edited files first,
- * then FTS, no embeddings yet).
+ * The shape: a content-addressed refresh — a refresh
+ * produces compute / delete / addTag / removeTag lists, and
+ * each index artifact implements `update()` over them — plus
+ * a SQLite FTS5 trigram index (`CREATE VIRTUAL TABLE fts
+ * USING fts5(path, content, tokenize='trigram')`, ranked by
+ * bm25 with the path column weighted 10x), a security ignore
+ * list (secrets never enter the index), and a hybrid
+ * retrieval quota (recent / FTS / embeddings — here:
+ * recent-edited files first, then FTS, no embeddings yet).
  *
  * What is re-implemented here, in TS, not copied: the
  * trigram index itself. Lucid has no SQLite dependency,
@@ -82,6 +77,24 @@ export const AGENT_DENIED_DIR_NAMES: readonly string[] = [
   'build', 'out', 'coverage', '.cache', '__pycache__',
 ];
 
+/** Precompiled denied-file matchers — one RegExp per pattern,
+ *  built once at module load. Calling minimatch() per pattern
+ *  per path made the workspace walk ~30x slower than the file
+ *  reads (measured: isDeniedPath 0.276 ms/call vs a single
+ *  precompiled RegExp test 0.0003 ms/call). A pattern whose
+ *  RegExp cannot be built falls back to minimatch at call
+ *  time, so the matching semantics are unchanged. */
+const DENIED_FILE_RES: ReadonlyArray<{ re: RegExp | false; pattern: string }> =
+  AGENT_DENIED_FILE_PATTERNS.map((pattern) => {
+    try {
+      return { re: minimatch.makeRe(pattern, { dot: true }), pattern };
+    } catch {
+      return { re: false, pattern };
+    }
+  });
+/** Denied dir names as a Set (O(1) per segment). */
+const DENIED_DIR_NAMES_SET = new Set(AGENT_DENIED_DIR_NAMES);
+
 /** Binary / generated extensions the index never reads
  *  (content search over them is noise; the path is still
  *  listed by glob — the index knows the file exists). */
@@ -100,11 +113,11 @@ export function isDeniedPath(path: string): boolean {
   const normalized = normalizePosixPath(path);
   const segments = normalized.split('/').filter(Boolean);
   for (const segment of segments) {
-    if (AGENT_DENIED_DIR_NAMES.includes(segment)) return true;
+    if (DENIED_DIR_NAMES_SET.has(segment)) return true;
   }
   const base = segments[segments.length - 1] ?? '';
-  for (const pattern of AGENT_DENIED_FILE_PATTERNS) {
-    if (minimatch(base, pattern, { dot: true })) return true;
+  for (const { re, pattern } of DENIED_FILE_RES) {
+    if (re ? re.test(base) : minimatch(base, pattern, { dot: true })) return true;
   }
   return false;
 }
@@ -181,6 +194,17 @@ export interface IndexRefreshResult {
   files: number;
 }
 
+/** Progress of a build / refresh, for the UI — the loop
+ *  forwards these as `index-progress` events so a run
+ *  never sits at bare "Working…" while the index builds.
+ *  `total` is null during the walk (the total is not known
+ *  until the walk finishes). */
+export interface IndexBuildProgress {
+  phase: 'walk' | 'index' | 'done';
+  done: number;
+  total: number | null;
+}
+
 /** Line-window chunk size (Continue's max chunk is 500
  *  tokens — ~40 lines of code is the same order). */
 const CHUNK_LINES = 40;
@@ -249,6 +273,11 @@ export class AgentFileIndex {
   private root: string | null = null;
   private built = false;
   private building: Promise<void> | null = null;
+  /** True when the task fast-path prepared this index
+   *  (prepareForTask) — the task's files + cwd + open files
+   *  are known, so the brain can plan before the full build
+   *  finishes. Cleared when the full build completes. */
+  private taskReady = false;
   private files = new Map<string, IndexedFile>();
   private chunks = new Map<number, IndexedChunk>();
   private trigramIndex = new Map<string, Set<number>>();
@@ -278,6 +307,13 @@ export class AgentFileIndex {
 
   get isBuilt(): boolean {
     return this.built;
+  }
+
+  /** True when the task fast-path prepared this index — the
+   *  brain can plan on the task's files before the full
+   *  build finishes. */
+  get isTaskReady(): boolean {
+    return this.taskReady;
   }
 
   get fileCount(): number {
@@ -319,6 +355,87 @@ export class AgentFileIndex {
     return this.ignoreSet?.size ?? 0;
   }
 
+  /** Note paths as known (for glob / resolution) without
+   *  reading content — the fast path lists a directory and
+   *  notes its files, so the brain can resolve cwd-relative
+   *  paths before the full build reads anything. */
+  noteKnownPaths(paths: string[]): void {
+    for (const path of paths) {
+      if (isDeniedPath(path) || this.isIgnoredByRules(path)) continue;
+      this.knownPaths.add(path);
+    }
+  }
+
+  /**
+   * The task fast path: prepare the index for ONE task
+   * without walking the whole workspace. Sets the root,
+   * loads the ignore files, indexes the task's files and
+   * the open files, and notes the cwd's listing — so the
+   * brain can resolve the task's files and plan
+   * immediately. The full build still runs afterwards
+   * (in the background) for search / symbols. Never throws
+   * — a fast-path failure just means the run proceeds
+   * with an unprepared index.
+   */
+  async prepareForTask(
+    root: string,
+    opts: { cwd: string; taskPaths: string[]; openFiles: string[] },
+  ): Promise<void> {
+    try {
+      const normalized = normalizePosixPath(root);
+      if (this.root !== normalized) {
+        // Workspace switch: drop everything.
+        this.reset();
+        this.root = normalized;
+      }
+      if (this.built && opts.taskPaths.length === 0 && opts.openFiles.length === 0) return; // Already fully built, nothing new to prepare.
+      await this.loadIgnoreFiles();
+      // The task's files + the open files: index each
+      // (content + symbols). A file the ignore rules cover
+      // is skipped here, as in indexOne — the brain can
+      // still plan it by absolute path, which needs no index.
+      // This runs even when the index is already built: a
+      // file created since the last build is indexed now,
+      // so the brain can resolve it before the background
+      // refresh finishes.
+      for (const path of [...opts.taskPaths, ...opts.openFiles]) {
+        await this.indexOne(path);
+      }
+      // The cwd listing: note the paths (no content read),
+      // so cwd-relative resolution works before the build.
+      try {
+        const entries = await this.host.readDir(opts.cwd);
+        this.noteKnownPaths(entries.filter((e) => e.isFile).map((e) => e.path));
+      } catch {
+        // An unreadable cwd contributes nothing.
+      }
+      this.taskReady = true;
+    } catch {
+      // Never fatal — the run proceeds with what it has.
+      this.taskReady = false;
+    }
+  }
+
+  /**
+   * Wait for the full build to complete. Resolves true
+   * when the index is built, false on timeout (or when no
+   * build is running). The index-backed tools (search /
+   * symbols) use this instead of failing immediately when
+   * the build is still running in the background.
+   */
+  whenBuilt(timeoutMs = 60_000): Promise<boolean> {
+    if (this.built) return Promise.resolve(true);
+    if (!this.building) return Promise.resolve(false);
+    const build = this.building;
+    return Promise.race([
+      build.then(
+        () => this.built,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
+    ]);
+  }
+
   /**
    * Load the root's ignore files, in order (.gitignore,
    * then .cursorignore, then .cursorindexingignore —
@@ -345,14 +462,16 @@ export class AgentFileIndex {
    *  50 files, so the build never blocks the composer.
    *  Safe to call repeatedly — a build already in flight
    *  is shared, and a built index for the same root is a
-   *  no-op (use refresh() for updates). */
-  async build(root: string): Promise<void> {
+   *  no-op (use refresh() for updates). `onProgress` fires
+   *  during the walk and the content pass, so the loop can
+   *  show real progress instead of a bare "Working…". */
+  async build(root: string, onProgress?: (p: IndexBuildProgress) => void): Promise<void> {
     if (this.built && this.root === root) return;
     if (this.building) {
       await this.building;
       return;
     }
-    this.building = this.buildNow(root);
+    this.building = this.buildNow(root, onProgress);
     try {
       await this.building;
     } finally {
@@ -360,35 +479,62 @@ export class AgentFileIndex {
     }
   }
 
-  private async buildNow(root: string): Promise<void> {
-    this.root = normalizePosixPath(root);
-    this.files.clear();
-    this.chunks.clear();
-    this.trigramIndex.clear();
-    this.pathTrigrams.clear();
-    this.knownPaths.clear();
-    this.capped = false;
+  private async buildNow(root: string, onProgress?: (p: IndexBuildProgress) => void): Promise<void> {
+    const normalized = normalizePosixPath(root);
+    // Continuing from a task fast-path for the same root:
+    // keep the prepared entries (the walk re-adds everything
+    // and indexFile skips unchanged files). A different root
+    // (or no fast-path) starts clean.
+    const continuing = this.root === normalized && this.taskReady;
+    this.root = normalized;
+    if (!continuing) {
+      this.files.clear();
+      this.chunks.clear();
+      this.trigramIndex.clear();
+      this.pathTrigrams.clear();
+      this.knownPaths.clear();
+      this.capped = false;
+    }
     await this.loadIgnoreFiles();
-    const walked = await this.walk(this.root, 0);
+    const walked = await this.walk(this.root, 0, onProgress);
+    // Prune anything the walk did not see (a file deleted
+    // since the fast-path prepared it).
+    const seen = new Set(walked.map((f) => f.path));
+    for (const path of [...this.files.keys()]) {
+      if (!seen.has(path)) {
+        this.removeFileChunks(path);
+        this.files.delete(path);
+      }
+    }
+    for (const path of [...this.knownPaths]) {
+      if (!seen.has(path)) this.knownPaths.delete(path);
+    }
     let done = 0;
     for (const file of walked) {
       await this.indexFile(file.path, file.size, file.modified);
       done += 1;
       if (done % 50 === 0) {
+        onProgress?.({ phase: 'index', done, total: walked.length });
         // Yield — the build never blocks the composer.
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     }
+    onProgress?.({ phase: 'index', done, total: walked.length });
     this.built = true;
+    this.taskReady = false;
+    onProgress?.({ phase: 'done', done, total: walked.length });
   }
 
   /** Walk the tree (readDir per directory, depth-capped,
    *  ignore-aware). Returns the files found, in walk
    *  order. A file the walk sees is a file the index
-   *  knows — the walk is the fix for the search miss. */
+   *  knows — the walk is the fix for the search miss.
+   *  `onProgress` fires every 100 files found (the total
+   *  is not known until the walk finishes). */
   private async walk(
     dir: string,
     depth: number,
+    onProgress?: (p: IndexBuildProgress) => void,
   ): Promise<Array<{ path: string; size: number; modified: number }>> {
     const out: Array<{ path: string; size: number; modified: number }> = [];
     if (depth > MAX_WALK_DEPTH) return out;
@@ -414,12 +560,15 @@ export class AgentFileIndex {
         if (this.ignoreSet.isIgnored(relative, entry.isDirectory)) continue;
       }
       if (entry.isDirectory) {
-        if (AGENT_DENIED_DIR_NAMES.includes(entry.name)) continue;
-        out.push(...(await this.walk(path, depth + 1)));
+        if (DENIED_DIR_NAMES_SET.has(entry.name)) continue;
+        out.push(...(await this.walk(path, depth + 1, onProgress)));
         continue;
       }
       if (!entry.isFile) continue;
       this.knownPaths.add(path);
+      if (this.knownPaths.size % 100 === 0) {
+        onProgress?.({ phase: 'walk', done: this.knownPaths.size, total: null });
+      }
       out.push({ path, size: entry.size, modified: entry.modified });
     }
     return out;
@@ -550,7 +699,7 @@ export class AgentFileIndex {
    * delete lists), simplified to add / update / remove.
    * Unchanged files are never re-read. Returns the counts.
    */
-  async refresh(): Promise<IndexRefreshResult> {
+  async refresh(onProgress?: (p: IndexBuildProgress) => void): Promise<IndexRefreshResult> {
     if (!this.root) return { added: 0, updated: 0, removed: 0, files: 0 };
     // A newly added ignore file takes effect here — the
     // walk below drops what it now covers.
@@ -560,7 +709,7 @@ export class AgentFileIndex {
     // against the pre-walk state.
     const knownBefore = new Set(this.knownPaths);
     const indexedBefore = new Set(this.files.keys());
-    const walked = await this.walk(this.root, 0);
+    const walked = await this.walk(this.root, 0, onProgress);
     const seen = new Set<string>();
     let added = 0;
     let updated = 0;
@@ -581,9 +730,11 @@ export class AgentFileIndex {
       }
       done += 1;
       if (done % 50 === 0) {
+        onProgress?.({ phase: 'index', done, total: walked.length });
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     }
+    onProgress?.({ phase: 'index', done, total: walked.length });
     let removed = 0;
     for (const path of [...this.files.keys()]) {
       if (!seen.has(path)) {
@@ -596,6 +747,7 @@ export class AgentFileIndex {
     for (const path of [...this.knownPaths]) {
       if (!seen.has(path)) this.knownPaths.delete(path);
     }
+    onProgress?.({ phase: 'done', done, total: walked.length });
     return { added, updated, removed, files: this.files.size };
   }
 
@@ -763,6 +915,7 @@ export class AgentFileIndex {
     this.root = null;
     this.built = false;
     this.building = null;
+    this.taskReady = false;
     this.ignoreSet = null;
     this.files.clear();
     this.chunks.clear();

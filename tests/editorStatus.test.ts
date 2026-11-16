@@ -1,5 +1,5 @@
 /**
- * Editor status bar tests (Atom steal #11 — 2026-11-14).
+ * Editor status bar tests.
  *
  * Pure parts: line-ending detection/conversion, the language
  * labels, the tile registry's ordering, and the published

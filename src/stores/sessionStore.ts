@@ -53,8 +53,7 @@
  * owner's blocks (historyStore's guestStash). setTabMode
  * refuses 'agent' while a guest is veiled in.
  *
- * The driving loop IS here now (steal #4 — Continue,
- * 2026-11-14): submitAgentPrompt records the prompt as a
+ * The driving loop IS here now: submitAgentPrompt records the prompt as a
  * block in the tab's feed, and Terminal.tsx kicks off
  * runAgentTurnForTab (src/lib/agentSession.ts) right after
  * — the loop plans the prompt into tool calls, runs them
@@ -62,9 +61,9 @@
  * as an `agent-response` block in the same feed. The
  * "driving intelligence isn't built yet" notice is gone
  * with the placeholder it described: the loop is built,
- * and its brain today is the local planner (a
- * deterministic rule-based planner — no model, no
- * network). The driving-intelligence brain (dissection
+ * and its brain today is the LLMBuilder brain (retrieval
+ * over a task corpus — no model, no network). The
+ * driving-intelligence brain (dissection
  * D4) plugs into the same AgentBrain seam when it lands.
  */
 

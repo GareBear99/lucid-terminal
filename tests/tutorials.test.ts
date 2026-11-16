@@ -1,5 +1,5 @@
 /**
- * Tutorials (Atom steal #15, Kite half) — schema validation
+ * Tutorials — schema validation
  * + the built-in tutorials' shape.
  */
 import { describe, it, expect } from 'vitest';

@@ -134,7 +134,7 @@ const defaultSettings: Settings = {
   // Atom rest (2026-11-14): project find-and-replace is
   // opt-in — off until enabled in Settings > General > Editor.
   projectSearchEnabled: false,
-  // Kite's settings toggles (Atom steal #15, 2026-11-14) —
+  // Kite's settings toggles —
   // all on by default.
   editorCompletionsEnabled: true,
   editorSignatureHelpEnabled: true,
@@ -144,7 +144,7 @@ const defaultSettings: Settings = {
   // false by default (ghost on); the status-bar toggle
   // flips it, and it persists per profile.
   ghostCompletionsPaused: false,
-  // Settings smalls (Atom steal #20, 2026-11-14) — see
+  // Settings smalls — see
   // src/types/index.ts for the defaults' reasoning.
   editorAutoClosingBrackets: true,
   editorAutoSurround: true,

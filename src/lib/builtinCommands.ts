@@ -1,5 +1,5 @@
 /**
- * The built-in palette commands (Atom steal #1 — 2026-11-14).
+ * The built-in palette commands.
  *
  * Atom's palette lists every command valid at the focus point —
  * and in Atom, *everything* is a command, so the palette is
@@ -88,7 +88,7 @@ export function registerBuiltinCommands(
     when: inEditor,
     run: openModal('goto-line'),
   });
-  // Project symbols (Atom steal #22): the tree-sitter index of
+  // Project symbols: the tree-sitter index of
   // the whole project — no ctags, no `tags` file. No keybinding
   // — the palette is the entry point, as Atom's was.
   registry.register({
@@ -98,7 +98,7 @@ export function registerBuiltinCommands(
     tags: ['symbol', 'function', 'project', 'jump', 'outline'],
     run: openModal('project-symbols'),
   });
-  // Go back (Atom steal #22): pop the jump stack — the position
+  // Go back: pop the jump stack — the position
   // the last project-symbol jump left from — and jump back to
   // it. A no-op when the stack is empty.
   registry.register({
@@ -112,7 +112,7 @@ export function registerBuiltinCommands(
       if (position) requestEditorJump(position);
     },
   });
-  // Project find-and-replace (Atom steal #5 — ⌘⇧F). The
+  // Project find-and-replace (⌘⇧F). The
   // panel is opt-in (projectSearchEnabled); opening it when
   // disabled shows the opt-in card, not the search.
   registry.register({
@@ -124,7 +124,7 @@ export function registerBuiltinCommands(
     when: inEditor,
     run: () => useFindReplaceStore.getState().openPanel(),
   });
-  // Tutorials (Atom steal #15, Kite half): the picker lists
+  // Tutorials: the picker lists
   // the built-in tutorials; a tutorial opens at its first
   // step. No keybinding — the palette is the entry point.
   registry.register({
@@ -134,7 +134,7 @@ export function registerBuiltinCommands(
     tags: ['tutorial', 'learn', 'guide', 'help'],
     run: openModal('tutorials'),
   });
-  // Brain status (Atom steal #16, Kite half — Kite's
+  // Brain status (half — Kite's
   // `kite:check-status`): probe the engine and toast the
   // full report — state, version, last activity. The probe
   // warms a down engine (the retry).
@@ -145,7 +145,7 @@ export function registerBuiltinCommands(
     tags: ['brain', 'engine', 'status', 'health'],
     run: () => void checkBrainStatus(getEngineClient()),
   });
-  // Scroll to cursor (Atom steal #17 — `editor:scroll-to-
+  // Scroll to cursor (`editor:scroll-to-
   // cursor`): move the viewport to show the cursor. No
   // keybinding — the palette is the entry point. A no-op
   // with no Monaco editor mounted (the fallback textarea
@@ -164,7 +164,7 @@ export function registerBuiltinCommands(
       editor.revealPositionInCenter(position);
     },
   });
-  // Go to matching bracket (Atom steal #20 — bracket-matcher):
+  // Go to matching bracket (bracket-matcher):
   // jump the cursor to the bracket matching the one at (or
   // enclosing) the cursor. Monaco owns the action; this is
   // the palette entry point for it. A no-op with no Monaco
@@ -183,7 +183,7 @@ export function registerBuiltinCommands(
       else editor.trigger?.('keyboard', 'editor.action.jumpToBracket', null);
     },
   });
-  // Git panel (Atom steal #21 — the git panel's local core):
+  // Git panel (the git panel's local core):
   // show the bottom dock with the staging area. No `when`
   // gate — the panel itself reports "not a git repository"
   // when the project root is not one.
@@ -269,7 +269,7 @@ export function registerBuiltinCommands(
     tags: ['reopen', 'closed', 'tab', 'terminal', 'undo'],
     keybinding: '⇧⌘T',
     run: async () => {
-      // Reopening while a split is visible must not steal
+      // Reopening while a split is visible must not take over
       // the split view (same rule as + — 2026-11-16).
       const groups = useSplitPaneStore.getState().groups;
       const active = useTerminalStore.getState().activeTabId;
@@ -297,7 +297,7 @@ export function registerBuiltinCommands(
     description: 'Open a new terminal tab',
     tags: ['terminal', 'tab', 'new', 'shell'],
     run: async () => {
-      // Adding a tab while a split is visible must not steal the
+      // Adding a tab while a split is visible must not take over the
       // split view (Gary, 2026-11-16 - same rule as the + button).
       const groups = useSplitPaneStore.getState().groups;
       const active = useTerminalStore.getState().activeTabId;

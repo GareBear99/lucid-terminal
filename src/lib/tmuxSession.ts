@@ -1,5 +1,5 @@
 /**
- * tmux's session model, stolen for Lucid — pure core.
+ * The session model, in Lucid's own implementation — pure core.
  *
  * Sourced from upstream tmux, not a copy of it:
  *  - tmux.github.io → the tmux/tmux wiki "Getting Started"
@@ -742,7 +742,7 @@ export function parseSessionsSnapshot(raw: unknown): ParseSessionsResult {
 /**
  * What a relaunch re-creates from a session: the full layout +
  * cwd per pane. Panes with shellAlive=false get FRESH shells in
- * their recorded cwd — the tmux-resurrect half of the steal.
+ * their recorded cwd — the session-restore half of the model.
  * Panes with shellAlive=true keep their PTY (attach rebinds the
  * owner; the shell is never re-created).
  */

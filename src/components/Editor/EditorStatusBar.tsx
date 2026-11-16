@@ -1,5 +1,5 @@
 /**
- * Editor status bar (Atom steal #11 — 2026-11-14).
+ * Editor status bar.
  *
  * A permanent bottom strip under the editor — "always telling
  * you where you are": the file path, the cursor position, the
@@ -11,7 +11,7 @@
  * The bar is an extension point, not a fixed row: tiles register
  * through the tile store (see editorStatusBarStore.ts) and render
  * in priority order. The core tiles register themselves here on
- * mount; future tiles (the Kite brain-alive tile, steal #16)
+ * mount; future tiles (the brain-alive tile)
  * register from wherever they live.
  *
  * Core tiles, left to right (Atom's order): path (click copies

@@ -820,7 +820,7 @@ export const useAIStore = create<AIState>((set, get) => {
         // Loading is always tied to the session it started in: a send
         // captures the current chat as the generation's origin, and
         // ending the load releases it. The switch never calls this —
-        // it must not steal or clear another chat's generation.
+        // it must not take over or clear another chat's generation.
         if (loading) {
             set({ isLoading: true, generatingSessionId: get().currentSessionId });
         } else {

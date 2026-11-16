@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Dock component (Atom steal #12) — the edge toggle, the
+ * Dock component — the edge toggle, the
  * open/close mask, the resize handle, and the empty auto-hide.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';

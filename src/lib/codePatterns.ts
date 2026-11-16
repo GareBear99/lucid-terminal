@@ -1,10 +1,10 @@
 /**
- * Code patterns for completions (steal #7 — Tabnine, patterns
- * only — 2026-11-14).
+ * Code patterns for completions (Tabnine, patterns
+ * only).
  *
- * Tabnine's stealable idea, reimplemented in TypeScript by
+ * Tabnine's repeated-lines idea, reimplemented in TypeScript by
  * behavior (no code copied — Tabnine is closed-source; the
- * research is docs only, see ~/workspace/steal/notes/tabnine.md):
+ * research is docs only, see the Tabnine research notes):
  * learn from the user's OWN code, locally, by retrieval — not
  * by training a model. Tabnine's layer 1 is "local code
  * awareness": a RAG index over the local workspace, built on
@@ -31,7 +31,7 @@
  * adds the TS-LSP gate on top: a pattern's leading identifier
  * must be in the caller's verified structure list when that
  * list is non-empty (see completePattern) — the same gate
- * steal #3 puts on structure identifiers. In the editor the
+ * puts on structure identifiers. In the editor the
  * LSP items already carry the verified symbols and sort
  * first; the pattern suggestions sort last and are deduped
  * against them.
@@ -215,7 +215,7 @@ export function matchPatterns(
  *
  * The gate: when `verifiedIdentifiers` is a non-empty list,
  * the pattern's leading identifier must be in it — the
- * TS-LSP fact-check (steal #3) applied to patterns, so a
+ * TS-LSP fact-check applied to patterns, so a
  * pattern never offers a name the language service cannot
  * resolve for the file being edited. When the list is empty
  * or absent the gate is open (no active file, or the engine

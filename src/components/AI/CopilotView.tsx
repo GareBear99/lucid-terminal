@@ -217,7 +217,7 @@ export function CopilotView({
             <p>Add one in Settings &gt; AI, then pick it here.</p>
             <p className="mt-2">
               A copilot runs the agent loop in this tab: it reads files, makes edits, checks each
-              edit, and shows every edit for Keep/Reject first. The local planner needs no key.
+              edit, and shows every edit for Keep/Reject first. The LLMBuilder brain needs no key.
             </p>
             {onOpenSettings && (
               <button

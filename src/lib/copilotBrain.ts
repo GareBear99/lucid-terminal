@@ -6,7 +6,7 @@
  * the 13 registry tools as the model's function definitions.
  * The model returns text and/or tool calls; the loop executes
  * the calls through the same policy gate + review flow as the
- * local planner's calls — the brain only PLANS, it never runs
+ * the LLMBuilder brain's calls — the brain only PLANS, it never runs
  * a tool itself.
  *
  * The brain never throws: an API failure becomes a reply that

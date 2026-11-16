@@ -70,7 +70,7 @@ import {
 } from '../../lib/workspace';
 import type { LspLocation } from '../../lib/tsLspContract';
 
-/** Split the hover markdown (steal #3's shape — a fenced
+/** Split the hover markdown (the shape — a fenced
  *  code block with the display, then the JSDoc) into the
  *  signature and the prose. A hover with no fence is all
  *  prose. */

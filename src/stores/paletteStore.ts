@@ -1,5 +1,5 @@
 /**
- * The palette store (Raycast steal — 2026-11-16).
+ * The palette store.
  *
  * The palette's own state — favorites, aliases, frecency,
  * quicklinks, disabled extensions/commands — persists in ONE

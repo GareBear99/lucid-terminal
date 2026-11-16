@@ -1330,7 +1330,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   The copilots in the AI chat&apos;s Copilot tab — add as many as you like, each
                   with its own model. A copilot runs the agent loop in the tab: it reads files,
                   makes edits, checks each edit, and shows every edit for Keep/Reject first. The
-                  local planner needs no key; GitHub Copilot needs your key below.
+                  LLMBuilder brain needs no key; GitHub Copilot needs your key below.
                 </p>
                 {settings.copilots.length > 0 && (
                   <ul className="space-y-2 mb-3">
@@ -2604,7 +2604,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   Editor
                 </h3>
                 <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2">
-                  Kite&apos;s editor toggles (Atom steal #15): each takes effect immediately, without a reload.
+                  Kite&apos;s editor toggles: each takes effect immediately, without a reload.
                 </p>
                 <label className="flex items-center gap-2 cursor-pointer py-1">
                   <Toggle
@@ -2657,7 +2657,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   </span>
                 </label>
                 <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2 mt-3">
-                  Brackets, rulers, whitespace, autosave (Atom steal #20): each takes effect immediately, without a reload.
+                  Brackets, rulers, whitespace, autosave: each takes effect immediately, without a reload.
                 </p>
                 <label className="flex items-center gap-2 cursor-pointer py-1">
                   <Toggle

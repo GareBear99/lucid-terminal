@@ -3,7 +3,7 @@
  * 2026-11-14).
  *
  * Kite split its client into two layers, both small JS, and
- * the split is the steal — not the transport details:
+ * the split is the valuable part — not the transport details:
  *
  *   - `kite-connect-js` — the transport + state machine.
  *     `lib/index.js:29` creates `new NodeClient('localhost',
@@ -27,7 +27,7 @@
  *
  *   - The connector: `EngineTransport` — one method,
  *     `request(method, params)`, over the LSP method set
- *     (`TS_LSP_METHODS`, steal #3), plus `checkHealth()`
+ *     (`TS_LSP_METHODS`), plus `checkHealth()`
  *     walking Kite's states. The in-process transport
  *     (`createInProcessTransport`) dispatches each method to
  *     the TS language service (`tsLanguageService.ts`); a
@@ -45,7 +45,7 @@
  * What is NOT carried over: the `localhost:46624` port, the
  * cookie handling, the install/run detection that assumes a
  * Kite desktop app. The state machine and the typed-error
- * shape are the steal, not the transport details.
+ * shape are what matters, not the transport details.
  *
  * The boundary, stated honestly:
  *   - `request()` speaks the LSP method set. The document
@@ -156,7 +156,7 @@ export class EngineRequestError extends Error {
   }
 }
 
-/** One LSP method the transport speaks (steal #3's method
+/** One LSP method the transport speaks (the method
  *  set — `TS_LSP_METHODS`, minus nothing: the transport
  *  speaks the whole set, including `initialize` /
  *  `initialized`). */
@@ -238,8 +238,7 @@ function requireReady(method: string, params: unknown): void {
 /**
  * The in-process transport: each LSP method dispatches to
  * the TS language service in this process. No spawned
- * server, no socket, no Node floor — the same reason steal
- * #3 runs the service in-process (Electron 28 embeds Node
+ * server, no socket, no Node floor — the same reason the service runs in-process (Electron 28 embeds Node
  * 18; a language server needs Node >= 22). The module is
  * statically imported here, but the compiler is not: the
  * service dynamic-imports `typescript-lsp` inside
@@ -388,8 +387,7 @@ export interface EngineClient {
   /** The pinned compiler version, or null before init. */
   getEngineVersion(): string | null;
   /**
-   * Brain-alive activity (Atom steal #16, Kite half —
-   * 2026-11-14): the ms epoch of the last successful engine
+   * Brain-alive activity: the ms epoch of the last successful engine
    * operation, or null when none has completed yet. Every
    * operation records it (see `call()` below); the indicator
    * reads it to decide alive vs not responding.
@@ -477,7 +475,7 @@ export function createEngineClient(
 ): EngineClient {
   const listeners = new Set<(error: Error) => void>();
   let lastState: EngineState = 'not-running';
-  // Brain-alive activity (Atom steal #16): the last
+  // Brain-alive activity: the last
   // successful operation and the last failure, for the
   // indicator. Updated by `call()` and `checkHealth()`.
   let lastSuccessAt: number | null = null;

@@ -1,6 +1,6 @@
 /**
  * Ignore files — the `.gitignore` / `.cursorignore` /
- * `.cursorindexingignore` reader (Cursor steal, 2026-11-16).
+ * `.cursorindexingignore` reader.
  *
  * What Cursor actually does, from Cursor's own words
  * (staff post, forum.cursor.com, 2026-07-22 — "Semantic/

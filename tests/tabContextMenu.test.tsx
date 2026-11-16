@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The per-tab context menu (Atom steal #17 — tabs
+ * The per-tab context menu (tabs
  * punch-list): right-click a tab, pick an action.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';

@@ -34,7 +34,7 @@
   // lib files, type-imported by electron/ipc/worldmap.ts and
   // electron/preload.ts (Gary, 2026-11-15).
   "include": ["vite.config.ts", "electron/**/*", "src/lib/gitignore.ts", "src/lib/worldmapAddon.ts", "src/lib/worldmapSettings.ts",
-    // tmux steal (2026-11-16): the pure session model is imported
+    // the pure session model is imported
     // (values, not just types) by electron/services/tmuxSessionRegistry.ts
     // and electron/preload.ts — same explicit listing as the worldmap
     // lib files above.

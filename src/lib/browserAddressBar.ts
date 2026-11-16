@@ -65,7 +65,7 @@ export function focusAddressBar(input: HTMLInputElement | null): void {
 
 /**
  * Focus the address bar now and again after short delays, so a focus
- * steal that lands after the first attempt (the BrowserView attaching
+ * focus grab that lands after the first attempt (the BrowserView attaching
  * yanks focus to its webarea) does not win. Each attempt is a no-op
  * while Gary is typing in another text field, so a retry never yanks
  * focus out of the terminal prompt or the find bar — and the

@@ -1,5 +1,5 @@
 /**
- * Root Search palette component tests (Raycast steal).
+ * Root Search palette component tests.
  *
  * The palette (⌘⇧P — NOT ⌘U; ⌘U is terminal:unsplit at cea360f)
  * becomes Raycast's Root Search: one input searching commands,

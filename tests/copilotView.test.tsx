@@ -144,7 +144,7 @@ describe('CopilotView — the copilot tab', () => {
     expect((screen.getByTestId('copilot-input') as HTMLTextAreaElement).disabled).toBe(false);
   });
 
-  it('a keyed Copilot with no model listed yet shows as not-ready, not as the local planner', () => {
+  it('a keyed Copilot with no model listed yet shows as not-ready, not as the LLMBuilder brain', () => {
     resetStores([COPILOT]);
     useSettingsStore.setState((s) => ({
       settings: { ...s.settings, copilotApiModel: null, copilotApiModels: [], copilotApiModelsFetchedAt: null },

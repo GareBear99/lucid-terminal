@@ -1,8 +1,7 @@
 /**
- * The run's todo list — the TodoWrite steal (Claude Code,
- * 2026-11-16).
+ * The run's todo list — TodoWrite (loop-derived).
  *
- * Shape stolen from Claude Code's TodoWrite tool
+ * Shape adapted from Claude Code's TodoWrite tool
  * (`src/tools/TodoWriteTool/TodoWriteTool.ts` +
  * `src/tools/TodoWriteTool/prompt.ts` in
  * GareBear99/claude-code-source-code-full, and the same

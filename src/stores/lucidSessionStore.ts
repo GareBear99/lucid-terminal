@@ -1,5 +1,5 @@
 /**
- * Lucid sessions — renderer side of the tmux steal.
+ * Lucid sessions — renderer side of the session model.
  *
  * tmux's split, applied to Lucid: the Electron main process is
  * the server (electron/services/tmuxSessionRegistry — it owns
@@ -51,7 +51,7 @@ import { create } from 'zustand';
 import type { TerminalTab } from '../types';
 import type { SplitGroup, SplitNode } from './splitPaneStore';
 // Merge fix: unused import removed (TS6133) — this store never
-// reads historyStore; the tmux steal's import was dead on arrival.
+// reads historyStore; the session model's import was dead on arrival.
 import {
   GUEST_VEIL_STORAGE_KEY,
   isGuestVeilPersisted,

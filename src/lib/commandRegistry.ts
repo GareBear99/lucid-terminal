@@ -1,5 +1,5 @@
 /**
- * The command registry (Atom steal #1 — 2026-11-14).
+ * The command registry.
  *
  * Atom's `atom.commands` (`atom/src/command-registry.js`, MIT):
  * commands are `namespace:action` names bound to a CSS selector,

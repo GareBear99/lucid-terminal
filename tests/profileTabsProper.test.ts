@@ -1,5 +1,5 @@
 /**
- * Profiles + terminal tabs "work properly" proof tests (Raycast steal).
+ * Profiles + terminal tabs "work properly" proof tests.
  *
  * Gary's bar is not "preserve them as they are" — the named
  * breakages were: split pairs breaking when a tab is added,
@@ -7,8 +7,7 @@
  * scrollback / the composer draft, guest History persisting its
  * own commands across relaunches, and a created profile's
  * history. At cea360f the suites covering those areas pass in
- * the VM; these tests pin the exact proper behaviors the steal
- * builds on, at the store level:
+ * the VM; these tests pin the exact proper behaviors, at the store level:
  * - a saved profile round-trips through persistence exactly
  *   (create → persist → fresh read → same record, same active id);
  * - a guest's commands NEVER reach disk, and leaving the guest

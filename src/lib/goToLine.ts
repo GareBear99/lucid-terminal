@@ -1,5 +1,5 @@
 /**
- * Go-to-line parsing (Atom steal #8 — 2026-11-14).
+ * Go-to-line parsing.
  *
  * Atom's go-to-line (`atom/packages/go-to-line/lib/
  * go-to-line-view.js:64-79`): the input accepts only digits

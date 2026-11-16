@@ -1,10 +1,9 @@
 /**
- * Monaco inline-completion provider for the composer (steal #1 —
- * 2026-11-14). The adapter between the pure engine
+ * Monaco inline-completion provider for the composer (*). The adapter between the pure engine
  * (./inlineCompletions.ts) and Monaco's
  * `registerInlineCompletionsProvider` API (monaco-editor 0.57).
  *
- * Contract, from the steal research (steal-research-2026-11-13.md,
+ * Contract, from the design research (
  * the Monaco section — the API is richer than VS Code's, and
  * `disposeInlineCompletions` is REQUIRED in Monaco, not optional):
  *   - provideInlineCompletions returns one item at most — the

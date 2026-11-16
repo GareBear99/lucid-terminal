@@ -1,6 +1,6 @@
 /**
  * Monaco providers for the Files editor, fed by the TypeScript
- * language service (steal #3 — 2026-11-14). The adapter between
+ * language service. The adapter between
  * the LSP client (src/lib/tsLanguageService.ts) and Monaco's
  * provider APIs — completion, hover, signature help.
  *
@@ -8,14 +8,14 @@
  * is a real symbol the service resolved, with a real kind, a
  * real signature, and real docs — it cannot invent an API.
  * That is the point: the tree-sitter structure provider
- * (steal #2) offered names only (kind Variable, no docs, no
+ * offered names only (kind Variable, no docs, no
  * auto-imports); this provider replaces it for TS/JS, and the
  * structure stays as the fallback when the engine is dead
  * (Kite's failure mode — a dead engine returns no completions,
  * never an error — so the fallback offers structure names
  * instead of failing).
  *
- * Contract, from the steal research (the LSP completion shape
+ * Contract, from the design research (the LSP completion shape
  * in typescript-language-server's completion.ts, re-implemented
  * over Monaco's API):
  *   - provideCompletionItems returns items for the word at the
@@ -28,8 +28,7 @@
  *     character ('.', '"', "'", '/', '@', '<' — the clone's
  *     trigger set) the word is empty and the service's list is
  *     returned unfiltered (member completions after a dot).
- *   - after the LSP items, pattern suggestions (steal #7 —
- *     Tabnine, patterns only) are appended for the line
+ *   - after the LSP items, pattern suggestions (Tabnine, patterns only) are appended for the line
  *     prefix typed so far: repeated lines and identifier
  *     chains from the user's own open files, Snippet kind,
  *     sortText `zz-pattern-…` (they sort last), deduped
@@ -94,22 +93,21 @@ export interface EditorLspProviderOptions {
   /** Tree-sitter identifiers in scope at a Monaco position —
    *  the fallback when the engine is unavailable. */
   getStructureIdentifiers: (lineNumber: number, column: number) => string[];
-  /** Repeated shapes from the user's own open files (steal
-   *  #7 — Tabnine patterns): the full pattern texts whose
+  /** Repeated shapes from the user's own open files (Tabnine patterns): the full pattern texts whose
    *  start matches the line prefix the user has typed, or an
    *  empty list. Optional: the provider works without it, and
    *  the patterns are suggestions only — they sort after the
    *  LSP items and are deduped against them, so a verified
    *  symbol always wins over a repeated idiom. */
   getPatternCompletions?: (linePrefix: string) => string[];
-  /** User snippets (Atom steal #10 — snippets, 2026-11-14):
+  /** User snippets (snippets):
    *  read at request time from the settings store's
    *  customSnippets, merged over the built-in library by the
    *  snippet provider. Optional: without it the provider
    *  offers the built-ins only. */
   getUserSnippets?: () => Snippet[];
   /**
-   * Kite's settings toggles (Atom steal #15, 2026-11-14):
+   * Kite's settings toggles:
    * each is a live callback (read at request time, like
    * getUserSnippets, so flipping the switch in Settings
    * takes effect without re-registering the providers).
@@ -122,8 +120,7 @@ export interface EditorLspProviderOptions {
   /** LSP hover at a Monaco position, or null. */
   getHover: (lineNumber: number, column: number) => LspHover | null;
   /**
-   * Hover action links (Atom steal #7 — the hover Docs link,
-   * 2026-11-14). When present, the provider appends a `Docs`
+   * Hover action links (the hover Docs link). When present, the provider appends a `Docs`
    * link (and a `Def` link when the engine knows a definition)
    * to the hover, as markdown links in the `lucid-docs://` /
    * `lucid-def://` schemes — the editor's link opener handles
@@ -137,8 +134,7 @@ export interface EditorLspProviderOptions {
     position: { lineNumber: number; column: number },
   ) => { docs?: string; def?: string } | null;
   /**
-   * Common invocations (Atom steal #19 — Kite signature assist,
-   * 2026-11-14): the lines in the user's own open files that call
+   * Common invocations (signature assist): the lines in the user's own open files that call
    * the given callee — the "How others used this" block, drawn
    * from Lucid's pattern index, never from Kite's cloud data.
    * Optional: without it the signature shows the Docs link only.
@@ -234,7 +230,7 @@ export function registerEditorLspProviders(
     endColumn: wordInfo?.endColumn ?? position.column,
   });
 
-  // The merged completion list (Atom steal #3 — 2026-11-14):
+  // The merged completion list:
   // one fan-out over the registered providers, in priority
   // order — lsp (5), snippet (3), pattern (2), structure
   // (1), word (0) — deduped and source-badged by the merge
@@ -361,7 +357,7 @@ export function registerEditorLspProviders(
     ) {
       try {
         if (!model || !position) return { suggestions: [] };
-        // Kite's completions toggle (steal #15): off means an
+        // Kite's completions toggle: off means an
         // empty list — the suggest widget never opens.
         if (opts.isCompletionsEnabled && !opts.isCompletionsEnabled()) {
           return { suggestions: [] };
@@ -376,7 +372,7 @@ export function registerEditorLspProviders(
         const triggered = !!context?.triggerCharacter && COMPLETION_TRIGGERS.has(context.triggerCharacter);
         if (word.length < 2 && !triggered) return { suggestions: [] };
         const range = wordRange(position, wordInfo);
-        // Tabnine patterns (steal #7): the repeated shapes
+        // Tabnine patterns: the repeated shapes
         // from the user's own open files, offered for the
         // line prefix typed so far. The prefix is the line
         // from its first non-whitespace character to the
@@ -455,11 +451,11 @@ export function registerEditorLspProviders(
     ) {
       try {
         if (!position) return null;
-        // Kite's hover toggle (steal #15): off means no hover.
+        // Kite's hover toggle: off means no hover.
         if (opts.isHoverEnabled && !opts.isHoverEnabled()) return null;
         const hover = opts.getHover(position.lineNumber, position.column);
         if (!hover) return null;
-        // The hover Docs link (Atom steal #7): append `Docs`
+        // The hover Docs link: append `Docs`
         // (and `Def` when the engine knows a definition) to
         // the hover markdown. The word comes from the model;
         // without a word there is nothing to link.
@@ -495,7 +491,7 @@ export function registerEditorLspProviders(
     ) {
       try {
         if (!position) return null;
-        // Kite's signature-help toggle (steal #15): off means
+        // Kite's signature-help toggle: off means
         // no signature popup.
         if (opts.isSignatureHelpEnabled && !opts.isSignatureHelpEnabled()) return null;
         const help = opts.getSignatureHelp(
@@ -504,7 +500,7 @@ export function registerEditorLspProviders(
           context?.triggerCharacter,
         );
         if (!help || help.signatures.length === 0) return null;
-        // Kite signature assist (steal #19): the active
+        // Kite signature assist: the active
         // signature gains a Docs link and a "How others used
         // this" block — the callee comes from the line text
         // at the cursor, the Docs link from the hover wiring,

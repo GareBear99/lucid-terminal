@@ -124,7 +124,7 @@ export interface TerminalTabsViewProps {
   showEqualizeButton?: boolean;
   onEqualizePanes?: () => void;
   /**
-   * Per-tab context menu (Atom steal #17 — tabs
+   * Per-tab context menu (tabs
    * punch-list): right-click a tab for Close Tab, Close
    * Other Tabs, Close Tabs to the Right, Reopen Closed Tab,
    * Split This Tab, and Copy Working Directory. All optional
@@ -234,7 +234,7 @@ export function TerminalTabsView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [closeAsk, onDismissCloseAsk]);
 
-  // Per-tab context menu (Atom steal #17): right-click a tab.
+  // Per-tab context menu: right-click a tab.
   // Clamped so the menu never opens off-screen; Escape or an
   // outside click dismisses it (never a destructive default).
   const [contextMenu, setContextMenu] = useState<{
@@ -334,7 +334,7 @@ export function TerminalTabsView({
           the strip and the real window takes over following the
           pointer. Portaled to the body (see below) so the
           fixed position is truly viewport-relative;
-          pointer-events none, so it never steals the drag. */}
+          pointer-events none, so it never takes over the drag. */}
       {drag.dragGhost &&
         tabs.some((t) => t.id === drag.dragGhost!.tab.id) &&
         // Portaled to the body (Gary, 2026-11-14 — round 2):
@@ -605,7 +605,7 @@ export function TerminalTabsView({
           )}
         </div>
       )}
-      {/* Per-tab context menu (Atom steal #17): fixed at the
+      {/* Per-tab context menu: fixed at the
           cursor, a transparent overlay closes it on an
           outside click, Escape closes it too. "Close Tabs to
           the Right" is disabled on the last tab; Reopen
@@ -871,7 +871,7 @@ function TerminalTabs({
     setActiveTab,
   } = useTerminalStore();
   const splitGroups = useSplitPaneStore((s) => s.groups);
-  // The strip follows the pane order (Atom steal #17 — pane
+  // The strip follows the pane order (pane
   // item ordering): every split group's leaves first, then
   // the rest in store order — stable across active-tab
   // changes (P11), so clicking off a split group never
@@ -1170,7 +1170,7 @@ function TerminalTabs({
       onBloodDropActiveChange={onBloodDropActiveChange}
       bloodDropDisabled={bloodDropDisabled}
       onCreateTab={() => {
-        // Adding a tab while a split is visible must not steal
+        // Adding a tab while a split is visible must not take over
         // the split view (Gary, 2026-11-16 - "as soon as i add
         // a tab it breaks the pairs"): the pair stays on screen
         // and the new tab waits in the strip - it shows on click.
@@ -1197,7 +1197,7 @@ function TerminalTabs({
       // active tab's group — adding a tab must not unmark the pairs.
       splitGroupTabIds={Object.values(splitGroups).flatMap((group) => groupTabIds(group))}
       onCloseTab={handleCloseTab}
-      // Per-tab context menu (Atom steal #17): "to the right"
+      // Per-tab context menu: "to the right"
       // is computed in the RENDERED (pane-ordered) list, not
       // the store order — what the user sees is what closes.
       onSplitTabId={(id) => {
@@ -1220,7 +1220,7 @@ function TerminalTabs({
         );
       }}
       onReopenClosedTab={() => {
-        // Reopening while a split is visible must not steal
+        // Reopening while a split is visible must not take over
         // the split view (same rule as + — 2026-11-16).
         const groups = useSplitPaneStore.getState().groups;
         const active = useTerminalStore.getState().activeTabId;

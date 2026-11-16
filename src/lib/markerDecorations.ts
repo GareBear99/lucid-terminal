@@ -1,5 +1,5 @@
 /**
- * The marker + decoration API (Atom steal #4 — 2026-11-14).
+ * The marker + decoration API.
  *
  * Atom's contract (`atom/src/text-editor.js:2715-2815,2925-2960`,
  * MIT): every annotation is a *marker* (a range that tracks its

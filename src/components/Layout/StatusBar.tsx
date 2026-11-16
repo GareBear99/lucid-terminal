@@ -63,7 +63,7 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
 
       {/* Right Side */}
       <div className="flex items-center gap-3">
-        {/* Brain-alive indicator (Atom steal #16, Kite half):
+        {/* Brain-alive indicator:
             the language engine's health — green while it
             completed an operation in the last 5 seconds. */}
         <BrainAliveIndicator />

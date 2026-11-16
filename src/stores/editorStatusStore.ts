@@ -1,6 +1,5 @@
 /**
- * Published editor state for the status bar (Atom steal #11 —
- * 2026-11-14).
+ * Published editor state for the status bar (*).
  *
  * CodeEditor owns the Monaco instance and publishes what the
  * status bar shows: the cursor position, the selection size,

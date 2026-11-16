@@ -1,6 +1,5 @@
 /**
- * Unified-diff parsing + single-hunk patches (Atom steal #21 —
- * the git panel's local core, 2026-11-14).
+ * Unified-diff parsing + single-hunk patches (the git panel's local core).
  *
  * The unit cases cover the parse (multi-file, multi-hunk, new
  * file, no-newline marker, binary file); the round-trip proves

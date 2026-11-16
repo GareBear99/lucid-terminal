@@ -1,10 +1,8 @@
 /**
  * The built-in tools — the registry's first population
- * (steal #4 — Continue, 2026-11-14).
  *
- * The set mirrors Continue's `getBaseToolDefinitions()`
- * (`core/tools/index.ts` — 9 always-on tools), adapted to
- * Lucid: read_file, create_new_file, run_terminal_command,
+ * The set: 9 always-on tools, adapted to Lucid:
+ * read_file, create_new_file, run_terminal_command,
  * glob_search, view_diff, read_currently_open_file, ls,
  * create_rule_block, fetch_url_content. What lands here:
  * read_file, create_new_file, file_glob_search (glob),
@@ -185,13 +183,18 @@ function formatDiagnostics(diagnostics: LspDiagnosticInfo[]): string {  if (diag
 
 /**
  * The index-backed tools (glob, grep, codebase, symbol)
- * need a built index — the loop builds it at turn start,
- * but a direct call must not silently answer "nothing
+ * need a built index — the loop builds it in the
+ * background at turn start, so a tool that needs it
+ * WAITS for the build (up to 60s) instead of failing
+ * immediately. A direct call with no build running (and
+ * no index) still errors, never silently answers "nothing
  * matches" from an empty index. An unbuilt index is an
  * error, not an empty result.
  */
-function requireIndex(ctx: AgentToolContext): { error: string } | null {
-  return ctx.index.isBuilt ? null : { error: 'The workspace index is not built yet.' };
+async function requireIndex(ctx: AgentToolContext): Promise<{ error: string } | null> {
+  if (ctx.index.isBuilt) return null;
+  const built = await ctx.index.whenBuilt();
+  return built ? null : { error: 'The workspace index is not built yet.' };
 }
 
 function tool(
@@ -290,7 +293,7 @@ async function globSearchImpl(
   if (typeof pattern !== 'string' || !pattern.trim()) {
     return { ok: false, output: '', error: 'a glob pattern is required' };
   }
-  const indexError = requireIndex(ctx);
+  const indexError = await requireIndex(ctx);
   if (indexError) return { ok: false, output: '', error: indexError.error };
   const paths = ctx.index.glob(pattern);
   if (paths.length === 0) {
@@ -321,7 +324,7 @@ async function grepSearchImpl(
     if ('error' in resolved) return { ok: false, output: '', error: resolved.error };
     files = [resolved.path];
   } else {
-    const indexError = requireIndex(ctx);
+    const indexError = await requireIndex(ctx);
     if (indexError) return { ok: false, output: '', error: indexError.error };
     files = ctx.index.getFilePaths().slice(0, MAX_GREP_FILES);
   }
@@ -354,7 +357,7 @@ async function codebaseSearchImpl(
   if (typeof query !== 'string' || !query.trim()) {
     return { ok: false, output: '', error: 'a search query is required' };
   }
-  const indexError = requireIndex(ctx);
+  const indexError = await requireIndex(ctx);
   if (indexError) return { ok: false, output: '', error: indexError.error };
   // Cursor's "doesn't bet on one seed": several candidate
   // terms at once (staff post, forum.cursor.com,
@@ -444,7 +447,11 @@ async function findSymbolImpl(
   } catch {
     // LSP unavailable — the index table stands alone.
   }
-  for (const hit of ctx.index.isBuilt ? ctx.index.findSymbol(name) : []) {
+  // The index is the broad table — wait for the background
+  // build when it is still running, so a symbol the index
+  // knows is not missed because the build had not finished.
+  await ctx.index.whenBuilt();
+  for (const hit of ctx.index.findSymbol(name)) {
     found.set(`${hit.path}:${hit.line}`, hit);
   }
   const hits = [...found.values()];
@@ -523,7 +530,11 @@ async function goToDefinitionImpl(
   } catch {
     // Fall through to the index table.
   }
-  const hits = ctx.index.isBuilt ? ctx.index.findSymbol(symbol) : [];
+  // The index table — wait for the background build when
+  // it is still running, so a definition the index knows
+  // is not missed because the build had not finished.
+  await ctx.index.whenBuilt();
+  const hits = ctx.index.findSymbol(symbol);
   if (hits.length === 0) {
     return { ok: true, output: `No definition found for "${symbol}".` };
   }
@@ -677,7 +688,7 @@ async function multiEditImpl(
 }
 
 /**
- * The cross-file edit pass (Cursor steal, 2026-11-16):
+ * The cross-file edit pass:
  * one plan, several files, applied together. Every file
  * is resolved + read + validated in memory FIRST (the
  * pure core, agentMultiFileEdit.ts); only when the whole
@@ -803,7 +814,7 @@ async function persistEdit(
 }
 
 /**
- * The verify loop's tool (steal #5 — Aider): reflect on
+ * The verify loop's tool: reflect on
  * a file's live diagnostics, fix what has a safe
  * automatic repair, re-check — up to 3 reflections —
  * and persist the verified content. The result is marked

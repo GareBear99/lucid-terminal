@@ -1,5 +1,5 @@
 /**
- * Keymap tests (Atom steal #13 — keymaps, 2026-11-14).
+ * Keymap tests (keymaps).
  *
  * The keymap is the one canonical list of bindings: the
  * application menu takes its accelerators from here, the
@@ -116,11 +116,11 @@ describe('resolveKeymap', () => {
     const resolved = resolveKeymap([]);
     expect(resolved).toEqual(DEFAULT_KEYMAP);
     expect(bindingForCommand('lucid:go-to-symbol')?.keys).toBe('cmd-r');
-    // PaneAxis (Atom steal #9): the horizontal split rides on
+    // PaneAxis: the horizontal split rides on
     // ⌘⇧D, beside the vertical split on ⌘D.
     expect(bindingForCommand('terminal:split')?.keys).toBe('cmd-d');
     expect(bindingForCommand('terminal:split-horizontal')?.keys).toBe('cmd-shift-d');
-    // Keymaps wiring (Atom steal #13): save is the registry's
+    // Keymaps wiring: save is the registry's
     // `file:save`, not a separate `editor:save` — the keymap
     // and the registry must name the same command, or the
     // dispatcher finds a key with no command behind it.
@@ -245,7 +245,7 @@ describe('commandForKeyEvent', () => {
     ).toBe('lucid:go-to-symbol');
   });
 
-  test('a scoped binding gets no menu accelerator (steal #18)', () => {
+  test('a scoped binding gets no menu accelerator', () => {
     // Main cannot know the cursor's scope, so the menu must
     // not carry an accelerator that would fire regardless of
     // scope — the renderer keydown path owns scoped bindings.
@@ -258,7 +258,7 @@ describe('commandForKeyEvent', () => {
     expect(acceleratorForCommand('lucid:go-to-line')).toBe('Ctrl+G');
   });
 
-  test('commandForKeyEvent honours a scope selector (steal #18)', () => {
+  test('commandForKeyEvent honours a scope selector', () => {
     const ctx = { view: 'editor', hasActiveFile: true };
     const overrides = [
       { command: 'lucid:go-to-line', keys: 'ctrl-g', scope: 'comment' },

@@ -12,7 +12,7 @@
  * a drag-out (so the tab appears where Gary pulled it, not
  * at a fixed default spot and never at a remembered spot), and it is a NORMAL window — not
  * always-on-top like the browser mini — and it shows INACTIVE
- * (showInactive, never show + focus: it must not steal the app
+ * (showInactive, never show + focus: it must not take over the app
  * or flash forward over what Gary is doing — he clicks into it
  * to type once the drop lands).
  */

@@ -9,7 +9,7 @@ import { useAgentPermissionStore } from '../../stores/agentPermissionStore';
 
 /**
  * Agent Permissions — the Settings surface over the agent
- * permission store (steal #6 — Zed). This is the user-facing
+ * permission store. This is the user-facing
  * side of the permission model: what the agent may do
  * unsupervised, per tool and per path rule.
  *

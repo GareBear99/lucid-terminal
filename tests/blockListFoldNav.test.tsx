@@ -8,7 +8,7 @@
  * Item 4: ⌘↑/⌘↓ (and Ctrl) move a focused-block highlight;
  * ⌘Home/⌘End jump to the first/last block; the header is
  * sticky within the feed's scroll container. While an Atom
- * modal is open the feed must NOT steal the arrows.
+ * modal is open the feed must NOT take the arrows.
  *
  * Multi-select is NOT built here (the larger half of item 4
  * — reported as remaining); these tests cover nav only.
@@ -143,7 +143,7 @@ describe('feed keyboard block navigation — sweep item 4', () => {
     expect(focusedIds()).toEqual([]);
   });
 
-  test('an open Atom modal owns the arrows — the feed does not steal them', () => {
+  test('an open Atom modal owns the arrows — the feed does not take them', () => {
     seed(['a', 'b']);
     render(<BlockList tabId="tab-1" onReinput={() => {}} fill />);
     useModalStore.getState().open('palette');

@@ -2,13 +2,11 @@
  * Normalize — the composer's input preprocessing for the
  * classifier (Warp-like parsing, 2026-11-14).
  *
- * Shape stolen from LuciferAI Local (`command_keywords.py`
- * helpers + `master_controller.py` normalize-before-classify,
- * Gary's own code — a bit, no credit question): normalize
- * runs BEFORE any classification, and it never rewrites what
- * the user typed — the draft stays exactly as typed; only the
- * classifier's VIEW of it is normalized. The submitted text is
- * always the original.
+ * The shape, from LuciferAI Local (Gary's own code):
+ * normalize runs BEFORE any classification, and it never
+ * rewrites what the user typed — the draft stays exactly
+ * as typed; only the classifier's VIEW of it is
+ * normalized. The submitted text is always the original.
  *
  * Three steps, in order:
  *  1. trim + collapse whitespace;

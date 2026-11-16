@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The brain-alive indicator (Atom steal #16, Kite half) —
+ * The brain-alive indicator —
  * the status-bar pill, driven by a stub client.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

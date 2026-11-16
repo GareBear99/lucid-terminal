@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * AtomModals tests (Atom steals #1/#2/#8 — the command palette,
+ * AtomModals tests (#2/#8 — the command palette,
  * the fuzzy file finder, go-to-symbol, go-to-line).
  *
  * The four modals share one host and one modal store. The
@@ -31,7 +31,7 @@ describe('AtomModals', () => {
   beforeEach(() => {
     useModalStore.setState({ openModal: null });
     // The keydown handler dispatches through the registry now
-    // (Atom steal #13) — the builtins must be registered, the
+    // — the builtins must be registered, the
     // way App does it once at startup. Without them the keymap
     // names a command the registry has never heard of and the
     // dispatch returns null.
@@ -57,8 +57,8 @@ describe('AtomModals', () => {
       fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
     });
     expect(getByPlaceholderText('Type a command or search files, tabs, settings…')).toBeTruthy();
-    // The palette's keystroke labels come from the keymap
-    // (Atom steal #13): the Quick Open row shows the macOS
+    // The palette's keystroke labels come from the keymap:
+    // the Quick Open row shows the macOS
     // glyph label from the keymap, not a static string.
     expect(getByText('⌘P')).toBeTruthy();
   });
@@ -116,7 +116,7 @@ describe('AtomModals', () => {
   });
 });
 
-describe('AtomModals menu events (Atom steal #13 — menus)', () => {
+describe('AtomModals menu events (menus)', () => {
   // The application menu sends 'menu:open-modal' through the
   // preload bridge; AtomModals subscribes and opens the modal.
   // The bridge is mocked on window.lucidAPI here.

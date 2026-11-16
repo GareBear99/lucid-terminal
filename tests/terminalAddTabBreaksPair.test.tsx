@@ -15,8 +15,7 @@
  * below) — but from Gary's seat the pair is broken the moment
  * he adds a tab, because the view itself collapses.
  *
- * FIX: adding a plain tab while a split is visible must not
- * steal the view — the new tab is created in the strip, not
+ * FIX: adding a plain tab while a split is visible must not take over the view — the new tab is created in the strip, not
  * activated, so the pair stays on screen; clicking the new tab
  * shows it. When no split is visible, "+" behaves exactly as
  * before (the new tab shows at once). Split creation keeps
@@ -188,7 +187,7 @@ describe('adding a tab breaks split pairs, live (App level)', () => {
       fireEvent.click(screen.getByTitle('New Terminal'));
       await waitFor(() => expect(screen.getAllByTestId('xterm-surface')).toHaveLength(3));
       const c = useTerminalStore.getState().tabs.find((t) => t.id !== a && t.id !== b)!.id;
-      // The pair stays the active view — the new tab did not steal it.
+      // The pair stays the active view — the new tab did not take it over.
       expect(useTerminalStore.getState().activeTabId).toBe(b);
       expect(visiblePaneCwds()).toEqual(['/tmp/pair-a', '/tmp/pair-a']);
 
@@ -325,7 +324,7 @@ describe('adding a tab breaks split pairs, live (App level)', () => {
     }
   });
 
-  test('palette New Terminal Tab (Cmd+T path): no steal while a split is visible, activates otherwise', async () => {
+  test('palette New Terminal Tab (Cmd+T path): no takeover while a split is visible, activates otherwise', async () => {
     const a = await useTerminalStore.getState().createTab('/tmp/pair-a');
     const b = await useSplitPaneStore.getState().splitTab(a);
     const { unmount } = render(<App />);

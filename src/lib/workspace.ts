@@ -1,5 +1,5 @@
 /**
- * The open-file funnel (Atom steal #14 — 2026-11-14).
+ * The open-file funnel.
  *
  * Atom's workspace opens a file through a deliberate
  * cascade: if the file is already open, reveal it; else if

@@ -80,7 +80,7 @@ describe('submitAgentPrompt', () => {
     expect(blocks.map((b) => b.command)).toEqual(['ls', 'fix the build']);
     expect(blocks[1].kind).toBe('agent-prompt');
     expect(blocks[1].cwd).toBe('/Users/gary');
-    // No notice block: the loop is built (steal #4), and
+    // No notice block: the loop is built, and
     // runAgentTurnForTab lands the result as an
     // `agent-response` block — the stale "isn't built yet"
     // notice is gone.

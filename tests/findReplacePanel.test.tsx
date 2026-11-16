@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Find-and-replace panel tests (Atom steal #5 — 2026-11-14).
+ * Find-and-replace panel tests.
  *
  * The panel is opt-in (projectSearchEnabled): disabled shows
  * the opt-in card, enabled shows the search UI. A search

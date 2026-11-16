@@ -144,7 +144,7 @@ interface InputAreaProps {
     onEscape?: () => void;
   /**
    * Which mode the composer is in, for the inline-completion
-   * provider (ghost answers, steal #1 — 2026-11-14): terminal
+   * provider (ghost answers): terminal
    * mode completes from command history + slash names + open
    * files; agent mode defers to the parent's ghost (the tab's
    * own agent prompts) and the provider stays silent. Defaults
@@ -394,7 +394,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                 monaco.KeyCode.Tab,
                 () => {
                     // Inline-completion offer first (Monaco-native
-                    // ghost, steal #1 — 2026-11-14): the provider
+                    // ghost): the provider
                     // stashes its live offer in inlineOfferRef.
                     // It is valid while it still completes the
                     // current input — the user may have typed
@@ -568,8 +568,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
             editorDisposers.current.push(() => scrollDisposable.dispose());
         }
         
-        // Monaco inline completions (ghost answers, steal #1 —
-        // 2026-11-14): a real ghost after the caret, computed
+        // Monaco inline completions (ghost answers): a real ghost after the caret, computed
         // locally from history / slash names / open files. The
         // provider is the composer's inline source; the parent's
         // overlay ghost is the fallback (the plain textarea when
@@ -595,7 +594,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     // status-bar toggle silences the next offer
                     // with no remount.
                     paused: useSettingsStore.getState().settings.ghostCompletionsPaused ?? false,
-                    // Steal #2 - the live tree-sitter structure feeds
+                    // The live tree-sitter structure feeds
                     // the ghost (top-level definitions + imports of
                     // the file being edited), and the active tab's
                     // cwd lets a relative `src/com` token resolve
@@ -604,7 +603,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     // ready yet, and the provider degrades to
                     // history / slash / files without them.
                     cwd: activeTab?.cwd,
-                    // Steal #3 — the fact-checker verifies the
+                    // The fact-checker verifies the
                     // structure identifiers before the ghost
                     // offers them: a name the language service
                     // cannot resolve at the end of the file is
@@ -624,7 +623,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                             getComposerStructureIdentifiers(activeFilePath),
                           )
                         : [],
-                    // Steal #7 — the patterns the user's own open
+                    // The patterns the user's own open
                     // files actually repeat (repeated lines and
                     // identifier chains), from the lazy in-memory
                     // index, through the engine client (Kite
@@ -867,8 +866,7 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     acceptSuggestionOnEnter: 'off',
                     tabCompletion: 'off',
                     wordBasedSuggestions: 'off',
-                    // Monaco inline completions (ghost answers,
-                    // steal #1): the provider registered at mount
+                    // Monaco inline completions: the provider registered at mount
                     // offers the ghost and the editor renders it
                     // after the caret. prefix mode: the ghost
                     // only shows when the typed text is a prefix

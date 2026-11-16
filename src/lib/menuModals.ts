@@ -1,5 +1,5 @@
 /**
- * Menu → modal wiring (Atom steal #13 — menus, 2026-11-14).
+ * Menu → modal wiring (menus).
  *
  * The application menu (electron/menu.ts) sends one IPC event
  * per click, `menu:open-modal`, carrying a `MenuActionKind`.

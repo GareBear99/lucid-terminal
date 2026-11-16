@@ -1,17 +1,16 @@
 /**
- * The TypeScript language-server contract (steal #3 — 2026-11-14).
+ * The TypeScript language-server contract.
  *
- * The CONTRACT, not the code — the method set and message shapes
- * stolen from two sources, re-implemented in TypeScript:
- *   - Kite's LSP method set (files-copilot design §2.3, from
- *     kiteco-public/kite-go/lsp/server.go): `initialize` /
- *     `initialized`, `textDocument/didOpen` / `didChange` /
- *     `didClose`, `textDocument/completion`, and the
- *     `CompletionItem` / `CompletionList` shapes. The Kite-specific
- *     methods (`kite/selection`, `kite/status`, `kite/track`,
- *     `kite/onboarding`) are NOT part of the steal — they are
- *     Kite's product telemetry and onboarding, and they stay
- *     with Kite.
+ * The CONTRACT, not the code — the method set and message
+ * shapes, implemented in TypeScript:
+ *   - The LSP method set: `initialize` / `initialized`,
+ *     `textDocument/didOpen` / `didChange` / `didClose`,
+ *     `textDocument/completion`, and the
+ *     `CompletionItem` / `CompletionList` shapes. The
+ *     product-specific methods (`kite/selection`,
+ *     `kite/status`, `kite/track`, `kite/onboarding`) are
+ *     NOT part of the design — they are product telemetry
+ *     and onboarding, and they stay out.
  *   - typescript-language-server 6.1.0 (Apache-2.0, the thin LSP
  *     wrapper over tsserver): the capabilities block from
  *     `src/lsp-server.ts` `initialize()` (L327–440), the kind

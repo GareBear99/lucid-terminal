@@ -1,5 +1,5 @@
 /**
- * File-type icons (Atom steal #17 — tree/tabs punch-list) —
+ * File-type icons (tree/tabs punch-list) —
  * the extension → icon mapping.
  */
 import { describe, it, expect } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Scope at a position (Atom steal #18): the node-type path and
+ * Scope at a position: the node-type path and
  * the descriptor derived from it, over a real tree-sitter
  * parse of a sample file.
  */

@@ -1,5 +1,5 @@
 /**
- * Generate the vendored tree-sitter WASM bytes (steal #2 — 2026-11-14).
+ * Generate the vendored tree-sitter WASM bytes.
  *
  * Reads the three .wasm files out of node_modules and writes them as
  * base64 string constants into src/lib/treeSitterWasm.ts. The renderer

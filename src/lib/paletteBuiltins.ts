@@ -1,5 +1,5 @@
 /**
- * The built-in `lucid` extension (Raycast steal — 2026-11-16).
+ * The built-in `lucid` extension.
  *
  * Raycast ships built-in extensions (Calculator, Clipboard
  * History, Quicklinks, Window Management, …) alongside the

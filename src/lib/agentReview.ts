@@ -1,15 +1,12 @@
 /**
  * The edit review — Keep/Reject + checkpoints
- * (steal #6 — Zed, 2026-11-14).
  *
- * Shape stolen from Zed's review flow
- * (`crates/agent_ui/src/agent_diff.rs`): after the agent
- * edits, the changed excerpts show in one view with per-
- * hunk Keep / Reject, plus Keep All / Reject All — and
- * checkpoints (`crates/git/src/repository.rs`
- * create_archive_checkpoint / restore_archive_checkpoint)
+ * The shape: after the agent edits, the changed excerpts
+ * show in one view with per-hunk Keep / Reject, plus Keep
+ * All / Reject All — and checkpoints
+ * (create_archive_checkpoint / restore_archive_checkpoint)
  * snapshot the state before the edit so it can be
- * restored. Lucid's shape of that, in TS:
+ * restored. Lucid's shape, in TS:
  *
  * - The review request: one proposed write (tool call +
  *   diff preview + the diagnostics a fix is about), shown

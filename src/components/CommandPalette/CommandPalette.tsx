@@ -1,5 +1,5 @@
 /**
- * The Atom modals host (steal #1/#2/#8 — 2026-11-14).
+ * The Atom modals host (#2/#8).
  *
  * One host, four modals, one shared FuzzyModal — Atom's
  * `atom-select-list` shape. The host is rendered by App and
@@ -74,7 +74,7 @@ function relativeToRoot(path: string, root: string): string {
   return path;
 }
 
-/** The command palette — Root Search (Raycast steal, 2026-11-16):
+/** The command palette — Root Search:
  * one input over commands, quicklinks, files, tabs and settings,
  * with the ⌘K Action Panel and inline argument prompts. The old
  * registry-only list lives on inside it (the providers adapt
@@ -133,7 +133,7 @@ function FinderModal({ switchView }: { switchView: (view: View) => void }) {
       onSelect={async (item) => {
         close();
         markProjectFileOpened(item.id);
-        // The open funnel (Atom steal #14): reveal if open,
+        // The open funnel: reveal if open,
         // open in-project, or add the file's directory as a
         // project first.
         await openFileInWorkspace(item.id);
@@ -342,7 +342,7 @@ export function AtomModals({ context, switchView }: AtomModalsProps) {
   const openModal = useModalStore((s) => s.openModal);
   const open = useModalStore((s) => s.open);
 
-  // Global shortcuts (Atom steal #13 — keymaps): ONE dispatcher
+  // Global shortcuts (keymaps): ONE dispatcher
   // for every keymap binding. The keydown used to be four
   // hardcoded branches (⌘⇧P/⌘P/⌘R/Ctrl+G) that could disagree
   // with the keymap, the menu and the palette; now the event
@@ -364,7 +364,7 @@ export function AtomModals({ context, switchView }: AtomModalsProps) {
       if (useModalStore.getState().openModal !== null) return;
       const ctx = contextRef.current;
       const overrides = useSettingsStore.getState().settings.customKeybindings ?? [];
-      // Scope system (Atom steal #18): the cursor's descriptor
+      // Scope system: the cursor's descriptor
       // rides into the dispatcher, so scoped bindings only
       // fire when it matches their selector.
       const scope = useScopeStore.getState().currentScope;
@@ -375,7 +375,7 @@ export function AtomModals({ context, switchView }: AtomModalsProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open]);
 
-  // Application menu actions (Atom steal #13 — menus). The
+  // Application menu actions (menus). The
   // menu's accelerators (Cmd+Shift+P / Cmd+P / Cmd+R) pre-empt
   // this keydown handler in the packaged app — the menu owns
   // Cmd+R because the default menu's Reload used to shadow

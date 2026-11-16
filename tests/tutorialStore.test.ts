@@ -1,5 +1,5 @@
 /**
- * Tutorial store (Atom steal #15, Kite half) — step navigation.
+ * Tutorial store — step navigation.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useTutorialStore } from '../src/stores/tutorialStore';

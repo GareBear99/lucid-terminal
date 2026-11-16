@@ -1,5 +1,5 @@
 /**
- * Find-and-replace panel (Atom steal #5 — 2026-11-14).
+ * Find-and-replace panel.
  *
  * Atom's `find-and-replace` bottom panel: a query, a
  * replacement, regex / case / whole-word toggles, a scope
@@ -107,7 +107,7 @@ export function FindReplacePanel() {
   };
 
   const jumpToMatch = async (match: SearchMatch) => {
-    // The open funnel (Atom steal #14): a search hit outside
+    // The open funnel: a search hit outside
     // every known project adds its directory as a project.
     await openFileInWorkspace(match.file);
     requestEditorJump({
@@ -161,7 +161,7 @@ export function FindReplacePanel() {
     }
   };
 
-  // Opt-in card (Atom steal #5): the feature is off until
+  // Opt-in card: the feature is off until
   // `projectSearchEnabled` is true.
   if (!settings.projectSearchEnabled) {
     return (

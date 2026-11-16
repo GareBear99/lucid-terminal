@@ -1,5 +1,5 @@
 /**
- * The jump stack (Atom steal #22): push the position a jump
+ * The jump stack: push the position a jump
  * leaves from, pop it on go-back.
  */
 

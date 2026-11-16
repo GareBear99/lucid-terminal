@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Menu subscription tests (Atom steal #13 — menus, 2026-11-14).
+ * Menu subscription tests (menus).
  *
  * `subscribeMenuModals` is the renderer's side of the
  * `menu:open-modal` IPC channel: it subscribes to the

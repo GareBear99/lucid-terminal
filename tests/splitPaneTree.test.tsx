@@ -1,5 +1,5 @@
 /**
- * SplitPaneTree tests (Atom steal #9 — PaneAxis tree, 2026-11-14).
+ * SplitPaneTree tests (PaneAxis tree).
  *
  * The tree renders one split group's nodes as nested flex
  * containers: a vertical node is a row, a horizontal node is a

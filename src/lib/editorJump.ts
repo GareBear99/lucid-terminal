@@ -1,5 +1,5 @@
 /**
- * The editor-jump bus (Atom steal #8 — 2026-11-14).
+ * The editor-jump bus.
  *
  * Go-to-symbol, go-to-line and the fuzzy finder's `:line`
  * suffix all need the same thing: put the editor on a file,

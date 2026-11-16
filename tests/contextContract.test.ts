@@ -19,7 +19,8 @@ import type {
   CopilotChatRequest,
   CopilotTransport,
 } from '../src/lib/copilotApi';
-import { LocalPlanner, type BrainContext } from '../src/lib/agentBrain';
+import type { BrainContext } from '../src/lib/agentBrain';
+import { LLMBuilderBrain } from '../src/lib/llmbuilderBrain';
 import type { AgentFileIndex } from '../src/lib/agentIndex';
 import {
   CONTEXT_CONTRACT,
@@ -87,9 +88,9 @@ describe('context contract — Copilot (the builder)', () => {
   });
 });
 
-describe('context contract — local planner (the builder)', () => {
+describe('context contract — LLMBuilder brain (the builder)', () => {
   it('sends nothing — its plan is local tool calls only', async () => {
-    const planner = new LocalPlanner();
+    const planner = new LLMBuilderBrain();
     const plan = await planner.plan('read src/app.ts', ctx());
     expect(plan.toolCalls.length).toBeGreaterThan(0);
     for (const call of plan.toolCalls) {
@@ -133,7 +134,7 @@ describe('context contract — the module', () => {
     }
   });
 
-  it('the local planner and the driving intelligence send nothing', () => {
+  it('the LLMBuilder brain and the driving intelligence send nothing', () => {
     for (const id of ['local-planner', 'driving-intelligence', 'ai-chat-local'] as const) {
       const entry = CONTEXT_CONTRACT.find((e) => e.id === id)!;
       expect(entry.sends).toHaveLength(0);
@@ -151,7 +152,7 @@ describe('context contract — the module', () => {
   });
 
   it('the guest rule states the refusal, the carve-out, and no persistence', () => {
-    expect(CONTEXT_CONTRACT_GUEST).toContain('the Agent (local planner) is refused');
+    expect(CONTEXT_CONTRACT_GUEST).toContain('the Agent (LLMBuilder brain) is refused');
     expect(CONTEXT_CONTRACT_GUEST).toContain('Copilot is allowed (carve-out)');
     expect(CONTEXT_CONTRACT_GUEST).toContain('Nothing a guest does is persisted');
   });

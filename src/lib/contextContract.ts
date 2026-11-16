@@ -29,16 +29,16 @@
  *   reveal project and directory names. That is inherent
  *   to how Copilot plans (it needs the workspace layout),
  *   and it is stated here plainly rather than hidden.
- * - The driving intelligence IS the local planner today
+ * - The driving intelligence IS the LLMBuilder brain today
  *   (the LLMBuilder base). The Tier 5, ARC Server, and
  *   starship driving agents are not connected as planning
  *   brains yet (drivingAgents.ts) — they send nothing and
  *   run no tools.
  *
  * Guest (verified from the gates, not assumed):
- * - The Agent (local planner) is REFUSED in guest — the
+ * - The Agent (LLMBuilder brain) is REFUSED in guest — the
  *   terminal flip to agent mode is refused
- *   (Terminal.tsx handoffToAgent), so the local planner
+ *   (Terminal.tsx handoffToAgent), so the LLMBuilder brain
  *   never runs in guest.
  * - Copilot IS allowed in guest (carve-out) and sends
  *   the same payload to GitHub; every write is reviewed.
@@ -77,13 +77,13 @@ export interface ContextContractEntry {
 export const CONTEXT_CONTRACT: readonly ContextContractEntry[] = [
   {
     id: 'local-planner',
-    surface: 'Agent — the local planner (LLMBuilder base)',
+    surface: 'Agent — the LLMBuilder brain (local retrieval)',
     destination: 'Nowhere — no network, no model, no SP.',
     sends: [],
     staysLocal: [
       {
         item: 'Your prompt (the words you typed)',
-        source: 'agentBrain.ts — LocalPlanner.plan(prompt, ctx)',
+        source: 'llmbuilderBrain.ts — LLMBuilderBrain.plan(prompt, ctx)',
       },
       {
         item: 'Workspace root path',
@@ -115,12 +115,12 @@ export const CONTEXT_CONTRACT: readonly ContextContractEntry[] = [
     id: 'driving-intelligence',
     surface: 'Driving intelligence (LLMBuilder tab)',
     destination:
-      'Nowhere — the LLMBuilder base IS the local planner (above).',
+      'Nowhere — the LLMBuilder base IS the agent brain (above).',
     sends: [],
     staysLocal: [
       {
-        item: 'The same local context as the local planner (prompt, paths, index)',
-        source: 'drivingAgents.ts — the llmbuilder base runs the local planner brain',
+        item: 'The same local context as the agent brain (prompt, paths, index)',
+        source: 'drivingAgents.ts — the llmbuilder base runs the LLMBuilder brain',
       },
       {
         item: 'Tier 5, ARC Server, and starship agents: not connected as planning brains yet — they send nothing and run no tools',
@@ -295,7 +295,7 @@ export const CONTEXT_CONTRACT: readonly ContextContractEntry[] = [
 /** The guest rule, stated once for the whole contract
  *  (verified from the gates — see the module doc). */
 export const CONTEXT_CONTRACT_GUEST =
-  'In guest: the Agent (local planner) is refused — the terminal flip to agent mode ' +
-  'does not happen, so the local planner never runs. Copilot is allowed (carve-out) ' +
+  'In guest: the Agent (LLMBuilder brain) is refused — the terminal flip to agent mode ' +
+  'does not happen, so the LLMBuilder brain never runs. Copilot is allowed (carve-out) ' +
   'and sends the same payload to GitHub; every write is reviewed. Nothing a guest ' +
   'does is persisted — the guest veil drops the history on exit.';

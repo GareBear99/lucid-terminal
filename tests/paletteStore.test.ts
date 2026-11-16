@@ -1,5 +1,5 @@
 /**
- * Palette store tests (Raycast steal).
+ * Palette store tests.
  *
  * The palette's own state — favorites, aliases, frecency,
  * quicklinks, disabled extensions/commands — lives in ONE key,

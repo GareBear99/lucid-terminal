@@ -1,5 +1,5 @@
 /**
- * The jump stack (Atom steal #22, 2026-11-14) — the position
+ * The jump stack — the position
  * stack behind go-back.
  *
  * Atom pushed the cursor position when a jump happened

@@ -1,5 +1,5 @@
 /**
- * Keymaps (Atom steal #13 — keymaps, 2026-11-14).
+ * Keymaps (keymaps).
  *
  * Atom's shape, Lucid's size: a keymap is a list of bindings
  * — one command, one keystroke, an optional `when` context —
@@ -15,7 +15,7 @@
  * elsewhere); `ctrl` is always the Control key. A binding
  * with `when: 'inEditor'` only matches while the editor view
  * is active with a file open — that is what keeps Ctrl+G
- * (go-to-line) from stealing the terminal's readline Ctrl+G,
+ * (go-to-line) from taking over the terminal's readline Ctrl+G,
  * and what keeps Cmd+R (go-to-symbol) from ever firing in a
  * surface with no file.
  *
@@ -28,7 +28,7 @@
  * (empty) unbinds the command. Nothing here touches the
  * terminal, the agent loop, or the driving intelligence.
  *
- * Scoped bindings (Atom steal #18): a binding may carry a
+ * Scoped bindings: a binding may carry a
  * `scope` selector — it only fires when the cursor's scope
  * descriptor (see src/lib/scopeDescriptor.ts) matches it.
  */
@@ -46,7 +46,7 @@ export interface KeymapBinding {
   keys: string;
   /** Context the binding matches in. Default 'always'. */
   when?: KeymapWhen;
-  /** Scope selector (Atom steal #18): when set, the binding
+  /** Scope selector: when set, the binding
    *  only fires when the cursor's scope descriptor matches
    *  it — e.g. `comment` or `string.quoted`. Unset means
    *  every scope. The application menu never carries an
@@ -69,7 +69,7 @@ export interface KeymapBinding {
  * widget (the editor's find), and ⌘D in the editor is
  * Monaco's add-selection-to-next-find-match — the split
  * command's registry `when` (terminal view only) keeps
- * ⌘D from stealing it. The keymap only lists bindings
+ * ⌘D from taking it over. The keymap only lists bindings
  * Lucid itself dispatches (see keymapDispatch.ts).
  */
 export const DEFAULT_KEYMAP: KeymapBinding[] = [
@@ -244,8 +244,8 @@ export function bindingForCommand(
 
 /** Electron accelerator string for a command, e.g.
  *  `CmdOrCtrl+Shift+P` for `cmd-shift-p`. Undefined when the
- *  command has no binding — or when the binding is scoped
- *  (Atom steal #18): main cannot know the cursor's scope, so
+ *  command has no binding — or when the binding is scoped:
+ *  main cannot know the cursor's scope, so
  *  a scoped binding gets no menu accelerator at all and the
  *  renderer keydown path owns it. */
 export function acceleratorForCommand(

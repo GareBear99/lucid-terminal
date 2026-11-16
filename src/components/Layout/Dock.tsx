@@ -1,5 +1,5 @@
 /**
- * Dock (Atom steal #12 — 2026-11-14).
+ * Dock.
  *
  * One edge of the window (left, right, bottom): a mask that
  * animates 0↔N px, a chevron toggle at the window edge, and a

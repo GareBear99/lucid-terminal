@@ -1,5 +1,5 @@
 /**
- * Merged completion tests (Atom steal #3 — 2026-11-14).
+ * Merged completion tests.
  *
  * One completion list, fed by many providers: the registry
  * fans one request out in priority order, dedups by

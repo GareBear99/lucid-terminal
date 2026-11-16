@@ -1,16 +1,11 @@
 /**
  * The agent loop — the driving loop subsystem
- * (steal #4 — Continue, 2026-11-14).
  *
- * Shape stolen from Continue's CLI loop
- * (`extensions/cli/src/stream/streamChatResponse.ts:443`):
- * a plain `while (true)` — stream a response, execute
- * its tool calls, append the results, repeat — plus the
- * GUI loop's policy gate
- * (`gui/src/redux/thunks/streamNormalInput.ts`):
- * preprocess → evaluate policies → auto-run readonly →
- * pause for approval → continue. The loop ends when the
- * brain returns no tool calls.
+ * The shape: a plain `while (true)` — stream a response,
+ * execute its tool calls, append the results, repeat —
+ * plus the GUI loop's policy gate: preprocess → evaluate
+ * policies → auto-run readonly → pause for approval →
+ * continue. The loop ends when the brain returns no tool calls.
  *
  * This closes gap G1 from the driving-intelligence
  * dissection (the pipeline, the tool pass, and the intent
@@ -36,7 +31,7 @@
  *    registry (errors come back as context, never thrown)
  *    → edit tools carry their diagnostics in the result
  *    → an edit that leaves diagnostics behind is
- *    VERIFIED (fix_diagnostics — steal #5, Aider):
+ *    VERIFIED (fix_diagnostics):
  *    reflect, fix, re-check, up to 3 reflections, before
  *    the next call. A result already marked verified is
  *    never re-verified.
@@ -63,11 +58,11 @@
  * callers keep the old default (logged-in auto-approves)
  * unless they pass otherwise.
  *
- * Re-planning (Claude Code steal, 2026-11-16): the loop
+ * Re-planning: the loop
  *  plans AGAIN after every round, from the round's
  *  results (`BrainContext.history`) — the `while (true)`
  *  of Claude Code's `query.ts:307` — until the brain
- *  returns no calls. The local planner answers a re-plan
+ *  returns no calls. The LLMBuilder brain answers a re-plan
  *  by never repeating a call an earlier round already ran,
  *  and by following through on what a search found
  *  (agentBrain.ts). The max-turns guard (10) is the same
@@ -88,7 +83,8 @@
 import type { AgentBrain, BrainContext, BrainRoundResult, PlannedToolCall } from './agentBrain';
 import type { AgentTodo } from './agentTodos';
 import { AgentTodoList } from './agentTodos';
-import { LocalPlanner } from './agentBrain';
+import { LLMBuilderBrain } from './llmbuilderBrain';
+import { extractFileCandidates } from './inputParse';
 import { electronAgentHost, type AgentHost } from './agentHost';
 import { AgentFileIndex } from './agentIndex';
 import { decideToolPolicy } from './agentPolicy';
@@ -119,8 +115,7 @@ export interface AgentTurnResult {
   edits: Array<{ path: string; kind: 'created' | 'edited'; replacements: number }>;
   /** Diagnostics the run's edits left behind. */
   diagnostics: Array<{ path: string; line: number; message: string; code?: string | number }>;
-  /** What the verify loop did, per file it verified
-   *  (steal #5 — Aider). */
+  /** What the verify loop did, per file it verified. */
   verifications: Array<{ path: string; reflections: number; fixed: number; remaining: number }>;
   /** Why the run stopped: 'done' | 'aborted' | 'max-rounds' | 'failed'. */
   stopped: 'done' | 'aborted' | 'max-rounds' | 'failed';
@@ -137,6 +132,8 @@ export interface AgentTurnResult {
 }
 
 export type AgentLoopEvent =
+  | { type: 'index-progress'; phase: 'walk' | 'index'; done: number; total: number | null }
+  | { type: 'index-done'; files: number }
   | { type: 'tool-start'; name: string; status: string }
   | { type: 'tool-done'; name: string; status: string; ok: boolean }
   | { type: 'tool-blocked'; name: string; reason: string }
@@ -148,7 +145,7 @@ export type AgentLoopEvent =
   | { type: 'reply'; reply: string };
 
 /** What the loop hands the approval callback alongside
- *  the call (steal #6 — Zed): the rendered wouldLikeTo
+ *  the call: the rendered wouldLikeTo
  *  line is the review's summary, and the diagnostics are
  *  the reason a verify-step fix call is proposed. */
 export interface AgentApprovalDetail {
@@ -164,7 +161,7 @@ export interface AgentLoopOptions {
   workspaceRoot: string;
   cwd?: string;
   isGuest?: boolean;
-  /** The brain (default: the local planner). */
+  /** The brain (default: the LLMBuilder brain). */
   brain?: AgentBrain;
   /** The driving agent the run is under (the LLMBuilder
    *  tab's pick — the caller resolves it from Settings).
@@ -182,8 +179,7 @@ export interface AgentLoopOptions {
   /** Write tools run without pausing (default: true for
    *  logged-in runs, false for guest — see the header). */
   autoApproveWrites?: boolean;
-  /** The permission set the gate consults (steal #6 —
-   *  Zed). When absent, every tool runs at its default
+  /** The permission set the gate consults. When absent, every tool runs at its default
    *  (readonly 'auto', write 'ask'). */
   permissions?: AgentPermissionSet;
   /** Approval callback, called when the gate says a write
@@ -191,7 +187,7 @@ export interface AgentLoopOptions {
    *  Return true to run it, false to refuse. When absent,
    *  the answer is false (deny) — the run reports the
    *  refusal instead of writing. The second argument is
-   *  the review detail (steal #6 — Zed): the rendered
+   *  the review detail: the rendered
    *  summary line, plus the diagnostics for a verify-step
    *  fix call. */
   approve?: (call: PlannedToolCall, detail?: AgentApprovalDetail) => Promise<boolean>;
@@ -255,7 +251,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
   const autoApproveWrites = options.autoApproveWrites ?? !isGuest;
   const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
-  const brain: AgentBrain = options.brain ?? new LocalPlanner();
+  const brain: AgentBrain = options.brain ?? new LLMBuilderBrain();
   const registry = options.registry ?? getAgentRegistry();
   const host = options.host ?? electronAgentHost;
   const index = options.index ?? getAgentIndex(workspaceRoot, host);
@@ -305,15 +301,46 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
   }
 
   try {
-    // 1. The index: build once, refresh after — the loop's
-    //    @codebase. A build failure is not fatal (the
-    //    index-backed tools will say so); the run continues
-    //    with what it has.
-    if (!index.isBuilt) {
-      await index.build(workspaceRoot);
-    } else {
-      await index.refresh();
-    }
+    // 1. The index — the fast path. The old loop built the
+    //    whole index BEFORE planning, over the workspace
+    //    root (a home dir: depth 10, up to 50,000 files,
+    //    each read up to 500 KB) with no progress event —
+    //    so the UI sat at "Working…" for minutes before
+    //    planning even started. Now: prepare the task's
+    //    files first (the files the prompt names, the open
+    //    files, the cwd listing — a handful of reads), plan
+    //    from those, and build the full index in the
+    //    background with progress events. The index-backed
+    //    tools wait for the build (up to 60s) when they
+    //    actually need it, instead of the whole run
+    //    waiting for it up front.
+    const taskPaths = extractFileCandidates(prompt)
+      .map((c) => c.text)
+      .filter((t) => t.includes('/') || /\.[A-Za-z0-9]{1,10}$/.test(t))
+      // indexOne reads absolute paths — a relative
+      // candidate resolves under the cwd (a bare filename
+      // has no path to resolve, so it is left to the
+      // background build's glob, which the brain retries
+      // against when it cannot resolve it).
+      .map((t) => (t.startsWith('/') ? t : `${cwd.replace(/\/$/, '')}/${t}`));
+    const openFilePaths = host.getOpenFiles().map((f) => f.path);
+    await index.prepareForTask(workspaceRoot, { cwd, taskPaths, openFiles: openFilePaths });
+    // The full build runs in the background (not awaited)
+    // — the run plans immediately, and the tools that need
+    // the index wait for it (agentToolsImpl.ts). A build
+    // failure is not fatal (the index-backed tools will
+    // say so); the run continues with what it has.
+    const buildPromise = index.isBuilt
+      ? index.refresh((progress) => onEvent({ type: 'index-progress', ...progress }))
+      : index.build(workspaceRoot, (progress) => onEvent({ type: 'index-progress', ...progress }));
+    void buildPromise
+      .then(() => {
+        onEvent({ type: 'index-done', files: index.getKnownPaths().length });
+      })
+      .catch(() => {
+        // A build failure is not fatal — the index-backed
+        // tools will say so, and the run continues.
+      });
 
     // 2. The turn loop (Claude Code's `while (true)` —
     //    query.ts:307): plan a round, run it, feed the
@@ -384,7 +411,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         let approved = false;
         if (options.approve) {
           try {
-            // The review detail rides along (steal #6 — Zed):
+            // The review detail rides along:
             // the rendered summary for every call, plus the
             // diagnostics when this is a verify-step fix call.
             approved = await options.approve(call, {
@@ -521,7 +548,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
           onEvent({ type: 'todo-update', todos: todos.snapshot() });
         }
 
-      // The verify step (steal #5 — Aider): an edit that
+      // The verify step: an edit that
       // leaves diagnostics behind is reflected on, not
       // merely reported. One fix_diagnostics call per
       // edited file, through the same policy + registry
@@ -542,8 +569,8 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
         for (const editedPath of editedPaths) {
           if (options.signal?.aborted) break;
           onEvent({ type: 'verify-start', path: editedPath });
-          // The fix call carries the diagnostics it is about
-          // (steal #6 — Zed): the review shows them as the
+          // The fix call carries the diagnostics it is about:
+          // the review shows them as the
           // reason, so the user can judge the fix before it
           // runs — the diagnostics are what the fix proposes
           // to repair.

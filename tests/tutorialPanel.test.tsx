@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Tutorial panel (Atom steal #15, Kite half) — the picker
+ * Tutorial panel — the picker
  * and the step viewer.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';

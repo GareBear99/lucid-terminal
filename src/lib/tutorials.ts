@@ -1,5 +1,5 @@
 /**
- * Tutorials (Atom steal #15, Kite half — 2026-11-14).
+ * Tutorials.
  *
  * Atom's tutorial feature is a `tutorials/` directory of
  * files, each exposing a JSON structure with a title, a

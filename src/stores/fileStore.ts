@@ -572,7 +572,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       return;
     }
 
-    // Whitespace-on-save (Atom steal #20): the enabled
+    // Whitespace-on-save: the enabled
     // transforms run before the write, and the in-memory
     // content is updated to match — the editor shows the
     // trimmed text and the dirty flag clears against it.

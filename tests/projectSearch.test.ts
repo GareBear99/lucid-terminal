@@ -1,5 +1,5 @@
 /**
- * Project search pure tests (Atom steal #5 — 2026-11-14).
+ * Project search pure tests.
  *
  * The pure parts: grouping matches by file, the search
  * pattern builder (literal escaping, regex validation,

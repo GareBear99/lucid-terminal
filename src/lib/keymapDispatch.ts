@@ -1,5 +1,5 @@
 /**
- * Keymap dispatch (Atom steal #13 — keymaps, 2026-11-14).
+ * Keymap dispatch (keymaps).
  *
  * This is the one place a keyboard event becomes a command.
  * The keymap (src/lib/keymap.ts) is data — it says which
@@ -68,7 +68,7 @@ export interface DispatchKeyEventOptions {
   overrides?: KeymapBinding[];
   /** Platform for the cmd/ctrl mapping (the running one by default). */
   platform?: NodeJS.Platform;
-  /** The cursor's scope descriptor (Atom steal #18): scoped
+  /** The cursor's scope descriptor: scoped
    *  bindings only fire when it matches their selector.
    *  Null (no tree / engine down) means no scoped binding
    *  fires, except `*`. */

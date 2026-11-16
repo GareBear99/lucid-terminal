@@ -1,18 +1,14 @@
 /**
  * The policy gate — the pass before a tool call runs
- * (steal #4 — Continue, 2026-11-14).
  *
- * Shape stolen from Continue twice over: the
- * `PolicyGate.decide()` in LLMBuilder's own tool pass
- * (`MCP_Tools/mcp/client/policy_gate.py` — unknown tool
+ * The shape: a `PolicyGate.decide()` — unknown tool
  * → blocked, disabled → blocked, denied path → blocked,
  * approval required and not approved → requires_approval,
- * otherwise allowed; a denial still leaves a receipt)
- * and Continue's per-call escalation
- * (`core/tools/policies/fileAccess.ts` — files outside
- * the workspace always escalate, whatever the base
- * policy) plus the GUI loop's order (preprocess → evaluate
- * policies → auto-run readonly → pause for approval).
+ * otherwise allowed; a denial still leaves a receipt —
+ * plus per-call escalation (files outside the workspace
+ * always escalate, whatever the base policy) and the GUI
+ * loop's order (preprocess → evaluate policies → auto-run
+ * readonly → pause for approval).
  *
  * Decisions, in order — the first match wins:
  * 1. Unknown tool → blocked ("Unknown tool: X"). The
@@ -26,7 +22,7 @@
  * 4. A path argument matching the denied list (secrets,
  *    keys, credentials — Continue's `ignore.ts` security
  *    list, same patterns as the index) → blocked.
- * 5. The permission model (steal #6 — Zed): a 'deny'
+ * 5. The permission model: a 'deny'
  *    rule or per-tool 'deny' → blocked; an 'auto' rule or
  *    per-tool 'auto' → allowed. Steps 3–4 are hardcoded
  *    safety and always win over permissions — no rule or
@@ -64,7 +60,7 @@ export interface PolicyContext {
   workspaceRoot: string;
   cwd: string;
   isGuest: boolean;
-  /** The driving agent the run is under (steal #3's picker —
+  /** The driving agent the run is under (the picker —
    *  the LLMBuilder tab's pick). Attribution only: the gate's
    *  rules are agent-independent — a denied path is denied
    *  under every agent, and no agent can reopen one. The
@@ -78,8 +74,7 @@ export interface PolicyContext {
    *  set this (a guest write is always asked, and asked
    *  means denied until the review UI answers). */
   autoApproveWrites: boolean;
-  /** The permission set the gate consults (steal #6 —
-   *  Zed). When absent, every tool runs at its default
+  /** The permission set the gate consults. When absent, every tool runs at its default
    *  (readonly 'auto', write 'ask'). */
   permissions?: AgentPermissionSet;
 }
@@ -151,7 +146,7 @@ export function decideToolPolicy(
     }
   }
 
-  // The permission model (steal #6 — Zed): deny beats
+  // The permission model: deny beats
   // everything below; auto allows; ask falls through to
   // the run's approval mode. The path checks above are
   // hardcoded safety and already ran — no permission can

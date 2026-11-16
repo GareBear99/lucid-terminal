@@ -661,7 +661,7 @@ describe('Prompt-row clicks focus the composer (Gary, 2026-11-12 — the prompt-
     expect(document.activeElement).toBe(nonDevmodeComposerInput());
   });
 
-  test('devmode: clicking the prompt section does NOT steal focus into the dev bar', async () => {
+  test('devmode: clicking the prompt section does NOT take focus into the dev bar', async () => {
     renderDevmode(3);
     await screen.findByTestId('dev-command-bar');
     const input = devComposerInput();

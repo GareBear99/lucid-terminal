@@ -271,7 +271,7 @@ function BrowserPanel() {
   // attaching the new tab's BrowserView yanks focus to its webarea
   // after the first focus lands. The attach effect below schedules
   // a second round once main has attached the view, so the focus
-  // lands after the steal either way. Stable across renders: it
+  // lands after the focus yank either way. Stable across renders: it
   // only touches refs and the module helper.
   const cancelAddressBarRetryRef = useRef<(() => void) | null>(null);
   const focusAfterAttachRef = useRef(false);
@@ -504,7 +504,7 @@ function BrowserPanel() {
   // Cmd+L / Ctrl+L is the exception: it is window-wide while the
   // browser tab is active, so Gary can hit it from the terminal
   // prompt or the document body too. The terminal keeps no Cmd+L
-  // binding of its own, so nothing is stolen. (Keys typed INSIDE
+  // binding of its own, so nothing is taken from it. (Keys typed INSIDE
   // the page never reach this listener — the BrowserView is a
   // separate webContents — so main forwards those via
   // `browser:focus-address-bar`, subscribed in the effect above.)
@@ -628,7 +628,7 @@ function BrowserPanel() {
     void window.lucidAPI.browser.activate(activeTabId, bounds()).then(() => {
       // A new tab asked for the address bar: the view has just
       // attached — and attaching yanks focus to its webarea — so
-      // re-assert the focus now. The retry helper covers any steal
+      // re-assert the focus now. The retry helper covers any focus takeover
       // that lands after this round too.
       if (focusAfterAttachRef.current) {
         focusAfterAttachRef.current = false;

@@ -1,5 +1,5 @@
 /**
- * Project find-and-replace (Atom steal #5 — 2026-11-14).
+ * Project find-and-replace.
  *
  * Atom's `find-and-replace` package: search the project with
  * ripgrep, show matches grouped by file, replace one or all.

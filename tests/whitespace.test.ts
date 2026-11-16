@@ -1,6 +1,6 @@
 /**
  * Whitespace-on-save, wrap-guide rulers, and bracket config
- * (Atom steal #20 — settings smalls, 2026-11-14).
+ * (settings smalls).
  */
 import { describe, it, expect } from 'vitest';
 import {

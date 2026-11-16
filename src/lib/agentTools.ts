@@ -1,16 +1,14 @@
 /**
  * The tool registry — the agent loop's tool pass
- * (steal #4 — Continue, 2026-11-14).
  *
- * Shape stolen from Continue: the `Tool` interface
- * (`core/index.d.ts:1132`) — definition + implementation
- * per tool, same basename — the `wouldLikeTo` /
- * `isCurrently` / `hasAlready` status triple (the sidebar
- * shows "wants to edit X" → "editing X" → "edited X" from
- * the definition itself), `readonly` + `defaultToolPolicy`,
- * and the dispatcher (`core/tools/callTool.ts`): errors
- * are returned to the caller as error context, never
- * thrown, so one bad call never kills the run.
+ * The shape: a `Tool` interface — definition +
+ * implementation per tool, same basename — the
+ * `wouldLikeTo` / `isCurrently` / `hasAlready` status
+ * triple (the sidebar shows "wants to edit X" → "editing
+ * X" → "edited X" from the definition itself), `readonly`
+ * + `defaultToolPolicy`, and a dispatcher: errors are
+ * returned to the caller as error context, never thrown,
+ * so one bad call never kills the run.
  *
  * This closes gap G2 from the driving-intelligence
  * dissection (the LLMBuilder `ToolRouter` is an empty
@@ -98,12 +96,11 @@ export interface AgentToolResult {
   /** True when this result's diagnostics were already
    *  reflected on (the verify loop ran on them) — the
    *  loop must NOT re-verify a verified result, or the
-   *  reflection would run twice on the same diagnostics
-   *  (steal #5 — Aider). `fix_diagnostics` sets this;
-   *  edit tools do not. */
+   *  reflection would run twice on the same diagnostics.
+   *  `fix_diagnostics` sets this; edit tools do not. */
   verified?: boolean;
   /** The verification's own numbers, when this result
-   *  came out of the verify loop (steal #5 — Aider). */
+   *  came out of the verify loop. */
   verification?: { reflections: number; fixed: number; remaining: number };
 }
 

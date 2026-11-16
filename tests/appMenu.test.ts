@@ -1,5 +1,5 @@
 /**
- * Application menu tests (Atom steal #13 — menus, 2026-11-14).
+ * Application menu tests (menus).
  *
  * The menu exists to fix the ⌘R bug: Electron's default menu
  * carried Reload (Cmd+R) / Force Reload (Cmd+Shift+R), and a

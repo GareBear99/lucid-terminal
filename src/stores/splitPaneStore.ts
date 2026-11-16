@@ -15,7 +15,7 @@
  * the audit directed ("reusing the existing tab strip for pane
  * management").
  *
- * PANEAXIS TREE (Atom steal #9, 2026-11-14): a group is a binary
+ * PANEAXIS TREE: a group is a binary
  * tree of split nodes, not a flat row. A leaf is one pane (a tab);
  * a split node holds exactly two children and a direction —
  * 'vertical' (side by side, the original ⌘D split) or

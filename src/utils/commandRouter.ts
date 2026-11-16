@@ -457,7 +457,7 @@ function parseSlashCommand(input: string): ParsedCommand {
   // is the explicit collapse-all, behind the close ask.
   // /split takes an optional direction argument:
   // `horizontal` (or `h`) stacks the new pane below the active
-  // tab (PaneAxis, Atom steal #9); anything else splits side by
+  // tab (PaneAxis); anything else splits side by
   // side. /unsplit takes an optional `all` argument, and
   // nothing else.
   if (command === 'split') {

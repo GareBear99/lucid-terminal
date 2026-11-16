@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * FuzzyModal tests (Atom steal #1/#2 — the shared select-list
+ * FuzzyModal tests (#2 — the shared select-list
  * modal, Atom's atom-select-list shape).
  *
  * The modal is the one host for the command palette, the fuzzy

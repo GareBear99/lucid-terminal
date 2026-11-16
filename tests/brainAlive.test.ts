@@ -1,5 +1,5 @@
 /**
- * The brain-alive indicator (Atom steal #16, Kite half) —
+ * The brain-alive indicator —
  * the pure status rules + the check-status report.
  */
 import { describe, it, expect } from 'vitest';

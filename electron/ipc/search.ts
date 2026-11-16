@@ -1,6 +1,5 @@
 /**
- * Project find-and-replace, main process (Atom steal #5 —
- * 2026-11-14).
+ * Project find-and-replace, main process (*).
  *
  * Atom's `find-and-replace` searches the project with
  * ripgrep and replaces in the matched files. The main

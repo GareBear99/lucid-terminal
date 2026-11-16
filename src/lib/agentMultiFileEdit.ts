@@ -1,6 +1,6 @@
 /**
  * The cross-file multi-edit plan — Composer's one-pass
- * edit, local and atomic (Cursor steal, 2026-11-16).
+ * edit, local and atomic.
  *
  * What Cursor actually does (cursor.com/help/ai-features/
  * agent — "Agent is Cursor's AI assistant. It searches

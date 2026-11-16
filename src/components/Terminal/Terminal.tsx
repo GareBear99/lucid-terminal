@@ -886,8 +886,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // drop panel), focus it — the half activation alone cannot
   // see, because the active tab never changes there. The
   // observer reads its gates fresh from the stores on every
-  // fire (no stale closure): only the ACTIVE tab may steal
-  // focus, so a hidden tab becoming visible never yanks it
+  // fire (no stale closure): only the ACTIVE tab may take focus, so a hidden tab becoming visible never yanks it
   // from the pane being typed in.
   //
   // Gates (same shape as handlePromptSectionClick's): dev mode
@@ -1116,8 +1115,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     // the not-here note.
     if (parsed.type === 'split') {
       // /split takes an optional direction: `horizontal` (or `h`)
-      // stacks the new pane below the active tab (PaneAxis,
-      // Atom steal #9); anything else splits side by side.
+      // stacks the new pane below the active tab; anything else splits side by side.
       const direction = parsed.args?.[0] === 'horizontal' || parsed.args?.[0] === 'h' ? 'horizontal' : 'vertical';
       const newId = await useSplitPaneStore.getState().splitTab(tabId, direction);
       if (newId === null) {
@@ -1247,7 +1245,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         await write('Usage: /open <file>');
         return;
       }
-      // The open funnel (Atom steal #14): /open outside every
+      // The open funnel: /open outside every
       // known project adds the file's directory as a project.
       const ok = await openFileInWorkspace(resolveFileArg(arg));
       if (!ok) {
@@ -1704,7 +1702,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         useSessionStore.getState().submitAgentReply(tabId, trimmed, parse.reply ?? '', tabCwd);
       } else {
         useSessionStore.getState().submitAgentPrompt(tabId, trimmed, tabCwd);
-        // The loop runs the prompt (steal #4 — Continue):
+        // The loop runs the prompt:
         // plan → tool calls → verify → the result lands as
         // an `agent-response` block in this tab's feed.
         // Fire-and-forget — the run updates its own block.
@@ -1973,7 +1971,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     setShellExited(null);
     setTerminalFailed(null);
     clearCreateError(tabId);
-    // Restarting while a split is visible must not steal the
+    // Restarting while a split is visible must not take over the
     // split view (same rule as + / reopen — 2026-11-16):
     // computed BEFORE closeTab, while this tab is still in
     // its group, so the fresh tab lands inactive and the pair
@@ -2050,7 +2048,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       const cwd = useTerminalStore.getState().tabs.find((t) => t.id === tabId)?.cwd;
       useSessionStore.getState().submitAgentPrompt(tabId, firstPrompt, cwd);
       // The hand-off's first prompt runs the loop too
-      // (steal #4) — same path as a composer submit.
+      // — same path as a composer submit.
       void runAgentTurnForTab(tabId, firstPrompt, cwd);
       // The hand-off's first prompt IS the tab's first prompt —
       // the ghost words are gone for the tab from here.
@@ -2161,7 +2159,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
           showDragHandle={devMode}
           ghostSuggestion={ghostSuggestion}
           hintPlaceholder={hintPlaceholder}
-          // Ghost answers (steal #1 — 2026-11-14): the inline
+          // Ghost answers: the inline
           // provider completes in terminal mode; agent mode
           // defers to the parent's ghost (the tab's own agent
           // prompts) and the provider stays silent.

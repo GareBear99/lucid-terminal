@@ -1,6 +1,5 @@
 /**
- * Unified-diff parsing + single-hunk patches (Atom steal #21 —
- * the git panel's local core, 2026-11-14).
+ * Unified-diff parsing + single-hunk patches (the git panel's local core).
  *
  * Atom's patch model (`lib/models/patch/`, ~2,700 lines) is a
  * hunk-level staging/diff model: a file's diff is hunks, and
@@ -15,7 +14,7 @@
  * tests/gitPatch.test.ts.
  *
  * What it does NOT do: the GitHub-remote half (PRs, issues,
- * reviews) — skipped per the steal — and binary diffs
+ * reviews) — skipped by design — and binary diffs
  * ("Binary files differ"), which parse to a file with no
  * hunks (the panel stages them file-level only).
  */

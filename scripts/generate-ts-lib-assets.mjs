@@ -1,5 +1,5 @@
 /**
- * Generate the vendored TypeScript default library (steal #3 — 2026-11-14).
+ * Generate the vendored TypeScript default library.
  *
  * Reads the default lib chain out of node_modules/typescript-lsp/lib
  * (the pinned TypeScript 6.x — `typescript-lsp` is an npm alias for

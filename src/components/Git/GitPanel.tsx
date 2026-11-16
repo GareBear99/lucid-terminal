@@ -1,12 +1,11 @@
 /**
- * The Git panel (Atom steal #21 — the git panel's local core,
- * 2026-11-14).
+ * The Git panel (the git panel's local core).
  *
  * Atom's Git tab is a staging area you live in: changed files
  * with stage/unstage, per-hunk stage/unstage, a diff view, and
  * a commit box. This is that shape rebuilt natively — the
  * local-git core only. No GitHub tab: the remote half (login,
- * PRs, issues, reviews, checks) is skipped per the steal.
+ * PRs, issues, reviews, checks) is skipped by design.
  *
  * Mounted in the bottom dock (App.tsx); the palette command
  * `Git: Open Git Panel` shows it, the dock chevron toggles it,

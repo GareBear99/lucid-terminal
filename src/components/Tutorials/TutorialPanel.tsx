@@ -1,5 +1,5 @@
 /**
- * Tutorial panel (Atom steal #15, Kite half — 2026-11-14).
+ * Tutorial panel.
  *
  * Rendered by AtomModals when the 'tutorials' modal is open.
  * Two views: the picker (a FuzzyModal over the built-in

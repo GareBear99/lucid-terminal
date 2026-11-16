@@ -92,7 +92,7 @@ function App() {
   const isSplitVisible = visibleTabIds.length > 1;
   const renderTabs = orderTabsForRender(tabs, splitGroups);
   // The active tab's split group, when it is split — the tree
-  // the terminal view renders (PaneAxis, Atom steal #9). Null
+  // the terminal view renders (PaneAxis). Null
   // when the active tab is not in a group.
   const activeGroup = activeTabId ? findGroupForTab(splitGroups, activeTabId) : null;
   const tabById = new Map(renderTabs.map((t) => [t.id, t]));
@@ -193,7 +193,7 @@ function App() {
       view: currentView,
     });
   }, [appUpdateProfiles, appUpdateActiveProfileId, currentView]);
-  // The command palette's focus point (Atom steal #1): which
+  // The command palette's focus point: which
   // view is showing, whether a file is active, whether
   // LuciferAI is on — the registry filters on this. It is
   // rebuilt every render so the palette always sees the
@@ -205,8 +205,7 @@ function App() {
     luciferAiEnabled,
     luciferAiSilenced,
   };
-  // Register the built-in palette commands once (Atom steal
-  // #1): view switches, editor + terminal actions, the four
+  // Register the built-in palette commands once: view switches, editor + terminal actions, the four
   // Atom modals. The handlers are the same store calls the
   // buttons and slash commands use — the palette lists them,
   // it adds no new powers.
@@ -216,7 +215,7 @@ function App() {
       toggleAI: () => handleToggleAI(),
       openHelp: () => openHelp(),
     });
-    // The Raycast steal: the built-in `lucid` extension
+    // The built-in `lucid` extension
     // (create-quicklink, calculator, toggle-extension,
     // copy-command-deeplink) + the palette store, loaded for
     // the active profile (per-profile palette state, its own
@@ -286,7 +285,7 @@ function App() {
     setSettingsInitialTab('plugins');
     setCurrentView('settings');
   };
-  // The AI panel lives in the right dock (Atom steal #12): its
+  // The AI panel lives in the right dock: its
   // visibility is the dock's, not a local boolean. Hidden by
   // default — use the command router instead.
   const showAI = useDockStore((s) => s.docks.right.visible);
@@ -462,7 +461,7 @@ function App() {
     return useHelpModalShortcut(openHelp);
   }, []);
 
-  // Application menu actions (Atom steal #13 — menus): the
+  // Application menu actions (menus): the
   // menu sends 'menu:open-modal' for Help and New Terminal
   // Tab; the three modals are handled by AtomModals. openHelp
   // is already gated on LuciferAI; createTab is the same call
@@ -471,7 +470,7 @@ function App() {
     return subscribeMenuModals((kind) => {
       if (kind === 'help') openHelp();
       else if (kind === 'new-terminal-tab') {
-        // Adding a tab while a split is visible must not steal
+        // Adding a tab while a split is visible must not take over
         // the split view (Gary, 2026-11-16 - same rule as the +
         // button): read the split state fresh - this handler is
         // registered once, so a render-scope value would go stale.
@@ -484,7 +483,7 @@ function App() {
     });
   }, [createTab]);
 
-  // Workspace save on quit (Atom steal #14): the debounced
+  // Workspace save on quit: the debounced
   // save covers the session, but a quit inside the 500 ms
   // window would lose the last change — flush on unload.
   useEffect(() => {
@@ -493,7 +492,7 @@ function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
-  // Autosave (Atom steal #20): when the window loses focus,
+  // Autosave: when the window loses focus,
   // dirty files save through the existing save path. Off by
   // default; a registered dontSaveIf veto blocks the save
   // (a modal over unsaved work, a transient state). The
@@ -509,7 +508,7 @@ function App() {
     return () => window.removeEventListener('blur', onBlur);
   }, []);
 
-  // Keymap → menu (Atom steal #13): the menu's accelerators
+  // Keymap → menu: the menu's accelerators
   // come from the keymap, so a user rebind reaches main and
   // the menu is rebuilt with the new labels. Sent on mount
   // and whenever the overrides change; a no-op without the
@@ -664,8 +663,7 @@ function App() {
           exists: (path) => window.lucidAPI.fs.exists(path),
         });
         await setCurrentDir(resolved.root, 'startup');
-        // Warm the fuzzy finder's project index (Atom steal
-        // #2) so the first ⌘P is instant. Best-effort, no
+        // Warm the fuzzy finder's project index (// #2) so the first ⌘P is instant. Best-effort, no
         // await — a failed read keeps the empty list, and the
         // finder warms on first open as a fallback. Seeded
         // from the RESOLVED root (not home), so the warm
@@ -677,7 +675,7 @@ function App() {
         console.log('[INIT] File explorer unavailable');
       }
 
-      // Workspace restore (Atom steal #14): reopen the last
+      // Workspace restore: reopen the last
       // session's files + active file + cursor + projects, and
       // start tracking changes for the debounced save. Best-
       // effort, never blocks startup — a missing saved workspace
@@ -1024,7 +1022,7 @@ function App() {
                 LuciferAI: nothing here reads the plugin, and the panel
                 works with it on or off. */}
             {/* AI Panel — tabbed: AI Chat + Copilot + Browser — in the
-                right dock (Atom steal #12). The dock owns the toggle
+                right dock. The dock owns the toggle
                 chevron, the resize handle and the open/close mask;
                 the panel's own Minus hides it. Its allowed edge is
                 'right' (see dockLocations.ts). */}
@@ -1040,7 +1038,7 @@ function App() {
         </>
       </div>
 
-      {/* Git panel — the staging area (Atom steal #21), in the
+      {/* Git panel — the staging area, in the
           bottom dock. The dock owns the toggle chevron, the
           resize handle and the open/close mask; the panel's
           own X hides it. Its allowed edge is 'bottom' (see
@@ -1068,7 +1066,7 @@ function App() {
       />
 
       {/* The command palette + fuzzy finder + go-to modals
-          (Atom steals #1/#2/#8): one host, mounted once, the
+          (#2/#8): one host, mounted once, the
           modals open from their shortcuts or the registry. */}
       <AtomModals context={commandContext} switchView={(view) => setCurrentView(view)} />
 

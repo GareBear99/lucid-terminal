@@ -1,5 +1,5 @@
 /**
- * The shared fuzzy modal (Atom steal #1/#2 — 2026-11-14).
+ * The shared fuzzy modal (#2).
  *
  * Atom renders its palette, fuzzy finder, go-to-symbol,
  * go-to-line and bookmarks view-all in ONE component — the

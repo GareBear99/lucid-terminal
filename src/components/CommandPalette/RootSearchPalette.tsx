@@ -1,5 +1,5 @@
 /**
- * Root Search (Raycast steal — 2026-11-16).
+ * Root Search.
  *
  * Raycast's Root Search, Lucid-shaped: one input searching
  * commands (registry + extensions), quicklinks, files, tabs and

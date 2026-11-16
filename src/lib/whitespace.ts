@@ -1,5 +1,5 @@
 /**
- * Settings smalls (Atom steal #20 — 2026-11-14): the
+ * Settings smalls: the
  * whitespace package, wrap-guide rulers, and the bracket
  * config — all settings + hooks in Lucid terms, not engines.
  *
@@ -22,7 +22,7 @@
  *
  * Bracket-matcher (Atom's `bracket-matcher` package): Monaco
  * does the matching natively (pair colorization is already
- * on); the steal is the config — autoclose, auto-surround,
+ * on); the point is the config — autoclose, auto-surround,
  * and match-bracket highlighting as Monaco options, read live
  * from Settings. The mapping is pure so the editor options
  * stay testable without Monaco.

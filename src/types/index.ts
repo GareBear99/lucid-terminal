@@ -198,7 +198,7 @@ export interface GitStatus {
   deletedLines: number;
 }
 
-/** One changed region in an agent review (steal #6 — Zed):
+/** One changed region in an agent review:
  *  the removed lines (what the file has now) + the added
  *  lines (what it would have) + a few context lines around
  *  them. `line` is the 1-based line of the region in the
@@ -223,8 +223,7 @@ export interface AgentReviewDiagnostic {
   code?: string | number;
 }
 
-/** The review data an 'agent-review' block carries (steal
- *  #6 — Zed). `status` is the decision: 'pending' while
+/** The review data an 'agent-review' block carries. `status` is the decision: 'pending' while
  *  the run waits on the user, then the decision taken.
  *  `checkpointId` is set once the edit is kept — the
  *  checkpoint holds the file's content before the edit,
@@ -272,7 +271,7 @@ export interface TerminalBlock {
    *  agent-session turn; 'notice' is a plain note block (e.g. the
    *  driving-intelligence placeholder in an agent session);
    *  'agent-review' is a Keep/Reject review of one edit the agent
-   *  wants to make (steal #6 — Zed): the diff preview + the
+   *  wants to make: the diff preview + the
    *  decision buttons live in `review`. 'scrollback' (sweep item
    *  16) is the pre-landing terminal transcript, carried into the
    *  feed as one block when the xterm unmounts at DEFCON 3 (or
@@ -280,8 +279,7 @@ export interface TerminalBlock {
    *  re-input and no duration. The feed renders all
    *  kinds in one list. */
   kind?: 'command' | 'agent-prompt' | 'agent-response' | 'notice' | 'agent-review' | 'scrollback';
-  /** The review data, for 'agent-review' blocks only (steal #6
-   *  — Zed): the proposed edit's diff, the decision state, and
+  /** The review data, for 'agent-review' blocks only: the proposed edit's diff, the decision state, and
    *  the checkpoint the decision can revert to. Undefined for
    *  every other kind. */
   review?: AgentReviewBlockData;
@@ -410,7 +408,7 @@ export interface ThemeColors {
 // key and no network; 'github-copilot' is Gary's Copilot key,
 // saved in Settings > AI (Secure Vault), connected in the D9
 // build (2026-11-15) through the Copilot API client — cloud and
-// metered by the Copilot subscription, never the local planner
+// metered by the Copilot subscription, never the LLMBuilder brain
 // wearing Copilot's name. The id is
 // stable per copilot (the tab's threads are keyed by it) and is
 // generated when the copilot is added. Keep in sync with the
@@ -467,19 +465,19 @@ export interface Settings {
    *  Runtime version is NOT carried in block headers (decided
    *  — only if Gary wants it; do not add it on spec). */
   feedDensity: 'comfortable' | 'compact';
-  // Custom keybindings (Atom steal #13 — keymaps,
-  // 2026-11-14): user overrides merged onto the default
+  // Custom keybindings (keymaps,
+  //): user overrides merged onto the default
   // keymap (src/lib/keymap.ts). Empty = the defaults.
   customKeybindings: KeymapBinding[];
-  // Custom snippets (Atom steal #10 — snippets, 2026-11-14):
+  // Custom snippets (snippets):
   // user snippets merged over the built-in library
   // (src/lib/snippets.ts). Empty = built-ins only.
   customSnippets: Snippet[];
-  // Project find-and-replace (Atom steal #5, 2026-11-14):
+  // Project find-and-replace:
   // off until enabled — the panel shows the opt-in card
   // until this is true (see src/lib/projectSearch.ts).
   projectSearchEnabled: boolean;
-  // Kite's settings toggles (Atom steal #15, 2026-11-14):
+  // Kite's settings toggles:
   // code completions, signature help, hover, and the docs
   // panel — each on by default, each with a switch in
   // Settings > General > Editor. The editor providers read
@@ -498,7 +496,7 @@ export interface Settings {
   // survives a restart. Default false (ghost on). The
   // providers read it live; paused = no ghost anywhere.
   ghostCompletionsPaused: boolean;
-  // Settings smalls (Atom steal #20, 2026-11-14): bracket
+  // Settings smalls: bracket
   // config, wrap-guide rulers, whitespace-on-save, autosave.
   // Brackets default on (Monaco's current behaviour); rulers
   // default to none; whitespace-on-save and autosave default
@@ -1359,7 +1357,7 @@ declare global {
           onReserveNumber: (callback: (id: string) => void) => () => void;
         };
       };
-      // Lucid sessions — tmux steal (Lucid's own implementation of
+      // Lucid sessions — session model (Lucid's own implementation of
       // tmux's session pattern). Optional here so older stubs that
       // build a partial lucidAPI keep typechecking; the real preload
       // always exposes it (see electron/preload.ts LucidAPI).
@@ -1387,7 +1385,7 @@ declare global {
       git: {
         getStatus: (cwd: string) => Promise<RawGitStatus | null>;
         getDiff: (cwd: string, filepath?: string, staged?: boolean) => Promise<string | null>;
-        // Local-git writes (Atom steal #21 — the git panel):
+        // Local-git writes (the git panel):
         // every write returns { ok, error? } — never a throw.
         stage: (cwd: string, paths: string[]) => Promise<{ ok: boolean; error?: string }>;
         unstage: (cwd: string, paths: string[]) => Promise<{ ok: boolean; error?: string }>;

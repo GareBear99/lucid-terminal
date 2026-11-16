@@ -225,7 +225,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       },
     },
   },
-  // Lucid sessions — tmux steal (Lucid's own implementation of
+  // Lucid sessions — session model (Lucid's own implementation of
   // tmux's session pattern; no tmux itself is involved). The
   // renderer (client) talks to the main-process registry (server)
   // over these channels. Distinct from terminal:* (PTY) and
@@ -271,7 +271,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     getStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
     getDiff: (cwd: string, filepath?: string, staged?: boolean) =>
       ipcRenderer.invoke('git:diff', cwd, filepath, staged),
-    // Local-git writes (Atom steal #21 — the git panel, local
+    // Local-git writes (the git panel, local
     // core only): stage / unstage / commit / branches /
     // checkout / apply-one-hunk. All write through the main
     // process's argv-only git calls (see electron/ipc/git.ts).
@@ -284,7 +284,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('git:apply-hunk', cwd, patch, reverse),
   },
 
-  // Project find-and-replace (Atom steal #5 — 2026-11-14):
+  // Project find-and-replace:
   // the main process runs ripgrep (or the Node fallback) and
   // owns the root-containment check for replaces.
   search: {
@@ -294,7 +294,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('search:replace', { root, replacement, matches }),
   },
 
-  // Application menu (Atom steal #13 — menus, 2026-11-14):
+  // Application menu (menus):
   // menu items send 'menu:open-modal' with the action; the
   // renderer subscribes via onOpenModal (same shape as
   // onMaximizedChange / onData — returns an unsubscribe).
@@ -307,8 +307,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       };
     },
     // Send the user's keybinding overrides to main so the
-    // menu is rebuilt with the new accelerators (Atom steal
-    // #13 — MenuManager.update()). Fire-and-forget.
+    // menu is rebuilt with the new accelerators (MenuManager.update()). Fire-and-forget.
     setKeybindings: (overrides: Array<{ command: string; keys: string }>) => {
       ipcRenderer.send('menu:set-keybindings', overrides);
     },

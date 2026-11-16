@@ -1,5 +1,5 @@
 /**
- * Project symbol index store (Atom steal #22, 2026-11-14).
+ * Project symbol index store.
  *
  * Owns the cached index: `buildIndex` walks the warm project
  * file index, keeps TS/TSX files (the only grammars Lucid

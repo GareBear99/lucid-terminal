@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Cursor steal — whole-codebase view + multi-file edit pass
+ * Whole-codebase view + multi-file edit pass
  * (sourced from Cursor's own docs: cursor.com/help/ai-features/agent,
  * cursor.com/help/ai-features/plan-mode, and Cursor staff on
  * forum.cursor.com — semantic/embeddings indexing retired in favour
@@ -35,7 +35,8 @@ import {
   executeMultiFileEdit,
   parseMultiFilePlan,
 } from '../src/lib/agentMultiFileEdit';
-import { LocalPlanner, type BrainContext } from '../src/lib/agentBrain';
+import type { BrainContext } from '../src/lib/agentBrain';
+import { LLMBuilderBrain } from '../src/lib/llmbuilderBrain';
 import type { AgentFileIndex as AgentFileIndexType } from '../src/lib/agentIndex';
 import { ToolRegistry } from '../src/lib/agentTools';
 import { registerBuiltInTools } from '../src/lib/agentToolsImpl';
@@ -370,10 +371,10 @@ describe('multi_file_edit tool — one call, several files, atomic', () => {
   });
 });
 
-describe('LocalPlanner — @-references and multi-file renames', () => {
+describe('LLMBuilderBrain — @-references and multi-file renames', () => {
   it("@file scopes the edit to that file (the mention is not the edit text)", async () => {
     const { index } = await builtIndex(makeTestWorkspace());
-    const plan = await new LocalPlanner().plan(
+    const plan = await new LLMBuilderBrain().plan(
       "replace 'greet' with 'welcome' in @src/app.ts",
       ctxFor(index),
     );
@@ -384,7 +385,7 @@ describe('LocalPlanner — @-references and multi-file renames', () => {
 
   it('@codebase turns the rest of the prompt into a codebase search', async () => {
     const { index } = await builtIndex(makeTestWorkspace());
-    const plan = await new LocalPlanner().plan('@codebase where is greet defined', ctxFor(index));
+    const plan = await new LLMBuilderBrain().plan('@codebase where is greet defined', ctxFor(index));
     expect(plan.toolCalls).toHaveLength(1);
     expect(plan.toolCalls[0].name).toBe('codebase_search');
     expect(String(plan.toolCalls[0].args.query)).not.toContain('@codebase');
@@ -392,28 +393,28 @@ describe('LocalPlanner — @-references and multi-file renames', () => {
 
   it('@folder alone lists that folder', async () => {
     const { index } = await builtIndex(makeTestWorkspace());
-    const plan = await new LocalPlanner().plan('list @src/', ctxFor(index));
+    const plan = await new LLMBuilderBrain().plan('list @src/', ctxFor(index));
     expect(plan.toolCalls).toHaveLength(1);
     expect(plan.toolCalls[0].name).toBe('ls');
   });
 
   it('an unresolved @file is named, never guessed', async () => {
     const { index } = await builtIndex(makeTestWorkspace());
-    const plan = await new LocalPlanner().plan('read @nope.ts', ctxFor(index));
+    const plan = await new LLMBuilderBrain().plan('read @nope.ts', ctxFor(index));
     expect(plan.toolCalls).toHaveLength(0);
     expect(plan.reply).toContain('nope.ts');
   });
 
   it('@docs is answered honestly instead of planned as a file op', async () => {
     const { index } = await builtIndex(makeTestWorkspace());
-    const plan = await new LocalPlanner().plan('@docs how do I use this library', ctxFor(index));
+    const plan = await new LLMBuilderBrain().plan('@docs how do I use this library', ctxFor(index));
     expect(plan.toolCalls).toHaveLength(0);
     expect(plan.reply).toMatch(/local|not available|can.t/i);
   });
 
   it('rename across two named files plans ONE multi_file_edit call', async () => {
     const { index } = await builtIndex(makeTestWorkspace());
-    const plan = await new LocalPlanner().plan(
+    const plan = await new LLMBuilderBrain().plan(
       "rename greet to welcome in src/app.ts and src/util.ts",
       ctxFor(index),
     );
@@ -426,7 +427,7 @@ describe('LocalPlanner — @-references and multi-file renames', () => {
 
   it('rename across the codebase searches first instead of guessing files', async () => {
     const { index } = await builtIndex(makeTestWorkspace());
-    const plan = await new LocalPlanner().plan(
+    const plan = await new LLMBuilderBrain().plan(
       'rename greet to welcome across the codebase',
       ctxFor(index),
     );

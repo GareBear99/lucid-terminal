@@ -1,5 +1,5 @@
 /**
- * Snippet tests (Atom steal #10 — 2026-11-14).
+ * Snippet tests.
  *
  * A snippet is a prefix + a body in Atom/Monaco snippet
  * syntax + an optional description and scope. User snippets

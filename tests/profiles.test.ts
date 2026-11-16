@@ -161,7 +161,7 @@ beforeEach(() => {
   });
   useHistoryStore.setState({
     blocksByTab: {},
-    // History is per-profile now (tmux steal): the reset must also
+    // History is per-profile now (session model): the reset must also
     // reset the profile dimension, or a profileId left over from an
     // earlier test's selectProfile (a created profile) would make
     // the next test's seeded blocks persist under that dead profile

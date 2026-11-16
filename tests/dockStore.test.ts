@@ -1,5 +1,5 @@
 /**
- * Docks (Atom steal #12) — store + location registry tests.
+ * Docks — store + location registry tests.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {

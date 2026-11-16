@@ -1,10 +1,8 @@
 /**
  * The agent host — the contract the loop core talks to
- * (steal #4 — Continue, 2026-11-14).
  *
- * Shape stolen from Continue's `IDE` interface
- * (`core/index.d.ts:831`): the single most directly
- * portable abstraction in the whole Continue clone. The
+ * The shape: a single interface the loop core talks to —
+ * the most directly portable abstraction in the whole design. The
  * agent core (loop, tools, index) never touches host APIs
  * directly — it talks only to this interface, and the
  * Electron main/renderer boundary lives behind it. In
@@ -45,7 +43,7 @@ export interface AgentHost {
   createFile(path: string, content?: string): Promise<void>;
   /** Delete a file. Only the checkpoint revert uses this
    *  (restoring a file that did not exist before a kept
-   *  create) — no agent TOOL deletes, ever (steal #6). */
+   *  create) — no agent TOOL deletes, ever. */
   deleteFile(path: string): Promise<void>;
   /** Create a directory (parents included). */
   createDir(path: string): Promise<void>;

@@ -1,6 +1,5 @@
 /**
- * The brain-alive indicator (Atom steal #16, Kite half —
- * 2026-11-14).
+ * The brain-alive indicator.
  *
  * Kite's status-bar component measures the engine's
  * aliveness by tracking how recently the engine completed

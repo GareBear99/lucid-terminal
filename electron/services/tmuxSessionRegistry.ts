@@ -1,5 +1,5 @@
 /**
- * tmux's server, stolen for Lucid — main-process registry.
+ * The server, in Lucid's own implementation — main-process registry.
  *
  * Upstream tmux keeps ALL state in a single server process
  * (wiki "Getting Started": "tmux keeps all its state in a

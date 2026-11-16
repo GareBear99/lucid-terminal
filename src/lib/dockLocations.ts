@@ -1,6 +1,5 @@
 /**
- * Where dock items are allowed to live (Atom steal #12 —
- * 2026-11-14).
+ * Where dock items are allowed to live (*).
  *
  * Atom's items declare `getAllowedLocations()` /
  * `getDefaultLocation()`; text editors are explicitly NOT
@@ -28,7 +27,7 @@ export const DOCK_ITEM_LOCATIONS: Record<DockItemId, DockEdge[]> = {
   sidebar: ['left'],
   terminal: [],
   editor: [],
-  // The Git panel (Atom steal #21): bottom dock only.
+  // The Git panel: bottom dock only.
   'git-panel': ['bottom'],
 };
 

@@ -5,7 +5,7 @@ import { setupApplicationMenu, MENU_OPEN_MODAL_CHANNEL } from './menu';
 import type { MenuActionKind } from './menu';
 import { setupFileSystemHandlers } from './ipc/fileSystem';
 import { setupTerminalHandlers, setTerminalOwner, clearTerminalOwner } from './ipc/terminal';
-// tmux steal — the session model (Lucid's own implementation of
+// the session model (Lucid's own implementation of
 // tmux's session pattern; no tmux itself is involved): the main
 // process is the tmux server, each renderer window a client.
 import { setupTmuxSessionHandlers } from './ipc/tmuxSession';
@@ -93,7 +93,7 @@ installMainCrashHandlers(crashLogWriter);
 
 let mainWindow: BrowserWindow | null = null;
 
-// tmux steal — the session registry (the tmux server). Created in
+// the session registry (the tmux server). Created in
 // app.whenReady (it needs app.getPath('userData')); saved on
 // will-quit below. Module-level so will-quit can reach it.
 let tmuxSessionRegistry: TmuxSessionRegistry | null = null;
@@ -172,7 +172,7 @@ app.whenReady().then(() => {
   // context in it.
   crashLogWriter.logSessionStart();
 
-  // Application menu (Atom steal #13 — menus, 2026-11-14).
+  // Application menu (menus).
   // Lucid never set one, so macOS got Electron's default menu
   // whose View > Reload (Cmd+R) shadowed go-to-symbol and
   // reloaded the app to Profiles. This menu has no Reload at
@@ -238,7 +238,7 @@ app.whenReady().then(() => {
   // Setup IPC handlers once
   setupFileSystemHandlers(ipcMain);
   setupTerminalHandlers(ipcMain);
-  // tmux steal — sessions (Lucid's own implementation of tmux's
+  // sessions (Lucid's own implementation of tmux's
   // session pattern). The registry is the server: it owns the
   // session list + which panes have live PTYs. The disk snapshot
   // (userData/lucid-sessions.json) is the resurrect half — layout
@@ -500,7 +500,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
-  // tmux steal — persist the session snapshot (layout + cwd) so
+  // persist the session snapshot (layout + cwd) so
   // the next launch restores sessions with fresh shells.
   tmuxSessionRegistry?.save();
   stopDaemonSync(); // Stop the file-watcher daemon (sync: will-quit cannot await)

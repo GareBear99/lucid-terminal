@@ -1,5 +1,5 @@
 /**
- * Terminal rendering performance — the Ghostty steal.
+ * Terminal rendering performance.
  *
  * What Ghostty actually does (official source: ghostty.org docs and
  * the ghostty-org/ghostty repo, `src/renderer/` + `src/font/`):

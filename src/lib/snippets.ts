@@ -1,5 +1,5 @@
 /**
- * Snippets + the snippet bridge (Atom steal #10 — 2026-11-14).
+ * Snippets + the snippet bridge.
  *
  * Atom's snippets package: a snippet is a named body with a
  * prefix and an optional scope (`.source.ts`, `.source.js`),

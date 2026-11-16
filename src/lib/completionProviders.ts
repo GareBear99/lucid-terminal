@@ -1,5 +1,5 @@
 /**
- * Merged completions (Atom steal #3 — 2026-11-14).
+ * Merged completions.
  *
  * Atom's `autocomplete-plus` shape: one completion list, fed
  * by many providers. Each provider declares a
@@ -26,7 +26,7 @@
  *   inclusionPriority 1, suggestionPriority 2 — here 3, so a
  *   snippet the user named beats a repeated pattern).
  * - pattern: repeated lines/chains from the user's own open
- *   files (Tabnine patterns, steal #7).
+ *   files.
  * - structure: tree-sitter identifiers in scope — the
  *   fallback when the engine is dead (Kite's failure mode).
  * - word: subsequence matches over the current file's words

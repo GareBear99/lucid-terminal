@@ -17,7 +17,7 @@
  * copilot's model is whichever the copilot picked; the
  * driving intelligence is always the local base underneath,
  * gating the pass. Two brains run a turn in this slice: the
- * local planner, and GitHub Copilot (D9, 2026-11-15) — the
+ * LLMBuilder brain, and GitHub Copilot (D9, 2026-11-15) — the
  * Copilot API client, cloud and metered by the Copilot
  * subscription. A GitHub Copilot copilot with a saved key
  * but no model listed yet answers as not-ready (the tab
@@ -37,7 +37,8 @@
  * what answers, whether logged-in or guest.
  */
 import { electronAgentHost, type AgentHost } from './agentHost';
-import { LocalPlanner, type AgentBrain } from './agentBrain';
+import type { AgentBrain } from './agentBrain';
+import { LLMBuilderBrain } from './llmbuilderBrain';
 import { CopilotBrain } from './copilotBrain';
 import { getBuiltInToolDefinitions } from './agentToolsImpl';
 import {
@@ -145,17 +146,17 @@ export async function runCopilotTurn(input: CopilotRunInput): Promise<AgentTurnR
       liveDrivingAgentDetection(useSettingsStore.getState().hasApiKey, settings.aiModel),
     );
 
-  // The model decides the brain. The local planner plans its
+  // The model decides the brain. The LLMBuilder brain plans its
   // own turns; a GitHub Copilot copilot plans through the
   // Copilot API client (D9) — the API model is the tab's pick
   // from the API's own list (settings.copilotApiModel), else
   // the first listed model. A keyed Copilot with no model
   // listed yet answers as not-ready and runs NO tools, rather
-  // than the local planner wearing Copilot's name. An explicit
+  // than the LLMBuilder brain wearing Copilot's name. An explicit
   // brain override (tests, and a future brain) runs as given.
   let brain: AgentBrain | null = input.brain ?? null;
   if (!brain && input.copilot.model === 'local-planner') {
-    brain = new LocalPlanner();
+    brain = new LLMBuilderBrain();
   }
   if (!brain && input.copilot.model === 'github-copilot' && input.hasCopilotKey) {
     const apiModel =
@@ -182,8 +183,7 @@ export async function runCopilotTurn(input: CopilotRunInput): Promise<AgentTurnR
       verifications: [],
       stopped: 'failed',
       drivingAgent: drivingAgent.agent,
-      // Merge fix: AgentTurnResult gained todos/turns (Claude Code
-      // steal); this not-ready failure runs no turn, so both are empty.
+      // Merge fix: AgentTurnResult gained todos/turns; this not-ready failure runs no turn, so both are empty.
       todos: [],
       turns: 0,
     };

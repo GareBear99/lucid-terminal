@@ -168,7 +168,7 @@ describe('attach / detach (tmux: detach ends the client only)', () => {
     expect(a.state.activeSessionId).toBe(id);
   });
 
-  test('attach -d (detachOthers) steals the session: client count stays 1', () => {
+  test('attach -d (detachOthers) takes over the session: client count stays 1', () => {
     const { state, id } = oneSession('work');
     const a = attachSession(state, id, { detachOthers: true, now: NOW });
     if (!a.ok) throw new Error('unreachable');

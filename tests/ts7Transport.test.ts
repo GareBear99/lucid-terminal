@@ -381,7 +381,7 @@ describe('pre-start documents and crash recovery', () => {
   }, 60000);
 });
 
-describe('brain-alive activity (Atom steal #16, async)', () => {
+describe('brain-alive activity (async)', () => {
   it('a successful operation records the last success', async () => {
     const before = Date.now();
     await client.getHover(appPath, CALL);

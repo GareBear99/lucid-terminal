@@ -1,5 +1,5 @@
 /**
- * Project symbols (Atom steal #22): the tree-sitter index —
+ * Project symbols: the tree-sitter index —
  * pure build + search.
  */
 

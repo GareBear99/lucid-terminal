@@ -1,5 +1,5 @@
 /**
- * Workspace persistence (Atom steal #14 — 2026-11-14).
+ * Workspace persistence.
  *
  * Atom's workspace (workspace.coffee, 1,148 lines) remembers
  * which projects, which panes, which files are open and the

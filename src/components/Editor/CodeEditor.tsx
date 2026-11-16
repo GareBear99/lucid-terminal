@@ -71,14 +71,14 @@ function CodeEditor() {
 
   const activeFile = openFiles.find((f) => f.path === activeFilePath);
 
-  // Tree-sitter live structure (steal #2 — 2026-11-14): one live
+  // Tree-sitter live structure: one live
   // tree per open file, re-parsed incrementally on every edit.
   // The structure feeds the composer's ghost and is the LSP
   // provider's fallback when the engine is dead. All in-memory,
   // dropped when the file closes; a dead engine just means no
   // structure, never an error.
   //
-  // TypeScript language service (steal #3 — 2026-11-14): the
+  // TypeScript language service: the
   // fact-checker. One in-memory document per open file; the
   // engine loads lazily (typescript-lsp + the lib bundle, ~12
   // MB on first use, never on startup), and every provider
@@ -95,7 +95,7 @@ function CodeEditor() {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const diagnosticsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The git gutter's marker layer (Atom steal #4/#6): one
+  // The git gutter's marker layer (#6): one
   // layer over the editor, re-marked from `git diff HEAD`
   // on edit stop. Created on mount, disposed on unmount.
   const gutterLayerRef = useRef<MarkerLayer | null>(null);
@@ -110,7 +110,7 @@ function CodeEditor() {
   // has no word-at-position API, so it does not publish —
   // the panel follows the Monaco cursor only.
   const docsCursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Editor status bar (Atom steal #11): the same debounced
+  // Editor status bar: the same debounced
   // publish carries the bar's cheap state — cursor position and
   // selection size (offset math, no text read). The model state
   // (language, endings, line count) publishes on its own timer
@@ -150,7 +150,7 @@ function CodeEditor() {
       column: position.column,
       selectionCount,
     });
-    // Scope system (Atom steal #18): the cursor's scope
+    // Scope system: the cursor's scope
     // descriptor rides the same debounced publish, so the
     // keymap dispatcher can gate scoped bindings on it. Null
     // when there is no tree for the file — scoped bindings
@@ -205,7 +205,7 @@ function CodeEditor() {
     }, 150);
   };
 
-  // The git gutter (Atom steal #6 — 419 LOC, highest
+  // The git gutter (419 LOC, highest
   // feel-per-line): the coloured marks next to the line
   // numbers, recomputed from HEAD on every edit stop, like
   // the diagnostics cadence above. A null diff (not a repo,
@@ -273,7 +273,7 @@ function CodeEditor() {
   };
 
   // Put the editor on a file + line + column and centre it
-  // (Atom steal #8: setCursorBufferPosition +
+  // (setCursorBufferPosition +
   // scrollToBufferPosition centre).
   const applyJumpToEditor = (editor: any, jump: EditorJump) => {
     try {
@@ -398,7 +398,7 @@ function CodeEditor() {
   }, []);
 
   // Monaco mounted — the fallback is no longer needed. Register
-  // the LSP providers (steal #3): typed completions with docs
+  // the LSP providers: typed completions with docs
   // and auto-imports, hover, and signature help for TS/JS, with
   // the tree-sitter structure as the fallback when the engine
   // is dead. Disposed on unmount. The engine warms in the
@@ -436,7 +436,7 @@ function CodeEditor() {
           const path = activePath();
           return path ? engineClient.getStructureIdentifiers(path, lineNumber, column) : [];
         },
-        // Steal #7 — Tabnine patterns: the repeated lines
+        // Repeated-lines patterns: the repeated lines
         // and identifier chains from the user's own open
         // files, offered for the line prefix typed so far,
         // through the engine client (the shared lazy index
@@ -455,13 +455,13 @@ function CodeEditor() {
             5,
           );
         },
-        // Steal #10 — snippets: user snippets from Settings
+        // Snippets: user snippets from Settings
         // (customSnippets), merged over the built-in library
         // by the snippet provider; read at request time, so a
         // saved snippet is live without a reload.
         getUserSnippets: () =>
           useSettingsStore.getState().settings.customSnippets ?? [],
-        // Kite's settings toggles (Atom steal #15): read live
+        // Kite's settings toggles: read live
         // at request time, so flipping a switch in Settings >
         // General > Editor takes effect without a reload or a
         // re-registration. Absent in tests = on.
@@ -475,7 +475,7 @@ function CodeEditor() {
           const path = activePath();
           return path ? engineClient.getHover(path, monacoToLsp({ lineNumber, column })) : null;
         },
-        // The hover Docs link (Atom steal #7): `Docs` opens
+        // The hover Docs link: `Docs` opens
         // Lucid's docs panel at the hovered symbol, `Def`
         // jumps to its definition when the engine knows one.
         // The links are markdown in the lucid-docs:// /
@@ -511,10 +511,10 @@ function CodeEditor() {
           }
           return { docs, def };
         },
-        // Kite signature assist (Atom steal #19): the
+        // Kite signature assist: the
         // "How others used this" block — the lines in the
         // user's own open files that call this callee, from
-        // the pattern index (steal #7). The prefix is the
+        // the pattern index. The prefix is the
         // full dotted chain + `(` (`obj.foo(`), so only
         // real call sites match; capped at 3, Kite's cap.
         // No matches means no block — the signature is
@@ -541,17 +541,17 @@ function CodeEditor() {
     // (debounced), and the mount publishes once for the file
     // the editor just opened. The listener's dispose rides
     // with the provider disposers — same unmount.
-    // The git gutter's layer (Atom steal #4): one layer
+    // The git gutter's layer: one layer
     // over this editor, fed by refreshGutter.
     gutterLayerRef.current = new MarkerLayer(_editor);
-    // The editor-jump subscription (Atom steal #8): modals
+    // The editor-jump subscription: modals
     // request jumps, this editor applies them. Disposed with
     // the providers below.
     const jumpUnsubscribe = subscribeEditorJump((jump) => {
       void handleJumpRequest(jump);
     });
     lspDisposers.current.push(jumpUnsubscribe);
-    // The hover link opener (Atom steal #7): the Docs/Def
+    // The hover link opener: the Docs/Def
     // links in the hover markdown land here. Returning false
     // lets any other opener try the link.
     if (monaco.editor?.registerLinkOpener) {
@@ -690,7 +690,7 @@ function CodeEditor() {
 
   // Keyboard shortcuts: none live here anymore. ⌘S (save) and
   // ⌘⇧F (find in project) used to be handled on this div, but
-  // the keymap dispatcher (Atom steal #13, keymapDispatch.ts)
+  // the keymap dispatcher (keymapDispatch.ts)
   // owns them now — one handler for the keymap, the menu and
   // the palette, so a user rebind changes all three. Keeping
   // these branches here would save twice (this div's handler
@@ -856,7 +856,7 @@ function CodeEditor() {
                 readOnly: activeFile.isTruncated === true,
                 minimap: { enabled: true },
                 // The git gutter renders in the glyph margin
-                // (Atom steal #6 — `gutter` decorations).
+                // (`gutter` decorations).
                 glyphMargin: true,
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',
@@ -869,7 +869,7 @@ function CodeEditor() {
                   indentation: true,
                   bracketPairs: true,
                 },
-                // Settings smalls (Atom steal #20): bracket
+                // Settings smalls: bracket
                 // config + wrap-guide rulers, live from
                 // Settings > General > Editor.
                 ...editorOptionsForSettings(settings),
@@ -879,10 +879,10 @@ function CodeEditor() {
         </div>
       )}
 
-      {/* Find in project (Atom steal #5) — the bottom panel,
+      {/* Find in project — the bottom panel,
           below the editor, above the editor status bar. */}
       <FindReplacePanel />
-      {/* Editor status bar (Atom steal #11): the bottom strip
+      {/* Editor status bar: the bottom strip
           under the editor — path, cursor, selection, grammar,
           line endings, git. */}
       <EditorStatusBar />

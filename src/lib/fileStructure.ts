@@ -1,5 +1,5 @@
 /**
- * File structure from a tree-sitter tree (steal #2 — 2026-11-14).
+ * File structure from a tree-sitter tree.
  *
  * Pure extraction over a parsed tree: definitions, imports, exports,
  * the enclosing function at a position, and the identifiers in scope

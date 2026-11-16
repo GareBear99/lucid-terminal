@@ -1,5 +1,5 @@
 /**
- * The cursor's scope descriptor (Atom steal #18).
+ * The cursor's scope descriptor.
  *
  * The CodeEditor publishes the descriptor at the active cursor
  * (same 150 ms debounced cadence as the docs-cursor publish)

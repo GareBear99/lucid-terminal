@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Lucid session store — renderer side of the tmux steal
+ * Lucid session store — renderer side of the session model
  * (src/stores/lucidSessionStore.ts).
  *
  * The store owns the session list for this window (the tmux

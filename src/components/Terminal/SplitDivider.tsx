@@ -9,7 +9,7 @@
  * (conserve the pair's combined width, clamp each pane to 15–85%)
  * lives in computePaneSizesAfterDrag (splitPaneStore.ts).
  *
- * PaneAxis tree (Atom steal #9, 2026-11-14): a divider belongs to
+ * PaneAxis tree: a divider belongs to
  * ONE split node, not to a flat group position — it carries the
  * node's id and the node's direction. A vertical node (side by
  * side) drags on the pointer's X against the container width; a

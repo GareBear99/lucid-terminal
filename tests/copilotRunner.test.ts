@@ -13,7 +13,7 @@
  * never an error; with a key but no model listed yet it shows
  * as not-ready (the tab lists models); with a key and a model
  * it attempts a real connection through the Copilot API client
- * (D9, 2026-11-15), and never runs as the local planner
+ * (D9, 2026-11-15), and never runs as the LLMBuilder brain
  * wearing Copilot's name.
  *
  * Run with: npx vitest run tests/copilotRunner.test.ts
@@ -75,7 +75,7 @@ describe('copilotRunner — the loop in the copilot tab', () => {
     resetStores();
   });
 
-  it('the local planner reads a file and replies with its content', async () => {
+  it('the LLMBuilder brain reads a file and replies with its content', async () => {
     const host = new MemoryAgentHost(makeTestWorkspace());
     const result = await runCopilotTurn({
       copilot: LOCAL,
@@ -226,7 +226,7 @@ describe('copilotRunner — the loop in the copilot tab', () => {
     expect(reviews).toBe(0);
   });
 
-  it('a Copilot copilot WITH a saved key but no model listed yet is not ready — it never runs as the local planner', async () => {
+  it('a Copilot copilot WITH a saved key but no model listed yet is not ready — it never runs as the LLMBuilder brain', async () => {
     const host = new MemoryAgentHost(makeTestWorkspace());
     const prev = useSettingsStore.getState().settings;
     useSettingsStore.setState({
@@ -277,7 +277,7 @@ describe('copilotRunner — the loop in the copilot tab', () => {
         hasCopilotKey: true,
         host,
       });
-      // Turn-loop note (merge fix, Claude Code steal): runAgentTurn
+      // Turn-loop note (merge fix): runAgentTurn
       // re-plans after every round, so the model is consulted once
       // per round, not once per run. This stub always answers with
       // the same read_file call, so round 2's plan is identical to

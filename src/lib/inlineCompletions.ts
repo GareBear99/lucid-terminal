@@ -1,5 +1,5 @@
 /**
- * Monaco inline completions (ghost answers) — steal #1 (2026-11-14).
+ * Monaco inline completions (ghost answers) — (2026-11-14).
  *
  * The pure completion engine: given the composer's current draft and
  * the cheap local context (submitted history, slash names, open
@@ -21,15 +21,15 @@
  *      file's path or basename (the tab's file context);
  *   4. structure — the draft's last token completed to an
  *      identifier the live tree-sitter structure says is in
- *      scope in the file being edited (steal #2).
+ *      scope in the file being edited.
  *   5. pattern — the draft's last token completed to a
  *      repeated shape the user's own open files actually
- *      contain (steal #7): a repeated line, or a repeated
+ *      contain: a repeated line, or a repeated
  *      identifier chain. The weakest signal — a repeated
  *      idiom, not an exact fact — so it fires only when
  *      nothing more exact does, and its leading identifier
  *      must be in the verified structure list (the TS-LSP
- *      gate, steal #3) when that list is non-empty.
+ *      gate) when that list is non-empty.
  *
  * Silence rules (the ghost never fires):
  *   - empty or multi-line draft (the composer is one line);
@@ -74,20 +74,19 @@ export interface InlineCompletionContext {
    *  composer's getContext. */
   paused?: boolean;
   /** Identifiers the live tree-sitter structure says are in
-   *  scope in the file being edited (steal #2 — top-level
+   *  scope in the file being edited (top-level
    *  definitions + imports for the composer). Optional: the
    *  engine may not be ready yet, and the provider degrades to
    *  history / slash / files without it. */
   structureIdentifiers?: string[];
-  /** The active terminal tab's cwd (steal #2). A relative token
+  /** The active terminal tab's cwd. A relative token
    *  with a `/` is resolved against it before matching the open
    *  files' absolute paths — without it, `src/com` could never
    *  match `/Users/gary/…/src/components/…`. Optional: the
    *  composer works without it (bare tokens still complete to
    *  basenames). */
   cwd?: string;
-  /** Repeated shapes from the user's own open files (steal
-   *  #7 — the lazy pattern index's merged list). Optional:
+  /** Repeated shapes from the user's own open files (the lazy pattern index's merged list). Optional:
    *  the engine may not have indexed anything yet, and the
    *  provider degrades to history / slash / file / structure
    *  without it. The gate for a pattern is the verified

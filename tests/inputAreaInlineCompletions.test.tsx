@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Wiring tests for the Monaco inline completions (ghost answers,
- * steal #1 — 2026-11-14) in the composer (InputArea).
+ * Wiring tests for the Monaco inline completions in the composer (InputArea).
  *
  * The mock follows tests/inputArea.test.tsx: @monaco-editor/react
  * is stubbed with a fake editor, and onMount is driven by hand.

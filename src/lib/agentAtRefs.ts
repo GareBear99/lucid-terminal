@@ -1,15 +1,12 @@
 /**
  * @-references — the agent's explicit context pins
- * (Cursor steal, 2026-11-16).
  *
- * What Cursor actually does (cursor.com/docs, and the
- * @-symbols overview): type `@` in the agent input and
- * attach files, folders, code symbols, docs, web pages
- * or git history. Cursor's own guidance, straight from
- * the docs: use `@` when you know which files matter;
- * skip it when you do not — the agent's own search finds
- * relevant files. `.cursorignore` applies to @-mentions
- * too: ignored files cannot be attached.
+ * Type `@` in the agent input and attach files, folders,
+ * code symbols, docs, web pages or git history. Use `@`
+ * when you know which files matter; skip it when you do
+ * not — the agent's own search finds relevant files.
+ * `.cursorignore` applies to @-mentions too: ignored
+ * files cannot be attached.
  *
  * Lucid's shape of that, local and deterministic: the
  * prompt's `@...` tokens are parsed, resolved against

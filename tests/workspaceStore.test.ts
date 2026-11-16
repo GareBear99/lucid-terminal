@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Workspace persistence (Atom steal #14) — store tests.
+ * Workspace persistence — store tests.
  * jsdom provides the localStorage the store persists into.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

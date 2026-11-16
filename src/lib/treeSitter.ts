@@ -1,5 +1,5 @@
 /**
- * Tree-sitter live structure per open file (steal #2 — 2026-11-14).
+ * Tree-sitter live structure per open file.
  *
  * The engine: one Parser per language (typescript + tsx), one live
  * Tree per open file, re-parsed incrementally on every edit. All
@@ -24,7 +24,7 @@
  * or a parse throws. Guest: parse in memory, persist nothing —
  * the per-file trees are dropped when the file closes.
  *
- * Incremental parsing, the core steal: parse once, then on each
+ * Incremental parsing, the core idea: parse once, then on each
  * edit apply the edit to the old tree (Tree.edit) and re-parse
  * with the old tree as input — unchanged subtrees are shared, only
  * the edited region is re-parsed. The edit is computed from the
@@ -482,8 +482,7 @@ export function getNodePathAtPosition(
 }
 
 /**
- * The scope descriptor at a Monaco position in a file (Atom
- * steal #18): the node-type path mapped through the
+ * The scope descriptor at a Monaco position in a file: the node-type path mapped through the
  * SyntaxScopeMap-style table into TextMate-style scopes.
  * Null when there is no tree for the file.
  */

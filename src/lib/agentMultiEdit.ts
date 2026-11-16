@@ -1,16 +1,13 @@
 /**
  * The atomic multi-edit engine — the agent loop's edit
- * primitive (steal #4 — Continue, 2026-11-14).
+ * primitive.
  *
- * Shape stolen from Continue's `multi_edit` tool
- * (`core/tools/definitions/multiEdit.ts`) + its application
- * path (`core/edit/searchAndReplace/performReplace.ts`):
- * a list of `{old_string, new_string, replace_all?}`
- * operations on one file, applied in sequence, ALL valid
- * or NONE applied. The description text in Continue's
- * definition is itself the spec — a fresh read first, no
- * parallel edit calls, earlier edits can mangle later ones,
- * old_string must match exactly including whitespace.
+ * The shape: a list of `{old_string, new_string,
+ * replace_all?}` operations on one file, applied in
+ * sequence, ALL valid or NONE applied. The spec: a fresh
+ * read first, no parallel edit calls, earlier edits can
+ * mangle later ones, old_string must match exactly
+ * including whitespace.
  *
  * What is re-implemented here, in TS, not copied: the
  * matching ladder (exact → line-trimmed → whitespace-

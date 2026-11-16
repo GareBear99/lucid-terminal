@@ -1,5 +1,5 @@
 /**
- * Project symbols (Atom steal #22, 2026-11-14) — a fuzzy list of
+ * Project symbols — a fuzzy list of
  * every top-level symbol in the project, `name:line` on the
  * primary row and the file on the secondary, built from the
  * tree-sitter index only.

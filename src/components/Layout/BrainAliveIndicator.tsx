@@ -1,6 +1,5 @@
 /**
- * The brain-alive indicator (Atom steal #16, Kite half —
- * 2026-11-14).
+ * The brain-alive indicator.
  *
  * The app status bar's engine health pill: a DOT ONLY, no
  * text (global presentation fix, 2026-11-15). It used to

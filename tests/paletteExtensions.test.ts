@@ -1,5 +1,5 @@
 /**
- * Palette extension / quick-action model tests (Raycast steal).
+ * Palette extension / quick-action model tests.
  *
  * Raycast's model, from the official docs (developers.raycast.com,
  * fetched 2026-11-16 — Manifest, Arguments, Action Panel, Actions,
@@ -22,7 +22,7 @@
  * code, no @raycast/api, nothing here requires Raycast to work.
  *
  * These tests fail on unmodified cea360f (the module does not exist)
- * and pass with the steal.
+ * and pass with the module.
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 import {

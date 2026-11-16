@@ -1,7 +1,6 @@
 /**
  * The agent permission store — the persisted permission
- * set the policy gate consults (steal #6 — Zed,
- * 2026-11-14).
+ * set the policy gate consults.
  *
  * The set is global for now (not split per profile — a
  * later split if Gary wants it). Persistence is

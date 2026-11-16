@@ -1,5 +1,5 @@
 /**
- * The editor status bar tile registry (Atom steal #11 — 2026-11-14).
+ * The editor status bar tile registry.
  *
  * Atom's status bar is an extension point: any package calls
  * `statusBar.addLeftTile({item, priority})` / `addRightTile(...)`
@@ -10,7 +10,7 @@
  * broken by registration order — Atom's priority-ordered
  * insertion. The bar component subscribes and renders both
  * sides; the core tiles register themselves from the bar, and
- * future tiles (the Kite brain-alive tile, steal #16) register
+ * future tiles (the brain-alive tile) register
  * from wherever they live.
  *
  * A tile's `render` is a function returning a React node, stored

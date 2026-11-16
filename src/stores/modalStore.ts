@@ -1,5 +1,5 @@
 /**
- * Which Atom modal is open (steal #1 — 2026-11-14).
+ * Which Atom modal is open.
  *
  * Atom's palette, finder, symbols and go-to-line are all one
  * modal component with different item sources — and only one

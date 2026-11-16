@@ -46,7 +46,7 @@ describe('isFocusAddressBarShortcut', () => {
     ).toBe(true);
   });
 
-  test('bare L with no modifier does not steal the keystroke', () => {
+  test('bare L with no modifier does not take the keystroke', () => {
     expect(isFocusAddressBarShortcut({ key: 'l' })).toBe(false);
   });
 
@@ -149,7 +149,7 @@ describe('scheduleAddressBarFocus', () => {
     expect(input.selectionEnd).toBe(input.value.length);
   });
 
-  test('re-focuses after the BrowserView steals focus to the page', () => {
+  test('re-focuses after the BrowserView takes focus to the page', () => {
     const input = document.createElement('input');
     input.value = 'https://example.com';
     document.body.appendChild(input);

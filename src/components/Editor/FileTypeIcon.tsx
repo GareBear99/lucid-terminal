@@ -1,6 +1,5 @@
 /**
- * File-type icons (Atom steal #17 — tree/tabs punch-list,
- * 2026-11-14).
+ * File-type icons (tree/tabs punch-list).
  *
  * Atom's pane items show the file name + a file-type icon
  * in the tab. Lucid's file tabs (the editor's file-tabs bar)

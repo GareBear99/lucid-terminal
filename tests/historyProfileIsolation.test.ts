@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Per-profile history isolation — the profile fix the tmux steal
+ * Per-profile history isolation — the profile fix the session model
  * is built on (src/stores/historyStore.ts).
  *
  * Before this slice, history was one global record

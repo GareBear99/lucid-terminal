@@ -1,5 +1,5 @@
 /**
- * Fuzzy matching for the shared modal (Atom steal #1/#2 — 2026-11-14).
+ * Fuzzy matching for the shared modal (#2).
  *
  * Atom's fuzzy finder scores with fuzzaldrin / fuzzaldrin-plus
  * (Smith–Waterman-style: runs of consecutive characters, acronyms,

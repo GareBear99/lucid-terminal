@@ -1,21 +1,20 @@
 /**
- * Kite signature assist (Atom steal #19 — 2026-11-14).
+ * Kite signature assist.
  *
  * Kite's signature panel was where it stopped feeling like
  * autocomplete and started feeling like a senior dev leaning
  * over your shoulder: the call signature with the current
  * argument highlighted, `**kwargs` listed, a "How others used
  * this" section of real invocation patterns, and a `Docs` link
- * at the bottom. The Pro-gating/upsell half is not worth
- * stealing — and Kite's data (other developers' code, from
+ * at the bottom. The Pro-gating/upsell half is not included — and Kite's data (other developers' code, from
  * its cloud) doubly so. What Lucid takes is the *shape*:
  *
  * - the `Docs` link — the same `lucid-docs://` wiring as the
- *   hover Docs link (steal #7), opening Lucid's docs panel
+ *   hover Docs link, opening Lucid's docs panel
  *   at the called symbol;
  * - a "How others used this" block drawn from **Lucid's own
- *   corpus** — the pattern index over the user's open files
- *   (steal #7, Tabnine patterns only): lines starting with
+ *   corpus** — the pattern index over the user's open files:
+ *   lines starting with
  *   the call, i.e. how this codebase actually invokes it.
  *
  * Both are optional augmentations of the LSP signature help

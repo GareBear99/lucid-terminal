@@ -1,6 +1,5 @@
 /**
- * Autosave vetoes (Atom steal #20 — the `dontSaveIf` hook,
- * 2026-11-14): any single veto blocks the blur save.
+ * Autosave vetoes (the `dontSaveIf` hook): any single veto blocks the blur save.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import {

@@ -1,5 +1,5 @@
 /**
- * Docks (Atom steal #12 — 2026-11-14).
+ * Docks.
  *
  * Atom has three Docks (left, right, bottom), each wrapping a
  * full PaneContainer, rendered as a mask that animates 0↔N px,
@@ -25,7 +25,7 @@
  * 500 default, so its look does not change). The store clamps
  * to [100, 1200] as a sanity cap; the component clamps to its
  * container while dragging. Layout is session-only — nothing
- * here is persisted (workspace persistence is steal #14).
+ * here is persisted (workspace persistence).
  */
 import { create } from 'zustand';
 

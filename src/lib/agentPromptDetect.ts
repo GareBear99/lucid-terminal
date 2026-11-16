@@ -10,7 +10,7 @@
  * a flip; the hint line shows the call instead.)
  *
  * The gate order is Warp's (see
- * ~/workspace/warp-classifier-steal-2026-11-13.md §2, §7):
+ * the Warp classifier notes §2, §7):
  * cheap gates before expensive work, one-off allowlists first,
  * shell heuristic before the NL heuristic, and the NL ladder
  * last. The word lists are Lucid's own rebuild (same shape as
@@ -513,7 +513,7 @@ function agentResult(reason: string, source: DecisionSource, confidence: number)
 }
 
 /** Does this draft look like an agent prompt? The gate order
- *  is Warp's app-level order (§2.2 of the steal doc): hard
+ *  is Warp's app-level order: hard
  *  gates → denylist → one-off NL → agent follow-up → history
  *  match → the classifier's own gates (path, shell syntax,
  *  first word, polite-shell-command guard) → question → shell ladder →

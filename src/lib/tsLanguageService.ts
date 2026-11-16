@@ -545,6 +545,16 @@ function toLocations(entries: any[] | undefined, text: string): LspLocation[] {
   for (const entry of entries) {
     const span = entry.textSpan;
     if (!span) continue;
+    // Never surface the synthetic ambient file as a location.
+    // AMBIENT_FILE ('ambient.d.ts') is a shim — `declare module '*';`
+    // — that silences bare-import resolution when node_modules is not
+    // on disk. It is not a real definition: a symbol whose defining
+    // file is not open falls through to the wildcard module, and the
+    // engine reports it as ambient.d.ts:1 (the Kite Docs-panel bug).
+    // Dropping it here is honest — no definition — instead of a bogus
+    // one. The real file resolves once it is an open document.
+    const base = (entry.fileName as string).split('/').pop() ?? entry.fileName;
+    if (base === AMBIENT_FILE) continue;
     out.push({
       uri: entry.fileName,
       range: {

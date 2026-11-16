@@ -854,6 +854,76 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     for (const line of lines) void termWriteLines(line);
   }, [queuedFeedLines, tabId, termWriteLines]);
 
+  // FOCUS-ON-ACTIVATE (Gary, 2026-11-16: "terminals dont take
+  // input anymore", cea360f): the terminal only ever took focus
+  // once — at XtermSurface mount (term.focus()). Every path that
+  // shows an ALREADY-MOUNTED terminal leaves focus wherever it
+  // was, and typing goes nowhere (live cea360f: click a tab in
+  // the strip, or leave the Terminal view and come back — the
+  // terminal is visible again, focus is BODY, keystrokes are
+  // dropped). It used to be masked by the remounts: switching
+  // tabs/groups/views unmounted and remounted the Terminal, and
+  // the mount re-focused it. The P1 stable tree (2026-11-15)
+  // deliberately stopped those remounts — panes stay mounted
+  // and hidden with CSS — without adding a focus-on-activate,
+  // so the mask came off and the terminal stopped taking input
+  // after any navigation.
+  //
+  // Two halves, both gated the same way. (a) Activation: when
+  // this tab becomes the active tab, focus its surface — the
+  // synchronous half, for tab switches and for activations
+  // that change the active tab without a visibility change
+  // (an unsplit that leaves this pane active). (b) Visibility:
+  // an IntersectionObserver on the terminal root — when this
+  // tab's root becomes intersecting again (return from another
+  // view, switching split groups, coming back from the blood
+  // drop panel), focus it — the half activation alone cannot
+  // see, because the active tab never changes there. The
+  // observer reads its gates fresh from the stores on every
+  // fire (no stale closure): only the ACTIVE tab may steal
+  // focus, so a hidden tab becoming visible never yanks it
+  // from the pane being typed in.
+  //
+  // Gates (same shape as handlePromptSectionClick's): dev mode
+  // OFF only — in dev mode the prompt is delinked and the
+  // detached bar owns input, so the surface must not grab
+  // focus. Skipped while the prompter owns typing (DEFCON 3+)
+  // or the tab is in agent mode — the surface is unmounted
+  // there and the composer focuses itself. Skipped when the
+  // shell has exited — a dead surface takes no input; the
+  // banner offers the restart. Focusing a surface that is
+  // still hidden is a browser no-op, so the activation half
+  // is safe to run before the visibility half catches the
+  // return.
+  useEffect(() => {
+    if (!isActiveTab) return;
+    if (devMode) return;
+    if (prompterActive) return;
+    if (isAgentMode) return;
+    if (shellExited !== null) return;
+    termRef.current?.focus();
+  }, [isActiveTab, devMode, prompterActive, isAgentMode, shellExited]);
+
+  useEffect(() => {
+    const root = terminalRootRef.current;
+    if (!root) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        if (useTerminalStore.getState().activeTabId !== tabId) continue;
+        if (useSettingsStore.getState().settings.devMode === true) continue;
+        if (shellExitedRef.current) continue;
+        const settings = useSettingsStore.getState().settings;
+        if (defconPrompterActive(settings.defconLevel ?? DEFCON_DEFAULT)) continue;
+        if (getTabMode(useSessionStore.getState().tabMode, tabId) === 'agent') continue;
+        termRef.current?.focus();
+      }
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [tabId]);
+
   // Write into the dev console (dev mode ON only): appends lines,
   // capped at the last DEV_CONSOLE_CAP. The terminal screen is
   // never touched — this is the detached bar's own output.
@@ -2223,6 +2293,19 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       // line ever reached the feed (live 179d944). One press still
       // undoes exactly one split.
       unsplitOneTabWithQueuedLine(tabId);
+      // Focus follows the surviving pane (focus-on-activate,
+      // 2026-11-16): the click lands on this pill button, and a
+      // pane that survives WITHOUT remounting (a nested collapse
+      // elsewhere in the tree, or the acting pane in a surviving
+      // subtree) keeps the button focused — typing then goes to
+      // the button, not the shell. A remounting survivor refocuses
+      // on its own mount; focusing the dying instance first is
+      // harmless. Same gates as the activation effect: dev mode
+      // keeps the detached bar, the prompter/agent modes keep the
+      // composer, a dead shell keeps its banner.
+      if (!devMode && !prompterActive && !isAgentMode && shellExited === null) {
+        termRef.current?.focus();
+      }
     } else {
       void useSplitPaneStore.getState().splitTab(tabId);
     }

@@ -1171,7 +1171,17 @@ function TerminalTabs({
       onBloodDropActiveChange={onBloodDropActiveChange}
       bloodDropDisabled={bloodDropDisabled}
       onCreateTab={() => {
-        void createTab(undefined, { detached: detachedWindow });
+        // Adding a tab while a split is visible must not steal
+        // the split view (Gary, 2026-11-16 - "as soon as i add
+        // a tab it breaks the pairs"): the pair stays on screen
+        // and the new tab waits in the strip - it shows on click.
+        // With no split showing the new tab activates exactly as
+        // before. Detached windows never split, so their + always
+        // activates (activeGroupPaneCount is 0 there).
+        void createTab(undefined, {
+          detached: detachedWindow,
+          activate: activeGroupPaneCount < 2,
+        });
         onBloodDropActiveChange?.(false);
       }}
       showSplitButton={!detachedWindow}

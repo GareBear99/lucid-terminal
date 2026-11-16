@@ -47,7 +47,14 @@ export interface TerminalState {
   // registered with main (terminal:register-detached-tab) so
   // closing the window pops it back, and its number is broadcast
   // to every window so no other window can take it.
-  createTab: (cwd?: string, opts?: { detached?: boolean }) => Promise<string>;
+  // opts.activate (Gary, 2026-11-16 - adding a tab must not break
+  // a visible split pair): false creates the tab WITHOUT making
+  // it active - it lands in the strip, the current view stays.
+  // The + button, the menu and the palette pass false while a
+  // split is visible, so the pair stays on screen until the user
+  // clicks the new tab. Default true: split creation, reopen and
+  // restart all focus the new tab, exactly as before.
+  createTab: (cwd?: string, opts?: { detached?: boolean; activate?: boolean }) => Promise<string>;
   closeTab: (id: string) => void;
   /**
    * Close several tabs at once (Atom steal #17 — the tab
@@ -213,9 +220,21 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       // as dead.
       const exitedTabs = { ...state.exitedTabs };
       delete exitedTabs[id];
+      // Adding a tab while a split is visible must not steal the
+      // split view (Gary, 2026-11-16 - "as soon as i add a tab it
+      // breaks the pairs"): the caller passes activate:false, the
+      // new tab lands in the strip inactive, and the pair stays on
+      // screen until the user clicks the new tab. Default is true
+      // - split creation, reopen and restart all focus the new tab.
+      // With no active tab there is nothing to keep, so the new tab
+      // still activates: a tab is never created into an active-less
+      // state.
+      const shouldActivate = opts?.activate !== false || state.activeTabId === null;
       return {
-        tabs: [...state.tabs.map(t => ({ ...t, isActive: false })), newTab],
-        activeTabId: id,
+        tabs: shouldActivate
+          ? [...state.tabs.map(t => ({ ...t, isActive: false })), newTab]
+          : [...state.tabs, { ...newTab, isActive: false }],
+        activeTabId: shouldActivate ? id : state.activeTabId,
         exitedTabs,
         // A tab exists now, so the PTY state is known (live, or
         // dead on a spawn failure - createErrors says which).

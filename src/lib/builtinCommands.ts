@@ -22,7 +22,7 @@ import {
 } from '../lib/commandRegistry';
 import { useFileStore } from '../stores/fileStore';
 import { useTerminalStore } from '../stores/terminalStore';
-import { useSplitPaneStore } from '../stores/splitPaneStore';
+import { useSplitPaneStore, getVisibleTabIds } from '../stores/splitPaneStore';
 import { useModalStore, type AtomModalKind } from '../stores/modalStore';
 import { useFindReplaceStore } from '../stores/findReplaceStore';
 import { getEngineClient } from './engineClient';
@@ -289,7 +289,15 @@ export function registerBuiltinCommands(
     description: 'Open a new terminal tab',
     tags: ['terminal', 'tab', 'new', 'shell'],
     run: async () => {
-      await useTerminalStore.getState().createTab();
+      // Adding a tab while a split is visible must not steal the
+      // split view (Gary, 2026-11-16 - same rule as the + button).
+      const groups = useSplitPaneStore.getState().groups;
+      const active = useTerminalStore.getState().activeTabId;
+      const splitVisible =
+        active !== null && getVisibleTabIds(groups, active).length > 1;
+      await useTerminalStore
+        .getState()
+        .createTab(undefined, { activate: !splitVisible });
       handlers.switchView('terminal');
     },
   });

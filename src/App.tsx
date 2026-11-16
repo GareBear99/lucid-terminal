@@ -440,7 +440,17 @@ function App() {
   useEffect(() => {
     return subscribeMenuModals((kind) => {
       if (kind === 'help') openHelp();
-      else if (kind === 'new-terminal-tab') void createTab();
+      else if (kind === 'new-terminal-tab') {
+        // Adding a tab while a split is visible must not steal
+        // the split view (Gary, 2026-11-16 - same rule as the +
+        // button): read the split state fresh - this handler is
+        // registered once, so a render-scope value would go stale.
+        const groups = useSplitPaneStore.getState().groups;
+        const active = useTerminalStore.getState().activeTabId;
+        const splitVisible =
+          active !== null && getVisibleTabIds(groups, active).length > 1;
+        void createTab(undefined, { activate: !splitVisible });
+      }
     });
   }, [createTab]);
 

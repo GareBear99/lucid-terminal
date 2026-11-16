@@ -15,7 +15,8 @@
     "electron:dev": "vite",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:tools": "tsx tests/test_tools_integration.ts"
+    "test:tools": "tsx tests/test_tools_integration.ts",
+    "test:boot": "node scripts/boot-smoke-test.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",

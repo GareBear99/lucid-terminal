@@ -1,9 +1,9 @@
 /**
  * Anchored add-on data tests.
  *
- * The six add-ons Gary settled (three on 2026-11-04, Desktop
+ * The seven add-ons Gary settled (three on 2026-11-04, Desktop
  * Commander and Segments on 2026-11-06, ARC Server on
- * 2026-11-14), in order. MCP Tools was removed (Gary,
+ * 2026-11-14, Offline Worldmap on 2026-11-15), in order. MCP Tools was removed (Gary,
  * 2026-11-06) — it named no specific tools and had no install
  * flow. User installs are recorded in the settings store's
  * `installedAddons` list, not in this data file (the
@@ -15,6 +15,7 @@
  * personas inside, all local, no servers. Segments has no install
  * action at all. ARC Server is the one add-on fetched at install
  * time (Gary, 2026-11-14) — never bundled, never pre-downloaded.
+ * Offline Worldmap is the second (Gary, 2026-11-15).
  *
  * Run with: npm test
  */
@@ -28,7 +29,7 @@ import {
 } from '../src/data/pluginAddons';
 
 describe('PLUGIN_ADDONS', () => {
-  it('lists exactly the six anchored add-ons, in order', () => {
+  it('lists exactly the seven anchored add-ons, in order', () => {
     expect(PLUGIN_ADDONS.map((a) => a.id)).toEqual([
       'persona-plex',
       'gh-ai-operator',
@@ -36,6 +37,7 @@ describe('PLUGIN_ADDONS', () => {
       'android-emulator',
       'segments',
       'arc-server',
+      'offline-worldmap',
     ]);
   });
 
@@ -54,9 +56,21 @@ describe('PLUGIN_ADDONS', () => {
     expect(arc?.fetchedAtInstall).toBe(true);
   });
 
-  it('ARC Server is the only fetched-at-install add-on', () => {
+  it('ARC Server and Offline Worldmap are the fetched-at-install add-ons', () => {
     const fetched = PLUGIN_ADDONS.filter((a) => a.fetchedAtInstall);
-    expect(fetched.map((a) => a.id)).toEqual(['arc-server']);
+    expect(fetched.map((a) => a.id)).toEqual(['arc-server', 'offline-worldmap']);
+  });
+
+  it('Offline Worldmap is the second fetched-at-install add-on', () => {
+    const wm = PLUGIN_ADDONS.find((a) => a.id === 'offline-worldmap');
+    expect(wm).toBeDefined();
+    expect(wm?.name).toBe('Offline Worldmap');
+    expect(wm?.description).toBeTruthy();
+    expect(wm?.description).toMatch(/fetched|never bundled/i);
+    expect(wm?.anchor).toBeUndefined();
+    expect(wm?.installed).toBe(false);
+    expect(wm?.removable).toBe(true);
+    expect(wm?.fetchedAtInstall).toBe(true);
   });
 
   it('MCP Tools is gone — removed, not renamed', () => {

@@ -31,7 +31,7 @@
  * resolves to null and the row falls back to the Puzzle icon.
  */
 
-import { Puzzle, type LucideIcon } from 'lucide-react';
+import { Map, Puzzle, type LucideIcon } from 'lucide-react';
 
 export type CustomPluginIcon =
   | { kind: 'lucide'; icon: LucideIcon }
@@ -51,9 +51,23 @@ export interface CustomPlugin {
   defaultEnabled: boolean;
 }
 
-/** Registered custom plugins, in list order. Empty until someone
- * registers one — see the file header. */
-export const CUSTOM_PLUGINS: CustomPlugin[] = [];
+/** Registered custom plugins, in list order. */
+export const CUSTOM_PLUGINS: CustomPlugin[] = [
+  {
+    // Offline Worldmap (Gary, 2026-11-15): the add-on's toggle
+    // in Settings > Plugins > Custom plugins. The add-on entry
+    // in PLUGIN_ADDONS is the install; this row is the on/off.
+    // defaultEnabled true so installing the add-on shows the
+    // segment right away — the user turns it off here. The
+    // segment gates on installed AND enabled (see
+    // SegmentsPanel).
+    id: 'offline-worldmap',
+    name: 'Offline Worldmap',
+    description: 'ARC v10 as an offline world map — tracking, RF, sensors and GPS with no server. This toggle turns the plugin on and off.',
+    icon: { kind: 'lucide', icon: Map },
+    defaultEnabled: true,
+  },
+];
 
 /** The icon a row should render, or null when the entry's icon is
  * unusable (missing, empty emoji, empty image path). The caller

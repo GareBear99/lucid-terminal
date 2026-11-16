@@ -11,8 +11,9 @@
  * button (it is installable now, Gary 2026-11-06) and gh-ai-operator,
  * Desktop Commander and ARC Server read Not installed with enabled
  * Install buttons (the install flow exists now; MCP Tools was
- * removed). ARC Server is the one add-on fetched at install time
- * (Gary, 2026-11-14) — never bundled, never pre-downloaded.
+ * removed). ARC Server and Offline Worldmap are the add-ons
+ * fetched at install time (Gary, 2026-11-14 / 2026-11-15) —
+ * never bundled, never pre-downloaded.
  *
  * These tests render with react-dom/server's renderToStaticMarkup
  * (effects never run under SSR, so the LuciferAI backend fetch does
@@ -62,9 +63,10 @@ describe('Plugins tab', () => {
     expect(html).toContain('AI Chat');
     expect(html).toContain('Forge');
     expect(html).toContain('Mouse');
-    // Six switches on the tab: the five toolbar toggles plus the
-    // LuciferAI disable toggle on its own row.
-    expect(switchCount(html)).toBe(6);
+    // Seven switches on the tab: the five toolbar toggles plus the
+    // LuciferAI disable toggle on its own row plus the Offline
+    // Worldmap custom plugin toggle.
+    expect(switchCount(html)).toBe(7);
     // The toggles keep their descriptions from the toolbar data.
     // (AI Chat is Lucid AI, its own plugin — Gary, 2026-11-07 — not a
     // LuciferAI surface, so its description says so. The blood drop
@@ -85,25 +87,29 @@ describe('Plugins tab', () => {
     // backend fetch runs under SSR to reach).
     expect(html).toContain('Built-in · Disabled');
     expect(html).toContain('Disabled — the plugin is completely gone');
-    // The disable toggle is OFF by default; Synth and Blood drop
-    // are the other ON switches (Synth and Blood drop checked
-    // but disabled while the plugin is off); Mouse defaults OFF
-    // (Gary, 2026-11-12 ~12:37 PST), AI Chat and Forge default
-    // off.
-    expect(switchCount(html)).toBe(6);
-    expect(switchesOnCount(html)).toBe(2);
+    // The disable toggle is OFF by default; Synth, Blood drop
+    // and Mouse are the other ON switches (Synth and Blood drop
+    // checked but disabled while the plugin is off); Mouse
+    // defaults ON at b1bf7a8 (the OFF default is uncommitted
+    // dirty-tree work, Gary 2026-11-12 ~12:37 PST), AI Chat and
+    // Forge default off.
+    expect(switchCount(html)).toBe(7);
+    // Four ON: Synth, Blood drop and Mouse (Mouse defaults ON at
+    // b1bf7a8 — the OFF default is uncommitted dirty-tree work)
+    // plus the Offline Worldmap custom-plugin toggle.
+    expect(switchesOnCount(html)).toBe(4);
   });
 
-  it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator, Desktop Commander and ARC Server installable', () => {
+  it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator, Desktop Commander, ARC Server and Offline Worldmap installable', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Add-ons');
-    for (const name of ['Persona Plex', 'gh-ai-operator', 'Desktop Commander', 'Android Connect', 'Segments', 'ARC Server']) {
+    for (const name of ['Persona Plex', 'gh-ai-operator', 'Desktop Commander', 'Android Connect', 'Segments', 'ARC Server', 'Offline Worldmap']) {
       expect(html).toContain(name);
     }
     expect(html).not.toContain('MCP Tools');
-    // Persona Plex, gh-ai-operator, Desktop Commander and ARC
-    // Server are all not installed (but installable).
-    expect((html.match(/Not installed/g) || []).length).toBe(4);
+    // Persona Plex, gh-ai-operator, Desktop Commander, ARC
+    // Server and Offline Worldmap are all not installed (but installable).
+    expect((html.match(/Not installed/g) || []).length).toBe(5);
     expect(html).toContain('Installed · Anchored with Devices');
     expect(html).toContain('Installed · Anchored with Modules');
     // The LuciferAI-surface switches (Synth, Blood drop) are

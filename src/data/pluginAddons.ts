@@ -1,7 +1,7 @@
 /**
- * Anchored add-ons — the six add-ons Gary settled (three on
+ * Anchored add-ons — the seven add-ons Gary settled (three on
  * 2026-11-04, Desktop Commander and Segments on 2026-11-06,
- * ARC Server on 2026-11-14), in order. Add-ons are NOT pre-installed — except where an ANCHOR
+ * ARC Server on 2026-11-14, Offline Worldmap on 2026-11-15), in order. Add-ons are NOT pre-installed — except where an ANCHOR
  * plugin installs one automatically (see below). An installable
  * add-on is installed from Settings > Plugins: the Install button
  * records the add-on's id in the persisted `installedAddons`
@@ -56,11 +56,11 @@ export interface PluginAddon {
   /** Fetched at install time (Gary, 2026-11-14): the add-on is
    *  NOT bundled in Lucid's asar and NOT pre-downloaded —
    *  Install downloads it from its repo in the main process
-   *  (see src/lib/arcServerAddon.ts) and only then records
-   *  the id in `installedAddons`. Absent (the default) means
-   *  the existing record-only install: the UI already ships
-   *  inside the bundle and Install just reveals it. Only
-   *  ARC Server sets this today. */
+   *  (see src/lib/arcServerAddon.ts / src/lib/worldmapAddon.ts)
+   *  and only then records the id in `installedAddons`. Absent
+   *  (the default) means the existing record-only install: the
+   *  UI already ships inside the bundle and Install just reveals
+   *  it. ARC Server and Offline Worldmap set this today. */
   fetchedAtInstall?: boolean;
 }
 
@@ -138,6 +138,14 @@ export const PLUGIN_ADDONS: PluginAddon[] = [
     id: 'arc-server',
     name: 'ARC Server',
     description: 'The fastest static + API server — fetched from its repo at install time, never bundled in Lucid.',
+    installed: false,
+    removable: true,
+    fetchedAtInstall: true,
+  },
+  {
+    id: 'offline-worldmap',
+    name: 'Offline Worldmap',
+    description: 'ARC v10 as an offline world map — tracking, RF, sensors and GPS with no server. Fetched from its repo at install time, never bundled in Lucid.',
     installed: false,
     removable: true,
     fetchedAtInstall: true,

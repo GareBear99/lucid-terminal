@@ -90,9 +90,14 @@ describe('Settings text spacing (1.5 leading on description text)', () => {
   it('plugins: pre-existing plugin-row leading survives, plus status notes at 1.5', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Toggled-on plugins show as buttons in the icon bar');
-    expect(html).toContain('No custom plugins registered yet.');
-    // 9 pre-existing plugin-row descriptions + LuciferAI status note
-    // + toggled-on note + no-custom-plugins note.
+    // Offline Worldmap is the first registered custom plugin (Gary,
+    // 2026-11-15), so the empty-registry note is gone and its rows
+    // render instead — with the same 1.5 leading on their descriptions.
+    expect(html).toContain('Offline Worldmap');
+    expect(html).not.toContain('No custom plugins registered yet.');
+    // 9 pre-existing plugin-row descriptions + the worldmap add-on
+    // row + the worldmap custom-plugin row + LuciferAI status note
+    // + toggled-on note.
     expect(countLeading(html)).toBeGreaterThanOrEqual(12);
   });
 

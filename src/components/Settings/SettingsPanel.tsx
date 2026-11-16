@@ -68,6 +68,11 @@ import {
   ARC_SERVER_BUILD_NOTE,
   arcServerInstallStateText,
 } from '../../lib/arcServerAddon';
+import {
+  WORLDMAP_ADDON_ID,
+  WORLDMAP_BUILD_NOTE,
+  worldmapInstallStateText,
+} from '../../lib/worldmapAddon';
 import { AddonVoiceButton } from './AddonVoiceButton';
 import { DEVICES_PLUGIN } from '../../data/devices';
 import { MODULES_PLUGIN } from '../../data/modules';
@@ -162,7 +167,8 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   const addonHasSettings = (addonId: string): boolean =>
     addonId === 'persona-plex' ||
     addonId === 'android-emulator' ||
-    addonId === 'segments';
+    addonId === 'segments' ||
+    addonId === 'offline-worldmap';
   const handleAddonSettings = (addonId: string, addonName: string) => {
     if (addonId === 'persona-plex') {
       if (onOpenPersonaPlex) onOpenPersonaPlex();
@@ -174,6 +180,12 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
       return;
     }
     if (addonId === 'segments') {
+      setActiveTab('modules');
+      return;
+    }
+    if (addonId === 'offline-worldmap') {
+      // The worldmap's settings live in its Modules segment
+      // (the map + the settings form below it).
       setActiveTab('modules');
       return;
     }
@@ -232,6 +244,75 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     } finally {
       setArcServerInstalling(false);
     }
+  };
+
+  // Offline Worldmap add-on (Gary, 2026-11-15): the SECOND
+  // add-on fetched at install time — the ARC Server pattern.
+  // Install downloads the repo tarball in the main process
+  // (the package lives at arc_serverless_v10_complete/ on
+  // main) and only then records the id in `installedAddons`;
+  // a failed fetch records the error in `worldmapInstall`
+  // and installs nothing. Remove deletes the fetched files
+  // in the main process first, then clears the state and
+  // the id. The fetched copy must be the offline build (the
+  // shape check enforces it — see
+  // electron/services/worldmapDownload.ts).
+  const [worldmapInstalling, setWorldmapInstalling] = useState(false);
+  const handleWorldmapInstall = async () => {
+    if (worldmapInstalling) return;
+    setWorldmapInstalling(true);
+    await updateSetting('worldmapInstall', { status: 'downloading', version: null, path: null, error: null });
+    try {
+      const api = window.lucidAPI.worldmap;
+      if (!api) {
+        await updateSetting('worldmapInstall', { status: 'failed', version: null, path: null, error: 'Worldmap install is not available in this build.' });
+        return;
+      }
+      const result = await api.install();
+      if (result.ok && result.version && result.path) {
+        await updateSetting('worldmapInstall', { status: 'installed', version: result.version, path: result.path, error: null });
+        await updateSetting('installedAddons', [...(settings.installedAddons ?? []), WORLDMAP_ADDON_ID]);
+      } else {
+        await updateSetting('worldmapInstall', { status: 'failed', version: null, path: null, error: result.error ?? 'Fetch failed.' });
+      }
+    } catch (err) {
+      await updateSetting('worldmapInstall', { status: 'failed', version: null, path: null, error: err instanceof Error ? err.message : 'Fetch failed.' });
+    } finally {
+      setWorldmapInstalling(false);
+    }
+  };
+  const handleWorldmapRemove = async () => {
+    if (worldmapInstalling) return;
+    setWorldmapInstalling(true);
+    try {
+      const api = window.lucidAPI.worldmap;
+      if (!api) {
+        toastInfo('Worldmap removal is not available in this build.');
+        return;
+      }
+      const result = await api.uninstall();
+      if (!result.ok) {
+        toastInfo(`Could not remove Offline Worldmap: ${result.error ?? 'unknown error'}.`);
+        return;
+      }
+      await updateSetting('worldmapInstall', null);
+      await updateSetting('installedAddons', (settings.installedAddons ?? []).filter((id) => id !== WORLDMAP_ADDON_ID));
+    } finally {
+      setWorldmapInstalling(false);
+    }
+  };
+  // Fetched-at-install add-ons share one JSX branch (below):
+  // dispatch the in-flight flag and the install/remove
+  // handlers by add-on id.
+  const installingFor = (id: string): boolean =>
+    id === 'arc-server' ? arcServerInstalling : id === 'offline-worldmap' ? worldmapInstalling : false;
+  const handleFetchedInstall = (id: string): Promise<void> | void => {
+    if (id === 'arc-server') return handleArcServerInstall();
+    if (id === 'offline-worldmap') return handleWorldmapInstall();
+  };
+  const handleFetchedRemove = (id: string): Promise<void> | void => {
+    if (id === 'arc-server') return handleArcServerRemove();
+    if (id === 'offline-worldmap') return handleWorldmapRemove();
   };
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'appearance');
@@ -2008,8 +2089,14 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                             {addon.fetchedAtInstall && settings.arcServerInstall ? (
                               <span className="block">{arcServerInstallStateText(settings.arcServerInstall)}</span>
                             ) : null}
-                            {addon.fetchedAtInstall && installed ? (
+                            {addon.fetchedAtInstall && addon.id === 'offline-worldmap' && settings.worldmapInstall ? (
+                              <span className="block">{worldmapInstallStateText(settings.worldmapInstall)}</span>
+                            ) : null}
+                            {addon.fetchedAtInstall && installed && addon.id === 'arc-server' ? (
                               <span className="block">{ARC_SERVER_BUILD_NOTE}</span>
+                            ) : null}
+                            {addon.fetchedAtInstall && installed && addon.id === 'offline-worldmap' ? (
+                              <span className="block">{WORLDMAP_BUILD_NOTE}</span>
                             ) : null}
                           </span>
                         </span>
@@ -2019,7 +2106,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                             <span className="text-xs text-[var(--text-muted)] shrink-0">
                               {installed ? 'Installed' : 'Not installed'}
                             </span>
-                            {arcServerInstalling ? (
+                            {installingFor(addon.id) ? (
                               <button data-addon-install={addon.id}
                                 disabled
                                 className="btn btn-secondary text-xs shrink-0 opacity-50 cursor-not-allowed"
@@ -2039,7 +2126,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                                 )}
                                 {userInstalled && addon.removable && (
                                   <button data-addon-remove={addon.id}
-                                    onClick={() => void handleArcServerRemove()}
+                                    onClick={() => void handleFetchedRemove(addon.id)}
                                     className="btn btn-secondary text-xs shrink-0"
                                   >
                                     Remove
@@ -2048,7 +2135,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                               </>
                             ) : (
                               <button data-addon-install={addon.id}
-                                onClick={() => void handleArcServerInstall()}
+                                onClick={() => void handleFetchedInstall(addon.id)}
                                 className="btn btn-secondary text-xs shrink-0"
                               >
                                 Install

@@ -16,6 +16,7 @@ import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupSnapshotHandlers } from './ipc/snapshot';
 import { setupArcServerHandlers } from './ipc/arcServer';
+import { setupWorldmapHandlers } from './ipc/worldmap';
 import { setupTerminalDetachHandlers } from './ipc/terminalDetach';
 import { setupBrowserHandlers } from './ipc/browser';
 import {
@@ -171,6 +172,7 @@ app.whenReady().then(() => {
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   setupSnapshotHandlers(ipcMain);
   setupArcServerHandlers(ipcMain);
+  setupWorldmapHandlers(ipcMain);
   // GitHub Copilot API client (D9, 2026-11-15) — the copilot
   // tab's keyed brain. The key never leaves main: the handlers
   // read it from the OS keychain and the renderer only ever sees

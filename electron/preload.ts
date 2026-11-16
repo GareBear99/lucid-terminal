@@ -19,6 +19,10 @@ import type {
   ArcServerInstallResult,
   ArcServerStatusResult,
 } from '../src/lib/arcServerAddon';
+import type {
+  WorldmapInstallResult,
+  WorldmapStatusResult,
+} from '../src/lib/worldmapAddon';
 
 /** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
  *  / GoogleDriveAuthRedirect in src/lib/googleDriveAuth.ts. Defined
@@ -788,6 +792,21 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('arc-server:uninstall'),
     getStatus: (): Promise<ArcServerStatusResult> =>
       ipcRenderer.invoke('arc-server:status'),
+  },
+
+  // Offline Worldmap add-on (Gary, 2026-11-15): the add-on is
+  // fetched at install time from its repo, never bundled in
+  // the asar. The main process downloads the repo tarball for
+  // the HEAD commit and records the fetched SHA + package
+  // path; the renderer passes no URL (see
+  // electron/ipc/worldmap.ts).
+  worldmap: {
+    install: (): Promise<WorldmapInstallResult> =>
+      ipcRenderer.invoke('worldmap:install'),
+    uninstall: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('worldmap:uninstall'),
+    getStatus: (): Promise<WorldmapStatusResult> =>
+      ipcRenderer.invoke('worldmap:status'),
   },
 
   // Lucid Workflow operations

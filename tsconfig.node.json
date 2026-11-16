@@ -30,6 +30,8 @@
   // src/lib/gitignore.ts is imported by electron/ipc/readDirTree;
   // a composite project must list every file it compiles, so
   // the matcher is listed explicitly (the rest of src/lib is
-  // the root project's, not this one's).
-  "include": ["vite.config.ts", "electron/**/*", "src/lib/gitignore.ts"]
+  // the root project's, not this one's). Likewise the worldmap
+  // lib files, type-imported by electron/ipc/worldmap.ts and
+  // electron/preload.ts (Gary, 2026-11-15).
+  "include": ["vite.config.ts", "electron/**/*", "src/lib/gitignore.ts", "src/lib/worldmapAddon.ts", "src/lib/worldmapSettings.ts"]
 }

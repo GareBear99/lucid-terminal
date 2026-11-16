@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Theme, Settings } from '../types';
 import { getTheme, applyTheme, themes, isThemeUnlocked } from '../themes/themes';
+import { WORLDMAP_DEFAULT_SETTINGS } from '../lib/worldmapSettings';
 
 interface SettingsState {
   settings: Settings;
@@ -242,6 +243,16 @@ const defaultSettings: Settings = {
   // remove; the id joins `installedAddons` only once the
   // fetch has succeeded.
   arcServerInstall: null,
+  // Offline Worldmap add-on install state — null = never
+  // installed (see src/lib/worldmapAddon.ts). Written on
+  // install / remove; the id joins `installedAddons` only
+  // once the fetch has succeeded.
+  worldmapInstall: null,
+  // Offline Worldmap settings — the user-customizable
+  // surface (see src/lib/worldmapSettings.ts). Williams
+  // Lake centre, grid tiles, no GPS source: offline and
+  // silent until the user turns things on.
+  worldmapSettings: { ...WORLDMAP_DEFAULT_SETTINGS },
   // Persona Plex — empty = no custom personas, no per-persona
   // overrides, no active persona, Speak off (see src/types/index.ts).
   personaPlexCustomPersonas: [],

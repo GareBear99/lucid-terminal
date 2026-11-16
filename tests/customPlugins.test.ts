@@ -72,8 +72,9 @@ describe('isCustomPluginEnabled', () => {
 });
 
 describe('validateCustomPlugins', () => {
-  it('the shipped registry is empty and valid', () => {
-    expect(CUSTOM_PLUGINS).toEqual([]);
+  it('the shipped registry holds the Offline Worldmap plugin and is valid', () => {
+    expect(CUSTOM_PLUGINS.map((p) => p.id)).toEqual(['offline-worldmap']);
+    expect(CUSTOM_PLUGINS[0]?.defaultEnabled).toBe(true);
     expect(validateCustomPlugins(CUSTOM_PLUGINS)).toEqual([]);
   });
 

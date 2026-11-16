@@ -49,6 +49,12 @@ import type {
   ArcServerInstallState,
   ArcServerStatusResult,
 } from '../lib/arcServerAddon';
+import type {
+  WorldmapInstallResult,
+  WorldmapInstallState,
+  WorldmapStatusResult,
+} from '../lib/worldmapAddon';
+import type { WorldmapSettings } from '../lib/worldmapSettings';
 
 export interface FileEntry {
   name: string;
@@ -785,6 +791,18 @@ export interface Settings {
   // once the fetch has succeeded. See
   // src/lib/arcServerAddon.ts.
   arcServerInstall: ArcServerInstallState | null;
+  // Offline Worldmap add-on install state (Gary, 2026-11-15):
+  // fetched at install time from its repo, never bundled in
+  // Lucid. Null = never installed (or removed). The id is
+  // added to `installedAddons` only once the fetch has
+  // succeeded. See src/lib/worldmapAddon.ts.
+  worldmapInstall: WorldmapInstallState | null;
+  // Offline Worldmap settings (Gary, 2026-11-15): the
+  // user-customizable surface — centre, zoom, tile source,
+  // GPS source, simulator, paths. Written immediately via
+  // updateSetting and loaded on startup. See
+  // src/lib/worldmapSettings.ts.
+  worldmapSettings: WorldmapSettings;
   // Persona Plex (Gary, 2026-11-06) — personas + Speak. All local,
   // no servers. Custom personas created on the Persona Plex setup
   // page (full records — they have no Python source). Per-persona
@@ -1636,6 +1654,13 @@ declare global {
         install: () => Promise<ArcServerInstallResult>;
         uninstall: () => Promise<{ ok: boolean; error?: string }>;
         getStatus: () => Promise<ArcServerStatusResult>;
+      };
+      // Offline Worldmap add-on (Gary, 2026-11-15): fetched
+      // at install time from its repo, never bundled.
+      worldmap: {
+        install: () => Promise<WorldmapInstallResult>;
+        uninstall: () => Promise<{ ok: boolean; error?: string }>;
+        getStatus: () => Promise<WorldmapStatusResult>;
       };
     };
   }

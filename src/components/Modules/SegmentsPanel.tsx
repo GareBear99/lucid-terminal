@@ -34,6 +34,7 @@ import {
   isAddonInstalled,
   addonAnchorLabel,
 } from '../../data/pluginAddons';
+import { CUSTOM_PLUGINS, isCustomPluginEnabled } from '../../data/customPlugins';
 import { detectStarship } from '../../lib/starshipDetection';
 import { segmentCategory } from '../../lib/segmentCategories';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -44,6 +45,7 @@ import { GoogleDriveSegment } from './GoogleDriveSegment';
 import { MouseSegment } from './MouseSegment';
 import { SegmentCategorySection } from './SegmentCategorySection';
 import { TelegramSegment } from './TelegramSegment';
+import { WorldmapSegment } from './WorldmapSegment';
 
 export function SegmentsPanel() {
   const segments = PLUGIN_ADDONS.find((addon) => addon.id === 'segments');
@@ -55,6 +57,18 @@ export function SegmentsPanel() {
   // install flow). Installing Persona Plex carries this segment
   // with it; removing Persona Plex hides it again.
   const personaPlexInstalled = (useSettingsStore((s) => s.settings.installedAddons) ?? []).includes('persona-plex');
+  // The Offline Worldmap segment appears only when its add-on
+  // is installed AND its custom-plugin toggle is on. Installing
+  // the add-on carries this segment with it; removing the
+  // add-on (or toggling it off) hides it again.
+  const worldmapAddon = PLUGIN_ADDONS.find((addon) => addon.id === 'offline-worldmap');
+  const worldmapPlugin = CUSTOM_PLUGINS.find((plugin) => plugin.id === 'offline-worldmap');
+  const worldmapInstalled = worldmapAddon
+    ? isAddonInstalled(worldmapAddon, (useSettingsStore((s) => s.settings.installedAddons) ?? []))
+    : false;
+  const worldmapEnabled = worldmapPlugin
+    ? isCustomPluginEnabled(worldmapPlugin, useSettingsStore((s) => s.settings.customPlugins))
+    : false;
 
   const about = segmentCategory('about');
   const control = segmentCategory('computer-control');
@@ -64,6 +78,7 @@ export function SegmentsPanel() {
   const telegram = segmentCategory('telegram');
   const starship = segmentCategory('starship');
   const forge = segmentCategory('forge-persona-plex');
+  const worldmap = segmentCategory('worldmap');
 
   return (
     <div className="space-y-6">
@@ -113,6 +128,16 @@ export function SegmentsPanel() {
       {mouse && (
         <SegmentCategorySection category={mouse}>
           <MouseSegment />
+        </SegmentCategorySection>
+      )}
+
+      {/* Offline Worldmap — the map segment (Gary, 2026-11-15).
+          Local, no server, no network by default: the fetched
+          plugin page in an iframe, with Lucid settings below
+          it. Gated on installed AND enabled (above). */}
+      {worldmapInstalled && worldmapEnabled && worldmap && (
+        <SegmentCategorySection category={worldmap}>
+          <WorldmapSegment />
         </SegmentCategorySection>
       )}
 

@@ -21,7 +21,13 @@ import { CommandHistoryPalette } from './CommandHistoryPalette';
 import { HintLine } from './HintLine';
 import { PillRow } from './PillRow';
 import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, createScrollbackMirror, dropPendingEscape, newBlock, parseOsc133ExitCodes, type ScrollbackMirror } from '../../lib/terminalBlocks';
-import { registerTerminalLineWriter, unsplitFeedLine } from '../../lib/terminalFeedLine';
+import {
+  registerTerminalLineWriter,
+  unsplitFeedLine,
+  unsplitOneTabWithQueuedLine,
+  queueTerminalFeedLine,
+  useFeedLineQueueStore,
+} from '../../lib/terminalFeedLine';
 import {
   useSessionStore,
   getTabMode,
@@ -60,6 +66,11 @@ import { Tooltip } from '../Tooltip/Tooltip';
 // Dev console cap — the detached bar's own output keeps only the
 // last 200 lines (Gary, 2026-11-07: dev-mode topology).
 const DEV_CONSOLE_CAP = 200;
+
+// Stable empty for the queued-feed-lines selector below — a fresh
+// `[]` per call would re-render forever (zustand compares by
+// reference).
+const EMPTY_FEED_LINES: string[] = [];
 
 interface TerminalProps {
   tabId: string;
@@ -824,6 +835,25 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     });
   }, [tabId, termWriteLines]);
 
+  // The queued feed lines (terminalFeedLine.ts, 2026-11-16): a
+  // split/unsplit queues its line for the surviving pane instead
+  // of writing it to the acting instance — the tree surgery
+  // remounts that instance (dissolve moves the pane tree-leaf →
+  // flat host; collapsing a nested node replaces the node's
+  // container with the survivor's leaf div), so a direct write
+  // resolves after the unmount into a disposed surface and the
+  // line never appears (live 179d944). The drain runs on mount
+  // AND whenever this tab's queue changes: a remounting pane
+  // drains on its new mount — its surface is ready, child
+  // effects (the surface creating its term) run before the
+  // parent's — and a pane that never remounts drains in place.
+  const queuedFeedLines = useFeedLineQueueStore((s) => s.queued[tabId] ?? EMPTY_FEED_LINES);
+  useEffect(() => {
+    if (queuedFeedLines.length === 0) return;
+    const lines = useFeedLineQueueStore.getState().take(tabId);
+    for (const line of lines) void termWriteLines(line);
+  }, [queuedFeedLines, tabId, termWriteLines]);
+
   // Write into the dev console (dev mode ON only): appends lines,
   // capped at the last DEV_CONSOLE_CAP. The terminal screen is
   // never touched — this is the detached bar's own output.
@@ -1018,11 +1048,22 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         await write('No terminal tab to split.');
         return;
       }
-      await write(
+      // The confirmation is QUEUED for this pane (terminalFeedLine,
+      // 2026-11-16), not written direct: joining the group moves
+      // this pane flat-host → tree leaf, so its Terminal remounts
+      // and a direct write resolves after the unmount into a
+      // disposed surface — the live /split line never appeared
+      // either. The dev bar keeps its own sink (its output is
+      // the dev console, not the terminal feed).
+      const splitMsg =
         direction === 'horizontal'
           ? 'Split — a new terminal stacked below. /unsplit undoes the last split.'
-          : 'Split — two terminals side by side. /unsplit undoes the last split.',
-      );
+          : 'Split — two terminals side by side. /unsplit undoes the last split.';
+      if (opts?.write) {
+        await write(splitMsg);
+      } else {
+        queueTerminalFeedLine(tabId, splitMsg);
+      }
       return;
     }
     if (parsed.type === 'unsplit') {
@@ -1067,13 +1108,25 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         );
         return;
       }
-      const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
-      if (removed === null) {
-        await write("Couldn't unsplit — the split tree is inconsistent.");
+      // The success line is QUEUED for the surviving pane
+      // (unsplitOneTabWithQueuedLine, terminalFeedLine 2026-11-16),
+      // not written direct: the unsplit's tree surgery remounts
+      // the acting instance, so a direct write resolves after the
+      // unmount into a disposed surface and the line never appears
+      // (live 179d944). The dev bar keeps its own sink (its output
+      // is the dev console, not the terminal feed) — the queued
+      // path is the terminal feed only.
+      if (opts?.write) {
+        const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
+        if (removed === null) {
+          await write("Couldn't unsplit — the split tree is inconsistent.");
+          return;
+        }
+        const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
+        await write(unsplitFeedLine(removed, remaining));
         return;
       }
-      const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
-      await write(unsplitFeedLine(removed, remaining));
+      unsplitOneTabWithQueuedLine(tabId);
       return;
     }
 
@@ -2160,18 +2213,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   })();
   const handleToggleSplit = () => {
     if (getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1) {
-      // Unsplit writes the same feed line as /unsplit (sweep
-      // fix, 2026-11-16): the pill used to call
-      // unsplitOneTab bare, so no "Closed …" line ever
-      // reached the feed. Same message, same null guard —
-      // one press still undoes exactly one split.
-      const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
-      if (removed === null) {
-        void termWriteLines("Couldn't unsplit — the split tree is inconsistent.");
-        return;
-      }
-      const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
-      void termWriteLines(unsplitFeedLine(removed, remaining));
+      // Unsplit queues the feed line for the surviving pane
+      // (unsplitOneTabWithQueuedLine, terminalFeedLine 2026-11-16):
+      // the pill used to call unsplitOneTab + termWriteLines on
+      // THIS instance, but the unsplit's tree surgery remounts it
+      // (and the usual live press lands in the removed pane, whose
+      // instance unmounts outright) — the async write resolved
+      // after the unmount into a disposed surface, so no "Closed …"
+      // line ever reached the feed (live 179d944). One press still
+      // undoes exactly one split.
+      unsplitOneTabWithQueuedLine(tabId);
     } else {
       void useSplitPaneStore.getState().splitTab(tabId);
     }

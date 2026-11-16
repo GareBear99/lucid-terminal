@@ -136,9 +136,13 @@ export interface TerminalTabsViewProps {
   onCopyTabCwd?: (id: string) => void;
   showSplitButton?: boolean;
   /**
-   * Tabs in the active tab's split group (empty when unsplit):
+   * Tabs in ANY split group (empty when nothing is split):
    * members other than the focused pane get a dim blue underline
-   * so the strip shows which tabs are panes of the active split.
+   * so the strip shows which tabs are panes of a pair. Per-pair,
+   * never active-tab-only (2026-11-16): the old rule passed only
+   * the ACTIVE tab's group, so adding a new tab — which becomes
+   * active — unmarked every existing pair in the strip and the
+   * links read as broken, although the groups were intact.
    */
   splitGroupTabIds?: string[];
   onRenameTab: (id: string, title: string) => void;
@@ -1180,7 +1184,9 @@ function TerminalTabs({
         if (activeGroup)
           useSplitPaneStore.getState().equalizeGroup(activeGroup.id);
       }}
-      splitGroupTabIds={activeGroup ? groupTabIds(activeGroup) : []}
+      // Per-pair (2026-11-16): EVERY group's leaves, not just the
+      // active tab's group — adding a tab must not unmark the pairs.
+      splitGroupTabIds={Object.values(splitGroups).flatMap((group) => groupTabIds(group))}
       onCloseTab={handleCloseTab}
       // Per-tab context menu (Atom steal #17): "to the right"
       // is computed in the RENDERED (pane-ordered) list, not

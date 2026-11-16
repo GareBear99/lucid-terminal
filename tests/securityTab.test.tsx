@@ -803,4 +803,15 @@ describe('SecurityTab', () => {
     expect(screen.queryByText('Confirmation off')).toBeNull();
     expect(screen.queryByTestId('security-logout-ask-again-profile-guest')).toBeNull();
   });
+
+  test('What leaves the machine sits at the top of the tab, not buried last (sweep fix, 2026-11-16)', () => {
+    // The live check (2026-11-16, build 2ff0ba0) missed the
+    // section entirely — it was the LAST of 17 sections, far
+    // below the fold. It is first now: before Snapshot, the
+    // first tracking section.
+    const { container } = render(<SecurityTab />);
+    const html = container.innerHTML;
+    expect(html.indexOf('What leaves the machine')).toBeGreaterThan(-1);
+    expect(html.indexOf('What leaves the machine')).toBeLessThan(html.indexOf('Snapshot'));
+  });
 });

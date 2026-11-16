@@ -154,11 +154,20 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // icon stays while LuciferAI is disabled (Gary, 2026-11-15).
   const worldmapAddon = PLUGIN_ADDONS.find((addon) => addon.id === 'offline-worldmap');
   const worldmapPlugin = CUSTOM_PLUGINS.find((plugin) => plugin.id === 'offline-worldmap');
+  // Rules of Hooks (React #311, 2026-11-16): this subscription MUST
+  // be called unconditionally, above the install gate below. It used
+  // to live inside the `&&` chain (as the argument to
+  // isCustomPluginEnabled), so it only ran while the worldmap was
+  // installed — installing the add-on ADDED a hook to this
+  // component's hook list mid-life, removing it REMOVED one, and
+  // every hook below shifted a slot: the `useState` hooks landed on
+  // slots held by non-state hooks and React threw minified error
+  // #311 ("Should have a queue") on both Install and Remove. The
+  // value is read here, the gate stays a pure boolean below.
+  const customPlugins = useSettingsStore((s) => s.settings.customPlugins);
   const worldmapVisible =
     (worldmapAddon ? isAddonInstalled(worldmapAddon, installedAddons) : false) &&
-    (worldmapPlugin
-      ? isCustomPluginEnabled(worldmapPlugin, useSettingsStore((s) => s.settings.customPlugins))
-      : false);
+    (worldmapPlugin ? isCustomPluginEnabled(worldmapPlugin, customPlugins) : false);
   const storedToolbarOrder = useSettingsStore((s) => s.settings.toolbarOrder);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   // Kite's docs-panel toggle (Atom steal #15): when the docs

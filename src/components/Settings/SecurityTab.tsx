@@ -851,12 +851,82 @@ export function SecurityTab() {
           and Colab connects, Google sign-in with Google
           Authenticator, SP, the allowances,
           and the permissions and denials — checked here, platform
-          wide, with when and why for each event. The server side
-          (admin pull) is below. Nothing here is assumed: a value
+          wide, with when and why for each event. What leaves
+          the machine, per brain and path, per request, is
+          first, directly below. The server side
+          (admin pull) is further down. Nothing here is assumed: a value
           that is not checked yet says so, and a value that does
           not exist yet says so.
         </p>
       </div>
+
+      {/* What leaves the machine (Tabnine S4 — 2026-11-15;
+          PROMOTED to the top of the tab, sweep fix 2026-11-16:
+          it was the LAST section of 17 and the live check
+          (2026-11-16, build 2ff0ba0) missed it entirely —
+          the section users come for cannot sit below the
+          fold. The context-window contract, per brain/path,
+          per request — rendered from src/lib/contextContract.ts,
+          which derives the list from the real payload
+          builders (each item cites the code path that sends
+          or reads it). If a builder changes what it sends,
+          that module is the place to update. */}
+      <Section title="What leaves the machine">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+          Per brain and path, per request — derived from the
+          payload builders, not from memory. No path sends
+          file contents automatically: Copilot sends paths
+          only, and the AI chat sends only its own messages
+          (your words). If you paste file contents into the
+          chat, those contents go — the app never attaches
+          them for you. No path sends types, diagnostics, or
+          error reports, and tool results are never sent back
+          (the loop plans once per prompt and never re-plans).
+        </p>
+        {CONTEXT_CONTRACT.map((entry) => (
+          <div
+            key={entry.id}
+            data-testid={`context-contract-${entry.id}`}
+            className="space-y-1 pt-2"
+          >
+            <h4 className="text-xs font-semibold text-[var(--text-secondary)]">
+              {entry.surface}
+            </h4>
+            <Row label="Goes to">{entry.destination}</Row>
+            {entry.sends.length > 0 ? (
+              <div className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                <span className="font-semibold text-[var(--text-secondary)]">Sends: </span>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {entry.sends.map((item) => (
+                    <li key={item.item}>
+                      {item.item}{' '}
+                      <span className="text-[var(--text-muted)]">({item.source})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <Row label="Sends">
+                Nothing — nothing leaves the machine on this path.
+              </Row>
+            )}
+            {entry.staysLocal.length > 0 && (
+              <div className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                <span className="font-semibold text-[var(--text-secondary)]">Stays local: </span>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {entry.staysLocal.map((item) => (
+                    <li key={item.item}>
+                      {item.item}{' '}
+                      <span className="text-[var(--text-muted)]">({item.source})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ))}
+        <Row label="In guest">{CONTEXT_CONTRACT_GUEST}</Row>
+      </Section>
 
       <GroupHeading>Tracking — client side (lightweight)</GroupHeading>
       <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
@@ -1710,70 +1780,6 @@ export function SecurityTab() {
           (when it is on, for which designated job, how long)
           waits on the pool.
         </Row>
-      </Section>
-
-      {/* What leaves the machine (Tabnine S4 — 2026-11-15):
-          the context-window contract, per brain/path, per
-          request — rendered from src/lib/contextContract.ts,
-          which derives the list from the real payload
-          builders (each item cites the code path that sends
-          or reads it). If a builder changes what it sends,
-          that module is the place to update. */}
-      <Section title="What leaves the machine">
-        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
-          Per brain and path, per request — derived from the
-          payload builders, not from memory. No path sends
-          file contents automatically: Copilot sends paths
-          only, and the AI chat sends only its own messages
-          (your words). If you paste file contents into the
-          chat, those contents go — the app never attaches
-          them for you. No path sends types, diagnostics, or
-          error reports, and tool results are never sent back
-          (the loop plans once per prompt and never re-plans).
-        </p>
-        {CONTEXT_CONTRACT.map((entry) => (
-          <div
-            key={entry.id}
-            data-testid={`context-contract-${entry.id}`}
-            className="space-y-1 pt-2"
-          >
-            <h4 className="text-xs font-semibold text-[var(--text-secondary)]">
-              {entry.surface}
-            </h4>
-            <Row label="Goes to">{entry.destination}</Row>
-            {entry.sends.length > 0 ? (
-              <div className="text-xs leading-[1.5] text-[var(--text-muted)]">
-                <span className="font-semibold text-[var(--text-secondary)]">Sends: </span>
-                <ul className="list-disc pl-4 space-y-0.5">
-                  {entry.sends.map((item) => (
-                    <li key={item.item}>
-                      {item.item}{' '}
-                      <span className="text-[var(--text-muted)]">({item.source})</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <Row label="Sends">
-                Nothing — nothing leaves the machine on this path.
-              </Row>
-            )}
-            {entry.staysLocal.length > 0 && (
-              <div className="text-xs leading-[1.5] text-[var(--text-muted)]">
-                <span className="font-semibold text-[var(--text-secondary)]">Stays local: </span>
-                <ul className="list-disc pl-4 space-y-0.5">
-                  {entry.staysLocal.map((item) => (
-                    <li key={item.item}>
-                      {item.item}{' '}
-                      <span className="text-[var(--text-muted)]">({item.source})</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        ))}
-        <Row label="In guest">{CONTEXT_CONTRACT_GUEST}</Row>
       </Section>
     </div>
   );

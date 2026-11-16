@@ -36,6 +36,39 @@ export function findFileEntry(entries: FileEntry[], path: string): FileEntry | n
   return null;
 }
 
+/**
+ * Normalise a path once on open (2026-11-15, editor-freeze fix):
+ * a `file://` URI (the DocsPanel route) and the Explorer's plain
+ * path must dedupe to the same spelling, or the same file opens
+ * in two tabs. Strips a `file://` prefix, percent-decodes it, and
+ * collapses `.`, `..` and duplicate slashes. Pure strings — no
+ * `node:path` (renderer) and no import from agentHost (it imports
+ * this store, so importing it back would be a cycle).
+ */
+export function normalizeOpenPath(rawPath: string): string {
+  let path = rawPath;
+  if (path.startsWith('file://')) {
+    path = path.slice('file://'.length);
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // Undecodable URI — keep the stripped spelling; the open
+      // fails downstream with a real error instead of here.
+    }
+  }
+  const absolute = path.startsWith('/');
+  const parts: string[] = [];
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(segment);
+  }
+  return (absolute ? '/' : '') + parts.join('/');
+}
+
 /** Return a new tree with `children` set on the entry at `path`. */
 export function withFileEntryChildren(
   entries: FileEntry[],
@@ -345,7 +378,11 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ selectedPath: path });
   },
 
-  openFile: async (path) => {
+  openFile: async (rawPath) => {
+    // Normalise once, up front, so every check, read and set below
+    // — and every other funnel that calls openFile — uses the one
+    // spelling for this file.
+    const path = normalizeOpenPath(rawPath);
     const { openFiles } = get();
 
     // Check if file is already open
@@ -381,6 +418,12 @@ export const useFileStore = create<FileState>((set, get) => ({
         // (Explorer, Finder, terminal /open, FindReplacePanel)
         // is covered here and nowhere else.
         const head = await window.lucidAPI.fs.readFileHead(path, LARGE_FILE_PREVIEW_BYTES);
+        // Race re-check (see below): a concurrent open may have
+        // appended this file while the head read was in flight.
+        if (get().openFiles.some((f) => f.path === path)) {
+          set({ activeFilePath: path });
+          return true;
+        }
         const lines = head.content.split('\n');
         const preview =
           lines.length > LARGE_FILE_PREVIEW_MAX_LINES
@@ -406,6 +449,16 @@ export const useFileStore = create<FileState>((set, get) => ({
       }
 
       const content = await window.lucidAPI.fs.readFile(path);
+      // Race re-check (2026-11-15): the dedupe above ran BEFORE
+      // the awaited read, so a double-click opened the file twice.
+      // A concurrent open may have appended it while this read was
+      // in flight — activate the existing tab instead of appending
+      // a duplicate. No await sits between this check and the set
+      // below, so the pair is atomic.
+      if (get().openFiles.some((f) => f.path === path)) {
+        set({ activeFilePath: path });
+        return true;
+      }
       const newFile: OpenFile = {
         path,
         name,

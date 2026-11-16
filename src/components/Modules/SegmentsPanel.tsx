@@ -4,12 +4,13 @@
  * Segments is ANCHORED to the Modules plugin and LABELED as an
  * extension to the Modules plugin. It does NOT have an install —
  * no install button, no install action. It is just there, anchored,
- * as an extension (unlike the installable add-ons Persona Plex,
- * MCP Tools and gh-ai-operator, which have a disabled Install
- * button until an install flow exists). Its installed state comes
- * from the anchor (see src/data/pluginAddons.ts: `anchor:
- * 'modules'` + 'modules' in ANCHORED_PLUGIN_IDS), never from a
- * user install.
+ * as an extension (unlike Persona Plex, which installs for real,
+ * and gh-ai-operator / Desktop Commander, whose Install buttons
+ * are disabled — listing only, no install flow or UI built yet
+ * (see src/data/pluginAddons.ts: `installBlockedReason`)). Its installed
+ * state comes from the anchor (see src/data/pluginAddons.ts:
+ * `anchor: 'modules'` + 'modules' in ANCHORED_PLUGIN_IDS), never
+ * from a user install.
  *
  * WHEN THE STARSHIP IS DETECTED, Segments show up here, in the
  * Modules tab. That is the trigger. The detection itself lives in

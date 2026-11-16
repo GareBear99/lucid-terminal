@@ -8,10 +8,12 @@
  * lists Android Connect as anchor-installed with the Devices
  * plugin and Segments as anchor-installed with the Modules plugin,
  * while Persona Plex reads Not installed with an enabled Install
- * button (it is installable now, Gary 2026-11-06) and gh-ai-operator,
- * Desktop Commander and ARC Server read Not installed with enabled
- * Install buttons (the install flow exists now; MCP Tools was
- * removed). ARC Server and Offline Worldmap are the add-ons
+ * button (it is installable now, Gary 2026-11-06) and ARC Server
+ * reads Not installed with an enabled Install button (the install
+ * flow exists now; MCP Tools was removed). gh-ai-operator and
+ * Desktop Commander read Not installed with DISABLED Install
+ * buttons — listing only, no install flow or UI built yet (sweep
+ * fold-in e). ARC Server and Offline Worldmap are the add-ons
  * fetched at install time (Gary, 2026-11-14 / 2026-11-15) —
  * never bundled, never pre-downloaded.
  *
@@ -100,7 +102,7 @@ describe('Plugins tab', () => {
     expect(switchesOnCount(html)).toBe(4);
   });
 
-  it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, gh-ai-operator, Desktop Commander, ARC Server and Offline Worldmap installable', () => {
+  it('lists the add-ons: Android Connect and Segments anchor-installed, Persona Plex, ARC Server and Offline Worldmap installable, gh-ai-operator and Desktop Commander listing-only', () => {
     const html = renderSettings('plugins');
     expect(html).toContain('Add-ons');
     for (const name of ['Persona Plex', 'gh-ai-operator', 'Desktop Commander', 'Android Connect', 'Segments', 'ARC Server', 'Offline Worldmap']) {
@@ -108,14 +110,18 @@ describe('Plugins tab', () => {
     }
     expect(html).not.toContain('MCP Tools');
     // Persona Plex, gh-ai-operator, Desktop Commander, ARC
-    // Server and Offline Worldmap are all not installed (but installable).
+    // Server and Offline Worldmap are all not installed (Persona
+    // Plex, ARC Server and Offline Worldmap installable;
+    // gh-ai-operator and Desktop Commander listing-only).
     expect((html.match(/Not installed/g) || []).length).toBe(5);
     expect(html).toContain('Installed · Anchored with Devices');
     expect(html).toContain('Installed · Anchored with Modules');
     // The LuciferAI-surface switches (Synth, Blood drop) are
-    // disabled while the plugin is off — two disabled buttons;
-    // no add-on Install button is blocked.
-    expect(disabledButtonCount(html)).toBe(2);
+    // disabled while the plugin is off — two disabled buttons —
+    // plus the two blocked add-on Install buttons (gh-ai-operator
+    // and Desktop Commander, listing only — sweep fold-in e).
+    expect(disabledButtonCount(html)).toBe(4);
+    expect(html).toContain('No install flow or UI built yet — listing only.');
     expect(html).toContain('Install');
     expect(html).not.toContain('six decisions');
   });

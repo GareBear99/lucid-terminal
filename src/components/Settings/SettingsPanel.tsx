@@ -2127,7 +2127,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                           <span className="block text-xs leading-[1.5] text-[var(--text-muted)]">
                             {addon.description}
                             {addon.removable ? ' Removable once installed.' : ''}
-                            {addon.fetchedAtInstall && settings.arcServerInstall ? (
+                            {addon.fetchedAtInstall && addon.id === 'arc-server' && settings.arcServerInstall ? (
                               <span className="block">{arcServerInstallStateText(settings.arcServerInstall)}</span>
                             ) : null}
                             {addon.fetchedAtInstall && addon.id === 'offline-worldmap' && settings.worldmapInstall ? (

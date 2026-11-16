@@ -58,9 +58,9 @@ export const CUSTOM_PLUGINS: CustomPlugin[] = [
     // in Settings > Plugins > Custom plugins. The add-on entry
     // in PLUGIN_ADDONS is the install; this row is the on/off.
     // defaultEnabled true so installing the add-on shows the
-    // segment right away — the user turns it off here. The
-    // segment gates on installed AND enabled (see
-    // SegmentsPanel).
+    // view right away — the user turns it off here. The
+    // view gates on installed AND enabled (see
+    // WorldmapView).
     id: 'offline-worldmap',
     name: 'Offline Worldmap',
     description: 'ARC v10 as an offline world map — tracking, RF, sensors and GPS with no server. This toggle turns the plugin on and off.',

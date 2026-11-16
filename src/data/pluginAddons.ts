@@ -110,6 +110,7 @@ export const PLUGIN_ADDONS: PluginAddon[] = [
     description: 'Evidence-first GitHub scout + single-target code reviewer.',
     installed: false,
     removable: false,
+    installBlockedReason: 'No install flow or UI built yet — listing only.',
   },
   {
     id: 'desktop-commander',
@@ -117,6 +118,7 @@ export const PLUGIN_ADDONS: PluginAddon[] = [
     description: 'Desktop control via MCP — an MCP server that gives an agent desktop access.',
     installed: false,
     removable: true,
+    installBlockedReason: 'No install flow or UI built yet — listing only.',
   },
   {
     id: 'android-emulator',

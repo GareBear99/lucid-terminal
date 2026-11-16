@@ -8,6 +8,7 @@ import {
   groupTabIds,
   orderTabsForRender,
 } from '../../stores/splitPaneStore';
+import { unsplitTabWithFeedLine } from '../../lib/terminalFeedLine';
 import { useHistoryStore } from '../../stores/historyStore';
 import { useToastStore, unreadCount } from '../../stores/toastStore';
 import { getTypeStyles } from './ErrorNotification';
@@ -1117,7 +1118,11 @@ function TerminalTabs({
         }
         if (!activeTabId) return;
         e.preventDefault();
-        useSplitPaneStore.getState().unsplitOneTab(activeTabId);
+        // The unsplit writes the same feed line as /unsplit
+        // and the pill (sweep fold-in, 2026-11-16): ⌘U used
+        // to call unsplitOneTab bare, so a keyboard unsplit
+        // left no "Closed …" line in the feed.
+        unsplitTabWithFeedLine(activeTabId);
         return;
       }
       const n = Number(e.key);

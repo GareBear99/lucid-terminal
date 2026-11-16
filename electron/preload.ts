@@ -97,7 +97,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     close: () => ipcRenderer.send('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     onMaximizedChange: (callback: (maximized: boolean) => void) => {
-      ipcRenderer.on('window:maximized', (_, maximized) => callback(maximized));
+      const handler = (_: unknown, maximized: boolean) => callback(maximized);
+      ipcRenderer.on('window:maximized', handler);
+      return () => ipcRenderer.removeListener('window:maximized', handler);
     },
     create: () => ipcRenderer.send('window:create'),
   },
@@ -882,7 +884,7 @@ export interface LucidAPI {
     maximize: () => void;
     close: () => void;
     isMaximized: () => Promise<boolean>;
-    onMaximizedChange: (callback: (maximized: boolean) => void) => void;
+    onMaximizedChange: (callback: (maximized: boolean) => void) => () => void;
     create: () => void;
   };
   fs: {

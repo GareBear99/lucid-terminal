@@ -41,6 +41,16 @@ function makeId(): string {
   return `notification-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/**
+ * Cap on stored notifications (leak audit 2026-11-16): `addNotification`
+ * used to append with no ceiling while `dismissToast` only hides the
+ * toast — the notification stays for the bell panel — so the store
+ * grew for the life of the app. Keep the newest 100; the oldest drop
+ * out of the bell panel too, which is the trade for a bounded store.
+ * `removeNotification` / `clearAll` behaviour is unchanged.
+ */
+export const MAX_NOTIFICATIONS = 100;
+
 export const useToastStore = create<ToastState>((set) => {
   const addNotification = (
     type: NotificationType,
@@ -56,7 +66,9 @@ export const useToastStore = create<ToastState>((set) => {
       read: false,
       toastDismissed: false,
     };
-    set((state) => ({ notifications: [...state.notifications, notification] }));
+    set((state) => ({
+      notifications: [...state.notifications, notification].slice(-MAX_NOTIFICATIONS),
+    }));
     return notification.id;
   };
 

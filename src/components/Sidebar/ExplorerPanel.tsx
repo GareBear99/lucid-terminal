@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useFileStore } from '../../stores/fileStore';
+import { detectPlatform } from '../../lib/keymap';
 import { FileTypeIcon } from '../Editor/FileTypeIcon';
 import { Tooltip } from '../Tooltip/Tooltip';
 import {
@@ -66,6 +67,16 @@ interface ExplorerPanelProps {
    *  editor window. Optional — when absent the file just
    *  opens in this window's fileStore. */
   onOpenFile?: (path: string, x: number, y: number) => void;
+}
+
+/** The system file-manager verb for this platform — the
+ *  context-menu label for fs:openInExplorer (Finder on macOS,
+ *  Explorer on Windows, Files on Linux). */
+function revealInExplorerLabel(): string {
+  const platform = detectPlatform();
+  if (platform === 'darwin') return 'Reveal in Finder';
+  if (platform === 'win32') return 'Show in Explorer';
+  return 'Show in Files';
 }
 
 export function ExplorerPanel({ width, onMinimize, onOpenFile }: ExplorerPanelProps) {
@@ -216,6 +227,16 @@ export function ExplorerPanel({ width, onMinimize, onOpenFile }: ExplorerPanelPr
     setContextMenu(null);
     setRenamingPath(path);
     setRenameName(name);
+  };
+
+  // Reveal in Finder / Explorer — the fs:openInExplorer IPC
+  // handler (electron/ipc/fileSystem.ts, shell.showItemInFolder)
+  // existed with zero callers; this is its caller.
+  const handleRevealContextItem = async () => {
+    if (!contextMenu) return;
+    const { path } = contextMenu;
+    setContextMenu(null);
+    await window.lucidAPI.fs.openInExplorer(path);
   };
 
   const handleConfirmRename = async () => {
@@ -489,7 +510,7 @@ export function ExplorerPanel({ width, onMinimize, onOpenFile }: ExplorerPanelPr
       </div>
 
       {/* Explorer context menu (right-click on a tree item):
-          Rename / Delete. Fixed overlay: any click outside
+          Reveal in Finder / Rename / Delete. Fixed overlay: any click outside
           closes it. */}
       {contextMenu && (
         <div
@@ -505,6 +526,13 @@ export function ExplorerPanel({ width, onMinimize, onOpenFile }: ExplorerPanelPr
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
+            <button
+              onClick={handleRevealContextItem}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] text-left"
+            >
+              <FolderOpen size={14} className="text-[var(--text-muted)]" />
+              {revealInExplorerLabel()}
+            </button>
             <button
               onClick={handleRenameContextItem}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] text-left"

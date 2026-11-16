@@ -6,6 +6,29 @@ import { issueAiChatTick, publishNewTicks } from '../lib/aiChatTicks';
 import { useHornWiggleStore } from './hornWiggleStore';
 
 /**
+ * Cap on messages kept per chat session (leak audit 2026-11-16):
+ * `normalizeMessageList` dedupes/sorts but never capped, and
+ * `addMessage` inserts forever, so a chat's messages grew for the
+ * life of the session. Keep the newest 500 in ritual-tick (causal)
+ * order — the list is tick-ascending, so the newest are the tail.
+ * The tick counter itself is untouched (the session's persisted
+ * `nextTick` keeps advancing past the highest tick), so trimming
+ * old bubbles can never re-use a tick or re-order the survivors.
+ * Applied everywhere a message list is set: load, session switch
+ * (swapToChat), and insert (addMessage) — the store and the
+ * rendered list stay bounded together. Content, ordering, and
+ * dedupe logic are unchanged.
+ */
+export const MAX_CHAT_MESSAGES_PER_SESSION = 500;
+
+/** Keep only the newest MAX_CHAT_MESSAGES_PER_SESSION messages. */
+function capMessageList(messages: ChatMessage[]): ChatMessage[] {
+  return messages.length > MAX_CHAT_MESSAGES_PER_SESSION
+    ? messages.slice(-MAX_CHAT_MESSAGES_PER_SESSION)
+    : messages;
+}
+
+/**
  * Session order — causal ritual placement (Gary, 2026-11-07).
  *
  * The LuciferAI tabs (the chats) hide behind the one blood drop tab,
@@ -279,7 +302,7 @@ export const useAIStore = create<AIState>((set, get) => {
         // id/timestamp, duplicates out. Ticks already on a bubble are
         // kept; only unticked messages take a new tick, in retrieval
         // order from the session's counter.
-        const nextBuffer = normalizeMessageList(get().stagingMessages ?? [], startTick);
+        const nextBuffer = capMessageList(normalizeMessageList(get().stagingMessages ?? [], startTick));
         // The swap assigned ticks to the unticked bubbles — feed
         // those ticks into the AI chat's OWN tick channel (channel
         // 2, src/lib/aiChatTicks.ts), NOT the event log channel:
@@ -375,7 +398,7 @@ export const useAIStore = create<AIState>((set, get) => {
             // list is causal-order desc, never last-activity time.
             const normalized = assignLegacyCausalOrder(
                 sessions.map((s) => {
-                    const messages = normalizeMessageList(s.messages ?? [], s.nextTick);
+                    const messages = capMessageList(normalizeMessageList(s.messages ?? [], s.nextTick));
                     // Unticked legacy bubbles just took their ticks on
                     // load — feed them into the AI chat's OWN tick
                     // channel (channel 2), never the event log.
@@ -643,7 +666,7 @@ export const useAIStore = create<AIState>((set, get) => {
             // drop the message — insert it into the displayed list so
             // it stays visible, and say so.
             console.warn('[AI] addMessage target session missing, inserting into displayed list:', targetId);
-            set((s) => ({ messages: insertMessageInOrder(s.messages, message) }));
+            set((s) => ({ messages: capMessageList(insertMessageInOrder(s.messages, message)) }));
             return;
         }
 
@@ -672,7 +695,7 @@ export const useAIStore = create<AIState>((set, get) => {
         issueAiChatTick(targetSession.id, message.id, assignedTick);
         // Insert at its ritual-tick position — in between the bubbles
         // in causal order — not appended blindly at the end.
-        const newMessages = insertMessageInOrder(targetSession.messages, tickedMessage);
+        const newMessages = capMessageList(insertMessageInOrder(targetSession.messages, tickedMessage));
         const updatedSession: ChatSession = {
             ...targetSession,
             messages: newMessages,

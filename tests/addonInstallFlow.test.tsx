@@ -6,8 +6,11 @@
  * installable add-on: it records the add-on's id in the persisted
  * `installedAddons` setting (updated AND stored, not updated-only)
  * and the UI flips to Installed. Persona Plex is installable now
- * (Gary, 2026-11-06) and removable like Desktop Commander.
- * Anchor-installed add-ons (Android Connect, Segments) show
+ * (Gary, 2026-11-06). Desktop Commander and gh-ai-operator are
+ * listing-only — their Install buttons are disabled with the
+ * reason as title (no install flow or UI built yet, sweep
+ * fold-in e) — so they cannot be installed from here, though an
+ * id recorded earlier can still be removed. Anchor-installed add-ons (Android Connect, Segments) show
  * Installed via their anchor and have no Install button. A
  * user-installed add-on that is removable can be removed again.
  * Every installed add-on gets a Settings button (Persona Plex
@@ -34,9 +37,12 @@ import type {
   ArcServerInstallResult,
   ArcServerStatusResult,
 } from '../src/lib/arcServerAddon';
+import type { WorldmapInstallResult } from '../src/lib/worldmapAddon';
 
 const ARC_SHA = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
 const ARC_PATH = `/Users/gary/.lucid/addons/arc-server/${ARC_SHA}`;
+const WORLDMAP_SHA = 'b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3';
+const WORLDMAP_PATH = `/Users/gary/.lucid/addons/offline-worldmap/${WORLDMAP_SHA}`;
 
 describe('Add-on install flow (Settings > Plugins)', () => {
   const mockSet = vi.fn(async (_key: string, _value: unknown) => undefined);
@@ -57,6 +63,16 @@ describe('Add-on install flow (Settings > Plugins)', () => {
       path: null,
     }),
   );
+  const mockWorldmapInstall = vi.fn(
+    async (): Promise<WorldmapInstallResult> => ({
+      ok: true,
+      version: WORLDMAP_SHA,
+      path: WORLDMAP_PATH,
+    }),
+  );
+  const mockWorldmapUninstall = vi.fn(
+    async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true }),
+  );
   let prevLucidAPI: unknown;
 
   beforeEach(() => {
@@ -75,13 +91,19 @@ describe('Add-on install flow (Settings > Plugins)', () => {
         uninstall: mockArcUninstall,
         getStatus: mockArcStatus,
       },
+      worldmap: {
+        install: mockWorldmapInstall,
+        uninstall: mockWorldmapUninstall,
+      },
     };
     mockSet.mockClear();
     mockArcInstall.mockClear();
     mockArcUninstall.mockClear();
+    mockWorldmapInstall.mockClear();
+    mockWorldmapUninstall.mockClear();
     const base = useSettingsStore.getState().settings;
     useSettingsStore.setState({
-      settings: { ...base, installedAddons: [], arcServerInstall: null },
+      settings: { ...base, installedAddons: [], arcServerInstall: null, worldmapInstall: null },
     });
   });
 
@@ -114,38 +136,33 @@ describe('Add-on install flow (Settings > Plugins)', () => {
     ) as HTMLButtonElement | null;
   }
 
-  test('Install on Desktop Commander records the install (updated AND stored) and shows Installed', async () => {
+  test('Install on Desktop Commander is blocked — listing only, no install flow (sweep fold-in e)', async () => {
     renderPlugins();
     const button = installButton('desktop-commander');
     expect(button).not.toBeNull();
-    expect(button!.disabled).toBe(false);
+    // Disabled with the reason as its title — there is no install
+    // flow or UI built yet, so the button cannot record an install.
+    expect(button!.disabled).toBe(true);
+    expect(button!.title).toBe('No install flow or UI built yet — listing only.');
     fireEvent.click(button!);
-    await waitFor(() => {
-      expect(mockSet).toHaveBeenCalledWith('installedAddons', ['desktop-commander']);
-    });
-    // The store holds the install (what a reload reads).
-    expect(useSettingsStore.getState().settings.installedAddons).toEqual([
-      'desktop-commander',
-    ]);
-    // And the UI reflects it: no Install button, a Remove button instead.
-    await waitFor(() => {
-      expect(installButton('desktop-commander')).toBeNull();
-      expect(removeButton('desktop-commander')).not.toBeNull();
-    });
+    expect(mockSet).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([]);
+    // The UI stays as-is: Install still shown, no Remove button.
+    expect(installButton('desktop-commander')).not.toBeNull();
+    expect(removeButton('desktop-commander')).toBeNull();
   });
 
-  test('Install on gh-ai-operator records the install too', async () => {
+  test('Install on gh-ai-operator is blocked too — listing only, no install flow (sweep fold-in e)', async () => {
     renderPlugins();
     const button = installButton('gh-ai-operator');
     expect(button).not.toBeNull();
-    expect(button!.disabled).toBe(false);
+    expect(button!.disabled).toBe(true);
+    expect(button!.title).toBe('No install flow or UI built yet — listing only.');
     fireEvent.click(button!);
-    await waitFor(() => {
-      expect(mockSet).toHaveBeenCalledWith('installedAddons', ['gh-ai-operator']);
-    });
-    expect(useSettingsStore.getState().settings.installedAddons).toEqual([
-      'gh-ai-operator',
-    ]);
+    expect(mockSet).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([]);
+    expect(installButton('gh-ai-operator')).not.toBeNull();
+    expect(removeButton('gh-ai-operator')).toBeNull();
   });
 
   test('Install on Persona Plex records the install (updated AND stored) and shows Installed', async () => {
@@ -308,6 +325,96 @@ describe('Add-on install flow (Settings > Plugins)', () => {
     await waitFor(() => {
       expect(installButton('arc-server')).not.toBeNull();
       expect(removeButton('arc-server')).toBeNull();
+    });
+  });
+
+  test('Install on Offline Worldmap fetches from the repo, then records the install and shows the fetched version', async () => {
+    renderPlugins();
+    const button = installButton('offline-worldmap');
+    expect(button).not.toBeNull();
+    expect(button!.disabled).toBe(false);
+    fireEvent.click(button!);
+    await waitFor(() => {
+      expect(mockWorldmapInstall).toHaveBeenCalledTimes(1);
+      expect(mockSet).toHaveBeenCalledWith('worldmapInstall', {
+        status: 'installed',
+        version: WORLDMAP_SHA,
+        path: WORLDMAP_PATH,
+        error: null,
+      });
+      expect(mockSet).toHaveBeenCalledWith('installedAddons', ['offline-worldmap']);
+    });
+    // The store holds the fetched identity (what a reload reads).
+    expect(useSettingsStore.getState().settings.worldmapInstall).toEqual({
+      status: 'installed',
+      version: WORLDMAP_SHA,
+      path: WORLDMAP_PATH,
+      error: null,
+    });
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([
+      'offline-worldmap',
+    ]);
+    // And the UI reflects it: the fetched SHA, no Install button,
+    // a Settings button (the worldmap HAS a settings surface — its
+    // Modules segment) and a Remove button instead.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Fetched b2c3d4e');
+      expect(installButton('offline-worldmap')).toBeNull();
+      expect(settingsButton('offline-worldmap')).not.toBeNull();
+      expect(removeButton('offline-worldmap')).not.toBeNull();
+    });
+  });
+
+  test('a failed Offline Worldmap fetch records the error and installs nothing', async () => {
+    mockWorldmapInstall.mockResolvedValueOnce({ ok: false, error: 'Network down' });
+    renderPlugins();
+    const button = installButton('offline-worldmap');
+    expect(button).not.toBeNull();
+    fireEvent.click(button!);
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith('worldmapInstall', {
+        status: 'failed',
+        version: null,
+        path: null,
+        error: 'Network down',
+      });
+    });
+    // The id is NOT recorded — a failed fetch installs nothing.
+    expect(
+      mockSet.mock.calls.filter(([key]) => key === 'installedAddons'),
+    ).toEqual([]);
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([]);
+    // The error shows and Install is still there to retry.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Fetch failed: Network down');
+      expect(installButton('offline-worldmap')).not.toBeNull();
+    });
+  });
+
+  test('Remove on an installed Offline Worldmap removes the fetched files and un-installs it', async () => {
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: {
+        ...base,
+        installedAddons: ['offline-worldmap'],
+        worldmapInstall: { status: 'installed', version: WORLDMAP_SHA, path: WORLDMAP_PATH, error: null },
+      },
+    });
+    renderPlugins();
+    expect(installButton('offline-worldmap')).toBeNull();
+    const remove = removeButton('offline-worldmap');
+    expect(remove).not.toBeNull();
+    fireEvent.click(remove!);
+    await waitFor(() => {
+      expect(mockWorldmapUninstall).toHaveBeenCalledTimes(1);
+      expect(mockSet).toHaveBeenCalledWith('worldmapInstall', null);
+      expect(mockSet).toHaveBeenCalledWith('installedAddons', []);
+    });
+    expect(useSettingsStore.getState().settings.installedAddons).toEqual([]);
+    expect(useSettingsStore.getState().settings.worldmapInstall).toBeNull();
+    await waitFor(() => {
+      expect(installButton('offline-worldmap')).not.toBeNull();
+      expect(removeButton('offline-worldmap')).toBeNull();
     });
   });
 

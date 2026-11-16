@@ -78,13 +78,13 @@ describe('PLUGIN_ADDONS', () => {
     expect(PLUGIN_ADDONS.find((a) => a.name === 'MCP Tools')).toBeUndefined();
   });
 
-  it('Desktop Commander is an installable add-on (no anchor, removable)', () => {
+  it('Desktop Commander is a listing-only add-on (no anchor, removable, install blocked)', () => {
     const dc = PLUGIN_ADDONS.find((a) => a.id === 'desktop-commander');
     expect(dc).toBeDefined();
     expect(dc?.name).toBe('Desktop Commander');
     expect(dc?.description).toBeTruthy();
     expect(dc?.anchor).toBeUndefined();
-    expect(dc?.installBlockedReason).toBeUndefined();
+    expect(dc?.installBlockedReason).toBe('No install flow or UI built yet — listing only.');
     expect(dc?.installed).toBe(false);
     expect(dc?.removable).toBe(true);
   });
@@ -200,19 +200,23 @@ describe('addonAnchorLabel', () => {
 });
 
 describe('install-blocked reasons', () => {
-  it('no add-on is blocked now — Persona Plex is installable (Gary, 2026-11-06)', () => {
+  it('Persona Plex is installable (Gary, 2026-11-06); only the listing-only add-ons are blocked', () => {
     const plex = PLUGIN_ADDONS.find((a) => a.id === 'persona-plex');
     expect(plex?.installBlockedReason).toBeUndefined();
     for (const addon of PLUGIN_ADDONS) {
-      expect(addon.installBlockedReason).toBeUndefined();
+      if (addon.id === 'gh-ai-operator' || addon.id === 'desktop-commander') {
+        expect(addon.installBlockedReason).toBe('No install flow or UI built yet — listing only.');
+      } else {
+        expect(addon.installBlockedReason).toBeUndefined();
+      }
     }
   });
 
-  it('gh-ai-operator and Desktop Commander are installable (no blocked reason)', () => {
+  it('gh-ai-operator and Desktop Commander are listing-only (blocked reason, no install flow)', () => {
     for (const id of ['gh-ai-operator', 'desktop-commander']) {
       const addon = PLUGIN_ADDONS.find((a) => a.id === id)!;
       expect(addon.anchor).toBeUndefined();
-      expect(addon.installBlockedReason).toBeUndefined();
+      expect(addon.installBlockedReason).toBe('No install flow or UI built yet — listing only.');
     }
   });
 });

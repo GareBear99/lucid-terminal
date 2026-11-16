@@ -842,6 +842,13 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     folding: false,
                     lineDecorationsWidth: 0,
                     lineNumbersMinChars: 0,
+                    // Silently strip U+2028/U+2029 on model creation —
+                    // same freeze as the editor (CodeEditor, 2026-11-15):
+                    // the default ('prompt') shows Monaco's dialog via
+                    // a synchronous blocking window.confirm() on the
+                    // renderer thread and the whole platform freezes
+                    // until it is dismissed.
+                    unusualLineTerminators: 'auto',
                     scrollbar: {
                         vertical: 'auto',
                         horizontal: 'auto',

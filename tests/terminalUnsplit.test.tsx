@@ -166,6 +166,11 @@ describe('Terminal: chained unsplit (Gary, 2026-11-15)', () => {
 
     fireEvent.click(screen.getByTestId('split-toggle-pill'));
 
+    // The pill writes the same feed line as /unsplit
+    // (sweep fix, 2026-11-16 — the live check found no
+    // "Closed …" line after a button unsplit).
+    await waitForOutput('Closed terminal-4 — 3 panes left.');
+
     // One click = one pane gone, not three. The pill is a
     // toggle that used to wipe the whole split with one press.
     expect(destroyMock).toHaveBeenCalledWith('terminal-4');

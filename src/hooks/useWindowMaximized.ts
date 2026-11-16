@@ -20,7 +20,7 @@ export function useWindowMaximized(): boolean {
         lucidAPI?: {
           window?: {
             isMaximized?: () => Promise<boolean>;
-            onMaximizedChange?: (cb: (maximized: boolean) => void) => void;
+            onMaximizedChange?: (cb: (maximized: boolean) => void) => () => void;
           };
         };
       }
@@ -29,7 +29,9 @@ export function useWindowMaximized(): boolean {
     winApi.isMaximized?.().then(setIsMaximized).catch(() => {
       // Best-effort: a failed query leaves the windowed default in place.
     });
-    winApi.onMaximizedChange?.(setIsMaximized);
+    // The unsubscribe runs on unmount, so a remount never leaves a
+    // stale listener behind.
+    return winApi.onMaximizedChange?.(setIsMaximized);
   }, []);
 
   return isMaximized;

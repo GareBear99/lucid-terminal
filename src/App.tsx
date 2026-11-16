@@ -468,8 +468,27 @@ function App() {
 
   // Instant startup - terminal first, everything else loads in background
   useEffect(() => {
+    // DEFCON sync (disabled-broken audit §3.4): a /defcon in a
+    // detached window broadcasts `settings:changed` from main —
+    // without a subscription here the main window keeps the old
+    // level until reload. Mirrors MiniTerminal's subscription
+    // (same keys); no new IPC channel. Subscribed BEFORE the
+    // StrictMode guard below so the dev double-invoke
+    // (subscribe → cleanup → subscribe) can't leave main
+    // unsubscribed; in production the effect runs once.
+    const unsubscribeSettingsChanged = window.lucidAPI?.settings?.onChanged?.((key) => {
+      if (
+        key === 'defconLevel' ||
+        key === 'defconMergeReading' ||
+        key === 'theme' ||
+        key === 'customTheme'
+      ) {
+        void loadSettings();
+      }
+    });
+
     // Prevent duplicate initialization in React 18 Strict Mode
-    if (hasInitialized.current) return;
+    if (hasInitialized.current) return () => { unsubscribeSettingsChanged?.(); };
     hasInitialized.current = true;
 
     async function init() {
@@ -608,6 +627,7 @@ function App() {
     init().catch(error => {
       console.error('[INIT] Startup error:', error);
     });
+    return () => { unsubscribeSettingsChanged?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps - only run once, useRef prevents double execution
 

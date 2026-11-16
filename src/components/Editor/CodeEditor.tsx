@@ -820,6 +820,11 @@ function CodeEditor() {
             <Editor
               height="100%"
               language={getLanguage(activeFile.name)}
+              // Real file URI for the model (was auto-generated
+              // `inmemory://model/N`): the unusual-line-terminator
+              // dialog names the file instead of "The file '2'",
+              // and per-file view-state keys on the real path.
+              path={activeFile.path}
               value={activeFile.content || ''}
               loading="" // Disable default loading text to see if it's Monaco
               theme={getEditorTheme()}
@@ -840,6 +845,12 @@ function CodeEditor() {
               options={{
                 fontFamily: settings.fontFamily,
                 fontSize: settings.fontSize,
+                // Silently strip U+2028/U+2029 on model creation.
+                // The default ('prompt') shows Monaco's dialog via
+                // a synchronous blocking window.confirm() on the
+                // renderer thread — the whole platform freezes
+                // until it is dismissed (2026-11-15, 4-line file).
+                unusualLineTerminators: 'auto',
                 // A truncated preview is read-only; normal
                 // files are untouched.
                 readOnly: activeFile.isTruncated === true,

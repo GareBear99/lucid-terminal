@@ -21,6 +21,7 @@ import { CommandHistoryPalette } from './CommandHistoryPalette';
 import { HintLine } from './HintLine';
 import { PillRow } from './PillRow';
 import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, createScrollbackMirror, dropPendingEscape, newBlock, parseOsc133ExitCodes, type ScrollbackMirror } from '../../lib/terminalBlocks';
+import { registerTerminalLineWriter, unsplitFeedLine } from '../../lib/terminalFeedLine';
 import {
   useSessionStore,
   getTabMode,
@@ -811,6 +812,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     }
   }, [waitForPromptEcho, mirrorSurfaceWrite]);
 
+  // The feed-line bridge (sweep fold-in, 2026-11-16): this
+  // surface's termWriteLines is the writer for the active
+  // tab, so the paths with no access to it — ⌘U in
+  // TerminalTabs, the palette `terminal:unsplit` entry —
+  // land the same "Closed …" line the pill and /unsplit
+  // write. Unregisters on unmount / tab change.
+  useEffect(() => {
+    return registerTerminalLineWriter(tabId, (text) => {
+      void termWriteLines(text);
+    });
+  }, [tabId, termWriteLines]);
+
   // Write into the dev console (dev mode ON only): appends lines,
   // capped at the last DEV_CONSOLE_CAP. The terminal screen is
   // never touched — this is the detached bar's own output.
@@ -1060,11 +1073,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         return;
       }
       const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
-      await write(
-        remaining > 1
-          ? `Closed ${removed} — ${remaining} panes left.`
-          : `Closed ${removed} — back to one terminal.`,
-      );
+      await write(unsplitFeedLine(removed, remaining));
       return;
     }
 
@@ -2151,7 +2160,18 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   })();
   const handleToggleSplit = () => {
     if (getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1) {
-      useSplitPaneStore.getState().unsplitOneTab(tabId);
+      // Unsplit writes the same feed line as /unsplit (sweep
+      // fix, 2026-11-16): the pill used to call
+      // unsplitOneTab bare, so no "Closed …" line ever
+      // reached the feed. Same message, same null guard —
+      // one press still undoes exactly one split.
+      const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
+      if (removed === null) {
+        void termWriteLines("Couldn't unsplit — the split tree is inconsistent.");
+        return;
+      }
+      const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
+      void termWriteLines(unsplitFeedLine(removed, remaining));
     } else {
       void useSplitPaneStore.getState().splitTab(tabId);
     }

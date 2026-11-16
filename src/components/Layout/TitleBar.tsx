@@ -20,8 +20,9 @@ function TitleBar({ onOpenSummons }: TitleBarProps) {
     // Check initial state
     window.lucidAPI.window.isMaximized().then(setIsMaximized);
 
-    // Listen for maximize state changes
-    window.lucidAPI.window.onMaximizedChange(setIsMaximized);
+    // Listen for maximize state changes; the unsubscribe runs on
+    // unmount, so a remount never leaves a stale listener behind.
+    return window.lucidAPI.window.onMaximizedChange(setIsMaximized);
   }, []);
 
   // Top-bar height (Gary, 2026-11-07): h-16, a little taller than the

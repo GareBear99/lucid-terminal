@@ -31,6 +31,7 @@ import { getActiveMonacoEditor } from './editorHandle';
 import { popJumpPosition } from './jumpStack';
 import { requestEditorJump } from './editorJump';
 import { useDockStore } from '../stores/dockStore';
+import { unsplitTabWithFeedLine } from './terminalFeedLine';
 import type { View } from '../types';
 
 export interface BuiltinCommandHandlers {
@@ -325,7 +326,11 @@ export function registerBuiltinCommands(
     when: inTerminal,
     run: () => {
       const tabId = useTerminalStore.getState().activeTabId;
-      if (tabId) useSplitPaneStore.getState().unsplitOneTab(tabId);
+      // The unsplit writes the same feed line as /unsplit and
+      // the pill (sweep fold-in, 2026-11-16): the palette entry
+      // used to call unsplitOneTab bare, so a palette unsplit
+      // left no "Closed …" line in the feed.
+      if (tabId) unsplitTabWithFeedLine(tabId);
     },
   });
   registry.register({

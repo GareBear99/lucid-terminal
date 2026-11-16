@@ -43,7 +43,7 @@ import { ModelMissingBanner } from './components/Layout/ModelMissingBanner';
 import { SplashScreen } from './components/Splash/SplashScreen';
 import { SplashMist } from './components/Splash/SplashMist';
 import { ProfilesScreen } from './components/Profiles/ProfilesScreen';
-import { applyPersistedGuestVeil, useProfileStore } from './stores/profileStore';
+import { applyPersistedGuestVeil, isGuestProfile, useProfileStore } from './stores/profileStore';
 import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
 import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, groupTabIds, orderTabsForRender } from './stores/splitPaneStore';
@@ -54,6 +54,9 @@ import { SplitPaneTree } from './components/Terminal/SplitPaneTree';
 import { View, type TerminalTab } from './types';
 import { SnapshotUpdateAlertDialog } from './components/Settings/SnapshotUpdateAlert';
 import { useSnapshotUpdateStore } from './stores/snapshotUpdateStore';
+import { AppUpdateAlertDialog } from './components/Settings/AppUpdateAlertDialog';
+import { useAppUpdateStore } from './stores/appUpdateStore';
+import { APP_VERSION } from './lib/appVersion';
 
 function App() {
   const { loadSettings, isLoading, storageDegraded, settings, updateSetting } = useSettingsStore();
@@ -148,6 +151,27 @@ function App() {
       useSnapshotUpdateStore.getState().markAlertShown();
     }
   }, [snapshotStatus, snapshotCheckResult]);
+
+  // App update alert (Gary, 2026-11-16): the dialog shows
+  // when the launch check (or a manual check) finds a newer
+  // Lucid version and this profile has not opted out. The
+  // store owns the check; App only renders the dialog and
+  // logs that it showed.
+  const appUpdateStatus = useAppUpdateStore((s) => s.status);
+  const appUpdateRelease = useAppUpdateStore((s) => s.release);
+  const appUpdateCheckResult = useAppUpdateStore((s) => s.checkResult);
+  const appUpdateProfiles = useProfileStore((s) => s.profiles);
+  const appUpdateActiveProfileId = useProfileStore((s) => s.activeProfileId);
+  const appUpdateActiveProfile =
+    appUpdateProfiles.find((p) => p.id === appUpdateActiveProfileId) ?? null;
+  useEffect(() => {
+    if (
+      appUpdateStatus === 'update-available' &&
+      appUpdateCheckResult?.showAlert === true
+    ) {
+      useAppUpdateStore.getState().markAlertShown();
+    }
+  }, [appUpdateStatus, appUpdateCheckResult]);
 
   const [currentView, setCurrentView] = useState<View>('terminal');
   // The command palette's focus point (Atom steal #1): which
@@ -510,6 +534,13 @@ function App() {
       // exactly as it was, and the Security tab's "Check
       // now" re-runs it on demand.
       void useSnapshotUpdateStore.getState().checkNow();
+      // App update check on launch (Gary, 2026-11-16): when a
+      // newer Lucid version is out, a message shows at the
+      // beginning — in addition to the snapshot alert, not a
+      // replacement. Best-effort and never blocking — a failed
+      // check leaves the app exactly as it was, and the
+      // Updates tab's "Check now" re-runs it on demand.
+      void useAppUpdateStore.getState().checkNow();
       void checkModels();
 
       // Initialize the LucidCore workflow (FixNet stats, etc.) at
@@ -1000,6 +1031,35 @@ function App() {
           (Atom steals #1/#2/#8): one host, mounted once, the
           modals open from their shortcuts or the registry. */}
       <AtomModals context={commandContext} switchView={(view) => setCurrentView(view)} />
+
+      {/* App update alert — a newer Lucid version is out and
+          this profile has not opted out. "View release" opens
+          the release page (the install path: download the .dmg,
+          replace the app — Lucid does not update itself);
+          "Not now" closes without updating. A guest always sees
+          the message and never gets the "Do not show again"
+          checkbox. */}
+      {appUpdateStatus === 'update-available' &&
+        appUpdateCheckResult?.showAlert === true &&
+        appUpdateRelease !== null && (
+          <AppUpdateAlertDialog
+            release={appUpdateRelease}
+            installedVersion={APP_VERSION}
+            showDontAsk={!isGuestProfile(appUpdateActiveProfile)}
+            onViewRelease={() =>
+              void (
+                window as unknown as {
+                  lucidAPI?: {
+                    browser?: { openExternal?: (url: string) => Promise<void> };
+                  };
+                }
+              ).lucidAPI?.browser?.openExternal?.(appUpdateRelease.htmlUrl)
+            }
+            onDismiss={(dontAsk) =>
+              useAppUpdateStore.getState().dismiss(dontAsk)
+            }
+          />
+        )}
 
       {/* Snapshot update alert — a new snapshot is required
           (the manifest differs from the installed snapshot)

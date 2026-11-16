@@ -791,6 +791,20 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     },
   },
 
+  // App update check (Gary, 2026-11-16): the latest GitHub
+  // release, fetched in the main process (the renderer's CSP
+  // does not allow api.github.com) and returned unparsed --
+  // parsing + validation happen in the renderer
+  // (src/lib/appUpdate.ts parseAppRelease). Read-only: this
+  // downloads nothing and installs nothing (no auto-update).
+  appUpdate: {
+    checkLatest: (): Promise<{
+      ok: boolean;
+      raw?: unknown;
+      error?: string;
+    }> => ipcRenderer.invoke('appUpdate:checkLatest'),
+  },
+
   // ARC Server add-on (Gary, 2026-11-14 ~14:53 PST): the
   // add-on is fetched at install time from its repo, never
   // bundled in the asar. The main process downloads the repo

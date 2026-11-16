@@ -87,6 +87,12 @@ export const DEFAULT_SETTINGS_TAB_ORDER: readonly string[] = [
   'memory',
   'daemon',
   'general',
+  // Updates (Gary, 2026-11-16) — the latest version, how to
+  // install it, and the prior versions on this machine. Last
+  // in the default order: a stored order that predates it
+  // gains it at the end (see resolveSettingsTabOrder), not
+  // disturbing the settled order above.
+  'updates',
 ];
 
 /**

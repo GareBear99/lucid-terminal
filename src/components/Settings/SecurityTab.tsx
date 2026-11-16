@@ -311,6 +311,14 @@ export function SecurityTab() {
   const logoutConfirmOff = logoutProfiles.filter(
     (p) => !isGuestProfile(p) && p.skipLogoutConfirm === true,
   );
+  // Update alerts (Gary, 2026-11-16): which saved profiles
+  // turned the new-version startup alert off ("Do not show
+  // again"). A guest can never be in this list — a guest
+  // session always sees the new-version message.
+  const setSkipUpdateAlert = useProfileStore((s) => s.setSkipUpdateAlert);
+  const updateAlertsOff = logoutProfiles.filter(
+    (p) => !isGuestProfile(p) && p.skipUpdateAlert === true,
+  );
 
   const installedVersion = settings.installedSnapshotVersion ?? null;
   const installedHash = settings.installedSnapshotHash ?? null;
@@ -1623,6 +1631,49 @@ export function SecurityTab() {
           A profile that checked &ldquo;Don&rsquo;t ask again&rdquo; logs
           out with no prompt. &ldquo;Ask again&rdquo; turns the
           confirmation back on for that profile.
+        </p>
+      </Section>
+
+      {/* Update alerts — which saved profiles turned the
+          new-version startup alert off (Gary, 2026-11-16). A
+          profile that checked "Don't ask again" never sees the
+          alert at startup until it is turned back on — here, or
+          in Updates. A guest never appears here: a guest
+          session always sees the new-version message. The
+          toggle only silences the startup notice — the Updates
+          section always shows the latest version. */}
+      <Section title="Update alerts">
+        {updateAlertsOff.length === 0 ? (
+          <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+            Every profile sees the new-version message at startup.
+            A guest session always sees it — there is no way to
+            turn it off for Guest.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {updateAlertsOff.map((p) => (
+              <div key={p.id} className="flex items-center gap-2">
+                <span className="text-xs font-semibold flex-1">{p.name}</span>
+                <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-yellow-500/10 text-yellow-500">
+                  Alerts off
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSkipUpdateAlert(p.id, false)}
+                  data-testid={`security-update-show-again-${p.id}`}
+                  className="btn btn-secondary text-xs"
+                >
+                  Show again
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+          A profile that checked &ldquo;Don&rsquo;t ask again&rdquo;
+          never sees the new-version alert at startup.
+          &ldquo;Show again&rdquo; turns the alert back on for that
+          profile.
         </p>
       </Section>
 

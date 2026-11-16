@@ -804,6 +804,58 @@ describe('SecurityTab', () => {
     expect(screen.queryByTestId('security-logout-ask-again-profile-guest')).toBeNull();
   });
 
+  test('update alerts: empty state — every profile sees the message, Guest always sees it', () => {
+    useProfileStore.setState({
+      profiles: [createDefaultProfile()],
+      activeProfileId: DEFAULT_PROFILE_ID,
+      logoutRequestedAt: null,
+    });
+    render(<SecurityTab />);
+    expect(screen.getByText('Update alerts')).toBeTruthy();
+    expect(screen.getByText(/Every profile sees the new-version message/)).toBeTruthy();
+    expect(screen.getByText(/no way to turn it off for Guest/)).toBeTruthy();
+  });
+
+  test('update alerts: a saved profile that opted out is listed, and Show again turns it back on', () => {
+    const saved = { ...createDefaultProfile(), id: 'profile-saved', name: 'Saved' };
+    useProfileStore.setState({
+      profiles: [createDefaultProfile(), saved],
+      activeProfileId: DEFAULT_PROFILE_ID,
+      logoutRequestedAt: null,
+    });
+    expect(useProfileStore.getState().setSkipUpdateAlert('profile-saved', true)).toBe(true);
+    render(<SecurityTab />);
+    expect(screen.getByTestId('security-update-show-again-profile-saved')).toBeTruthy();
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(screen.getByText('Alerts off')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('security-update-show-again-profile-saved'));
+    expect(
+      useProfileStore.getState().profiles.find((p) => p.id === 'profile-saved')
+        ?.skipUpdateAlert,
+    ).toBe(false);
+    // The row leaves the list once the alert is back on.
+    expect(screen.queryByText('Alerts off')).toBeNull();
+  });
+
+  test('update alerts: a guest never appears, even with a stale flag on the record', () => {
+    const guest = {
+      ...createDefaultProfile(),
+      id: 'profile-guest',
+      name: 'Guest',
+      status: 'guest' as const,
+      skipUpdateAlert: true,
+    };
+    useProfileStore.setState({
+      profiles: [createDefaultProfile(), guest],
+      activeProfileId: DEFAULT_PROFILE_ID,
+      logoutRequestedAt: null,
+    });
+    render(<SecurityTab />);
+    expect(screen.getByText(/Every profile sees the new-version message/)).toBeTruthy();
+    expect(screen.queryByText('Alerts off')).toBeNull();
+    expect(screen.queryByTestId('security-update-show-again-profile-guest')).toBeNull();
+  });
+
   test('What leaves the machine sits at the top of the tab, not buried last (sweep fix, 2026-11-16)', () => {
     // The live check (2026-11-16, build 2ff0ba0) missed the
     // section entirely — it was the LAST of 17 sections, far

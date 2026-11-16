@@ -735,4 +735,115 @@ describe('logout — Settings > General (Gary, 2026-11-16)', () => {
         ?.skipLogoutConfirm,
     ).toBe(true);
   });
+
+  test('setSkipUpdateAlert saves the choice per profile', () => {
+    const other = useProfileStore.getState().createProfile('Second');
+    expect(other).not.toBeNull();
+    const otherId = other ? other.id : 'missing';
+    // Default: tell (no flag).
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === DEFAULT_PROFILE_ID)?.skipUpdateAlert,
+    ).toBeUndefined();
+    // Set it on the default profile only.
+    expect(
+      useProfileStore.getState().setSkipUpdateAlert(DEFAULT_PROFILE_ID, true),
+    ).toBe(true);
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === DEFAULT_PROFILE_ID)?.skipUpdateAlert,
+    ).toBe(true);
+    // The other profile is untouched — per-profile, not global.
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === otherId)?.skipUpdateAlert,
+    ).toBeUndefined();
+    // Turning it back on (the Updates toggle) clears the flag.
+    expect(
+      useProfileStore.getState().setSkipUpdateAlert(DEFAULT_PROFILE_ID, false),
+    ).toBe(true);
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === DEFAULT_PROFILE_ID)?.skipUpdateAlert,
+    ).toBe(false);
+  });
+
+  test('setSkipUpdateAlert returns false for an unknown profile', () => {
+    expect(
+      useProfileStore.getState().setSkipUpdateAlert('no-such-profile', true),
+    ).toBe(false);
+  });
+
+  test('skipUpdateAlert round-trips through persistence parsing', () => {
+    const record = {
+      profiles: [
+        { ...createDefaultProfile(), skipUpdateAlert: true },
+        { ...createDefaultProfile(), id: 'profile-other', name: 'Other' },
+      ],
+      activeProfileId: DEFAULT_PROFILE_ID,
+    };
+    const parsed = parsePersistedProfiles(record);
+    expect(parsed).not.toBeNull();
+    expect(
+      parsed?.profiles.find((p) => p.id === DEFAULT_PROFILE_ID)
+        ?.skipUpdateAlert,
+    ).toBe(true);
+    expect(
+      parsed?.profiles.find((p) => p.id === 'profile-other')
+        ?.skipUpdateAlert,
+    ).toBeUndefined();
+  });
+
+  test('a guest can never set skipUpdateAlert — a guest always sees the new-version message (Gary, 2026-11-16)', () => {
+    const guest = useProfileStore.getState().createGuestProfile();
+    expect(useProfileStore.getState().setSkipUpdateAlert(guest.id, true)).toBe(
+      false,
+    );
+    expect(
+      useProfileStore.getState().profiles.find((p) => p.id === guest.id)
+        ?.skipUpdateAlert,
+    ).toBeUndefined();
+    // Turning it back on is a no-op for a guest too.
+    expect(useProfileStore.getState().setSkipUpdateAlert(guest.id, false)).toBe(
+      false,
+    );
+  });
+
+  test('loading strips skipUpdateAlert from a guest record written by an older build', () => {
+    const guest = {
+      ...createDefaultProfile(),
+      id: 'profile-guest',
+      name: 'Guest',
+      status: 'guest' as const,
+      skipUpdateAlert: true,
+    };
+    const parsed = parsePersistedProfiles({
+      profiles: [createDefaultProfile(), guest],
+      activeProfileId: DEFAULT_PROFILE_ID,
+    });
+    expect(parsed).not.toBeNull();
+    expect(
+      parsed?.profiles.find((p) => p.id === 'profile-guest')
+        ?.skipUpdateAlert,
+    ).toBeUndefined();
+    // A saved profile keeps the flag through the same load.
+    const saved = {
+      ...createDefaultProfile(),
+      id: 'profile-saved',
+      name: 'Saved',
+      skipUpdateAlert: true,
+    };
+    const parsed2 = parsePersistedProfiles({
+      profiles: [createDefaultProfile(), saved],
+      activeProfileId: DEFAULT_PROFILE_ID,
+    });
+    expect(
+      parsed2?.profiles.find((p) => p.id === 'profile-saved')
+        ?.skipUpdateAlert,
+    ).toBe(true);
+  });
 });

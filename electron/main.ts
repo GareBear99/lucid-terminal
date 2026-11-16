@@ -15,6 +15,7 @@ import { setupPermissionsHandlers } from './ipc/permissions';
 import { setupDaemonHandlers, maybeAutoStartDaemon, stopDaemonSync } from './ipc/daemon';
 import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupSnapshotHandlers } from './ipc/snapshot';
+import { setupAppUpdateHandlers } from './ipc/appUpdate';
 import { setupArcServerHandlers } from './ipc/arcServer';
 import { setupWorldmapHandlers } from './ipc/worldmap';
 import { setupTerminalDetachHandlers } from './ipc/terminalDetach';
@@ -200,6 +201,7 @@ app.whenReady().then(() => {
   setupDaemonHandlers(ipcMain);
   setupLlmbuilderHandlers(ipcMain, () => mainWindow);
   setupSnapshotHandlers(ipcMain);
+  setupAppUpdateHandlers(ipcMain);
   setupArcServerHandlers(ipcMain);
   setupWorldmapHandlers(ipcMain);
   // GitHub Copilot API client (D9, 2026-11-15) — the copilot

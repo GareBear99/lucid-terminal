@@ -286,6 +286,10 @@ const defaultSettings: Settings = {
   // trained yet).
   installedSnapshotVersion: null,
   installedSnapshotHash: null,
+  // Versions of Lucid that have run on this machine (Gary,
+  // 2026-11-16) — empty until the first run records the
+  // version (see src/lib/appUpdate.ts recordVersionSeen).
+  installedAppVersions: [],
   // LuciferAI silenced (Gary, 2026-11-08 ~02:28 PST): the blood
   // drop toggle is JUST a silencer — it greys the drop, it never
   // turns the plugin off. Default false (speaking).

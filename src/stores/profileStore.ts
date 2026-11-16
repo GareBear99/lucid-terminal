@@ -167,6 +167,22 @@ export interface Profile {
    * loading strips it from a guest record).
    */
   skipLogoutConfirm?: boolean;
+  /**
+   * "Do not show again" for the new-version startup alert
+   * (Gary, 2026-11-16): when true, Settings > Updates "Tell
+   * me when a new version is out" is off for THIS profile
+   * only — a new version never pops up at startup for it.
+   * Each profile keeps its own value; absent (older records)
+   * means tell. Turned back on from Settings > Updates or
+   * Settings > Security. A guest profile NEVER carries this
+   * flag — a guest session always sees the new-version
+   * message (guest wipes anyway, so an opt-out makes no
+   * sense); the store refuses the set, and loading strips it
+   * from a guest record. The toggle only silences the
+   * STARTUP notice — the Updates section always shows the
+   * latest version and the Check now button.
+   */
+  skipUpdateAlert?: boolean;
 }
 
 /** The implicit profile every creation carries until profiles land. */
@@ -249,9 +265,14 @@ export function parsePersistedProfiles(value: unknown): PersistedProfiles | null
   // Guest never opts out (Gary, 2026-11-16): a guest record that
   // somehow carries skipLogoutConfirm (written by the build
   // before the guest exclusion) loses the flag on load, so a
-  // guest always asks before logging out.
+  // guest always asks before logging out. Same for
+  // skipUpdateAlert: a guest always sees the new-version
+  // message.
   for (const p of profiles) {
-    if (isGuestProfile(p)) delete p.skipLogoutConfirm;
+    if (isGuestProfile(p)) {
+      delete p.skipLogoutConfirm;
+      delete p.skipUpdateAlert;
+    }
   }
   if (!profiles.some((p) => p.id === DEFAULT_PROFILE_ID)) {
     profiles.unshift(createDefaultProfile());
@@ -369,6 +390,14 @@ interface ProfileState {
    * Persisted with the profile record.
    */
   setSkipLogoutConfirm: (profileId: string, skip: boolean) => boolean;
+  /**
+   * Set this profile's "Do not show again" for the new-version
+   * startup alert. True = never pop up at startup for this
+   * profile; false = tell every time a new version is out.
+   * False on an unknown profile id. Persisted with the
+   * profile record.
+   */
+  setSkipUpdateAlert: (profileId: string, skip: boolean) => boolean;
 }
 
 export const useProfileStore = create<ProfileState>((set, get) => {
@@ -596,6 +625,23 @@ export const useProfileStore = create<ProfileState>((set, get) => {
       set({
         profiles: state.profiles.map((p) =>
           p.id === profileId ? { ...p, skipLogoutConfirm: skip } : p,
+        ),
+      });
+      return true;
+    },
+
+    setSkipUpdateAlert: (profileId, skip) => {
+      const state = get();
+      const target = state.profiles.find((p) => p.id === profileId);
+      if (!target) return false;
+      // Guest never opts out (Gary, 2026-11-16): a guest session
+      // always sees the new-version message (guest wipes anyway,
+      // so an opt-out makes no sense) — refuse the set instead
+      // of recording a flag the UI can never show.
+      if (isGuestProfile(target)) return false;
+      set({
+        profiles: state.profiles.map((p) =>
+          p.id === profileId ? { ...p, skipUpdateAlert: skip } : p,
         ),
       });
       return true;

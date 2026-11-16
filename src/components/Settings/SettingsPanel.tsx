@@ -94,6 +94,7 @@ import { Tooltip } from '../Tooltip/Tooltip';
 import { PermissionsTab } from './PermissionsTab';
 import { AgentPermissionsTab } from './AgentPermissionsTab';
 import { SecurityTab } from './SecurityTab';
+import { UpdatesTab } from './UpdatesTab';
 import { ProfileTab } from './ProfileTab';
 import { MemoryTab } from './MemoryTab';
 import { DevicesVoiceButton } from './DevicesVoiceButton';
@@ -111,7 +112,7 @@ interface SettingsPanelProps {
   onOpenPersonaPlex?: () => void;
 }
 
-export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'memory' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'agent-permissions' | 'security' | 'profile';
+export type SettingsTab = 'appearance' | 'terminal' | 'ai' | 'memory' | 'customization' | 'models' | 'daemon' | 'general' | 'plugins' | 'devices' | 'forge' | 'modules' | 'permissions' | 'agent-permissions' | 'security' | 'profile' | 'updates';
 
 function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanelProps) {
   const {
@@ -682,6 +683,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
     { id: 'memory', label: 'Memory', icon: <Brain size={18} /> },
     { id: 'daemon', label: 'Daemon', icon: <Eye size={18} /> },
     { id: 'general', label: 'General', icon: <Settings size={18} /> },
+    { id: 'updates', label: 'Updates', icon: <Download size={18} /> },
   ];
 
   // --- Settings tab order + drag-reorder (Gary, 2026-11-06) --------
@@ -2809,6 +2811,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'security' && (<SecurityTab />)}
           {activeTab === 'memory' && (<MemoryTab />)}
           {activeTab === 'profile' && (<ProfileTab />)}
+          {activeTab === 'updates' && (<UpdatesTab />)}
         </div>
       </div>
 

@@ -30,6 +30,7 @@ import type {
   SynthVersion,
 } from '../lib/synthDisclaimer';
 import type { SnapshotManifest } from '../lib/snapshotUpdate';
+import type { InstalledAppVersion } from '../lib/appUpdate';
 import type { RawGitStatus } from '../lib/gitStatus';
 import type { Snippet } from '../lib/snippets';
 import type { KeymapBinding } from '../lib/keymap';
@@ -669,6 +670,14 @@ export interface Settings {
   // the manifest check compares version AND hash.
   installedSnapshotVersion: string | null;
   installedSnapshotHash: string | null;
+  // Versions of Lucid that have run on this machine (Gary,
+  // 2026-11-16): the version + the date it first ran here.
+  // The Updates tab lists these as "prior versions on this
+  // machine". Machine-level, not per-profile. Empty = no
+  // version recorded yet — the list starts with the version
+  // running now and grows as new versions run here. Missing
+  // keys in older persisted settings count as empty.
+  installedAppVersions: InstalledAppVersion[];
   // LuciferAI silenced state (Gary, 2026-11-08 ~02:28 PST): the
   // blood drop toggle is JUST a silencer — it silences LuciferAI's
   // own voices but does NOT stop the runtime. LuciferAI's OWN
@@ -1658,6 +1667,19 @@ declare global {
         onDownloadProgress: (
           callback: (progress: SnapshotDownloadProgress) => void,
         ) => () => void;
+      };
+      // App update check (Gary, 2026-11-16): the latest
+      // GitHub release, fetched in the main process (the
+      // renderer never fetches it itself). Returns the raw
+      // release JSON unparsed — parsing + validation happen
+      // in the renderer (src/lib/appUpdate.ts
+      // parseAppRelease).
+      appUpdate: {
+        checkLatest: () => Promise<{
+          ok: boolean;
+          raw?: unknown;
+          error?: string;
+        }>;
       };
       // ARC Server add-on (Gary, 2026-11-14 ~14:53 PST):
       // fetched at install time from its repo, never bundled.

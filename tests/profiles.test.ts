@@ -98,6 +98,7 @@ function resetProfileStore() {
   useProfileStore.setState({
     profiles: [createDefaultProfile()],
     activeProfileId: DEFAULT_PROFILE_ID,
+    logoutRequestedAt: null,
   });
 }
 
@@ -559,5 +560,107 @@ describe('guest profiles — demo-locked (Gary, 2026-11-12 ~16:41 PST)', () => {
     expect(useHistoryStore.getState().blocksByTab).toEqual({
       tab1: expect.any(Array),
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Logout (Gary, 2026-11-16)
+// ---------------------------------------------------------------------------
+
+describe('logout — Settings > General (Gary, 2026-11-16)', () => {
+  test('requestLogout sets a timestamp; clearLogoutRequest clears it', () => {
+    expect(useProfileStore.getState().logoutRequestedAt).toBeNull();
+    useProfileStore.getState().requestLogout();
+    const at = useProfileStore.getState().logoutRequestedAt;
+    expect(typeof at).toBe('number');
+    expect(at).not.toBeNull();
+    useProfileStore.getState().clearLogoutRequest();
+    expect(useProfileStore.getState().logoutRequestedAt).toBeNull();
+  });
+
+  test('a logout request after a clear is a fresh request', () => {
+    useProfileStore.getState().requestLogout();
+    const first = useProfileStore.getState().logoutRequestedAt;
+    useProfileStore.getState().clearLogoutRequest();
+    expect(useProfileStore.getState().logoutRequestedAt).toBeNull();
+    useProfileStore.getState().requestLogout();
+    const second = useProfileStore.getState().logoutRequestedAt;
+    expect(typeof second).toBe('number');
+    expect(second).not.toBeNull();
+    // Timestamps are monotonic — a fresh request is never older.
+    expect(second as number).toBeGreaterThanOrEqual(first as number);
+  });
+
+  test('setSkipLogoutConfirm saves the choice per profile', () => {
+    const other = useProfileStore.getState().createProfile('Second');
+    expect(other).not.toBeNull();
+    const otherId = other ? other.id : 'missing';
+    // Default: ask (no flag).
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === DEFAULT_PROFILE_ID)?.skipLogoutConfirm,
+    ).toBeUndefined();
+    // Set it on the default profile only.
+    expect(
+      useProfileStore.getState().setSkipLogoutConfirm(DEFAULT_PROFILE_ID, true),
+    ).toBe(true);
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === DEFAULT_PROFILE_ID)?.skipLogoutConfirm,
+    ).toBe(true);
+    // The other profile is untouched — per-profile, not global.
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === otherId)?.skipLogoutConfirm,
+    ).toBeUndefined();
+    // Turning it back on (the General toggle) clears the flag.
+    expect(
+      useProfileStore.getState().setSkipLogoutConfirm(DEFAULT_PROFILE_ID, false),
+    ).toBe(true);
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === DEFAULT_PROFILE_ID)?.skipLogoutConfirm,
+    ).toBe(false);
+  });
+
+  test('setSkipLogoutConfirm returns false for an unknown profile', () => {
+    expect(
+      useProfileStore.getState().setSkipLogoutConfirm('no-such-profile', true),
+    ).toBe(false);
+  });
+
+  test('skipLogoutConfirm round-trips through persistence parsing', () => {
+    const record = {
+      profiles: [
+        { ...createDefaultProfile(), skipLogoutConfirm: true },
+        { ...createDefaultProfile(), id: 'profile-other', name: 'Other' },
+      ],
+      activeProfileId: DEFAULT_PROFILE_ID,
+    };
+    const parsed = parsePersistedProfiles(record);
+    expect(parsed).not.toBeNull();
+    expect(
+      parsed?.profiles.find((p) => p.id === DEFAULT_PROFILE_ID)
+        ?.skipLogoutConfirm,
+    ).toBe(true);
+    expect(
+      parsed?.profiles.find((p) => p.id === 'profile-other')
+        ?.skipLogoutConfirm,
+    ).toBeUndefined();
+  });
+
+  test('a guest can set skipLogoutConfirm too (the prompt is per-profile, guest included)', () => {
+    const guest = useProfileStore.getState().createGuestProfile();
+    expect(useProfileStore.getState().setSkipLogoutConfirm(guest.id, true)).toBe(
+      true,
+    );
+    expect(
+      useProfileStore.getState().profiles.find((p) => p.id === guest.id)
+        ?.skipLogoutConfirm,
+    ).toBe(true);
   });
 });

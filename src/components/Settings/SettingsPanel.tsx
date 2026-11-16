@@ -29,6 +29,7 @@ import {
   Pause,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { isGuestProfile, useProfileStore } from '../../stores/profileStore';
 import { parseRulers } from '../../lib/whitespace';
 import { useAIStore } from '../../stores/aiStore';
 import { themes, fullGlassTheme, allBlackTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
@@ -141,6 +142,38 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   useEffect(() => {
     void syncRunOnStartup();
   }, [syncRunOnStartup]);
+  // Logout (Gary, 2026-11-16): "Log out of profile" lives in
+  // General. The active profile + the logout actions come from the
+  // profile store; the confirmation + "Don't ask again" are local
+  // state for the modal at the bottom of this panel. The prompt
+  // shows unless this profile checked "Don't ask again"
+  // (skipLogoutConfirm, saved per profile); the General toggle
+  // below turns the confirmation back on.
+  const activeProfile = useProfileStore((s) =>
+    s.profiles.find((p) => p.id === s.activeProfileId),
+  );
+  const requestLogout = useProfileStore((s) => s.requestLogout);
+  const setSkipLogoutConfirm = useProfileStore((s) => s.setSkipLogoutConfirm);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [logoutDontAskAgain, setLogoutDontAskAgain] = useState(false);
+  const handleLogoutClick = () => {
+    if (!activeProfile) return;
+    // A profile that checked "Don't ask again" skips the prompt.
+    if (activeProfile.skipLogoutConfirm === true) {
+      requestLogout();
+      return;
+    }
+    setLogoutDontAskAgain(false);
+    setLogoutConfirmOpen(true);
+  };
+  const handleLogoutConfirm = () => {
+    if (!activeProfile) return;
+    if (logoutDontAskAgain) {
+      setSkipLogoutConfirm(activeProfile.id, true);
+    }
+    setLogoutConfirmOpen(false);
+    requestLogout();
+  };
   // The LuciferAI disable rule: the Synth / AI Chat toolbar toggles
   // below cannot be switched on while the plugin is off, and the
   // LuciferAI row's own switch is what turns it off.
@@ -2716,6 +2749,44 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
 </Tooltip>
                 </div>
               </section>
+
+              <section>
+                <h3 className="text-sm font-semibold mb-3 text-[var(--text-secondary)]">
+                  Profile
+                </h3>
+                <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2">
+                  Signed in as {activeProfile?.name ?? '—'}
+                  {activeProfile ? ` (${activeProfile.status})` : ''}. Logging out
+                  returns to the Profiles screen — your profile and its data stay saved.
+                </p>
+                <div className="flex gap-2">
+                  <Tooltip content="Log out of the current profile">
+                    <button
+                      onClick={handleLogoutClick}
+                      disabled={!activeProfile}
+                      data-testid="general-logout-button"
+                      className="btn btn-secondary"
+                    >
+                      Log out of {activeProfile?.name ?? 'profile'}
+                    </button>
+                  </Tooltip>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer py-1 mt-2">
+                  <Toggle
+                    checked={activeProfile ? activeProfile.skipLogoutConfirm !== true : true}
+                    onChange={(checked) =>
+                      activeProfile && setSkipLogoutConfirm(activeProfile.id, !checked)
+                    }
+                    disabled={!activeProfile}
+                    ariaLabel="Ask before logging out"
+                  />
+                  <span className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                    Ask before logging out — {activeProfile?.skipLogoutConfirm === true
+                      ? 'Off — logging out skips the confirmation. Turn this back on to ask again.'
+                      : 'On — Lucid asks before logging out of a profile.'}
+                  </span>
+                </label>
+              </section>
             </div>
           )}
           {activeTab === 'permissions' && (<PermissionsTab />)}
@@ -2725,6 +2796,76 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
           {activeTab === 'profile' && (<ProfileTab />)}
         </div>
       </div>
+
+      {/* Logout confirmation (Gary, 2026-11-16): "Are you sure?"
+          before logging out of a profile. A guest session is
+          ephemeral — the prompt says its chats and terminal history
+          are discarded. "Don't ask again" saves the choice to this
+          profile only; it can be turned back on in General
+          ("Ask before logging out"). */}
+      {logoutConfirmOpen && activeProfile && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-[var(--bg-secondary)] rounded-lg w-[480px] max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+              <h3 className="font-semibold">Log out of {activeProfile.name}?</h3>
+              <Tooltip content="Close">
+                <button
+                  onClick={() => setLogoutConfirmOpen(false)}
+                  className="btn-ghost p-1 rounded"
+                >
+                  <X size={18} />
+                </button>
+              </Tooltip>
+            </div>
+            <div className="p-4 space-y-3">
+              {isGuestProfile(activeProfile) ? (
+                <p className="text-sm text-[var(--text-muted)]">
+                  Are you sure? All unsaved data will be lost. Guest is a
+                  fresh, temporary session — logging out ends it and discards
+                  the guest&apos;s chats and terminal history. Your saved
+                  profiles and their data are untouched.
+                </p>
+              ) : (
+                <p className="text-sm text-[var(--text-muted)]">
+                  You&apos;ll go back to the Profiles screen. {activeProfile.name}&apos;s chats,
+                  history and settings are saved — pick the profile again to come back.
+                </p>
+              )}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={logoutDontAskAgain}
+                  onChange={(e) => setLogoutDontAskAgain(e.target.checked)}
+                  data-testid="logout-dont-ask-again"
+                />
+                <span className="text-xs text-[var(--text-muted)]">
+                  Don&apos;t ask again — you can turn the confirmation back on in Settings &gt; General.
+                </span>
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-[var(--border)]">
+              <Tooltip content="Stay signed in">
+                <button
+                  onClick={() => setLogoutConfirmOpen(false)}
+                  data-testid="logout-cancel-button"
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+              </Tooltip>
+              <Tooltip content="Log out of this profile">
+                <button
+                  onClick={handleLogoutConfirm}
+                  data-testid="logout-confirm-button"
+                  className="btn btn-primary"
+                >
+                  Log out
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Custom Theme Editor Modal */}
       {showCustomThemeEditor && (

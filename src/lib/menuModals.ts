@@ -26,14 +26,20 @@
  *  window, but the keymap says ⌘W closes the file — the menu
  *  item carries the keymap's binding and the renderer decides
  *  (active file → close it with the dirty confirm; no file →
- *  close the window, the old role's behaviour). */
+ *  close the window, the old role's behaviour). Save File is
+ *  here for the same reason the File menu exists at all (Gary,
+ *  2026-11-16: the File menu had no Save — "you cant save a
+ *  file in file tab in top hotbar on mac"): the menu item
+ *  carries the keymap's ⌘S and the renderer saves the active
+ *  file (no file → no-op, same as the file:save command). */
 export type MenuActionKind =
   | 'palette'
   | 'finder'
   | 'symbols'
   | 'help'
   | 'new-terminal-tab'
-  | 'close-file';
+  | 'close-file'
+  | 'save-file';
 
 /** Subscribe to menu actions. Returns an unsubscribe. */
 export function subscribeMenuModals(

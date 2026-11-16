@@ -93,16 +93,42 @@ describe('buildApplicationMenuTemplate', () => {
     }
   });
 
-  test('File holds New Terminal Tab (Cmd+T) and Close File (Cmd+W) — no window-close role', () => {
+  test('File holds New Terminal Tab (Cmd+T), Save (Cmd+S) and Close File (Cmd+W) — no window-close role', () => {
     const template = buildApplicationMenuTemplate(vi.fn(), 'darwin');
     const file = submenuOf(template, 'File');
     const byLabel = new Map(file.map((i) => [i.label, i]));
     expect(byLabel.get('New Terminal Tab')?.accelerator).toBe('CmdOrCtrl+T');
+    // Save carries the keymap's ⌘S (file:save) and sends
+    // 'save-file' — the File menu had no Save at all (Gary,
+    // 2026-11-16), so there was no way to save from the menu.
+    expect(byLabel.get('Save')?.accelerator).toBe('CmdOrCtrl+S');
     // Close File is a named item carrying the keymap's ⌘W, not
     // the `close` role — the role's ⌘W closed the window, but
     // the keymap says ⌘W closes the file.
     expect(byLabel.get('Close File')?.accelerator).toBe('CmdOrCtrl+W');
     expect(file.some((i) => i.role === 'close')).toBe(false);
+  });
+
+  test('File > Save is enabled by default and greyed out when no file is open (Gary, 2026-11-16)', () => {
+    // A menu that promises Save with nothing to save is "not
+    // user friendly" — main greys the item out when the
+    // renderer reports no active file, so it never offers a
+    // save it cannot do.
+    const enabled = buildApplicationMenuTemplate(vi.fn(), 'darwin');
+    const byLabelEnabled = new Map(
+      submenuOf(enabled, 'File').map((i) => [i.label, i]),
+    );
+    expect(byLabelEnabled.get('Save')?.enabled).not.toBe(false);
+    const disabled = buildApplicationMenuTemplate(vi.fn(), 'darwin', [], {
+      saveEnabled: false,
+    });
+    const byLabelDisabled = new Map(
+      submenuOf(disabled, 'File').map((i) => [i.label, i]),
+    );
+    expect(byLabelDisabled.get('Save')?.enabled).toBe(false);
+    // The other File items are untouched by the flag.
+    expect(byLabelDisabled.get('New Terminal Tab')?.enabled).not.toBe(false);
+    expect(byLabelDisabled.get('Close File')?.enabled).not.toBe(false);
   });
 
   test('user overrides re-label the menu: a rebound palette shows its new accelerator', () => {
@@ -162,12 +188,14 @@ describe('buildApplicationMenuTemplate', () => {
     click('Go to Symbol in File…');
     click('Lucid Help');
     click('New Terminal Tab');
+    click('Save');
     expect(send.mock.calls.map((c) => c[0] as MenuActionKind)).toEqual([
       'palette',
       'finder',
       'symbols',
       'help',
       'new-terminal-tab',
+      'save-file',
     ]);
   });
 });

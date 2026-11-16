@@ -87,6 +87,29 @@
  *   (called once from App's boot init — a relaunch with a guest
  *   still active).
  *
+ * LOG OUT (Gary, 2026-11-16): "log out of profile" lives in
+ * Settings > General — the one place to leave the current profile
+ * and return to the Profiles screen. There is no sign-out anywhere
+ * else; the Profiles screen is the picker, and logging out just
+ * shows it again (the active profile id stays persisted, so the
+ * screen pre-selects where the user left off). The request is a
+ * timestamp (requestLogout) because Settings has no access to
+ * App's local bootPhase — App watches logoutRequestedAt and sets
+ * the phase back to 'profiles'. Picking a profile proceeds
+ * through splash2 → lucid exactly as on boot, and selectProfile
+ * handles the guest-veil transitions (guest → non-guest restores
+ * the owner's data; re-entering as guest creates a fresh guest).
+ * - CONFIRMATION: logging out asks first — the prompt says what
+ *   happens (a guest session is ephemeral: its chats and terminal
+ *   history are discarded; a saved profile's data stays saved).
+ *   The prompt has a "Don't ask again" checkbox; the choice is
+ *   saved PER PROFILE (skipLogoutConfirm on the Profile record,
+ *   persisted with it — absent on older records means ask).
+ *   Settings > General has the toggle to turn the confirmation
+ *   back on for the current profile ("Ask before logging out").
+ *   A profile that disabled it logs out with no prompt until the
+ *   toggle is flipped back.
+ *
  * Persistence: localStorage, versioned key (same pattern as
  * historyStore — guarded, never throws, corrupt storage starts
  * fresh). The active profile id persists too, so the Profiles
@@ -126,6 +149,15 @@ export interface Profile {
   verifiedGates: string[];
   createdAt: string;
   lastActiveAt: string | null;
+  /**
+   * "Don't ask again" for the logout confirmation (Gary,
+   * 2026-11-16): when true, Settings > General "Log out of
+   * profile" skips the confirmation prompt for THIS profile
+   * only. Each profile keeps its own value; absent (older
+   * records) means ask. Turned back on from Settings > General
+   * ("Ask before logging out").
+   */
+  skipLogoutConfirm?: boolean;
 }
 
 /** The implicit profile every creation carries until profiles land. */
@@ -302,6 +334,25 @@ interface ProfileState {
    * Profiles screen.
    */
   wipeProfile: (profileId: string) => Promise<boolean>;
+  /**
+   * Logout request timestamp (Gary, 2026-11-16): Settings >
+   * General "Log out of profile" sets this; App watches it and
+   * returns to the Profiles screen. A timestamp (not a boolean)
+   * so repeated logouts are distinct requests. Null when no
+   * logout is pending.
+   */
+  logoutRequestedAt: number | null;
+  /** Request a return to the Profiles screen (log out of the active profile). */
+  requestLogout: () => void;
+  /** Clear a pending logout request (App calls this when it acts on it). */
+  clearLogoutRequest: () => void;
+  /**
+   * Set this profile's "Don't ask again" for the logout
+   * confirmation. True = skip the prompt for this profile;
+   * false = ask every time. False on an unknown profile id.
+   * Persisted with the profile record.
+   */
+  setSkipLogoutConfirm: (profileId: string, skip: boolean) => boolean;
 }
 
 export const useProfileStore = create<ProfileState>((set, get) => {
@@ -309,6 +360,7 @@ export const useProfileStore = create<ProfileState>((set, get) => {
   return {
     profiles: initial.profiles,
     activeProfileId: initial.activeProfileId,
+    logoutRequestedAt: null,
 
     createProfile: (name) => {
       const clean = name.trim();
@@ -505,6 +557,25 @@ export const useProfileStore = create<ProfileState>((set, get) => {
             : state.activeProfileId,
         });
       }
+      return true;
+    },
+
+    requestLogout: () => {
+      set({ logoutRequestedAt: Date.now() });
+    },
+
+    clearLogoutRequest: () => {
+      set({ logoutRequestedAt: null });
+    },
+
+    setSkipLogoutConfirm: (profileId, skip) => {
+      const state = get();
+      if (!state.profiles.some((p) => p.id === profileId)) return false;
+      set({
+        profiles: state.profiles.map((p) =>
+          p.id === profileId ? { ...p, skipLogoutConfirm: skip } : p,
+        ),
+      });
       return true;
     },
   };

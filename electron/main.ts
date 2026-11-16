@@ -135,7 +135,21 @@ app.whenReady().then(() => {
       target.webContents.send(MENU_OPEN_MODAL_CHANNEL, kind);
     }
   };
-  setupApplicationMenu(Menu, sendMenuAction);
+  // Menu state (Gary, 2026-11-16): File > Save is greyed out
+  // when no file is open — "its not user friendly" for the menu
+  // to offer Save with nothing to save. The renderer reports
+  // the active-file state (menu:set-save-enabled, below) and
+  // main rebuilds. Rebuilds keep BOTH the keybinding overrides
+  // and the save-enabled flag, so a rebind never re-enables a
+  // greyed-out Save and a file open/close never resets a rebind.
+  let menuKeybindingOverrides: { command: string; keys: string }[] = [];
+  let menuSaveEnabled = true;
+  const rebuildApplicationMenu = () => {
+    setupApplicationMenu(Menu, sendMenuAction, process.platform, menuKeybindingOverrides, {
+      saveEnabled: menuSaveEnabled,
+    });
+  };
+  rebuildApplicationMenu();
 
   // A user rebind (settings.customKeybindings) reaches main
   // here; the menu is rebuilt with the new accelerators so
@@ -153,7 +167,22 @@ app.whenReady().then(() => {
         typeof (o as { command?: unknown }).command === 'string' &&
         typeof (o as { keys?: unknown }).keys === 'string',
     );
-    setupApplicationMenu(Menu, sendMenuAction, process.platform, clean);
+    menuKeybindingOverrides = clean;
+    rebuildApplicationMenu();
+  });
+
+  // File > Save enablement (Gary, 2026-11-16): the renderer
+  // sends whether a file is open to save whenever the active
+  // file changes (and on mount). Main rebuilds the menu with
+  // Save greyed out when there is nothing to save. Non-boolean
+  // payloads are ignored; a repeat of the current value is a
+  // no-op (no rebuild churn on every file switch to the same
+  // enabled state).
+  ipcMain.on('menu:set-save-enabled', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') return;
+    if (enabled === menuSaveEnabled) return;
+    menuSaveEnabled = enabled;
+    rebuildApplicationMenu();
   });
 
   // Setup IPC handlers once

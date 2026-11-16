@@ -356,6 +356,19 @@ function App() {
       )}
     </>
   );
+  // Logout (Gary, 2026-11-16): Settings > General "Log out of
+  // profile" requests a return to the Profiles screen. The request
+  // is a timestamp in the profile store (requestLogout) because
+  // Settings has no access to this local bootPhase. App clears
+  // the request and shows the Profiles screen; picking a profile
+  // proceeds through splash2 → lucid exactly as on boot, and
+  // selectProfile handles the guest-veil transitions.
+  const logoutRequestedAt = useProfileStore((s) => s.logoutRequestedAt);
+  useEffect(() => {
+    if (logoutRequestedAt === null) return;
+    useProfileStore.getState().clearLogoutRequest();
+    setBootPhase('profiles');
+  }, [logoutRequestedAt]);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [storageBannerDismissed, setStorageBannerDismissed] = useState(false);
   // Startup model check: null while the check has not resolved yet.
@@ -440,6 +453,18 @@ function App() {
   useEffect(() => {
     window.lucidAPI?.menu?.setKeybindings?.(settings.customKeybindings ?? []);
   }, [settings.customKeybindings]);
+
+  // File menu Save enablement (Gary, 2026-11-16): File > Save
+  // is greyed out when there is no file open to save — a menu
+  // that promises Save with nothing to save is "not user
+  // friendly". Sent on mount and whenever the active file
+  // changes; a no-op without the bridge (web build, tests,
+  // detached windows). Main rebuilds the menu with Save
+  // enabled/disabled; a rebind never resets it (main keeps
+  // both pieces of menu state).
+  useEffect(() => {
+    window.lucidAPI?.menu?.setSaveEnabled?.(activeFilePath !== null);
+  }, [activeFilePath]);
 
   // Instant startup - terminal first, everything else loads in background
   useEffect(() => {

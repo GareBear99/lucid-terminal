@@ -54,6 +54,11 @@ export type { MenuActionKind };
  * The View menu deliberately has NO Reload / Force Reload —
  * that is the ⌘R fix. DevTools stays (role toggleDevTools,
  * Alt+Cmd+I), so debugging is still one keypress away.
+ * `options.saveEnabled` greys out File > Save when there is
+ * no file open to save (Gary, 2026-11-16 — "its not user
+ * friendly" for the menu to offer Save with nothing to save);
+ * the renderer tells main the state whenever the active file
+ * changes, and main rebuilds. Defaults to enabled.
  *
  * File's Close is a named item, not the `close` role: the
  * role's ⌘W closes the window, but the keymap says ⌘W closes
@@ -65,15 +70,18 @@ export function buildApplicationMenuTemplate(
   send: (kind: MenuActionKind) => void,
   platform: NodeJS.Platform = process.platform,
   overrides: KeymapBinding[] = [],
+  options: { saveEnabled?: boolean } = {},
 ): MenuItemConstructorOptions[] {
   const modalItem = (
     label: string,
     commandId: string,
     kind: MenuActionKind,
+    extra: Partial<MenuItemConstructorOptions> = {},
   ): MenuItemConstructorOptions => ({
     label,
     accelerator: acceleratorForCommand(commandId, overrides),
     click: () => send(kind),
+    ...extra,
   });
 
   const template: MenuItemConstructorOptions[] = [];
@@ -90,6 +98,20 @@ export function buildApplicationMenuTemplate(
     label: 'File',
     submenu: [
       modalItem('New Terminal Tab', 'terminal:new-tab', 'new-terminal-tab'),
+      // Save (Gary, 2026-11-16): the File menu had no Save at
+      // all — "you cant save a file in file tab in top hotbar
+      // on mac". The item carries the keymap's ⌘S (file:save)
+      // and sends 'save-file'; the renderer saves the active
+      // file (no file → no-op, same as the file:save command).
+      // `enabled` is the user-friendliness fix (Gary: "its not
+      // user friendly" to offer Save with nothing to save):
+      // main greys the item out when no file is open
+      // (options.saveEnabled, from the renderer's active-file
+      // state), so the menu never promises a save it cannot do.
+      modalItem('Save', 'file:save', 'save-file', {
+        id: 'save-file',
+        enabled: options.saveEnabled ?? true,
+      }),
       { type: 'separator' },
       modalItem('Close File', 'file:close', 'close-file'),
     ],
@@ -157,13 +179,17 @@ export interface MenuApi {
 /** Build the template and set it as the application menu.
  *  `overrides` is the user's keymap (see above) — main
  *  rebuilds with it whenever the renderer sends new
- *  bindings, so the menu labels follow a rebind live. */
+ *  bindings, so the menu labels follow a rebind live.
+ *  `options.saveEnabled` greys out File > Save when no file
+ *  is open (Gary, 2026-11-16); main rebuilds with it whenever
+ *  the renderer reports the active-file state. */
 export function setupApplicationMenu(
   menuApi: MenuApi,
   send: (kind: MenuActionKind) => void,
   platform: NodeJS.Platform = process.platform,
   overrides: KeymapBinding[] = [],
+  options: { saveEnabled?: boolean } = {},
 ): void {
-  const template = buildApplicationMenuTemplate(send, platform, overrides);
+  const template = buildApplicationMenuTemplate(send, platform, overrides, options);
   menuApi.setApplicationMenu(menuApi.buildFromTemplate(template));
 }

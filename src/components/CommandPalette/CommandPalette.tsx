@@ -411,14 +411,19 @@ export function AtomModals({ context, switchView }: AtomModalsProps) {
   // here because it needs the focus point: in the editor with
   // a file open it closes the file (dirty → the confirm);
   // anywhere else it closes the window, the old `close`
-  // role's behaviour.
+  // role's behaviour. 'save-file' (⌘S, Gary 2026-11-16) is
+  // handled here too: it saves the active file through the
+  // same path as the file:save command (no file → no-op).
   useEffect(() => {
     return subscribeMenuModals((kind) => {
       const ctx = contextRef.current;
       if (kind === 'palette') open('palette');
       else if (kind === 'finder') open('finder');
       else if (kind === 'symbols' && ctx.hasActiveFile) open('symbols');
-      else if (kind === 'close-file') {
+      else if (kind === 'save-file') {
+        const path = useFileStore.getState().activeFilePath;
+        if (path) void useFileStore.getState().saveFile(path);
+      } else if (kind === 'close-file') {
         if (ctx.view === 'editor' && ctx.hasActiveFile) {
           const path = useFileStore.getState().activeFilePath;
           if (path) useFileStore.getState().closeFileWithConfirm(path);

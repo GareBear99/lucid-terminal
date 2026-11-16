@@ -290,6 +290,12 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setKeybindings: (overrides: Array<{ command: string; keys: string }>) => {
       ipcRenderer.send('menu:set-keybindings', overrides);
     },
+    // Tell main whether File > Save has a file to save (Gary,
+    // 2026-11-16): main greys Save out when there is nothing
+    // to save. Fire-and-forget.
+    setSaveEnabled: (enabled: boolean) => {
+      ipcRenderer.send('menu:set-save-enabled', enabled);
+    },
   },
 
   // AI operations

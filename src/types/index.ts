@@ -1374,6 +1374,7 @@ declare global {
           callback: (kind: import('../lib/menuModals').MenuActionKind) => void,
         ) => () => void;
         setKeybindings: (overrides: import('../lib/keymap').KeymapBinding[]) => void;
+        setSaveEnabled: (enabled: boolean) => void;
       };
       search: {
         search: (root: string, options: SearchOptions) => Promise<SearchResult>;

@@ -11,6 +11,7 @@ import { useLoadingStore } from '../../stores/loadingStore';
 import { ChatMessage, PingQuota } from '../../types';
 import { getChatModelOptions, AUTO_CHAT_MODEL_VALUE } from '../../lib/chatModels';
 import { formatTimeSinceRestock, isPingUnreachableError } from '../../lib/pingQuota';
+import { isActiveProfileVerified } from '../../lib/verifiedSpGrant';
 import { bubbleLayoutForRole, formatMessageTime } from './chatBubbles';
 import { isLuciferAiSilenced } from '../../lib/luciferAi';
 import { MessageContextMenu } from './MessageContextMenu';
@@ -278,7 +279,9 @@ function AIChat({ onClose }: AIChatProps) {
   useEffect(() => {
     // Setup streaming listeners
     const handleStreamEnd = (quota?: PingQuota) => {
-      if (quota) setPingQuota(quota);
+      // A verified profile's restock is daily (+1,000 SP/day),
+      // not the stage period — the timer needs to know.
+      if (quota) setPingQuota(quota, isActiveProfileVerified());
       const replyText = useAIStore.getState().streamingMessage;
       completeStream();
       // Auto-speak: the active persona's messages speak as soon as

@@ -1,13 +1,14 @@
 /**
  * Daily-verification issuance — status application (dailies half 5).
  *
- * The verdict comes DOWN through the FixNet connection (Phase 4),
- * which does not exist yet. When it lands, it carries verification
- * issuance down (server → client, the grab's yield in tick order):
- * the issuance for a profile is its verified tick — the proof,
- * never self-reported.
+ * The verdict comes DOWN through the FixNet connection (Phase 4):
+ * the client sync (src/lib/fixnetSync.ts) pulls the published
+ * status table from the FixNet repo's GitHub Pages site every 6
+ * hours and on startup, and calls this module when a local temp
+ * is verified in it. The issuance for a profile is its verified
+ * tick in the published table — the proof, never self-reported.
  *
- * This module is the named call site that will receive that
+ * This module is the named call site that receives that
  * issuance. Its one function applies it: `markGateVerified` with
  * the `daily-check` gate, which flips a temp to status `verified`
  * (the temp discards temp status) — it does NOT flip to `user`
@@ -16,9 +17,9 @@
  * already refuses them, and this path must not special-case
  * around it.
  *
- * AWAITING THE FIXNET CONNECTION — no caller today. Do NOT call
- * this from any UI, button, or local flow: there is no local
- * "verify this profile" path, and no self-reported verified state.
+ * Do NOT call this from any UI, button, or local flow: there is
+ * no local "verify this profile" path, and no self-reported
+ * verified state. The only caller is the FixNet sync.
  */
 
 import { useProfileStore } from '../stores/profileStore';

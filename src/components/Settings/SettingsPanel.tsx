@@ -84,6 +84,7 @@ import { useDevicesStore } from '../../stores/devicesStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useToastStore } from '../../stores/toastStore';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
+import { isActiveProfileVerified } from '../../lib/verifiedSpGrant';
 import {
   playTerminalBell,
   TERMINAL_BELL_DURATION_MS,
@@ -431,8 +432,9 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
         const hh = String(reset.getUTCHours()).padStart(2, '0');
         const mm = String(reset.getUTCMinutes()).padStart(2, '0');
         // The health check is a quota source too: a restock the
-        // server reports here resets the restock timer.
-        useAIStore.getState().setPingQuota(health.quota);
+        // server reports here resets the restock timer. A
+        // verified profile's restock is daily, not the stage period.
+        useAIStore.getState().setPingQuota(health.quota, isActiveProfileVerified());
         setPingTestResult(`Connected — ${health.quota.remaining}/${health.quota.limit} left, next SP refill ${hh}:${mm} UTC.`);
       } else {
         setPingTestResult('Connected — SP balance unknown (no user id sent).');

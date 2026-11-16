@@ -32,6 +32,7 @@ import {
   createDefaultProfile,
   useProfileStore,
 } from '../src/stores/profileStore';
+import { useSettingsStore } from '../src/stores/settingsStore';
 
 function resetProfiles() {
   try {
@@ -47,6 +48,10 @@ function resetProfiles() {
 
 beforeEach(() => {
   resetProfiles();
+  // The genesis flag is off by default and never leaks between tests.
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, fixnetClaimGenesis: false, fixnetActivatedOnce: false },
+  }));
 });
 
 function createProfileViaUi(name: string) {
@@ -128,7 +133,13 @@ describe('ProfilesScreen', () => {
         windowEnd: '2026-11-17T00:00:00.000Z',
         resumed: false,
       });
-      win.lucidAPI = { ai: { activateTemp } };
+      // The settings bridge: markFixNetActivated writes the consumed
+      // flag through it (updateSettings applies locally only after
+      // the bridge resolves).
+      win.lucidAPI = {
+        ai: { activateTemp },
+        settings: { set: vi.fn().mockResolvedValue(undefined) },
+      };
     });
 
     afterEach(() => {
@@ -137,12 +148,31 @@ describe('ProfilesScreen', () => {
       vi.restoreAllMocks();
     });
 
-    test('creating a profile calls activateTemp once with the created id', () => {
+    test('creating a profile calls activateTemp once with the created id and no referral', () => {
       const onDone = vi.fn();
       render(<ProfilesScreen onDone={onDone} />);
       const created = createProfileViaUi('Gary');
       expect(activateTemp).toHaveBeenCalledTimes(1);
-      expect(activateTemp).toHaveBeenCalledWith(created.id);
+      // No genesis referral by default (the founder flag is off) —
+      // a normal activation carries null.
+      expect(activateTemp).toHaveBeenCalledWith(created.id, null);
+      expect(onDone).toHaveBeenCalledWith(created.id);
+    });
+
+    test('with the founder flag on, the first profile claims the genesis referral', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, fixnetClaimGenesis: true, fixnetActivatedOnce: false },
+      }));
+      const onDone = vi.fn();
+      render(<ProfilesScreen onDone={onDone} />);
+      const created = createProfileViaUi('Gary');
+      expect(activateTemp).toHaveBeenCalledTimes(1);
+      expect(activateTemp).toHaveBeenCalledWith(created.id, 'ref:genesis');
+      // The successful activation consumes the flag.
+      await vi.waitFor(() => {
+        expect(useSettingsStore.getState().settings.fixnetActivatedOnce).toBe(true);
+        expect(useSettingsStore.getState().settings.fixnetClaimGenesis).toBe(false);
+      });
       expect(onDone).toHaveBeenCalledWith(created.id);
     });
 

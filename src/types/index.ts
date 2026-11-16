@@ -855,6 +855,14 @@ export interface Settings {
   pingServerEnabled: boolean;
   pingServerEndpoint: string;
   pingServerUserId: string;
+  // FixNet genesis (Gary, 2026-11-16): the founder flag — when
+  // true, the next profile this install creates claims the
+  // genesis referral ('ref:genesis'), the root of the referral
+  // chain (Gary's own profile). Defaults to false. Once this
+  // install has activated a temp, fixnetActivatedOnce is true
+  // and the claim can never be made again.
+  fixnetClaimGenesis: boolean;
+  fixnetActivatedOnce: boolean;
   // Google Drive segment (Gary, 2026-11-08): the Google OAuth
   // client ID for the Drive sign-in. A public identifier, not a
   // secret — no client secret is stored (the desktop sign-in uses
@@ -1430,6 +1438,20 @@ declare global {
         saveSession: (session: ChatSession) => Promise<void>;
         deleteSession: (id: string) => Promise<void>;
         clearSessions: () => Promise<void>;
+      };
+      fixnet: {
+        /** Pull the daily data from the FixNet repo's GitHub Pages site (pull-only). */
+        sync: () => Promise<{
+          status: { tick: number; id: string; outcome: 'verified' | 'pending' | 'not_verified' | 'expired'; day: string | null; reason: string | null }[];
+          day: string | null;
+          daily: {
+            date: string;
+            counts: { verified: number; pending: number; not_verified: number; expired: number; checked: number };
+            yield: { verified_today: number; verified_total: number; corpus_entries_today: number | null; corpus_total_entries: number | null };
+            deposit: { sp_per_verified: number; overflow_queued: boolean; entries: { id: string; tick: number; sp: number; snapshot_access: boolean }[] };
+          } | null;
+          pulledAt: string;
+        }>;
       };
       copilot: {
         listModels: () => Promise<{ ok: boolean; code?: string; message?: string; retryAfterSeconds?: number; models?: string[] }>;

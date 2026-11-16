@@ -77,11 +77,13 @@ describe('sovereignPoints content', () => {
     expect(allText).toContain('temp was discarded');
   });
 
-  test('the honest note says verification is not built yet', () => {
-    expect(allText).toContain('verification is not built yet');
-    expect(allText).toContain('does not exist yet');
-    expect(allText).toContain('design only, not built');
-    expect(allText).toContain('a target, not live');
+  test('how verification works is explained (FixNet, live — not "not built yet")', () => {
+    expect(allText).toContain('How verification works');
+    expect(allText).toContain('daily server check');
+    expect(allText).toContain('comes down to Lucid through FixNet');
+    expect(allText).not.toContain('verification is not built yet');
+    expect(allText).not.toContain('does not exist yet');
+    expect(allText).not.toContain('a target, not live');
   });
 
   test('the voice script is the exact page words', () => {
@@ -112,7 +114,7 @@ describe('SovereignPointsInfo component', () => {
     for (const section of SP_INFO_SECTIONS) {
       expect(screen.getByText(section.heading)).not.toBeNull();
     }
-    expect(screen.getByText(/Honest note: verification is not built yet/)).not.toBeNull();
+    expect(screen.getByText(/How verification works/)).not.toBeNull();
   });
 
   test('has a play button wired to the voice MP3', () => {

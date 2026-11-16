@@ -362,6 +362,14 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     clearSessions: () => ipcRenderer.invoke('ai:clearSessions'),
   },
 
+  // FixNet sync (Gary, 2026-11-16: GitHub Pages is the daily
+  // channel). Pull-only: one call pulls the daily data
+  // (status table + latest day + daily file) from the FixNet
+  // repo's Pages site. No arguments, nothing sent up.
+  fixnet: {
+    sync: () => ipcRenderer.invoke('fixnet:sync'),
+  },
+
   // GitHub Copilot API client (D9, 2026-11-15) — the copilot
   // tab's keyed brain. The key never crosses this bridge: main
   // reads it from the OS keychain, and the renderer only ever

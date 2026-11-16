@@ -15,6 +15,7 @@ import {
   SP_STAGE1_PERIOD_SECONDS,
   SP_STAGE2_LIMIT,
   SP_STAGE2_PERIOD_SECONDS,
+  SP_VERIFIED_PERIOD_SECONDS,
   basePingQuota,
   restockPeriodSeconds,
   nextLastRestockAt,
@@ -55,6 +56,23 @@ describe('restockPeriodSeconds', () => {
     expect(SP_STAGE2_PERIOD_SECONDS).toBe(12 * 3600);
     expect(SP_STAGE2_LIMIT).toBe(250);
   });
+
+  it('a verified balance refills daily (+1,000 SP/day), never on a stage period', () => {
+    // A verified profile's balance is over 250 — without the
+    // verified flag it would read as stage 2 (12h), which is
+    // wrong: the verified refill is once a UTC day, whatever
+    // the balance is (the server's verified bucket refills
+    // every 24h at any balance).
+    expect(restockPeriodSeconds(1100, true)).toBe(24 * 3600);
+    expect(restockPeriodSeconds(1000, true)).toBe(24 * 3600);
+    expect(restockPeriodSeconds(10000, true)).toBe(24 * 3600);
+    expect(restockPeriodSeconds(150, true)).toBe(24 * 3600);
+    // Unverified balances keep the stage periods.
+    expect(restockPeriodSeconds(200, false)).toBe(4 * 3600);
+    expect(restockPeriodSeconds(250, false)).toBe(12 * 3600);
+    expect(restockPeriodSeconds(1100, false)).toBe(12 * 3600);
+    expect(SP_VERIFIED_PERIOD_SECONDS).toBe(24 * 3600);
+  });
 });
 
 describe('nextLastRestockAt — the restock timer resets on a restock, never to a stale value', () => {
@@ -79,8 +97,14 @@ describe('nextLastRestockAt — the restock timer resets on a restock, never to 
     expect(nextLastRestockAt(prev, next, null)).toBeNull();
   });
 
-  it('a first quota tells us nothing about the last restock', () => {
-    expect(nextLastRestockAt(null, quota(200, 100, 1000), null)).toBeNull();
+  it('a verified reset advance uses the 24h period (not stage 2)', () => {
+    // Verified balance 1100 — without the verified flag the
+    // 12h stage-2 period would be used and the timer would read
+    // the last restock 12h early.
+    const prev = quota(1100, 100, 2000);
+    const next = quota(1100, 1100, 2000 + 24 * 3600);
+    expect(nextLastRestockAt(prev, next, null, undefined, true)).toBe(2000 * 1000);
+    expect(nextLastRestockAt(prev, next, null)).toBe(2000 * 1000 + (24 - 12) * 3600 * 1000);
   });
 
   it('a server lastRefill wins when provided (the future worker path)', () => {

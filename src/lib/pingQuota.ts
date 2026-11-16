@@ -45,6 +45,17 @@ export const SP_STAGE2_LIMIT = 250;
 export const SP_STAGE2_PERIOD_SECONDS = 12 * 3600;
 
 /**
+ * Verified: +1,000 SP every 24h, no cap (the on-hand balance is
+ * the cap). The server returns a verified user's quota with
+ * limit = the balance itself and reset = the next UTC midnight —
+ * the limit is NOT a stage cap, so the restock period must NOT
+ * be derived from it (a balance over 250 would read as stage 2,
+ * 12h — wrong). Callers pass verified=true for a verified
+ * profile and get the daily period.
+ */
+export const SP_VERIFIED_PERIOD_SECONDS = 24 * 3600;
+
+/**
  * The SP balance when Lucid cannot reach the ping server. Base 100,
  * the starting balance — and that is the KNOWN state, not unknown.
  */
@@ -57,8 +68,14 @@ export function basePingQuota(): PingQuota {
   };
 }
 
-/** The refill period for the stage a quota's limit sits in. */
-export function restockPeriodSeconds(limit: number): number {
+/**
+ * The refill period for the stage a quota's limit sits in.
+ * A verified profile refills daily (+1,000 SP/day, no cap) —
+ * pass verified=true and the period is 24h regardless of the
+ * limit (a verified balance over 250 is not stage 2).
+ */
+export function restockPeriodSeconds(limit: number, verified = false): number {
+  if (verified) return SP_VERIFIED_PERIOD_SECONDS;
   return limit >= SP_STAGE2_LIMIT
     ? SP_STAGE2_PERIOD_SECONDS
     : SP_STAGE1_PERIOD_SECONDS;
@@ -84,12 +101,13 @@ export function nextLastRestockAt(
   next: PingQuota,
   prevLastRestockAt: number | null,
   lastRefill?: number | null,
+  verified = false,
 ): number | null {
   if (typeof lastRefill === 'number' && Number.isFinite(lastRefill)) {
     return lastRefill * 1000;
   }
   if (prev && next.reset > prev.reset) {
-    return (next.reset - restockPeriodSeconds(next.limit)) * 1000;
+    return (next.reset - restockPeriodSeconds(next.limit, verified)) * 1000;
   }
   return prevLastRestockAt;
 }

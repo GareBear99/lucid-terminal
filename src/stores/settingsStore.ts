@@ -188,6 +188,17 @@ const defaultSettings: Settings = {
   pingServerEnabled: false,
   pingServerEndpoint: 'http://127.0.0.1:8787',
   pingServerUserId: '',
+  // FixNet genesis (Gary, 2026-11-16): the founder flag. When
+  // true, the next profile this install creates claims the
+  // genesis referral ('ref:genesis') — the root of the referral
+  // chain, Gary's own profile. Defaults to false: a later
+  // install's first profile must NOT claim the root by accident
+  // (a wrong claim is terminal — the grab marks it
+  // not_verified, genesis_not_root, forever). fixnetActivatedOnce
+  // records that this install has activated a temp (genesis or
+  // not); once true the claim can never be made again.
+  fixnetClaimGenesis: false,
+  fixnetActivatedOnce: false,
   googleDriveClientId: '',
   googleAccountEmail: '',
   telegramBotUsername: '',

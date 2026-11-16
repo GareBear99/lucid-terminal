@@ -82,6 +82,7 @@ import {
   type ProfileStatus,
 } from '../../stores/profileStore';
 import { PROFILE_GATES } from '../../lib/profileGates';
+import { genesisReferralForNewProfile, markFixNetActivated } from '../../lib/fixnetGenesis';
 
 /** Status labels — exported for the Profile tab (Settings), which
  *  shows the same standing for the active profile. */
@@ -233,8 +234,15 @@ export function ProfilesScreen({ onDone }: { onDone: (profileId: string) => void
     // failed activation never blocks entering the profile).
     // The bridge may be absent in tests / older builds — the
     // optional chain keeps creation working either way.
-    const activation = window.lucidAPI?.ai?.activateTemp?.(created.id);
-    void activation?.catch((e: unknown) =>
+    // The referral is the genesis referral only when the founder
+    // flag is on and this install has never activated a temp
+    // (fixnetGenesis.ts) — otherwise null, a normal activation.
+    // A successful activation consumes the flag (this install
+    // has activated now); a failed one leaves it live for the
+    // next try.
+    const referralId = genesisReferralForNewProfile();
+    const activation = window.lucidAPI?.ai?.activateTemp?.(created.id, referralId);
+    void activation?.then(() => markFixNetActivated()).catch((e: unknown) =>
       console.warn('[profiles] temp activation failed', e),
     );
     onDone(created.id);

@@ -24,6 +24,7 @@ import { setupLlmbuilderHandlers } from './ipc/llmbuilder';
 import { setupSnapshotHandlers } from './ipc/snapshot';
 import { setupAppUpdateHandlers } from './ipc/appUpdate';
 import { setupCrashLogHandlers } from './ipc/crashLog';
+import { setupFixNetHandlers } from './ipc/fixnet';
 import {
   attachWindowCrashHandlers,
   getCrashLogWriter,
@@ -302,6 +303,7 @@ app.whenReady().then(() => {
   setupSnapshotHandlers(ipcMain);
   setupAppUpdateHandlers(ipcMain);
   setupCrashLogHandlers(ipcMain);
+  setupFixNetHandlers(ipcMain);
   setupArcServerHandlers(ipcMain);
   setupWorldmapHandlers(ipcMain);
   // GitHub Copilot API client (D9, 2026-11-15) — the copilot

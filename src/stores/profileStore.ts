@@ -185,6 +185,17 @@ export interface Profile {
    * latest version and the Check now button.
    */
   skipUpdateAlert?: boolean;
+  /**
+   * The UTC date (YYYY-MM-DD) the verified SP grant was last
+   * recorded for this profile (FixNet, Gary 2026-11-16): when
+   * the profile flips to verified, the sync records the 1,000
+   * SP/day grant for that day, so a second sync the same day
+   * does not re-grant or re-toast. Absent (older records, or
+   * never verified) means no grant recorded. A guest profile
+   * NEVER carries this — guests never verify, and loading
+   * strips it from a guest record.
+   */
+  verifiedSpGrantDay?: string | null;
 }
 
 /** The implicit profile every creation carries until profiles land. */
@@ -274,6 +285,7 @@ export function parsePersistedProfiles(value: unknown): PersistedProfiles | null
     if (isGuestProfile(p)) {
       delete p.skipLogoutConfirm;
       delete p.skipUpdateAlert;
+      delete p.verifiedSpGrantDay;
     }
   }
   if (!profiles.some((p) => p.id === DEFAULT_PROFILE_ID)) {
@@ -400,6 +412,16 @@ interface ProfileState {
    * profile record.
    */
   setSkipUpdateAlert: (profileId: string, skip: boolean) => boolean;
+  /**
+   * Record the verified SP grant for a profile, for one UTC day
+   * (FixNet, Gary 2026-11-16). Called by the sync when a profile
+   * flips to verified: the 1,000 SP/day grant is recorded for
+   * `day` so a second sync the same day does not re-grant.
+   * False on an unknown profile, a guest, or a profile that is
+   * not verified — a grant is never recorded for an unverified
+   * profile. Persisted with the profile record.
+   */
+  recordVerifiedSpGrant: (profileId: string, day: string) => boolean;
 }
 
 export const useProfileStore = create<ProfileState>((set, get) => {
@@ -674,6 +696,25 @@ export const useProfileStore = create<ProfileState>((set, get) => {
       set({
         profiles: state.profiles.map((p) =>
           p.id === profileId ? { ...p, skipUpdateAlert: skip } : p,
+        ),
+      });
+      return true;
+    },
+
+    recordVerifiedSpGrant: (profileId, day) => {
+      const state = get();
+      const target = state.profiles.find((p) => p.id === profileId);
+      if (!target) return false;
+      // Guests never verify, so they never get a grant recorded.
+      if (isGuestProfile(target)) return false;
+      // A grant is only ever recorded for a verified profile —
+      // the sync flips the profile first (markGateVerified),
+      // then records the grant. Recording one for a temp would
+      // let the UI claim an allowance the server never gave.
+      if (target.status !== 'verified' && target.status !== 'user') return false;
+      set({
+        profiles: state.profiles.map((p) =>
+          p.id === profileId ? { ...p, verifiedSpGrantDay: day } : p,
         ),
       });
       return true;

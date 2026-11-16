@@ -171,6 +171,8 @@ const settingsStore = new ResilientStore('lucid-settings', {
   pingServerEnabled: false,
   pingServerEndpoint: 'http://127.0.0.1:8787',
   pingServerUserId: '',
+  fixnetClaimGenesis: false,
+  fixnetActivatedOnce: false,
   terminalPolicy: 'ask', // 'ask', 'auto', 'deny'
   customTheme: null,
 });

@@ -101,9 +101,9 @@ export const SP_INFO_SECTIONS: SpInfoSection[] = [
     ],
   },
   {
-    heading: 'Honest note: verification is not built yet',
+    heading: 'How verification works',
     paragraphs: [
-      `The temp verification system, the daily server check and the temp store, does not exist yet. It is design only, not built. So nothing can return verified right now, and the ${SP_VERIFIED_DAILY} SP a day for verified users is a target, not live. The stages, the caps, and the refills above are live on the ping server today.`,
+      `Verification comes from the daily server check. Once a day, at midnight, the server checks your temp's referral chain. When it confirms the chain inside the year, your temp becomes verified, and the verified status comes down to Lucid through FixNet, the daily channel. Your profile flips to verified, and from that day you get ${SP_VERIFIED_DAILY} SP a day.`,
     ],
   },
 ];

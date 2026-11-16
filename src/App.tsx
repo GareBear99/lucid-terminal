@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
+import { startFixNetSync } from './lib/fixnetSync';
 import { useForgeStore } from './stores/forgeStore';
 import { isLuciferAiEnabled, isLuciferAiSilenced } from './lib/luciferAi';
 import { useToastStore, visibleToastNotifications } from './stores/toastStore';
@@ -581,6 +582,14 @@ function App() {
       // Updates tab's "Check now" re-runs it on demand.
       void useAppUpdateStore.getState().checkNow();
       void checkModels();
+
+      // FixNet sync (Gary, 2026-11-16): pull the daily data
+      // (verified status, yield, deposit) from the FixNet repo's
+      // GitHub Pages site — on startup, then every 6 hours.
+      // Pull-only, best-effort and never blocking: a failed
+      // sync leaves the app exactly as it was, and the next
+      // sync retries.
+      startFixNetSync();
 
       // Initialize the LucidCore workflow (FixNet stats, etc.) at
       // startup, independent of the LuciferAI plugin toggle (Gary,

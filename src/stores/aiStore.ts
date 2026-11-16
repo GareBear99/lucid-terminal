@@ -180,7 +180,16 @@ interface AIState {
      *  client has talked to it once). Shown in the AI panel header
      *  while the ping server test path is enabled. */
     pingQuota: PingQuota | null;
-    setPingQuota: (quota: PingQuota | null) => void;
+    /**
+     * Record a quota the server reported. `verified` is whether
+     * the active profile is verified (FixNet, Gary 2026-11-16):
+     * a verified profile refills daily (+1,000 SP/day, no cap),
+     * so the restock timer takes the 24h period instead of the
+     * stage period the limit would imply. Callers that know the
+     * profile is verified pass true; the default (false) is the
+     * stage behaviour for an unverified profile.
+     */
+    setPingQuota: (quota: PingQuota | null, verified?: boolean) => void;
 
     /** Where the current pingQuota came from: 'server' when the ping
      *  server reported it, 'base' when Lucid cannot reach the server
@@ -834,7 +843,7 @@ export const useAIStore = create<AIState>((set, get) => {
         }
     },
 
-    setPingQuota: (quota) => {
+    setPingQuota: (quota, verified = false) => {
         if (!quota) {
             set({ pingQuota: null, pingQuotaSource: null });
             return;
@@ -845,8 +854,9 @@ export const useAIStore = create<AIState>((set, get) => {
             pingQuotaSource: 'server',
             // A restock is detected from the quota's `reset` advancing
             // (see pingQuota.ts) — the timer resets to the most
-            // recent restock, never to a stale one.
-            lastRestockAt: nextLastRestockAt(prev, quota, get().lastRestockAt),
+            // recent restock, never to a stale one. A verified
+            // profile's restock is daily, not the stage period.
+            lastRestockAt: nextLastRestockAt(prev, quota, get().lastRestockAt, undefined, verified),
         });
     },
 

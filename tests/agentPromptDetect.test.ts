@@ -1,6 +1,9 @@
 // Auto-detection: draft looks like an agent prompt, not a shell
-// command (heavy terminal work, 2026-11-13). Suggest-only — a
-// true here only changes the hint line, never routes anything.
+// command (heavy terminal work, 2026-11-13; UPGRADED
+// 2026-11-14 to the Warp-like classifier — a true here drives
+// the hint line AND the auto-flip, gated by inputClassifier:
+// the terminal lock, the 250 ms post-manual suppression, and
+// the unsure case all stop a flip).
 import { describe, test, expect } from 'vitest';
 import { detectAgentPrompt } from '../src/lib/agentPromptDetect';
 
@@ -62,8 +65,14 @@ describe('detectAgentPrompt', () => {
     expect(detectAgentPrompt('run the tests and report back what broke').isPrompt).toBe(true);
   });
 
+  test('one-off greetings are prompts (the NL one-off rule)', () => {
+    expect(detectAgentPrompt('hello').isPrompt).toBe(true);
+    expect(detectAgentPrompt('hi').isPrompt).toBe(true);
+    // Ghostty merge: single-letter one-off 'h' flips too, by the same rule.
+    expect(detectAgentPrompt('h').isPrompt).toBe(true);
+  });
+
   test('short plain words are not prompts', () => {
-    expect(detectAgentPrompt('hello').isPrompt).toBe(false);
     expect(detectAgentPrompt('build now').isPrompt).toBe(false);
   });
 });

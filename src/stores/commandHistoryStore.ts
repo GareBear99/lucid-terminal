@@ -1,4 +1,9 @@
 import { create } from 'zustand';
+import {
+  GUEST_VEIL_STORAGE_KEY,
+  isGuestVeilPersisted,
+  setGuestVeilPersisted,
+} from '../lib/guestVeil';
 
 /**
  * Global command history — up-arrow past commands, global and not
@@ -363,6 +368,10 @@ export const useCommandHistoryStore = create<CommandHistoryState>((set, get) => 
     // the guest guard would drop it, and quitting during the
     // guest session would otherwise lose those entries.
     flushCommandHistoryPersistence();
+    // The veil is a persisted fact (see guestVeil.ts): a renderer
+    // already open when the guest session starts veils live via
+    // the storage event below.
+    setGuestVeilPersisted(true);
     set({
       guestSessionActive: true,
       guestStash: state.entries,
@@ -388,10 +397,12 @@ export const useCommandHistoryStore = create<CommandHistoryState>((set, get) => 
       profileId: stashProfileId ?? state.profileId,
       loaded: true,
     });
-    // Write the restored owner list back to disk now (the
-    // debounced flush was paused for the whole guest session,
-    // and the key still holds the owner's pre-guest copy — this
-    // just makes the restore durable immediately).
+    // Unveil everywhere, then write the restored owner list back
+    // to disk now (the debounced flush was paused for the whole
+    // guest session, and the key still holds the owner's
+    // pre-guest copy — this just makes the restore durable
+    // immediately).
+    setGuestVeilPersisted(false);
     flushCommandHistoryPersistence();
   },
 
@@ -427,6 +438,22 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     const next = readPersistedCommandHistory()[state.profileId] ?? [];
     if (JSON.stringify(next) !== JSON.stringify(state.entries)) {
       useCommandHistoryStore.setState({ entries: next });
+    }
+  });
+}
+
+// Cross-window veil sync (a detached window): another renderer
+// entered or exited a guest session — veil/unveil live. See
+// historyStore for the same listener and guestVeil.ts for why
+// the veil is a persisted fact.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== GUEST_VEIL_STORAGE_KEY) return;
+    const state = useCommandHistoryStore.getState();
+    if (isGuestVeilPersisted()) {
+      if (!state.guestSessionActive) useCommandHistoryStore.getState().enterGuestSession();
+    } else if (state.guestSessionActive) {
+      useCommandHistoryStore.getState().exitGuestSession();
     }
   });
 }

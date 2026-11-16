@@ -95,7 +95,7 @@ describe('context contract — local planner (the builder)', () => {
     for (const call of plan.toolCalls) {
       // Only local file-operation tools.
       expect(call.name).toMatch(
-        /^(read_file|ls|grep_search|codebase_search|find_symbol|go_to_definition|create_new_file|multi_edit|view_diff|read_currently_open_file|fix_diagnostics)$/,
+        /^(read_file|ls|grep_search|codebase_search|find_symbol|go_to_definition|create_new_file|multi_edit|multi_file_edit|view_diff|read_currently_open_file|fix_diagnostics)$/,
       );
       // No call carries a URL, an endpoint, or an API key —
       // there is nothing network-bound in a plan.

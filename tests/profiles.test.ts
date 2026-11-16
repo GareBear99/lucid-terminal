@@ -35,7 +35,10 @@ import type { Homunculus } from '../src/lib/homunculi';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import { useSynthStore } from '../src/stores/synthStore';
 import { useAIStore } from '../src/stores/aiStore';
-import { useHistoryStore } from '../src/stores/historyStore';
+import {
+  HISTORY_FALLBACK_PROFILE_ID,
+  useHistoryStore,
+} from '../src/stores/historyStore';
 import { useFileStore } from '../src/stores/fileStore';
 import { useForgeStore } from '../src/stores/forgeStore';
 import {
@@ -158,6 +161,14 @@ beforeEach(() => {
   });
   useHistoryStore.setState({
     blocksByTab: {},
+    // History is per-profile now (tmux steal): the reset must also
+    // reset the profile dimension, or a profileId left over from an
+    // earlier test's selectProfile (a created profile) would make
+    // the next test's seeded blocks persist under that dead profile
+    // instead of 'default' — and a later switchProfile would load
+    // the wrong slot from disk.
+    profileId: HISTORY_FALLBACK_PROFILE_ID,
+    loaded: true,
     guestSessionActive: false,
     guestStash: null,
   });

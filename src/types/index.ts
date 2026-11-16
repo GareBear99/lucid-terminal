@@ -1359,6 +1359,23 @@ declare global {
           onReserveNumber: (callback: (id: string) => void) => () => void;
         };
       };
+      // Lucid sessions — tmux steal (Lucid's own implementation of
+      // tmux's session pattern). Optional here so older stubs that
+      // build a partial lucidAPI keep typechecking; the real preload
+      // always exposes it (see electron/preload.ts LucidAPI).
+      sessions?: {
+        list: () => Promise<{ ok: boolean; sessions?: import('../lib/tmuxSession').LucidSessionSummary[]; error?: string }>;
+        create: (name?: string, cwd?: string) => Promise<{ ok: boolean; session?: import('../lib/tmuxSession').LucidSession; error?: string }>;
+        attach: (sessionId: string, detachOthers?: boolean) => Promise<{ ok: boolean; session?: import('../lib/tmuxSession').LucidSession; error?: string }>;
+        detach: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+        attachOrCreate: (name: string, cwd?: string) => Promise<{ ok: boolean; session?: import('../lib/tmuxSession').LucidSession; created?: boolean; error?: string }>;
+        kill: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+        rename: (sessionId: string, name: string) => Promise<{ ok: boolean; session?: import('../lib/tmuxSession').LucidSession; error?: string }>;
+        snapshot: () => Promise<{ ok: boolean; snapshot?: string; error?: string }>;
+        save: () => Promise<{ ok: boolean; error?: string }>;
+        trackPane: (sessionId: string, paneId: string) => Promise<{ ok: boolean; error?: string }>;
+        markPaneExited: (paneId: string) => Promise<{ ok: boolean; error?: string }>;
+      };
       filesDetach: {
         detach: (file: import('./detach').DetachedFile, dropX: number, dropY: number) => Promise<import('./detach').DetachResult>;
         getDetachState: () => Promise<import('./detach').DetachedFile | null>;

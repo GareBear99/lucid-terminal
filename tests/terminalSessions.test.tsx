@@ -177,11 +177,31 @@ describe('Terminal mode — the hint line', () => {
     expect(hintLineText()).toBe('⌘⏎ new agent conversation · ↑ past commands');
   });
 
-  test('a draft the auto-detection reads as a prompt changes the hint line to the hand-off offer', async () => {
+  test('a draft the auto-detection reads as a prompt auto-flips the fresh tab to Agent (2026-11-14 classifier upgrade: the flip fires as you type, so the hint is the way back, not the hand-off offer — the offer only shows when the flip cannot fire, e.g. a locked terminal)', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     typeInComposer('fix the build');
-    expect(hintLineText()).toBe('looks like a prompt — ⌘⏎ send to agent');
+    // Ghostty merge: the flip is async (inputClassifier effect), so
+    // wait for it; the draft itself survives the flip, still sitting
+    // in the composer.
+    await waitFor(() => {
+      expect(tabMode()).toBe('agent');
+    });
+    expect(hintLineText()).toBe('esc back to terminal · ↑ past prompts');
+    expect(composerInput().value).toBe('fix the build');
+  });
+
+  test('a locked terminal cannot auto-flip, so the same draft shows the hand-off offer instead', async () => {
+    renderNonDevmode(3);
+    await screen.findByTestId('prompter-composer-wrap');
+    // Flip to agent and back: the flip TO terminal locks it
+    // (Gary, 2026-11-14 ~03:30 PST — the terminal lock rule).
+    useSessionStore.getState().setTabMode('tab-1', 'agent');
+    useSessionStore.getState().setTabMode('tab-1', 'terminal');
+    expect(tabMode()).toBe('terminal');
+    typeInComposer('fix the build');
+    expect(tabMode()).toBe('terminal');
+    expect(hintLineText()).toBe('looks like a prompt — pill or /agent to send to agent');
   });
 
   test('a draft that is a shell command does not trigger the hand-off offer', async () => {
@@ -193,7 +213,7 @@ describe('Terminal mode — the hint line', () => {
 });
 
 describe('Terminal mode — hand-off and Esc', () => {
-  test('⌘⏎ from the composer flips the SAME tab to Agent with the draft as its first prompt', async () => {
+  test('⌘⏎ from the composer submits the draft as the SAME tab’s first agent prompt (auto-flipped on typing)', async () => {
     renderNonDevmode(3);
     await screen.findByTestId('prompter-composer-wrap');
     typeInComposer('fix the build');
@@ -208,7 +228,17 @@ describe('Terminal mode — hand-off and Esc', () => {
     // The prompt lands in the tab's own feed — one memory.
     const blocks = tabBlocks();
     expect(blocks.some((b) => b.kind === 'agent-prompt' && b.command === 'fix the build')).toBe(true);
-    expect(blocks.some((b) => b.kind === 'notice')).toBe(true);
+    // The run starts in the same feed: the loop appends its
+    // agent-response block (steal #4 — Continue). There is
+    // NO placeholder notice any more — the "driving
+    // intelligence isn't built yet, nothing was run" notice
+    // was removed when the loop landed (f6a8cd2), because
+    // the prompt IS run now and the notice would be a lie.
+    await waitFor(() => {
+      expect(tabBlocks().some((b) => b.kind === 'agent-response')).toBe(true);
+    });
+    expect(tabBlocks().some((b) => b.kind === 'notice')).toBe(false);
+    expect(tabBlocks().map((b) => b.output).join('\n')).not.toContain('isn’t built yet');
 
     // The agent view: header says Agent + the tab title, the
     // hint line is the way back.

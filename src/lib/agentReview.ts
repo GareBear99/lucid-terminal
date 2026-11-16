@@ -63,6 +63,7 @@ import {
   findEditMatch,
   type EditOperation,
 } from './agentMultiEdit';
+import { parseMultiFilePlan } from './agentMultiFileEdit';
 import { useHistoryStore } from '../stores/historyStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useAgentPermissionStore } from '../stores/agentPermissionStore';
@@ -78,7 +79,10 @@ import type {
 export type AgentReviewDecision = 'keep' | 'reject' | 'keep-all' | 'reject-all';
 
 /** A checkpoint: the file's content before a kept edit
- *  (null when the file did not exist — a create). */
+ *  (null when the file did not exist — a create). A
+ *  multi_file_edit Keep records one checkpoint per
+ *  touched file, sharing a groupId — reverting any one
+ *  of them restores the whole pass. */
 export interface AgentCheckpoint {
   id: string;
   runId: string;
@@ -88,6 +92,8 @@ export interface AgentCheckpoint {
   workspaceRoot: string;
   createdAt: number;
   reverted: boolean;
+  /** Shared by every checkpoint of one multi-file Keep. */
+  groupId?: string;
 }
 
 /** How many context lines around a changed region. */
@@ -256,13 +262,61 @@ function previewMultiEdit(
  * The preview for a write call: the hunks for an edit,
  * the whole content as additions for a create, the
  * diagnostics for a fix. Anything else gets no preview
- * (only write tools pause for review).
+ * (only write tools pause for review). For a
+ * multi_file_edit the caller passes every touched file's
+ * current content in `multiContents` (keyed by the
+ * filepath as given in the plan, or by its resolved
+ * absolute path) — the preview is the hunks of ALL the
+ * files in the plan, so one Keep covers the whole pass.
  */
 export function computeReviewPreview(
   call: PlannedToolCall,
   content: string | null,
   detail?: AgentApprovalDetail,
+  multiContents?: Map<string, string | null>,
 ): ReviewPreview {
+  if (call.name === 'multi_file_edit') {
+    const parsed = parseMultiFilePlan(call.args);
+    if ('error' in parsed) {
+      return { hunks: [], previewError: parsed.error };
+    }
+    const hunks: AgentReviewHunk[] = [];
+    for (const entry of parsed.plan.files) {
+      if (hunks.length >= PREVIEW_MAX_HUNKS) break;
+      const entryContent =
+        multiContents?.get(entry.filepath) ??
+        [...(multiContents?.entries() ?? [])].find(([key]) =>
+          key.endsWith(`/${entry.filepath}`),
+        )?.[1];
+      if (entry.content !== undefined) {
+        // A create: the whole content as additions.
+        const lines = entry.content.split('\n');
+        const shown = lines.slice(0, PREVIEW_MAX_CREATED_LINES);
+        hunks.push({
+          line: 1,
+          before: [],
+          removed: [],
+          added: shown,
+          after: [],
+          note:
+            lines.length > PREVIEW_MAX_CREATED_LINES
+              ? `… and ${lines.length - PREVIEW_MAX_CREATED_LINES} more lines`
+              : undefined,
+        });
+        continue;
+      }
+      if (entryContent === undefined || entryContent === null) {
+        return {
+          hunks,
+          previewError: `The file ${entry.filepath} does not exist (or cannot be read) — the edit cannot apply.`,
+        };
+      }
+      const preview = previewMultiEdit(entryContent, entry.edits);
+      if (preview.previewError) return { hunks, previewError: preview.previewError };
+      hunks.push(...preview.hunks.slice(0, PREVIEW_MAX_HUNKS - hunks.length));
+    }
+    return { hunks };
+  }
   if (call.name === 'multi_edit') {
     if (content === null) {
       return { hunks: [], previewError: 'The file does not exist (or cannot be read) — the edit cannot apply.' };
@@ -310,6 +364,9 @@ interface InternalRequest {
   toolName: string;
   summary: string;
   filepath?: string;
+  /** Every file a multi_file_edit Keep touches (the
+   *  checkpoint group) — undefined for single-file calls. */
+  filepaths?: string[];
   workspaceRoot: string;
   host: AgentHost;
   resolve: (value: boolean) => void;
@@ -456,7 +513,27 @@ export async function createReviewRequest(
   const toolName = input.call.name;
   const filepath = resolveCallFilepath(input.call.args, input.cwd, input.workspaceRoot);
   const content = filepath ? await currentContent(input.host, filepath) : null;
-  const preview = computeReviewPreview(input.call, content, input.detail);
+  // A multi-file pass previews every touched file at
+  // once — the contents map is keyed by the resolved
+  // absolute path (and by the filepath as given, so the
+  // preview finds it either way).
+  let filepaths: string[] | undefined;
+  let multiContents: Map<string, string | null> | undefined;
+  if (toolName === 'multi_file_edit') {
+    const parsed = parseMultiFilePlan(input.call.args);
+    if (!('error' in parsed)) {
+      filepaths = [];
+      multiContents = new Map();
+      for (const entry of parsed.plan.files) {
+        const resolved = resolveAgentPath(entry.filepath, input.cwd, input.workspaceRoot);
+        filepaths.push(resolved);
+        const entryContent = await currentContent(input.host, resolved);
+        multiContents.set(resolved, entryContent);
+        multiContents.set(entry.filepath, entryContent);
+      }
+    }
+  }
+  const preview = computeReviewPreview(input.call, content, input.detail, multiContents);
   const requestId = `review-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const blockData: AgentReviewBlockData = {
     requestId,
@@ -480,6 +557,7 @@ export async function createReviewRequest(
     toolName,
     summary: blockData.summary,
     filepath,
+    filepaths,
     workspaceRoot: input.workspaceRoot,
     host: input.host,
     resolve: resolveFn,
@@ -527,9 +605,35 @@ export async function requestAgentReview(input: AgentReviewRequestInput): Promis
  * not exist). Called before the loop's promise resolves
  * — the order is what makes the checkpoint the pre-edit
  * state. Returns the checkpoint id, or undefined when
- * the edit has no single file to snapshot.
+ * the edit has no single file to snapshot. A
+ * multi_file_edit Keep records one checkpoint per
+ * touched file, sharing a groupId, and returns the
+ * first file's id — reverting any one of the group
+ * restores the whole pass.
  */
 async function recordCheckpoint(req: InternalRequest): Promise<string | undefined> {
+  if (req.filepaths && req.filepaths.length > 0) {
+    const groupId = `checkpoint-group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    let firstId: string | undefined;
+    for (const path of req.filepaths) {
+      const contentBefore = await currentContent(req.host, path);
+      const checkpointId = `checkpoint-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      checkpoints.set(checkpointId, {
+        id: checkpointId,
+        runId: req.runId,
+        tabId: req.tabId,
+        path,
+        contentBefore,
+        workspaceRoot: req.workspaceRoot,
+        createdAt: Date.now(),
+        reverted: false,
+        groupId,
+        host: req.host,
+      });
+      firstId ??= checkpointId;
+    }
+    return firstId;
+  }
   if (!req.filepath) return undefined;
   const contentBefore = await currentContent(req.host, req.filepath);
   const checkpointId = `checkpoint-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -596,28 +700,41 @@ export async function resolveAgentReview(
  * same persist path the edit tools use. The workspace
  * index is dropped so the next run rebuilds from the
  * restored content instead of trusting the stale cache.
- * Returns false when the checkpoint is unknown, already
- * reverted, or the restore fails.
+ * A checkpoint that belongs to a multi-file group
+ * reverts the WHOLE group (every file the Keep touched),
+ * not just the one file — the pass is atomic in both
+ * directions. Returns false when the checkpoint is
+ * unknown, already reverted, or the restore fails.
  */
 export async function revertAgentCheckpoint(checkpointId: string): Promise<boolean> {
   const cp = checkpoints.get(checkpointId);
   if (!cp || cp.reverted || !cp.path) return false;
-  try {
-    if (cp.contentBefore === null) {
-      await cp.host.deleteFile(cp.path);
-    } else {
-      const isOpen = cp.host.getOpenFiles().some((f) => f.path === cp.path);
-      if (isOpen) {
-        cp.host.updateOpenFileContent(cp.path, cp.contentBefore);
-        await cp.host.saveOpenFile(cp.path);
+  const group = cp.groupId
+    ? [...checkpoints.values()].filter((c) => c.groupId === cp.groupId && !c.reverted && c.path)
+    : [cp];
+  let restored = false;
+  for (const member of group) {
+    try {
+      if (member.contentBefore === null) {
+        await member.host.deleteFile(member.path);
       } else {
-        await cp.host.writeFile(cp.path, cp.contentBefore);
+        const isOpen = member.host.getOpenFiles().some((f) => f.path === member.path);
+        if (isOpen) {
+          member.host.updateOpenFileContent(member.path, member.contentBefore);
+          await member.host.saveOpenFile(member.path);
+        } else {
+          await member.host.writeFile(member.path, member.contentBefore);
+        }
       }
+      member.reverted = true;
+      restored = true;
+    } catch {
+      // One file failing to restore does not stop the
+      // rest of the group — the caller sees false only
+      // when NOTHING in the group restored.
     }
-  } catch {
-    return false;
   }
-  cp.reverted = true;
+  if (!restored) return false;
   dropAgentIndex(cp.workspaceRoot);
   updateReviewBlockByCheckpoint(checkpointId, { checkpointReverted: true });
   return true;
@@ -680,6 +797,7 @@ export function getAgentCheckpoints(runId?: string): AgentCheckpoint[] {
         workspaceRoot: cp.workspaceRoot,
         createdAt: cp.createdAt,
         reverted: cp.reverted,
+        groupId: cp.groupId,
       });
     }
   }

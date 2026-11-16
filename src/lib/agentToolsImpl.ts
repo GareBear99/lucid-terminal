@@ -58,6 +58,12 @@ import type {
   ToolRegistry,
 } from './agentTools';
 import { executeMultiEdit, EditError, type EditOperation } from './agentMultiEdit';
+import {
+  executeMultiFileEdit,
+  parseMultiFilePlan,
+  type MultiFilePlan,
+} from './agentMultiFileEdit';
+import { isDeniedPath } from './agentIndex';
 import { isWithinWorkspace, resolveAgentPath } from './agentHost';
 import { makeLspVerifyDeps, verifyContent } from './agentVerify';
 import { getEngineClient } from './engineClient';
@@ -76,6 +82,15 @@ const MAX_READ_CHARS = 200_000;
 const MAX_GREP_FILES = 300;
 const MAX_GREP_BYTES = 5_000_000;
 const MAX_GREP_MATCHES = 50;
+
+/** Words with no retrieval signal, dropped when a
+ *  multi-word query is split into search terms (the
+ *  whole query still falls back to the plain search
+ *  when nothing survives the filter). */
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'where', 'what',
+  'when', 'which', 'does', 'are', 'how', 'why', 'who', 'there', 'here',
+]);
 
 function isCodeFile(path: string): boolean {
   return /\.(ts|tsx|js|jsx|mts|cts)$/i.test(path);
@@ -341,7 +356,16 @@ async function codebaseSearchImpl(
   }
   const indexError = requireIndex(ctx);
   if (indexError) return { ok: false, output: '', error: indexError.error };
-  const results = ctx.index.search(query, 10);
+  // Cursor's "doesn't bet on one seed": several candidate
+  // terms at once (staff post, forum.cursor.com,
+  // 2026-07-22). A multi-word query searches per term
+  // and merges (a file matching more terms ranks first);
+  // a one-word query is the plain trigram search.
+  const terms = query
+    .split(/\s+/)
+    .map((t) => t.replace(/[^A-Za-z0-9_]/g, ''))
+    .filter((t) => t.length >= 3 && !STOP_WORDS.has(t.toLowerCase()));
+  const results = terms.length > 1 ? ctx.index.searchMultiTerm(terms, 10) : ctx.index.search(query, 10);
   if (results.length === 0) {
     return { ok: true, output: `Nothing in the workspace matches "${query}".` };
   }
@@ -647,6 +671,110 @@ async function multiEditImpl(
     ok: true,
     output: `Edited ${path}: ${applied.length} edit(s), ${total} replacement(s).${diagnosticsPart}`,
     edits: [{ path, kind: 'edited', replacements: total }],
+    diagnosticsChecked,
+    diagnostics,
+  };
+}
+
+/**
+ * The cross-file edit pass (Cursor steal, 2026-11-16):
+ * one plan, several files, applied together. Every file
+ * is resolved + read + validated in memory FIRST (the
+ * pure core, agentMultiFileEdit.ts); only when the whole
+ * plan is valid does anything land on disk — a failure
+ * in the last file never leaves the first files edited.
+ * Each touched file gets the TS-LSP checkEdit pre-flight
+ * and the diagnostics are aggregated, so the loop's
+ * verify step re-checks every touched file, not just the
+ * first. A denied (secrets) path anywhere in the plan
+ * refuses the whole plan before any file is read for
+ * writing — the policy gate checks args.files too, this
+ * is defense in depth.
+ */
+async function multiFileEditImpl(
+  args: Record<string, unknown>,
+  ctx: AgentToolContext,
+): Promise<AgentToolResult> {
+  const parsed = parseMultiFilePlan(args);
+  if ('error' in parsed) return { ok: false, output: '', error: parsed.error };
+  const plan: MultiFilePlan = parsed.plan;
+  // Resolve + read every file first (validation before
+  // any write — the plan is all-or-nothing).
+  const resolved: Array<{ filepath: string; current: string | null }> = [];
+  for (const entry of plan.files) {
+    const resolvedPath = resolveToolPath(entry.filepath, ctx);
+    if ('error' in resolvedPath) return { ok: false, output: '', error: resolvedPath.error };
+    const { path } = resolvedPath;
+    if (isDeniedPath(path)) {
+      return { ok: false, output: '', error: `Denied path: ${entry.filepath} is a secrets/credentials path` };
+    }
+    const current = openContent(ctx, path) ?? (await ctx.host.readFile(path).catch(() => null));
+    resolved.push({ filepath: path, current });
+  }
+  const absolutePlan: MultiFilePlan = {
+    files: plan.files.map((entry, i) => ({ ...entry, filepath: resolved[i].filepath })),
+  };
+  const contents = new Map(resolved.map((r) => [r.filepath, r.current] as [string, string | null]));
+  let nextContents: Map<string, string>;
+  let applied;
+  try {
+    ({ contents: nextContents, applied } = executeMultiFileEdit(contents, absolutePlan));
+  } catch (e) {
+    if (e instanceof EditError) {
+      return { ok: false, output: '', error: `multi_file_edit failed (${e.reason}): old_string ${JSON.stringify(e.operation.old_string.slice(0, 80))} did not match as given — nothing was changed.` };
+    }
+    return { ok: false, output: '', error: e instanceof Error ? e.message : String(e) };
+  }
+  // The TS-LSP pre-flight, per touched file — the edit
+  // still lands when the check is dirty; the diagnostics
+  // are information, and reflecting on them is the loop's
+  // verify step (one fix_diagnostics per touched file).
+  const diagnostics: LspDiagnosticInfo[] = [];
+  let diagnosticsChecked = false;
+  for (let i = 0; i < resolved.length; i++) {
+    const path = resolved[i].filepath;
+    const next = nextContents.get(path) ?? '';
+    const lsp = await lspFor(path, resolved[i].current ?? next);
+    if (!lsp) continue;
+    diagnosticsChecked = true;
+    if (applied[i].kind === 'created') {
+      diagnostics.push(...lsp.diagnostics);
+    } else {
+      diagnostics.push(...lsp.checkEdit(next).diagnostics);
+    }
+  }
+  // Persist every file — creates go through createFile
+  // (parent first), edits through the shared persist path.
+  for (let i = 0; i < resolved.length; i++) {
+    const path = resolved[i].filepath;
+    const next = nextContents.get(path) ?? '';
+    if (applied[i].kind === 'created') {
+      const parent = path.slice(0, path.lastIndexOf('/')) || '/';
+      if (!(await ctx.host.exists(parent))) {
+        await ctx.host.createDir(parent);
+      }
+      await ctx.host.createFile(path, next);
+      await ctx.index.indexOne(path);
+    } else {
+      await persistEdit(ctx, path, next);
+    }
+  }
+  const lines = applied.map((a, i) => {
+    const path = resolved[i].filepath;
+    return a.kind === 'created'
+      ? `  created ${path}`
+      : `  edited ${path}: ${a.replacements} replacement(s)`;
+  });
+  const diagnosticsPart =
+    diagnostics.length > 0 ? `\n${formatDiagnostics(diagnostics)}` : '\nDiagnostics: clean.';
+  return {
+    ok: true,
+    output: `Edited ${applied.length} file(s) in one pass:\n${lines.join('\n')}.${diagnosticsPart}`,
+    edits: applied.map((a, i) => ({
+      path: resolved[i].filepath,
+      kind: a.kind,
+      replacements: a.replacements,
+    })),
     diagnosticsChecked,
     diagnostics,
   };
@@ -960,6 +1088,20 @@ export function getBuiltInToolDefinitions(): AgentToolDefinition[] {
       },
     ),
     tool(
+      'multi_file_edit',
+      'Make edits across several files in one atomic pass — the Composer shape. Each file entry is either edits to an existing file ({old_string, new_string, replace_all?} operations, all valid or none apply) or a create (content for a new file). Every file is validated before anything is written: one bad edit anywhere fails the whole pass and no file changes.',
+      'Multi-File Edit',
+      'edit multiple files',
+      'editing multiple files',
+      'edited multiple files',
+      false,
+      'allowedWithPermission',
+      ['files'],
+      {
+        files: { type: 'array', description: 'Array of {filepath, edits?} or {filepath, content} entries — one per file.', items: { type: 'object' } },
+      },
+    ),
+    tool(
       'fix_diagnostics',
       'Reflect on a file\'s language diagnostics (type errors), fix the ones with a safe automatic repair — a compiler-named rename, a unique import, a wrong module specifier, an unused import — re-check, and repeat up to 3 times. Diagnostics with no safe repair are reported, never guessed at.',
       'Fix Diagnostics',
@@ -1003,6 +1145,7 @@ export function registerBuiltInTools(registry: ToolRegistry): void {
     find_references: findReferencesImpl,
     create_new_file: createNewFileImpl,
     multi_edit: multiEditImpl,
+    multi_file_edit: multiFileEditImpl,
     fix_diagnostics: fixDiagnosticsImpl,
     view_diff: viewDiffImpl,
   };

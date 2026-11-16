@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import { TerminalBlock } from '../types';
 import { dropPendingEscape } from '../lib/terminalBlocks';
+import {
+  GUEST_VEIL_STORAGE_KEY,
+  isGuestVeilPersisted,
+  setGuestVeilPersisted,
+} from '../lib/guestVeil';
+
+/** The implicit profile id (mirrors profileStore.DEFAULT_PROFILE_ID).
+ *  Kept local — importing profileStore here would cycle
+ *  (profileStore imports this store). */
+export const HISTORY_FALLBACK_PROFILE_ID = 'default';
 
 /**
  * Command blocks per terminal tab — the single source of truth for the
@@ -19,13 +29,28 @@ import { dropPendingEscape } from '../lib/terminalBlocks';
  * blocks are dropped by terminalStore.closeTab.
  *
  * PERSISTENCE (Gary, 2026-11-09 — command history must survive a
- * relaunch): the store used to be memory-only, so every relaunch reset
- * the History panel to 0 commands. The blocks now persist to
+ * relaunch; Gary, 2026-11-14 — profile-only: "they should all be
+ * session only or profile only"): the blocks persist to
  * localStorage (best-effort, capped, never throws — the same pattern
- * as eventLogStore / browserHistory) and rehydrate on launch. Tab ids
- * are `terminal-N` with the lowest free number reused (see
- * terminalStore), so a fresh launch's first tab re-reads the previous
- * session's tab-1 record — that is the history surviving, not a leak.
+ * as eventLogStore / browserHistory) and rehydrate on launch, but
+ * SCOPED TO THE PROFILE. The stored record is
+ * `{ [profileId]: { [tabId]: blocks[] } }` — the same shape
+ * commandHistoryStore already uses for up-arrow history. Before
+ * this, the key held one flat `{ [tabId]: blocks }` shared by every
+ * profile: profile B saw profile A's blocks live AND on disk, and
+ * a newly created profile inherited the previous profile's history.
+ * A legacy flat value migrates once, into the 'default' profile's
+ * slot — the implicit profile owns the pre-scoping history, and a
+ * created profile starts empty. Tab ids are `terminal-N` with the
+ * lowest free number reused (see terminalStore), so a fresh
+ * launch's first tab re-reads the previous session's tab-1 record
+ * for THAT profile — that is the history surviving, not a leak.
+ * Profile switches go through `switchProfile` (driven from
+ * profileStore.selectProfile and the Terminal mount effect, the
+ * same choke points as commandHistoryStore): the outgoing
+ * profile's blocks flush first, then the incoming profile's load.
+ * Cross-window: flush re-reads the record first, so the detached
+ * window's writes for other profiles are never clobbered.
  *
  * RESTORED BLOCKS ARE A RECORD, NOT THE FEED: rehydrated blocks are
  * marked `restored: true` (and complete — their run ended when the app
@@ -83,38 +108,92 @@ function capBlocksForRecord(blocks: TerminalBlock[]): TerminalBlock[] {
   return blocks.slice(-HISTORY_MAX_BLOCKS_PER_TAB).map(trimBlockForRecord);
 }
 
+/** The persisted record: one blocks map per profile id. */
+export type HistoryRecord = Record<string, Record<string, TerminalBlock[]>>;
+
+/** Validate + cap one profile's blocks map (per tab). */
+function parseBlocksMap(value: unknown): Record<string, TerminalBlock[]> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const out: Record<string, TerminalBlock[]> = {};
+  for (const [tabId, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(entry)) return null;
+    const blocks = entry
+      .filter(isPlausibleBlock)
+      .map((b) => ({ ...b, restored: true, isComplete: true }));
+    if (blocks.length > 0) out[tabId] = capBlocksForRecord(blocks);
+  }
+  return out;
+}
+
 /**
- * Read the persisted blocks, or {} when there are none / they are
- * corrupt / storage is unavailable. Never throws. Every block comes
- * back marked restored + complete (see the module header).
+ * Read the persisted per-profile record, or {} when there is
+ * none / it is corrupt / storage is unavailable. Never throws.
+ * A legacy flat value (`{ [tabId]: blocks[] }`, the pre-scoping
+ * shape) migrates into the 'default' profile's slot — the
+ * implicit profile owns the pre-scoping history.
  */
-export function readPersistedHistory(): Record<string, TerminalBlock[]> {
+export function readPersistedHistoryRecord(): HistoryRecord {
   try {
     if (typeof localStorage === 'undefined') return {};
     const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-    const out: Record<string, TerminalBlock[]> = {};
-    for (const [tabId, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!Array.isArray(value)) continue;
-      const blocks = value
-        .filter(isPlausibleBlock)
-        .map((b) => ({ ...b, restored: true, isComplete: true }));
-      if (blocks.length > 0) out[tabId] = capBlocksForRecord(blocks);
+    const record: HistoryRecord = {};
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    // Legacy flat shape: every value is a blocks array.
+    const isLegacyFlat =
+      entries.length > 0 && entries.every(([, v]) => Array.isArray(v));
+    if (isLegacyFlat) {
+      const migrated = parseBlocksMap(parsed);
+      if (migrated) record[HISTORY_FALLBACK_PROFILE_ID] = migrated;
+      return record;
     }
-    return out;
+    for (const [profileId, value] of entries) {
+      // A legacy tab entry sitting beside profile slots (mixed
+      // storage, e.g. a half-migrated write) belongs to 'default'.
+      if (Array.isArray(value)) {
+        const blocks = value
+          .filter(isPlausibleBlock)
+          .map((b) => ({ ...b, restored: true, isComplete: true }));
+        if (blocks.length === 0) continue;
+        const slot = record[HISTORY_FALLBACK_PROFILE_ID] ?? {};
+        slot[profileId] = capBlocksForRecord(blocks);
+        record[HISTORY_FALLBACK_PROFILE_ID] = slot;
+        continue;
+      }
+      const map = parseBlocksMap(value);
+      if (map) record[profileId] = map;
+    }
+    return record;
   } catch {
     // Corrupt or unreadable storage: start empty, never crash.
     return {};
   }
 }
 
-/** Serialize one state snapshot for storage (capped + trimmed). */
-function serializeHistory(blocksByTab: Record<string, TerminalBlock[]>): string {
-  const capped: Record<string, TerminalBlock[]> = {};
-  for (const [tabId, blocks] of Object.entries(blocksByTab)) {
-    if (blocks.length > 0) capped[tabId] = capBlocksForRecord(blocks);
+/**
+ * Read the persisted blocks for one profile (the implicit
+ * 'default' when none is given), or {} when there are none /
+ * they are corrupt / storage is unavailable. Never throws.
+ * Every block comes back marked restored + complete (see the
+ * module header).
+ */
+export function readPersistedHistory(
+  profileId: string = HISTORY_FALLBACK_PROFILE_ID,
+): Record<string, TerminalBlock[]> {
+  return readPersistedHistoryRecord()[profileId] ?? {};
+}
+
+/** Serialize one record snapshot for storage (capped + trimmed). */
+function serializeHistoryRecord(record: HistoryRecord): string {
+  const capped: HistoryRecord = {};
+  for (const [profileId, blocksByTab] of Object.entries(record)) {
+    const map: Record<string, TerminalBlock[]> = {};
+    for (const [tabId, blocks] of Object.entries(blocksByTab)) {
+      if (blocks.length > 0) map[tabId] = capBlocksForRecord(blocks);
+    }
+    if (Object.keys(map).length > 0) capped[profileId] = map;
   }
   return JSON.stringify(capped);
 }
@@ -135,7 +214,15 @@ export function flushHistoryPersistence(): void {
     // beforeunload flush, which calls this function directly.
     if (useHistoryStore.getState().guestSessionActive) return;
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(HISTORY_STORAGE_KEY, serializeHistory(useHistoryStore.getState().blocksByTab));
+    const state = useHistoryStore.getState();
+    // Re-read the record so other profiles' blocks (possibly
+    // written by the detached window since our last read) are
+    // preserved; only this profile's slot is overwritten.
+    const record = readPersistedHistoryRecord();
+    if (state.loaded && state.profileId) {
+      record[state.profileId] = state.blocksByTab;
+    }
+    localStorage.setItem(HISTORY_STORAGE_KEY, serializeHistoryRecord(record));
   } catch {
     // Private mode / quota: history just doesn't persist this session.
   }
@@ -154,7 +241,9 @@ function scheduleHistoryPersistence(): void {
   }, HISTORY_PERSIST_DEBOUNCE_MS);
 }
 
-/** Remove the persisted copy (tests / a future "forget history" action). */
+/** Remove the persisted copy for the current profile (tests /
+ *  profile wipe — the profile's memory goes with the profile).
+ *  Other profiles' slots are untouched. */
 export function clearPersistedHistory(): void {
   try {
     // Never during a guest session: the key holds the OWNER's
@@ -163,15 +252,56 @@ export function clearPersistedHistory(): void {
     // guests — this is belt-and-braces for the hard constraint.)
     if (useHistoryStore.getState().guestSessionActive) return;
     if (typeof localStorage === 'undefined') return;
-    localStorage.removeItem(HISTORY_STORAGE_KEY);
+    const record = readPersistedHistoryRecord();
+    delete record[useHistoryStore.getState().profileId];
+    localStorage.setItem(HISTORY_STORAGE_KEY, serializeHistoryRecord(record));
+  } catch {
+    // Unavailable storage: nothing to clear.
+  }
+}
+
+/**
+ * Remove one profile's slot from the persisted record (profile
+ * wipe — the profile's memory goes with the profile). Disk-only,
+ * like the old clearPersistedHistory: the in-memory blocks are
+ * the caller's job (wipeProfile clears them with clearBlocks,
+ * which leaves the emptied tab keys in place — `{ tab1: [] }` —
+ * and this must not clobber that residue to `{}`). Never during
+ * a guest session.
+ */
+export function clearProfileHistory(profileId: string): void {
+  try {
+    if (useHistoryStore.getState().guestSessionActive) return;
+    if (typeof localStorage === 'undefined') return;
+    const record = readPersistedHistoryRecord();
+    delete record[profileId];
+    localStorage.setItem(HISTORY_STORAGE_KEY, serializeHistoryRecord(record));
   } catch {
     // Unavailable storage: nothing to clear.
   }
 }
 
 interface HistoryState {
-  /** Command blocks per terminal tab, keyed by tab id. */
+  /** Command blocks per terminal tab, keyed by tab id — for the
+   *  CURRENT profile only (see profileId). */
   blocksByTab: Record<string, TerminalBlock[]>;
+  /** The profile whose blocks are loaded ('default' until
+   *  switchProfile runs — the implicit profile owns the
+   *  pre-scoping history). */
+  profileId: string;
+  /** Whether a profile's blocks have been loaded yet. */
+  loaded: boolean;
+  /**
+   * Load another profile's blocks: flush the current profile's
+   * blocks into the persisted record, then load the new one
+   * (empty when the profile has no history yet — a created
+   * profile starts empty). No-op while a guest session is
+   * veiled in (profile switches never touch blocks under the
+   * veil) and no-op when the profile is already loaded. Driven
+   * from profileStore.selectProfile and the Terminal mount
+   * effect — the same choke points as commandHistoryStore.
+   */
+  switchProfile: (profileId: string) => void;
 
   /** Replace a tab's blocks (value or functional updater, like setState). */
   setBlocks: (tabId: string, updater: BlocksUpdater) => void;
@@ -263,7 +393,34 @@ interface HistoryState {
 export const useHistoryStore = create<HistoryState>((set, get) => ({
   // Rehydrated from the previous session when there is one ({} on a
   // fresh install / corrupt storage) — see readPersistedHistory.
+  // The implicit 'default' profile owns the pre-scoping history;
+  // switchProfile loads the active profile's blocks (the Profiles
+  // screen drives it via selectProfile; the Terminal mount effect
+  // covers the direct-boot path). The store boots UNVEILED on
+  // purpose: App's boot init runs applyPersistedGuestVeil() AFTER
+  // the Terminal mount effects have loaded the active profile,
+  // so the veil stashes the RIGHT profile's blocks. Booting
+  // veiled here would stash 'default''s blocks and then no-op
+  // the real veil (enter guards on already-veiled) — the wrong
+  // stash would come back on exit. The persisted veil flag
+  // (guestVeil.ts) covers the live case instead: a renderer
+  // already open when the guest session starts veils via the
+  // storage event below, with the correct stash.
   blocksByTab: readPersistedHistory(),
+  profileId: HISTORY_FALLBACK_PROFILE_ID,
+  loaded: true,
+
+  switchProfile: (nextProfileId) => {
+    const state = get();
+    if (state.guestSessionActive) return;
+    if (state.loaded && state.profileId === nextProfileId) return;
+    // Flush the outgoing profile's blocks first (the first load
+    // has nothing to flush — the store boots loaded for
+    // 'default', so this always flushes the outgoing slot).
+    flushHistoryPersistence();
+    const blocksByTab = readPersistedHistory(nextProfileId);
+    set({ blocksByTab, profileId: nextProfileId, loaded: true });
+  },
   // Multi-select (2026-11-15): ephemeral, never persisted —
   // the maps start empty every session.
   selectedBlockIdsByTab: {},
@@ -441,6 +598,18 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   enterGuestSession: () => {
     const state = get();
     if (state.guestSessionActive) return;
+    // Flush the owner's blocks BEFORE veiling: a debounced write
+    // pending from a submit seconds ago must land on disk now —
+    // the guest guard would drop it, and quitting during the
+    // guest session would otherwise lose those entries. (Same
+    // hole commandHistoryStore already fixed.)
+    flushHistoryPersistence();
+    // The veil is a persisted fact, not per-renderer memory: a
+    // renderer already open when the guest session starts (a
+    // detached window) veils live via the storage event below,
+    // and a renderer booting into a live guest session starts
+    // veiled (see the boot values above).
+    setGuestVeilPersisted(true);
     set({ guestSessionActive: true, guestStash: state.blocksByTab, blocksByTab: {} });
   },
 
@@ -449,10 +618,12 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     if (!state.guestSessionActive) return;
     const stash = state.guestStash;
     set({ guestSessionActive: false, guestStash: null, blocksByTab: stash ?? {} });
-    // Write the restored owner blocks back to disk now (the
-    // debounced flush was paused for the whole guest session, and
-    // the key still holds the owner's pre-guest copy — this just
-    // makes the restore durable immediately).
+    // Unveil everywhere first, then write the restored owner
+    // blocks back to disk now (the debounced flush was paused
+    // for the whole guest session, and the key still holds the
+    // owner's pre-guest copy — this just makes the restore
+    // durable immediately).
+    setGuestVeilPersisted(false);
     flushHistoryPersistence();
   },
 
@@ -479,6 +650,23 @@ useHistoryStore.subscribe(() => {
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   window.addEventListener('beforeunload', () => {
     flushHistoryPersistence();
+  });
+}
+
+// Cross-window veil sync (a detached window): another renderer
+// entered or exited a guest session — veil/unveil live. The
+// storage event fires only in OTHER documents, so a window never
+// re-enters its own veil, and enter/exit guard on already-veiled
+// / already-unveiled, so a duplicate event is a no-op.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== GUEST_VEIL_STORAGE_KEY) return;
+    const state = useHistoryStore.getState();
+    if (isGuestVeilPersisted()) {
+      if (!state.guestSessionActive) useHistoryStore.getState().enterGuestSession();
+    } else if (state.guestSessionActive) {
+      useHistoryStore.getState().exitGuestSession();
+    }
   });
 }
 

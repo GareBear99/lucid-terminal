@@ -37,6 +37,14 @@ import '@xterm/xterm/css/xterm.css';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { buildXtermFontOptions } from '../../lib/terminalFont';
 import {
+  attachTerminalRenderer,
+  createRendererMetrics,
+  createWriteCoalescer,
+  resolveScrollback,
+  type GpuRendererHandle,
+  type WriteCoalescer,
+} from '../../lib/terminalRenderer';
+import {
   DEFCON_DEFAULT,
   defconTerminalForeground,
 } from '../../lib/defcon';
@@ -127,6 +135,14 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
+    // Ghostty steal (GPU renderer + write coalescing): per
+    // surface instance, in refs — never in a store. One
+    // XtermSurface mounts per tab/split surface, so each tab
+    // gets its own renderer attempt, coalescer and metrics;
+    // nothing here touches tab, split or profile state, and
+    // the renderer choice is never persisted anywhere.
+    const rendererHandleRef = useRef<GpuRendererHandle | null>(null);
+    const coalescerRef = useRef<WriteCoalescer | null>(null);
     // DEFCON 2 whiter text (Gary, 2026-11-09 ~05:21 PST): the
     // foreground follows the level — the active theme's own
     // `terminal.brightWhite` at DEFCON 2+, the standing
@@ -166,6 +182,11 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     const terminalFontWeight = useSettingsStore(
       (s) => s.settings.terminalFontWeight,
     );
+    // Scrollback (Ghostty steal): the Settings UI already
+    // offers this (1000–100000, default 10000) but the
+    // surface hardcoded 5000 and never read it. Read it here;
+    // resolveScrollback clamps it to the UI's own range.
+    const scrollbackSetting = useSettingsStore((s) => s.settings.scrollback);
     // The no-canvas fallback renders the same font as the real
     // surface (13px/1.5 before this wiring).
     const fallbackFontOptions = buildXtermFontOptions({
@@ -196,6 +217,16 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
 
     useImperativeHandle(ref, () => ({
       write: (data: string) => {
+        // Ghostty steal: PTY output goes through the write
+        // coalescer (one term.write per frame) when one is
+        // live; before mount / after unmount it writes direct,
+        // exactly as before — the coalescer never swallows a
+        // write, it only batches it.
+        const coalescer = coalescerRef.current;
+        if (coalescer) {
+          coalescer.write(data);
+          return;
+        }
         const term = termRef.current;
         if (term) {
           term.write(data);
@@ -210,6 +241,10 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       clear: () => {
         const term = termRef.current;
         if (term) {
+          // Flush pending coalesced output first, so a clear
+          // can never strand output that arrived between
+          // frames and then lose it on the next write.
+          coalescerRef.current?.flush();
           term.clear();
           return;
         }
@@ -268,7 +303,7 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
         }),
         cursorBlink: true,
         cursorStyle: 'block',
-        scrollback: 5000,
+        scrollback: resolveScrollback(scrollbackSetting),
         convertEol: false,
         disableStdin: disabled,
       });
@@ -279,6 +314,36 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       term.open(container);
       termRef.current = term;
       fitRef.current = fit;
+
+      // Ghostty steal — GPU renderer + write coalescing,
+      // per surface instance (see the refs above): the
+      // coalescer batches PTY chunks into one term.write per
+      // frame, and the renderer attempt is GPU-when-available
+      // with the CPU renderer as the fallback — never required,
+      // never persisted, and with GPU/CPU usage tracked
+      // separately in `rendererMetrics`. Both are torn down
+      // in the cleanup below, before term.dispose().
+      const rendererMetrics = createRendererMetrics();
+      const coalescer = createWriteCoalescer(term, {
+        metrics: rendererMetrics,
+        getKind: () => rendererHandleRef.current?.kind ?? 'cpu',
+      });
+      coalescerRef.current = coalescer;
+      let rendererHandle: GpuRendererHandle | null = null;
+      let mountAlive = true;
+      attachTerminalRenderer(term, { metrics: rendererMetrics }).then(
+        (handle) => {
+          if (!mountAlive) {
+            // Unmounted while the addon was loading: release
+            // the GPU resources immediately, never attach to
+            // a dead terminal.
+            handle.dispose();
+            return;
+          }
+          rendererHandle = handle;
+          rendererHandleRef.current = handle;
+        },
+      );
 
       // Feed block navigation (sweep item 4): ⌘↑/⌘↓ (and Ctrl)
       // move the focused block in the feed. xterm.js would
@@ -317,6 +382,15 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
       term.focus();
 
       return () => {
+        mountAlive = false;
+        // Flush pending coalesced output into the terminal
+        // before it is disposed, so a remount never drops
+        // output that arrived between frames; then release
+        // the GPU resources before the terminal itself goes.
+        coalescer.dispose();
+        coalescerRef.current = null;
+        rendererHandle?.dispose();
+        rendererHandleRef.current = null;
         dataDisposable.dispose();
         resizeDisposable.dispose();
         observer.disconnect();
@@ -333,6 +407,14 @@ export const XtermSurface = forwardRef<XtermSurfaceHandle, XtermSurfaceProps>(
     useEffect(() => {
       if (termRef.current) termRef.current.options.disableStdin = disabled;
     }, [disabled]);
+
+    // Scrollback (Ghostty steal): the mount effect runs once,
+    // so re-apply when the setting moves — live, no remount,
+    // and the remount itself never touches tab/split state.
+    useEffect(() => {
+      const term = termRef.current;
+      if (term) term.options.scrollback = resolveScrollback(scrollbackSetting);
+    }, [scrollbackSetting]);
 
     // DEFCON 2 whiter text (Gary, 2026-11-09 ~05:21 PST): the
     // mount effect above runs once, so re-apply the theme when

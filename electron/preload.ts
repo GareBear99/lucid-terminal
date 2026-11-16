@@ -225,6 +225,24 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       },
     },
   },
+  // Lucid sessions — tmux steal (Lucid's own implementation of
+  // tmux's session pattern; no tmux itself is involved). The
+  // renderer (client) talks to the main-process registry (server)
+  // over these channels. Distinct from terminal:* (PTY) and
+  // terminal:detach (window detach).
+  sessions: {
+    list: () => ipcRenderer.invoke('lucid-session:list'),
+    create: (name?: string, cwd?: string) => ipcRenderer.invoke('lucid-session:create', name, cwd),
+    attach: (sessionId: string, detachOthers?: boolean) => ipcRenderer.invoke('lucid-session:attach', sessionId, detachOthers),
+    detach: (sessionId: string) => ipcRenderer.invoke('lucid-session:detach', sessionId),
+    attachOrCreate: (name: string, cwd?: string) => ipcRenderer.invoke('lucid-session:attach-or-create', name, cwd),
+    kill: (sessionId: string) => ipcRenderer.invoke('lucid-session:kill', sessionId),
+    rename: (sessionId: string, name: string) => ipcRenderer.invoke('lucid-session:rename', sessionId, name),
+    snapshot: () => ipcRenderer.invoke('lucid-session:snapshot'),
+    save: () => ipcRenderer.invoke('lucid-session:save'),
+    trackPane: (sessionId: string, paneId: string) => ipcRenderer.invoke('lucid-session:track-pane', sessionId, paneId),
+    markPaneExited: (paneId: string) => ipcRenderer.invoke('lucid-session:mark-pane-exited', paneId),
+  },
   // Files detach (Gary, 2026-11-09 — same window pattern as
   // terminal tabs, no PTY: the file's content transfers with it).
   filesDetach: {
@@ -979,6 +997,19 @@ export interface LucidAPI {
       onReleaseNumber: (callback: (id: string) => void) => () => void;
       onReserveNumber: (callback: (id: string) => void) => () => void;
     };
+  };
+  sessions: {
+    list: () => Promise<{ ok: boolean; sessions?: import('../src/lib/tmuxSession').LucidSessionSummary[]; error?: string }>;
+    create: (name?: string, cwd?: string) => Promise<{ ok: boolean; session?: import('../src/lib/tmuxSession').LucidSession; error?: string }>;
+    attach: (sessionId: string, detachOthers?: boolean) => Promise<{ ok: boolean; session?: import('../src/lib/tmuxSession').LucidSession; error?: string }>;
+    detach: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+    attachOrCreate: (name: string, cwd?: string) => Promise<{ ok: boolean; session?: import('../src/lib/tmuxSession').LucidSession; created?: boolean; error?: string }>;
+    kill: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+    rename: (sessionId: string, name: string) => Promise<{ ok: boolean; session?: import('../src/lib/tmuxSession').LucidSession; error?: string }>;
+    snapshot: () => Promise<{ ok: boolean; snapshot?: string; error?: string }>;
+    save: () => Promise<{ ok: boolean; error?: string }>;
+    trackPane: (sessionId: string, paneId: string) => Promise<{ ok: boolean; error?: string }>;
+    markPaneExited: (paneId: string) => Promise<{ ok: boolean; error?: string }>;
   };
   filesDetach: {
     detach: (file: import('../src/types/detach').DetachedFile, dropX: number, dropY: number) => Promise<import('../src/types/detach').DetachResult>;

@@ -56,6 +56,7 @@
 import { minimatch } from 'minimatch';
 import type { AgentHost } from './agentHost';
 import { normalizePosixPath } from './agentHost';
+import { IgnoreSet } from './agentIgnore';
 
 /** Continue's `DEFAULT_SECURITY_IGNORE_FILETYPES` +
  *  `DEFAULT_SECURITY_IGNORE_DIRS` (core/indexing/ignore.ts),
@@ -259,6 +260,13 @@ export class AgentFileIndex {
   /** True when the walk hit the file cap (reported, not
    *  silent — the index is partial then). */
   capped = false;
+  /** The root's ignore files (.gitignore, .cursorignore,
+   *  .cursorindexingignore), loaded at build / refresh —
+   *  Cursor respects both .cursorignore and .gitignore
+   *  for search, and .cursorindexingignore for indexing
+   *  only (staff post, forum.cursor.com, 2026-07-22).
+   *  Null until the first build. */
+  private ignoreSet: IgnoreSet | null = null;
 
   constructor(host: AgentHost) {
     this.host = host;
@@ -295,6 +303,43 @@ export class AgentFileIndex {
     return this.files.get(path)?.symbols ?? [];
   }
 
+  /** True when the path is ignored by the root's ignore
+   *  files (.gitignore / .cursorignore /
+   *  .cursorindexingignore). False before the first build
+   *  (no rules loaded yet) — the walk loads them first. */
+  isIgnoredByRules(path: string): boolean {
+    if (!this.ignoreSet || !this.root) return false;
+    const relative = path.startsWith(`${this.root}/`) ? path.slice(this.root.length + 1) : path;
+    return this.ignoreSet.isIgnored(relative);
+  }
+
+  /** How many ignore rules the last build / refresh
+   *  loaded (0 when no ignore file exists at the root). */
+  get ignoreRuleCount(): number {
+    return this.ignoreSet?.size ?? 0;
+  }
+
+  /**
+   * Load the root's ignore files, in order (.gitignore,
+   * then .cursorignore, then .cursorindexingignore —
+   * later rules win). A missing file contributes nothing;
+   * an unreadable one is skipped, never fatal. Called at
+   * build and at refresh, so a newly added ignore file
+   * takes effect on the next refresh.
+   */
+  private async loadIgnoreFiles(): Promise<void> {
+    if (!this.root) return;
+    const texts: string[] = [];
+    for (const name of ['.gitignore', '.cursorignore', '.cursorindexingignore']) {
+      try {
+        texts.push(await this.host.readFile(`${this.root}/${name}`));
+      } catch {
+        // No such file — nothing to ignore from it.
+      }
+    }
+    this.ignoreSet = IgnoreSet.fromTexts(texts);
+  }
+
   /** Build (or rebuild) the index over a workspace root.
    *  Async and chunked: it yields to the event loop every
    *  50 files, so the build never blocks the composer.
@@ -323,6 +368,7 @@ export class AgentFileIndex {
     this.pathTrigrams.clear();
     this.knownPaths.clear();
     this.capped = false;
+    await this.loadIgnoreFiles();
     const walked = await this.walk(this.root, 0);
     let done = 0;
     for (const file of walked) {
@@ -359,6 +405,14 @@ export class AgentFileIndex {
       }
       const path = entry.path;
       if (isDeniedPath(path)) continue;
+      // The ignore files (Cursor: .cursorignore +
+      // .gitignore respected for search) — an ignored
+      // directory is never descended into, an ignored
+      // file never enters knownPaths at all.
+      if (this.ignoreSet && this.root) {
+        const relative = path.startsWith(`${this.root}/`) ? path.slice(this.root.length + 1) : path;
+        if (this.ignoreSet.isIgnored(relative, entry.isDirectory)) continue;
+      }
       if (entry.isDirectory) {
         if (AGENT_DENIED_DIR_NAMES.includes(entry.name)) continue;
         out.push(...(await this.walk(path, depth + 1)));
@@ -470,6 +524,15 @@ export class AgentFileIndex {
    */
   async indexOne(path: string): Promise<void> {
     if (!this.root) return;
+    // A file the ignore files cover is listed nowhere —
+    // an edit to it drops it from the index instead of
+    // re-indexing it.
+    if (this.isIgnoredByRules(path)) {
+      this.removeFileChunks(path);
+      this.files.delete(path);
+      this.knownPaths.delete(path);
+      return;
+    }
     let stats;
     try {
       stats = await this.host.getStats(path);
@@ -489,6 +552,9 @@ export class AgentFileIndex {
    */
   async refresh(): Promise<IndexRefreshResult> {
     if (!this.root) return { added: 0, updated: 0, removed: 0, files: 0 };
+    // A newly added ignore file takes effect here — the
+    // walk below drops what it now covers.
+    await this.loadIgnoreFiles();
     // Snapshot BEFORE the walk: the walk itself adds every
     // path it sees to knownPaths, so "new" must be measured
     // against the pre-walk state.
@@ -618,6 +684,40 @@ export class AgentFileIndex {
       .slice(0, n);
   }
 
+  /**
+   * Multi-term search — Cursor's "doesn't bet on one
+   * seed" (staff post, forum.cursor.com, 2026-07-22):
+   * Instant Grep is fast enough that the agent searches
+   * several candidate terms in parallel, lists directories
+   * and reads files to refine. Each term searches the
+   * trigram index on its own; the merge ranks a file
+   * matching MORE terms above one matching fewer, then by
+   * summed score. One result per file (its best chunk),
+   * top `n`.
+   */
+  searchMultiTerm(terms: string[], n = 10): IndexSearchResult[] {
+    const cleaned = [...new Set(terms.map((t) => t.trim()).filter(Boolean))];
+    if (cleaned.length === 0 || this.chunks.size === 0) return [];
+    if (cleaned.length === 1) return this.search(cleaned[0], n);
+    const merged = new Map<string, { result: IndexSearchResult; termsMatched: number; score: number }>();
+    for (const term of cleaned) {
+      for (const result of this.search(term, n)) {
+        const existing = merged.get(result.path);
+        if (existing) {
+          existing.termsMatched += 1;
+          existing.score += result.score;
+          if (result.score > existing.result.score) existing.result = result;
+        } else {
+          merged.set(result.path, { result, termsMatched: 1, score: result.score });
+        }
+      }
+    }
+    return [...merged.values()]
+      .sort((a, b) => b.termsMatched - a.termsMatched || b.score - a.score)
+      .slice(0, n)
+      .map((entry) => ({ ...entry.result, score: entry.score }));
+  }
+
   /** Glob over known paths (minimatch — already a Lucid
    *  dependency). A bare basename (`foo.ts`) matches any
    *  depth; a pattern with a slash is matched against the
@@ -663,6 +763,7 @@ export class AgentFileIndex {
     this.root = null;
     this.built = false;
     this.building = null;
+    this.ignoreSet = null;
     this.files.clear();
     this.chunks.clear();
     this.trigramIndex.clear();

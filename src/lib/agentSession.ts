@@ -270,6 +270,10 @@ export async function runAgentTurnForTab(
       verifications: [],
       stopped: 'failed',
       drivingAgent: drivingAgent.agent,
+      // Merge fix: AgentTurnResult gained todos/turns (Claude Code
+      // steal); this failure literal runs no turn, so both are empty.
+      todos: [],
+      turns: 0,
     };
   } finally {
     inFlight.delete(tabId);

@@ -7,6 +7,7 @@ import { useLoadingStore } from '../../stores/loadingStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useHistoryStore, EMPTY_BLOCKS } from '../../stores/historyStore';
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
+import { useLucidSessionStore } from '../../stores/lucidSessionStore';
 import { useModalStore } from '../../stores/modalStore';
 import { usePlanStore } from '../../stores/planStore';
 import { useSplitPaneStore, getVisibleTabIds, findGroupForTab, groupTabIds } from '../../stores/splitPaneStore';
@@ -373,12 +374,17 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     setDevInput(devHistoryDraft.current ?? '');
     devHistoryDraft.current = null;
   };
-  // Load the active profile's command history on mount (no-op
-  // when already loaded for this profile — the Profiles screen
-  // also loads it via selectProfile).
+  // Load the active profile's data on mount (no-op when already
+  // loaded for this profile — the Profiles screen also loads it
+  // via selectProfile). History blocks and sessions switch here
+  // too: without them a terminal mounting under profile B kept
+  // showing profile A's blocks and sessions.
   useEffect(() => {
-    useCommandHistoryStore.getState().switchProfile(useProfileStore.getState().activeProfileId);
-    usePlanStore.getState().switchProfile(useProfileStore.getState().activeProfileId);
+    const activeProfileId = useProfileStore.getState().activeProfileId;
+    useHistoryStore.getState().switchProfile(activeProfileId);
+    useCommandHistoryStore.getState().switchProfile(activeProfileId);
+    usePlanStore.getState().switchProfile(activeProfileId);
+    useLucidSessionStore.getState().switchProfile(activeProfileId);
   }, []);
   // Dev console lines — the detached bar's own output. Never the
   // terminal screen.

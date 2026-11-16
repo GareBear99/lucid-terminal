@@ -8,7 +8,6 @@ import {
   useSessionStore,
   getTabMode,
   selectAgentPromptHistory,
-  AGENT_NOT_BUILT_NOTICE,
 } from '../src/stores/sessionStore';
 import { useTerminalStore } from '../src/stores/terminalStore';
 import { useHistoryStore } from '../src/stores/historyStore';
@@ -72,24 +71,26 @@ describe('tab mode', () => {
 });
 
 describe('submitAgentPrompt', () => {
-  test('appends prompt + notice to the tab’s own feed — one memory, no separate store', () => {
+  test('appends the prompt block only — the loop lands its own response block', () => {
     useHistoryStore.setState({
       blocksByTab: { 'terminal-1': [commandBlock('b1', 'ls')] },
     });
     expect(useSessionStore.getState().submitAgentPrompt('terminal-1', 'fix the build', '/Users/gary')).toBe(true);
     const blocks = useHistoryStore.getState().blocksByTab['terminal-1'];
-    expect(blocks.map((b) => b.command)).toEqual(['ls', 'fix the build', '']);
+    expect(blocks.map((b) => b.command)).toEqual(['ls', 'fix the build']);
     expect(blocks[1].kind).toBe('agent-prompt');
     expect(blocks[1].cwd).toBe('/Users/gary');
-    expect(blocks[2].kind).toBe('notice');
-    expect(blocks[2].output).toBe(AGENT_NOT_BUILT_NOTICE);
+    // No notice block: the loop is built (steal #4), and
+    // runAgentTurnForTab lands the result as an
+    // `agent-response` block — the stale "isn't built yet"
+    // notice is gone.
   });
 
   test('a second prompt appends after the first — one conversation, in order', () => {
     useSessionStore.getState().submitAgentPrompt('terminal-1', 'first prompt here');
     useSessionStore.getState().submitAgentPrompt('terminal-1', 'second prompt here');
     const blocks = useHistoryStore.getState().blocksByTab['terminal-1'];
-    expect(blocks).toHaveLength(4);
+    expect(blocks).toHaveLength(2);
     expect(blocks.filter((b) => b.kind === 'agent-prompt').map((b) => b.command)).toEqual([
       'first prompt here',
       'second prompt here',

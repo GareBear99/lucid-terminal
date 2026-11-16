@@ -129,15 +129,17 @@
 
 import { create } from 'zustand';
 import { useAIStore } from './aiStore';
-import { clearPersistedHistory, useHistoryStore } from './historyStore';
+import { clearProfileHistory, useHistoryStore } from './historyStore';
 import { clearProfileCommandHistory, useCommandHistoryStore } from './commandHistoryStore';
 import { clearProfilePlans, usePlanStore } from './planStore';
+import { useLucidSessionStore } from './lucidSessionStore';
 import { useCopilotStore } from './copilotStore';
 import { useWorkspaceStore } from './workspaceStore';
 import { useSettingsStore } from './settingsStore';
 import { wipeProfileSynth } from './synthStore';
 import { parseCreatorBuild } from '../lib/synthDisclaimer';
 import { findProfileGate } from '../lib/profileGates';
+import { usePaletteStore } from './paletteStore';
 
 /** A profile's standing: temp / unverified / verified / user / guest (Gary, 2026-11-12 ~10:49 PST + ~16:41 PST). */
 export type ProfileStatus =
@@ -507,20 +509,33 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         usePlanStore.getState().exitGuestSession();
         useCopilotStore.getState().exitGuestSession();
         useWorkspaceStore.getState().exitGuestSession();
-        // The guest is gone: load the target profile's command
-        // list (no-op when it is the profile the guest veiled
-        // in from — exit already restored that list).
+        useLucidSessionStore.getState().exitGuestSession();
+        // The guest is gone: load the target profile's data
+        // (no-op when it is the profile the guest veiled in
+        // from — exit already restored that profile's data).
+        useHistoryStore.getState().switchProfile(id);
         useCommandHistoryStore.getState().switchProfile(id);
         usePlanStore.getState().switchProfile(id);
         useWorkspaceStore.getState().switchProfile(id);
+        useLucidSessionStore.getState().switchProfile(id);
       } else {
         // Non-guest → non-guest (includes the boot Profiles
         // screen re-selecting the active profile): load that
-        // profile's command list.
+        // profile's data. History blocks and sessions switch
+        // here too — before this, switching profiles never
+        // switched the History panel or the session list, so
+        // profile B saw profile A's blocks and sessions.
+        useHistoryStore.getState().switchProfile(id);
         useCommandHistoryStore.getState().switchProfile(id);
         usePlanStore.getState().switchProfile(id);
         useWorkspaceStore.getState().switchProfile(id);
+        useLucidSessionStore.getState().switchProfile(id);
       }
+      // The palette (Raycast steal): favorites, aliases and
+      // quicklinks are per profile, in the palette store's own
+      // key — switching profiles switches them, so a guest
+      // never sees the owner's palette state.
+      usePaletteStore.getState().switchProfile(id);
       return true;
     },
 
@@ -580,7 +595,9 @@ export const useProfileStore = create<ProfileState>((set, get) => {
         for (const tabId of Object.keys(history.blocksByTab)) {
           history.clearBlocks(tabId);
         }
-        clearPersistedHistory();
+        // Only this profile's history slot goes — other
+        // profiles' blocks are untouched (per-profile history).
+        clearProfileHistory(profileId);
         clearProfileCommandHistory(profileId);
         clearProfilePlans(profileId);
       }
@@ -601,6 +618,21 @@ export const useProfileStore = create<ProfileState>((set, get) => {
             ? DEFAULT_PROFILE_ID
             : state.activeProfileId,
         });
+      }
+      // Wiping the ACTIVE profile falls back to the default profile
+      // — and the data stores must follow it. Without this, every
+      // store's profileId still points at the deleted profile: new
+      // blocks would persist into a dead profile's slot (resurrecting
+      // it) and the default profile's history would never load.
+      // (selectProfile drives switchProfile on every other path
+      // that changes the active profile; wipeProfile sets it here
+      // directly, so it must drive the switch itself.)
+      if (isActive) {
+        useHistoryStore.getState().switchProfile(DEFAULT_PROFILE_ID);
+        useCommandHistoryStore.getState().switchProfile(DEFAULT_PROFILE_ID);
+        usePlanStore.getState().switchProfile(DEFAULT_PROFILE_ID);
+        useWorkspaceStore.getState().switchProfile(DEFAULT_PROFILE_ID);
+        useLucidSessionStore.getState().switchProfile(DEFAULT_PROFILE_ID);
       }
       return true;
     },
@@ -685,6 +717,8 @@ export function applyPersistedGuestVeil(): void {
   useAIStore.getState().enterGuestSession();
   useHistoryStore.getState().enterGuestSession();
   useCommandHistoryStore.getState().enterGuestSession();
+  usePlanStore.getState().enterGuestSession();
   useCopilotStore.getState().enterGuestSession();
   useWorkspaceStore.getState().enterGuestSession();
+  useLucidSessionStore.getState().enterGuestSession();
 }

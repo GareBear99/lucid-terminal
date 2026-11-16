@@ -108,12 +108,12 @@ export function decideToolPolicy(
   }
 
   // Path boundary + denied list, before anything else.
-  for (const key of PATH_ARG_KEYS) {
-    const value = args[key];
-    if (typeof value !== 'string' || !value) continue;
-    // A glob pattern is not a path — only a pattern with
-    // no glob characters is checked as a path.
-    if (key === 'pattern' && /[*?[\]{}!]/.test(value)) continue;
+  // The check runs over every path the call carries: the
+  // flat args (filepath / dirPath / pattern) AND the
+  // nested entries of a multi_file_edit plan (files[].filepath)
+  // — a denied path buried in a plan is blocked the same
+  // way as one in a single-file call.
+  const checkPath = (value: string): PolicyDecision | null => {
     const resolved = resolveAgentPath(value, ctx.cwd, ctx.workspaceRoot);
     if (!isWithinWorkspace(ctx.workspaceRoot, resolved)) {
       return {
@@ -126,6 +126,28 @@ export function decideToolPolicy(
         decision: 'blocked',
         reason: `Denied path: ${value} is a secrets/credentials path`,
       };
+    }
+    return null;
+  };
+  for (const key of PATH_ARG_KEYS) {
+    const value = args[key];
+    if (typeof value !== 'string' || !value) continue;
+    // A glob pattern is not a path — only a pattern with
+    // no glob characters is checked as a path.
+    if (key === 'pattern' && /[*?[\]{}!]/.test(value)) continue;
+    const blocked = checkPath(value);
+    if (blocked) return blocked;
+  }
+  if (Array.isArray(args.files)) {
+    for (const entry of args.files) {
+      if (
+        typeof entry === 'object' &&
+        entry !== null &&
+        typeof (entry as Record<string, unknown>).filepath === 'string'
+      ) {
+        const blocked = checkPath((entry as Record<string, unknown>).filepath as string);
+        if (blocked) return blocked;
+      }
     }
   }
 

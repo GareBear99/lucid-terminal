@@ -1,9 +1,16 @@
 import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { setupApplicationMenu, MENU_OPEN_MODAL_CHANNEL } from './menu';
 import type { MenuActionKind } from './menu';
 import { setupFileSystemHandlers } from './ipc/fileSystem';
-import { setupTerminalHandlers } from './ipc/terminal';
+import { setupTerminalHandlers, setTerminalOwner, clearTerminalOwner } from './ipc/terminal';
+// tmux steal — the session model (Lucid's own implementation of
+// tmux's session pattern; no tmux itself is involved): the main
+// process is the tmux server, each renderer window a client.
+import { setupTmuxSessionHandlers } from './ipc/tmuxSession';
+import { TmuxSessionRegistry } from './services/tmuxSessionRegistry';
+import { destroyTerminal } from './services/shellManager';
 import { setupGitHandlers } from './ipc/git';
 import { setupSearchHandlers } from './ipc/search';
 import { setupAIHandlers } from './ipc/ai';
@@ -85,6 +92,11 @@ setCrashContext({
 installMainCrashHandlers(crashLogWriter);
 
 let mainWindow: BrowserWindow | null = null;
+
+// tmux steal — the session registry (the tmux server). Created in
+// app.whenReady (it needs app.getPath('userData')); saved on
+// will-quit below. Module-level so will-quit can reach it.
+let tmuxSessionRegistry: TmuxSessionRegistry | null = null;
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 
@@ -226,6 +238,56 @@ app.whenReady().then(() => {
   // Setup IPC handlers once
   setupFileSystemHandlers(ipcMain);
   setupTerminalHandlers(ipcMain);
+  // tmux steal — sessions (Lucid's own implementation of tmux's
+  // session pattern). The registry is the server: it owns the
+  // session list + which panes have live PTYs. The disk snapshot
+  // (userData/lucid-sessions.json) is the resurrect half — layout
+  // + cwd survive an app restart with fresh shells; while the app
+  // is alive, detaching a session keeps its PTYs running (real
+  // tmux semantics). The snapshot file is separate from every
+  // profile/settings file — sessions never touch profile data.
+  // PTY creation stays in terminal:create (the registry only
+  // tracks pane ids, via lucid-session:track-pane); killing a
+  // session destroys exactly its tracked PTYs.
+  const tmuxSessionFile = path.join(app.getPath('userData'), 'lucid-sessions.json');
+  tmuxSessionRegistry = new TmuxSessionRegistry(
+    {
+      destroyPane: (id) => {
+        clearTerminalOwner(id);
+        destroyTerminal(id);
+      },
+    },
+    {
+      read: () => {
+        try {
+          return fs.existsSync(tmuxSessionFile)
+            ? fs.readFileSync(tmuxSessionFile, 'utf8')
+            : null;
+        } catch {
+          return null;
+        }
+      },
+      write: (data) => {
+        try {
+          fs.writeFileSync(tmuxSessionFile, data);
+        } catch (err) {
+          console.error('tmux session snapshot write failed:', err);
+        }
+      },
+    },
+  );
+  tmuxSessionRegistry.load();
+  setupTmuxSessionHandlers(ipcMain, tmuxSessionRegistry, {
+    // An attach re-targets the session's live PTY output at the
+    // attaching window — the PTYs never move, are never
+    // re-created, and are never destroyed by an attach (the same
+    // owner-registry mechanism terminal detach already uses).
+    onAttach: (sessionId, sender) => {
+      for (const paneId of tmuxSessionRegistry!.getSessionPaneIds(sessionId)) {
+        setTerminalOwner(paneId, sender);
+      }
+    },
+  });
   setupGitHandlers(ipcMain);
   setupSearchHandlers(ipcMain);
   setupAIHandlers(ipcMain);
@@ -438,6 +500,9 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  // tmux steal — persist the session snapshot (layout + cwd) so
+  // the next launch restores sessions with fresh shells.
+  tmuxSessionRegistry?.save();
   stopDaemonSync(); // Stop the file-watcher daemon (sync: will-quit cannot await)
   stopBackend(); // CLEANUP
 });

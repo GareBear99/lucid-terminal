@@ -35,6 +35,8 @@ import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
 import { AtomModals } from './components/CommandPalette/CommandPalette';
 import { registerBuiltinCommands } from './lib/builtinCommands';
+import { registerPaletteBuiltins } from './lib/paletteBuiltins';
+import { usePaletteStore } from './stores/paletteStore';
 import type { CommandContext } from './lib/commandRegistry';
 import { refreshProjectFileIndex } from './lib/projectFileIndex';
 import { resolveStartupExplorerRoot } from './lib/explorerStartupRoot';
@@ -214,6 +216,17 @@ function App() {
       toggleAI: () => handleToggleAI(),
       openHelp: () => openHelp(),
     });
+    // The Raycast steal: the built-in `lucid` extension
+    // (create-quicklink, calculator, toggle-extension,
+    // copy-command-deeplink) + the palette store, loaded for
+    // the active profile (per-profile palette state, its own
+    // key — never the profile record).
+    registerPaletteBuiltins({
+      copyText: (text) => {
+        void navigator.clipboard?.writeText?.(text);
+      },
+    });
+    usePaletteStore.getState().init(useProfileStore.getState().activeProfileId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // The theme is the stored theme everywhere (Gary, 2026-11-09:

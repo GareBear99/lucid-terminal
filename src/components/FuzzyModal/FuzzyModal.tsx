@@ -31,6 +31,8 @@ export interface FuzzyModalItem {
   filterText?: string;
   /** Right-side text (keybinding, kind). */
   right?: string;
+  /** The section header the row renders under (Raycast's List sections). */
+  section?: string;
 }
 
 /** Atom's MAX_RESULTS (fuzzy-finder-view.js:15). */
@@ -57,6 +59,17 @@ export interface FuzzyModalProps {
   /** Extra text under the input (go-to-line's hint). */
   footer?: React.ReactNode;
   maxResults?: number;
+  /**
+   * False → the caller owns filtering/ranking (Raycast's List
+   * `filtering` prop): items are shown as given, in order,
+   * still capped at maxResults. Default true (the old behaviour).
+   */
+  filtering?: boolean;
+  /**
+   * Intercepts keys before the modal's own handling. Return true
+   * when handled (the palette's ⌘K opens the Action Panel).
+   */
+  onKeyDown?: (e: React.KeyboardEvent) => boolean;
 }
 
 /** Render a label with the matched characters bolded. */
@@ -102,6 +115,8 @@ export function FuzzyModal({
   hideList = false,
   footer,
   maxResults = FUZZY_MODAL_MAX_RESULTS,
+  filtering = true,
+  onKeyDown,
 }: FuzzyModalProps) {
   const [query, setQuery] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -119,9 +134,10 @@ export function FuzzyModal({
 
   const filtered = useMemo(() => {
     if (hideList) return [];
+    if (!filtering) return items.slice(0, maxResults);
     const ranked = fuzzyFilter(items, query, (item) => item.filterText ?? item.label);
     return ranked.slice(0, maxResults);
-  }, [items, query, hideList, maxResults]);
+  }, [items, query, hideList, maxResults, filtering]);
 
   // Clamp the selection into the filtered list.
   const selected = filtered.length > 0
@@ -158,6 +174,10 @@ export function FuzzyModal({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (onKeyDown?.(e)) {
+      e.preventDefault();
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
@@ -227,38 +247,49 @@ export function FuzzyModal({
             ) : (
               filtered.map((item, i) => {
                 const isSelected = selected !== undefined && item.id === selected.id;
+                // A section header before the first row of each
+                // section (Raycast's List sections).
+                const showSection =
+                  item.section !== undefined &&
+                  (i === 0 || filtered[i - 1]?.section !== item.section);
                 return (
-                  <button
-                    key={item.id}
-                    data-testid={`fuzzy-modal-item-${item.id}`}
-                    data-selected={isSelected ? 'true' : 'false'}
-                    onMouseEnter={() => setSelectedIndex(i)}
-                    onClick={() => onSelect(item)}
-                    className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm ${
-                      isSelected
-                        ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                        : 'text-[var(--text-muted)]'
-                    }`}
-                  >
-                    <span className="flex-1 min-w-0">
-                      <span className="block truncate">
-                        <MatchedLabel
-                          label={item.label}
-                          indices={matchedById.get(item.id) ?? []}
-                        />
+                  <div key={item.id}>
+                    {showSection && (
+                      <div className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                        {item.section}
+                      </div>
+                    )}
+                    <button
+                      data-testid={`fuzzy-modal-item-${item.id}`}
+                      data-selected={isSelected ? 'true' : 'false'}
+                      onMouseEnter={() => setSelectedIndex(i)}
+                      onClick={() => onSelect(item)}
+                      className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm ${
+                        isSelected
+                          ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                          : 'text-[var(--text-muted)]'
+                      }`}
+                    >
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate">
+                          <MatchedLabel
+                            label={item.label}
+                            indices={matchedById.get(item.id) ?? []}
+                          />
+                        </span>
+                        {item.detail && (
+                          <span className="block truncate text-xs text-[var(--text-muted)]">
+                            {item.detail}
+                          </span>
+                        )}
                       </span>
-                      {item.detail && (
-                        <span className="block truncate text-xs text-[var(--text-muted)]">
-                          {item.detail}
+                      {item.right && (
+                        <span className="shrink-0 text-xs text-[var(--text-muted)]">
+                          {item.right}
                         </span>
                       )}
-                    </span>
-                    {item.right && (
-                      <span className="shrink-0 text-xs text-[var(--text-muted)]">
-                        {item.right}
-                      </span>
-                    )}
-                  </button>
+                    </button>
+                  </div>
                 );
               })
             )}

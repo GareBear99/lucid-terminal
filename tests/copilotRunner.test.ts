@@ -277,7 +277,15 @@ describe('copilotRunner — the loop in the copilot tab', () => {
         hasCopilotKey: true,
         host,
       });
-      expect(chat).toHaveBeenCalledTimes(1);
+      // Turn-loop note (merge fix, Claude Code steal): runAgentTurn
+      // re-plans after every round, so the model is consulted once
+      // per round, not once per run. This stub always answers with
+      // the same read_file call, so round 2's plan is identical to
+      // round 1's and the loop's identical-plan guard ends the run
+      // WITHOUT executing it again (toolCalls stays 1). A real
+      // model would answer round 2 with no tool calls and its own
+      // final words; the stub cannot, so the count is 2, not 1.
+      expect(chat).toHaveBeenCalledTimes(2);
       expect(chat.mock.calls[0][0].model).toBe('gpt-4o');
       expect(result.toolCalls).toHaveLength(1);
       expect(result.toolCalls[0].name).toBe('read_file');

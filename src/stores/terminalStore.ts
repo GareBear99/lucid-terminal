@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { TerminalTab } from '../types';
 import { toDetachedTab } from '../types/detach';
 import { useToastStore } from './toastStore';
+import { useLucidSessionStore } from './lucidSessionStore';
 import { useHistoryStore } from './historyStore';
 
 /**
@@ -15,6 +16,39 @@ function cleanSpawnError(error: unknown): string {
     .replace(/Error:\s*/g, '')
     .replace(/^Error invoking remote method '[^']+':\s*/, '')
     .trim();
+}
+
+/**
+ * tmux steal — pane liveness bridge (defensive by design): tell
+ * main which session a tab's PTY belongs to, so kill-session can
+ * destroy exactly those shells. Fire-and-forget, never throws,
+ * never blocks tab creation / close / exit handling — when no
+ * session is attached, or the sessions bridge is absent (tests,
+ * an older preload), it is a silent no-op. Tab creation,
+ * switching and splitting never depend on it.
+ */
+function notifySessionPaneTracked(paneId: string): void {
+  try {
+    const sessionId = useLucidSessionStore.getState().attachedSessionId;
+    if (!sessionId) return;
+    const promise = window.lucidAPI.sessions?.trackPane?.(sessionId, paneId) as unknown;
+    if (promise && typeof (promise as Promise<unknown>).catch === 'function') {
+      (promise as Promise<unknown>).catch(() => {});
+    }
+  } catch {
+    // Session tracking must never break tabs.
+  }
+}
+
+function notifySessionPaneExited(paneId: string): void {
+  try {
+    const promise = window.lucidAPI.sessions?.markPaneExited?.(paneId) as unknown;
+    if (promise && typeof (promise as Promise<unknown>).catch === 'function') {
+      (promise as Promise<unknown>).catch(() => {});
+    }
+  } catch {
+    // Session tracking must never break tabs.
+  }
 }
 
 export interface TerminalState {
@@ -242,6 +276,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       };
     });
 
+    // tmux steal: the new tab's PTY belongs to the attached
+    // session (when one is attached) — see the bridge above.
+    notifySessionPaneTracked(id);
+
     // Cross-window number registry (Gary, 2026-11-13): tell main
     // this number is taken - main broadcasts it to every other
     // window, so no window can create a tab with this id (whose
@@ -285,6 +323,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (tabNumber !== null) usedTabNumbers.delete(tabNumber);
     // Destroy the PTY process
     window.lucidAPI.terminal.destroy(id);
+    // tmux steal: the pane's shell is gone — untrack it.
+    notifySessionPaneExited(id);
     // A detached window that destroys a PTY tells main, so the
     // main window — which still has this number reserved from
     // the detach — frees it too (releaseTabNumber). From the
@@ -374,6 +414,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   markTabExited: (id, code) => {
+    // tmux steal: the pane's shell exited on its own — untrack it.
+    notifySessionPaneExited(id);
     set((state) => ({ exitedTabs: { ...state.exitedTabs, [id]: code }, ptyStateKnown: true }));
   },
 

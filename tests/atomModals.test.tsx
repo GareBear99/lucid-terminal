@@ -56,7 +56,7 @@ describe('AtomModals', () => {
     act(() => {
       fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
     });
-    expect(getByPlaceholderText('Type a command')).toBeTruthy();
+    expect(getByPlaceholderText('Type a command or search files, tabs, settings…')).toBeTruthy();
     // The palette's keystroke labels come from the keymap
     // (Atom steal #13): the Quick Open row shows the macOS
     // glyph label from the keymap, not a static string.
@@ -92,7 +92,7 @@ describe('AtomModals', () => {
     // The current view (terminal) is not listed; Editor is.
     fireEvent.click(getByText('Switch to Editor'));
     expect(switchView).toHaveBeenCalledWith('editor');
-    expect(queryByPlaceholderText('Type a command')).toBeNull();
+    expect(queryByPlaceholderText('Type a command or search files, tabs, settings…')).toBeNull();
   });
 
   test('the finder shows the empty-index text when nothing is indexed', () => {
@@ -150,7 +150,7 @@ describe('AtomModals menu events (Atom steal #13 — menus)', () => {
     act(() => {
       captured!('palette');
     });
-    expect(getByPlaceholderText('Type a command')).toBeTruthy();
+    expect(getByPlaceholderText('Type a command or search files, tabs, settings…')).toBeTruthy();
   });
 
   test('menu finder event opens the fuzzy file finder', () => {

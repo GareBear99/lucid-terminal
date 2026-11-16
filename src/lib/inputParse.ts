@@ -247,6 +247,15 @@ const CHAIN_VERBS: ReadonlySet<string> = new Set([
   'enable', 'disable', 'install', 'uninstall', 'llm', 'help',
   'list', 'show', 'mainmenu', 'test', 'run', 'fix', 'create',
   'delete', 'open', 'read', 'build', 'update',
+  // The agent planner's verbs (steal #4 — Continue,
+  // 2026-11-14): a chained part starting with one of
+  // these IS a command — "read X and replace 'a' with 'b'
+  // in X" must split into the read and the edit, not join
+  // back into one part and lose the read. Without these,
+  // a chained multi-step prompt plans only its last step
+  // — and a re-planning loop has nothing to re-plan from.
+  'replace', 'change', 'edit', 'modify', 'search', 'find',
+  'grep', 'write', 'rename',
 ]);
 
 /**

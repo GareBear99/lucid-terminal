@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FuzzyModal, type FuzzyModalItem } from '../FuzzyModal/FuzzyModal';
-import { commandRegistry, type CommandContext } from '../../lib/commandRegistry';
+import { type CommandContext } from '../../lib/commandRegistry';
 import { useModalStore } from '../../stores/modalStore';
 import { subscribeMenuModals } from '../../lib/menuModals';
 import { useFileStore } from '../../stores/fileStore';
@@ -38,13 +38,13 @@ import {
   subscribeProjectFileIndex,
 } from '../../lib/projectFileIndex';
 import { getFileStructure } from '../../lib/treeSitter';
-import { keyLabelForCommand } from '../../lib/keymap';
 import { openFileInWorkspace } from '../../lib/workspace';
 import {
   requestEditorJump,
 } from '../../lib/editorJump';
 import { getDocsCursor } from '../../lib/docsCursor';
 import { TutorialPanel } from '../Tutorials/TutorialPanel';
+import { RootSearchPalette } from './RootSearchPalette';
 import { searchProjectSymbols } from '../../lib/projectSymbols';
 import { useProjectSymbolsStore } from '../../stores/projectSymbolsStore';
 import { pushJumpPosition } from '../../lib/jumpStack';
@@ -74,39 +74,14 @@ function relativeToRoot(path: string, root: string): string {
   return path;
 }
 
-/** The command palette — the registry, filtered live. */
-function PaletteModal({ context }: { context: CommandContext }) {
+/** The command palette — Root Search (Raycast steal, 2026-11-16):
+ * one input over commands, quicklinks, files, tabs and settings,
+ * with the ⌘K Action Panel and inline argument prompts. The old
+ * registry-only list lives on inside it (the providers adapt
+ * the registry as the `lucid` extension's commands). */
+function PaletteModal({ context, switchView }: { context: CommandContext; switchView: (view: View) => void }) {
   const close = useModalStore((s) => s.close);
-  // The keystroke shown on each row comes from the keymap
-  // (Atom steal #13): a user rebind changes the label here,
-  // in the menu and in the keydown handler together. Commands
-  // the keymap does not list (view switches, AI toggle) keep
-  // the keybinding the registry declares, if any.
-  const customKeybindings = useSettingsStore((s) => s.settings.customKeybindings ?? []);
-  const commands = useMemo(
-    () => commandRegistry.findCommands(context),
-    [context],
-  );
-  const items: FuzzyModalItem[] = commands.map((def) => ({
-    id: def.id,
-    label: def.title,
-    detail: def.description,
-    filterText: [def.title, def.description ?? '', ...(def.tags ?? [])].join(' '),
-    right: keyLabelForCommand(def.id, customKeybindings) || def.keybinding,
-  }));
-  return (
-    <FuzzyModal
-      open
-      placeholder="Type a command"
-      items={items}
-      emptyText="No matching commands"
-      onSelect={(item) => {
-        close();
-        void commandRegistry.dispatch(item.id, context);
-      }}
-      onClose={close}
-    />
-  );
+  return <RootSearchPalette context={context} switchView={switchView} onClose={close} />;
 }
 
 /** The fuzzy file finder — the warm project index, last-opened first. */
@@ -436,7 +411,7 @@ export function AtomModals({ context, switchView }: AtomModalsProps) {
 
   switch (openModal) {
     case 'palette':
-      return <PaletteModal context={context} />;
+      return <PaletteModal context={context} switchView={switchView} />;
     case 'finder':
       return <FinderModal switchView={switchView} />;
     case 'symbols':

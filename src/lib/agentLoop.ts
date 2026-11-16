@@ -63,19 +63,31 @@
  * callers keep the old default (logged-in auto-approves)
  * unless they pass otherwise.
  *
- * Re-planning: this slice plans ONCE per prompt. After
- * the tool results come back, the loop does not ask the
- * brain for a second plan — a deterministic planner has
- * nothing new to say about its own results, and a
- * re-planning brain is the driving intelligence (D4).
- * The `while` structure supports a second round when a
- * planning brain lands; the planner just returns one
- * plan today. The max-rounds guard (10) is the same
- * shape as Aider's `max_reflections` cap — the run stops
- * instead of looping forever.
+ * Re-planning (Claude Code steal, 2026-11-16): the loop
+ *  plans AGAIN after every round, from the round's
+ *  results (`BrainContext.history`) — the `while (true)`
+ *  of Claude Code's `query.ts:307` — until the brain
+ *  returns no calls. The local planner answers a re-plan
+ *  by never repeating a call an earlier round already ran,
+ *  and by following through on what a search found
+ *  (agentBrain.ts). The max-turns guard (10) is the same
+ *  shape as Aider's `max_reflections` cap — the run stops
+ *  instead of looping forever — and the identical-plan
+ *  guard stops a brain that has nothing new to say.
+ *
+ * The loop, and only the loop, owns the run's state
+ * (history, todos, turn count): all of it is local to
+ * one `runAgentTurn` call, in memory, and dies with the
+ * run. Nothing here writes to a profile, a store, or
+ * disk — the loop cannot lose, corrupt, or change how a
+ * profile's data is stored or restored, and it touches
+ * no tab state at all (no tab creation, switching,
+ * splitting, or pair/group state).
  */
 
-import type { AgentBrain, BrainContext, PlannedToolCall } from './agentBrain';
+import type { AgentBrain, BrainContext, BrainRoundResult, PlannedToolCall } from './agentBrain';
+import type { AgentTodo } from './agentTodos';
+import { AgentTodoList } from './agentTodos';
 import { LocalPlanner } from './agentBrain';
 import { electronAgentHost, type AgentHost } from './agentHost';
 import { AgentFileIndex } from './agentIndex';
@@ -116,6 +128,12 @@ export interface AgentTurnResult {
    *  tab's pick — the base when none was picked). The feed
    *  can show which agent allowed the pass. */
   drivingAgent: DrivingAgentId;
+  /** The run's todo list (Claude Code's TodoWrite, loop-
+   *  derived — agentTodos.ts): one todo per planned call,
+   *  in plan order. Empty for a single-call run. */
+  todos: AgentTodo[];
+  /** How many planning rounds (turns) ran. */
+  turns: number;
 }
 
 export type AgentLoopEvent =
@@ -126,6 +144,7 @@ export type AgentLoopEvent =
   | { type: 'approval-denied'; name: string }
   | { type: 'verify-start'; path: string }
   | { type: 'verify-done'; path: string; fixed: number; remaining: number }
+  | { type: 'todo-update'; todos: AgentTodo[] }
   | { type: 'reply'; reply: string };
 
 /** What the loop hands the approval callback alongside
@@ -177,6 +196,11 @@ export interface AgentLoopOptions {
    *  fix call. */
   approve?: (call: PlannedToolCall, detail?: AgentApprovalDetail) => Promise<boolean>;
   maxRounds?: number;
+  /** The turn cap (Claude Code's `maxTurns` — how many
+   *  planning rounds the run may take before it stops.
+   *  Default 10. Distinct from `maxRounds`, which still
+   *  caps TOTAL tool calls, as before. */
+  maxTurns?: number;
   signal?: AbortSignal;
   onEvent?: (event: AgentLoopEvent) => void;
 }
@@ -215,6 +239,9 @@ export function dropAgentIndex(root?: string): void {
 
 const DEFAULT_MAX_ROUNDS = 10;
 
+/** The default turn cap (Claude Code's `maxTurns`). */
+const DEFAULT_MAX_TURNS = 10;
+
 /** How much of one tool's output the final reply
  *  carries (a read the user cannot see is useless —
  *  the cap keeps a huge file from flooding the feed). */
@@ -227,6 +254,7 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
   const isGuest = options.isGuest ?? false;
   const autoApproveWrites = options.autoApproveWrites ?? !isGuest;
   const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
+  const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
   const brain: AgentBrain = options.brain ?? new LocalPlanner();
   const registry = options.registry ?? getAgentRegistry();
   const host = options.host ?? electronAgentHost;
@@ -237,6 +265,15 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
   const edits: AgentTurnResult['edits'] = [];
   const diagnostics: AgentTurnResult['diagnostics'] = [];
   const verifications: AgentTurnResult['verifications'] = [];
+  /** The rounds already run this turn — fed back to the
+   *  brain on every re-plan (Claude Code's loop). */
+  const history: BrainRoundResult[] = [];
+  /** The run's todo list (TodoWrite, loop-derived). */
+  const todos = new AgentTodoList();
+  /** Planning rounds completed (turns). */
+  let turns = 0;
+  /** Total tool calls made (the maxRounds cap). */
+  let callsMade = 0;
 
   // The driving agent gates the pass (the picker): the
   // base when the caller picked nothing. A picked agent
@@ -259,6 +296,8 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
     verifications,
     stopped: 'failed',
     drivingAgent: drivingAgent.agent,
+    todos: todos.snapshot(),
+    turns,
   });
 
   if (!drivingAgent.canRun) {
@@ -276,18 +315,35 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
       await index.refresh();
     }
 
-    // 2. Plan.
-    const brainContext: BrainContext = {
+    // 2. The turn loop (Claude Code's `while (true)` —
+    //    query.ts:307): plan a round, run it, feed the
+    //    results back as `history`, plan again — until the
+    //    brain returns no calls, the turn cap hits, or the
+    //    run is stopped. The brain context is rebuilt per
+    //    round so the history it sees is current.
+    const baseBrainContext: BrainContext = {
       workspaceRoot,
       cwd,
       openFiles: host.getOpenFiles().map((f) => ({ path: f.path, name: f.name })),
       activeFilePath: host.getActiveFilePath(),
       index,
     };
-    const plan = await brain.plan(prompt, brainContext);
-    if (options.signal?.aborted) {
-      return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted', drivingAgent: drivingAgent.agent };
-    }
+    let stopped: AgentTurnResult['stopped'] = 'done';
+    /** The reply of the plan that ENDED the loop (the
+     *  no-calls plan) — only that plan's words are final.
+     *  An earlier round's reply is stale the moment the
+     *  run plans again (it was written before the next
+     *  round's work existed). */
+    let finalReply: string | undefined;
+    /** A stop message that replaces the composed reply
+     *  (max-rounds / max-turns / stalled / aborted). */
+    let stopReply: string | null = null;
+    const samePlan = (a: PlannedToolCall[], b: PlannedToolCall[]): boolean =>
+      a.length === b.length &&
+      a.every(
+        (c, i) =>
+          c.name === b[i].name && JSON.stringify(c.args) === JSON.stringify(b[i].args),
+      );
 
     // 3. Execute the plan, one call at a time, in order.
     //    The planner's calls are sequential by design
@@ -379,24 +435,91 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
       return record;
     };
 
-    let rounds = 0;
-    for (const call of plan.toolCalls) {
+    for (let turn = 0; ; turn++) {
       if (options.signal?.aborted) {
-        return { reply: 'The run was stopped.', toolCalls: records, edits, diagnostics, verifications, stopped: 'aborted', drivingAgent: drivingAgent.agent };
+        stopped = 'aborted';
+        stopReply = 'The run was stopped.';
+        break;
       }
-      if (rounds >= maxRounds) {
-        return {
-          reply: 'I stopped after 10 tool calls — the run was getting long. Ask me to continue from here.',
-          toolCalls: records,
-          edits,
-          diagnostics,
-          verifications,
-          stopped: 'max-rounds',
-          drivingAgent: drivingAgent.agent,
-        };
+      if (turn >= maxTurns) {
+        stopped = 'max-rounds';
+        stopReply = `I stopped after ${maxTurns} turns — the run was getting long. Ask me to continue from here.`;
+        break;
       }
-      rounds += 1;
-      const record = await executeCall(call);
+      const plan = await brain.plan(prompt, {
+        ...baseBrainContext,
+        history,
+        round: turn,
+      });
+      if (options.signal?.aborted) {
+        stopped = 'aborted';
+        stopReply = 'The run was stopped.';
+        break;
+      }
+      // No calls: the brain is done — its reply (if any)
+      // is the run's final word.
+      if (plan.toolCalls.length === 0) {
+        finalReply = plan.reply;
+        break;
+      }
+      // The identical plan twice in a row: the brain has
+      // nothing new to say (a deterministic planner that
+      // did not read its history, or a brain that plans
+      // one fixed set of calls, like the tab session's).
+      // Everything it asked for has already run — so the
+      // run is DONE, not stuck: re-running the same work
+      // would edit the same text twice, or pause for the
+      // same review twice. The reply says why it ended.
+      if (turn > 0 && samePlan(plan.toolCalls, history[history.length - 1].toolCalls)) {
+        finalReply =
+          plan.reply ??
+          'Nothing new to do — the next step was the same as the last one, so I stopped here.';
+        break;
+      }
+
+      // The round's todos (TodoWrite): one per planned
+      // call, built from the tool's own status triple.
+      const todoIndices = todos.addRound(
+        plan.toolCalls.map((call) => {
+          const definition = registry.get(call.name);
+          return {
+            name: call.name,
+            content: definition
+              ? renderToolStatus(definition.wouldLikeTo, call.args)
+              : `call ${call.name}`,
+            activeForm: definition
+              ? renderToolStatus(definition.isCurrently, call.args)
+              : `calling ${call.name}`,
+          };
+        }),
+      );
+      if (todoIndices.some((i) => i >= 0)) onEvent({ type: 'todo-update', todos: todos.snapshot() });
+
+      const roundStart = records.length;
+      for (let i = 0; i < plan.toolCalls.length; i++) {
+        const call = plan.toolCalls[i];
+        if (options.signal?.aborted) {
+          stopped = 'aborted';
+          stopReply = 'The run was stopped.';
+          break;
+        }
+        if (callsMade >= maxRounds) {
+          stopped = 'max-rounds';
+          stopReply =
+            'I stopped after 10 tool calls — the run was getting long. Ask me to continue from here.';
+          break;
+        }
+        callsMade += 1;
+        const todoIndex = todoIndices[i];
+        if (todoIndex >= 0) {
+          todos.start(todoIndex);
+          onEvent({ type: 'todo-update', todos: todos.snapshot() });
+        }
+        const record = await executeCall(call);
+        if (todoIndex >= 0) {
+          todos.finish(todoIndex, record.outcome, record.result.ok);
+          onEvent({ type: 'todo-update', todos: todos.snapshot() });
+        }
 
       // The verify step (steal #5 — Aider): an edit that
       // leaves diagnostics behind is reflected on, not
@@ -451,6 +574,27 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
       }
     }
 
+    // A stop inside the round (aborted / max-rounds)
+    // ends the run — the partial round never feeds the
+    // next plan.
+    if (stopReply) break;
+
+    // The round is done — its results feed the next
+    // plan (history), including the verify step's fix
+    // calls, which are real calls the planner must not
+    // re-propose.
+    history.push({
+      toolCalls: plan.toolCalls,
+      results: records.slice(roundStart).map((r) => ({
+        call: { name: r.name, args: r.args },
+        ok: r.result.ok,
+        output: r.result.output,
+        error: r.result.error,
+      })),
+    });
+    turns += 1;
+    }
+
     // 4. Compose the reply: one line per call + the
     //    diagnostics + the brain's own words.
     const lines: string[] = [];
@@ -501,8 +645,8 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
           .join('\n')}`,
       );
     }
-    if (plan.reply) lines.push(plan.reply);
-    const reply = lines.length > 0 ? lines.join('\n') : 'Done.';
+    if (finalReply) lines.push(finalReply);
+    const reply = stopReply ?? (lines.length > 0 ? lines.join('\n') : 'Done.');
     onEvent({ type: 'reply', reply });
     // A stop that lands during the last call (e.g. while the
     // run is paused on a review) never reaches the next
@@ -516,8 +660,10 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
       edits,
       diagnostics,
       verifications,
-      stopped: options.signal?.aborted ? 'aborted' : 'done',
+      stopped: options.signal?.aborted ? 'aborted' : stopped,
       drivingAgent: drivingAgent.agent,
+      todos: todos.snapshot(),
+      turns,
     };
   } catch (error) {
     // The run never throws — a failure anywhere becomes a

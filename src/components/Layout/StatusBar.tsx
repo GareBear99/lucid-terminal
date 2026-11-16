@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MessageSquare, Terminal, HelpCircle } from 'lucide-react';
+import { MessageSquare, Terminal, HelpCircle, Pause, Play } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
@@ -103,6 +103,31 @@ function StatusBar({ showAI, onToggleAI, onOpenHelp }: StatusBarProps) {
             </button>
           </Tooltip>
         )}
+
+        {/* Ghost completions pause/resume (Tabnine S7 —
+            2026-11-15): one click, always visible (Tabnine's
+            home is the status bar). Paused = no ghost offers
+            anywhere (composer inline + overlay); the state
+            persists per profile via settings. */}
+        <Tooltip content={settings.ghostCompletionsPaused ? 'Resume ghost completions' : 'Pause ghost completions'}>
+          <button
+            onClick={() =>
+              void useSettingsStore
+                .getState()
+                .updateSetting('ghostCompletionsPaused', !settings.ghostCompletionsPaused)
+            }
+            data-testid="ghost-pause-toggle"
+            aria-label={settings.ghostCompletionsPaused ? 'Resume ghost completions' : 'Pause ghost completions'}
+            aria-pressed={settings.ghostCompletionsPaused}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${settings.ghostCompletionsPaused
+              ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+          >
+            {settings.ghostCompletionsPaused ? <Play size={12} /> : <Pause size={12} />}
+            <span>{settings.ghostCompletionsPaused ? 'Ghost paused' : 'Ghost'}</span>
+          </button>
+        </Tooltip>
 
         {/* AI Status — Lucid AI, its own plugin: always shown, on or off. */}
         <Tooltip content={showAI ? 'Hide AI Panel' : 'Show AI Panel'}>

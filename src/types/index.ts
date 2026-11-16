@@ -483,6 +483,15 @@ export interface Settings {
   editorSignatureHelpEnabled: boolean;
   editorHoverEnabled: boolean;
   docsPanelEnabled: boolean;
+  // Ghost completions pause (Tabnine S7 — 2026-11-15): the
+  // composer's ghost offers (the inline provider + the
+  // parent's overlay ghost) paused, not off. A pause is a
+  // temporary "stop suggesting while I type this" — the
+  // toggle lives on the status bar (one click, always
+  // visible), and the state persists per profile so a pause
+  // survives a restart. Default false (ghost on). The
+  // providers read it live; paused = no ghost anywhere.
+  ghostCompletionsPaused: boolean;
   // Settings smalls (Atom steal #20, 2026-11-14): bracket
   // config, wrap-guide rulers, whitespace-on-save, autosave.
   // Brackets default on (Monaco's current behaviour); rulers

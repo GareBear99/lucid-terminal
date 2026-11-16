@@ -24,6 +24,8 @@
 
 import { resolveAgentReview, revertAgentCheckpoint } from '../../lib/agentReview';
 import type { AgentReviewBlockData } from '../../types';
+import { useCompletionAcceptanceLog } from '../../stores/completionAcceptanceLog';
+import { useTerminalStore } from '../../stores/terminalStore';
 
 const BUTTON_CLASS =
   'rounded px-1.5 py-px font-mono text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]';
@@ -42,6 +44,23 @@ export function AgentReviewBlock({
   const canRevert = kept && review.checkpointId && !review.checkpointReverted;
 
   const decide = (decision: 'keep' | 'reject' | 'keep-all' | 'reject-all', alwaysAllowTool = false) => {
+    // Acceptance logging (Tabnine S7): a Keep is an explicit
+    // acceptance of the agent's edit — log the accepted text
+    // (the added lines, capped; the summary when there are
+    // none) with the session and the 'agent' source. The
+    // same card renders in the copilot tab, where there is no
+    // terminal tab — the session is the active tab, best
+    // effort.
+    if (decision === 'keep' || decision === 'keep-all') {
+      const added = review.hunks.flatMap((h) => h.added).join('\n');
+      const snippet = added || review.summary;
+      const sessionId = useTerminalStore.getState().activeTabId ?? 'unknown';
+      useCompletionAcceptanceLog.getState().logAcceptance({
+        snippet,
+        sessionId,
+        source: 'agent',
+      });
+    }
     void resolveAgentReview(review.requestId, decision, { alwaysAllowTool });
   };
 

@@ -140,6 +140,10 @@ const defaultSettings: Settings = {
   editorSignatureHelpEnabled: true,
   editorHoverEnabled: true,
   docsPanelEnabled: true,
+  // Ghost completions pause (Tabnine S7 — 2026-11-15):
+  // false by default (ghost on); the status-bar toggle
+  // flips it, and it persists per profile.
+  ghostCompletionsPaused: false,
   // Settings smalls (Atom steal #20, 2026-11-14) — see
   // src/types/index.ts for the defaults' reasoning.
   editorAutoClosingBrackets: true,

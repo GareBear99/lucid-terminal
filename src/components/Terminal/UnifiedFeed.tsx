@@ -29,6 +29,10 @@ interface UnifiedFeedProps {
   tabId: string;
   /** Put a block's command back into the composer. */
   onReinput: (command: string) => void;
+  /** Re-run commands (multi-select bulk action, 2026-11-15):
+   *  passed through to BlockList. Optional — when absent
+   *  the Re-run all button does not render. */
+  onRerun?: (commands: string[]) => void;
   /** The list IS the feed — it fills the terminal column
    *  (at level 3+ in both modes, and always in agent mode,
    *  which has no xterm below). Default: the capped panel
@@ -37,7 +41,7 @@ interface UnifiedFeedProps {
   fill?: boolean;
 }
 
-export function UnifiedFeed({ tabId, onReinput, fill = false }: UnifiedFeedProps) {
+export function UnifiedFeed({ tabId, onReinput, onRerun, fill = false }: UnifiedFeedProps) {
   // No explicit `blocks` prop: BlockList reads the tab's blocks
   // from historyStore itself and filters restored blocks (the
   // feed is the live session's transcript). Passing the list
@@ -47,6 +51,7 @@ export function UnifiedFeed({ tabId, onReinput, fill = false }: UnifiedFeedProps
     <BlockList
       tabId={tabId}
       onReinput={onReinput}
+      onRerun={onRerun}
       fill={fill}
     />
   );

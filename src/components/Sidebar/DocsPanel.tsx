@@ -32,10 +32,12 @@
  * in the user's face.
  *
  * Known limits, stated here:
- *   - The panel refreshes on cursor moves (and when the
- *     engine becomes ready). An edit that changes a
- *     symbol's docs without moving the cursor leaves the
- *     shown docs stale until the next cursor move.
+ *   - The panel refreshes on cursor moves, when the
+ *     engine becomes ready, and on edits to the file it
+ *     is showing (Kite follow-on #2, 2026-11-15 — a
+ *     debounced force-republish; the bus dedups an
+ *     identical cursor, so the edit path republishes
+ *     explicitly).
  *   - Definition and reference locations are jump targets:
  *     clicking one opens the file at the line in the
  *     editor (the open-file funnel + the editor-jump bus,

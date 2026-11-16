@@ -35,11 +35,12 @@
  *   comes from a probe is marked live; a value that is only a
  *   memory is marked as such; a value that does not exist yet
  *   is shown as not existing, never invented.
- * - The snapshot: no model is trained yet, so no snapshot is
- *   installed — the tab says so. The manifest is checked on
- *   pull (the Connection pass: GitHub IO manifest); there is no
- *   manifest to check against yet, so the canonical version
- *   reads "not checked yet", never a made-up version.
+ * - The snapshot: the live snapshot is published (v1-run1,
+ *   2026-11-12) — no snapshot is installed until it is
+ *   downloaded, and the tab says so. The manifest is checked
+ *   on pull (the Connection pass: GitHub IO manifest); until
+ *   a check has run, the canonical version reads "not checked
+ *   yet", never a made-up version.
  * - Starship detection: the mechanism is open (Gary's call) —
  *   detectStarship() always answers "not detected" with its
  *   detail string. The tab shows that, never a faked detection.
@@ -70,6 +71,23 @@
  *   removes the key and the account. The key value is NEVER
  *   displayed, logged, or copied — the input is cleared after
  *   Connect, exactly like the ping key.
+ * - Kaggle (Gary, 2026-11-12 ~07:47 PST: "Whatever make it
+ *   safe for users as a product"): your own Kaggle account,
+ *   your own GPU quota. A username + an API key from
+ *   kaggle.com (Settings → API → Create New Token), verified
+ *   with a real GET /api/v1/competitions/list call, stored
+ *   encrypted in secureStorage (kaggle-api-key) like the
+ *   Stripe key. Same honesty as Stripe: a pair that does not
+ *   verify is refused, Disconnect removes the key and the
+ *   account. The key value is NEVER displayed, logged, or
+ *   copied — the input is cleared after Connect, exactly like
+ *   the Stripe key. No account is named anywhere here: no
+ *   default, no prefill, no fallback. We fund no GPU hours
+ *   for anyone, so a run on the connected account spends
+ *   that account's own quota — never anyone else's, and
+ *   never Gary's. Running pool jobs on a connected account
+ *   is the next step, not built here — this section connects
+ *   the account, it does not run jobs.
  * - Google Authenticator (Gary, 2026-11-10 ~05:37 PST):
  *   Google sign-in is the identity (the Google Drive segment's
  *   desktop OAuth — the only Google sign-in in Lucid), and
@@ -101,11 +119,24 @@
  *   sign-in row and the enrollment step, so the Authenticator
  *   entry is labelled with that account. Nothing here fakes a
  *   gate.
+ * - Colab (Gary, 2026-11-12 ~07:47 PST): Colab has no API
+ *   key — it is a Google account + an interactive Drive mount
+ *   — so there is no key to store. Linking records which
+ *   Google account your Colab runs under (the sign-in above,
+ *   captured as colabAccountEmail) and nothing else. The
+ *   Drive mount happens when a job runs and needs you there;
+ *   it cannot be done for you from here, and the tab says so
+ *   instead of pretending otherwise. Unlink clears the
+ *   account. Same rule as Kaggle: jobs spend your own Colab
+ *   quota — never anyone else's, and never Gary's. Running
+ *   pool jobs on a linked account is the next step, not built
+ *   here — this section links the account, it does not run
+ *   jobs.
  *
  * SAFETY (Gary, 2026-11-10 ~05:40 PST: "make sure it's all
  * super safe"): no secret is ever displayed, logged, or copied
  * — not in the UI, not in logs, not in the clipboard, not in
- * any file. The Stripe key, the TOTP secret, and the typed
+ * any file. The Stripe key, the Kaggle key, the TOTP secret, and the typed
  * codes all follow that rule, with the single enrollment-time
  * exception above (the setup key, shown once, as text, so it
  * can be typed into Authenticator). Secrets live encrypted in
@@ -143,10 +174,19 @@ import {
 } from '../../lib/eventLog';
 import { SP_VERIFIED_DAILY } from '../../lib/sovereignPoints';
 import {
+  CONTEXT_CONTRACT,
+  CONTEXT_CONTRACT_GUEST,
+} from '../../lib/contextContract';
+import {
   stripeConnectionState,
   validateStripeApiKey,
   type StripeAccount,
 } from '../../lib/stripeAuth';
+import {
+  kaggleConnectionState,
+  validateKaggleApiKey,
+  type KaggleAccount,
+} from '../../lib/kaggleAuth';
 import {
   generateTotpSecret,
   isTotpCodeFormat,
@@ -157,6 +197,11 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useAIStore } from '../../stores/aiStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { usePermissionsStore } from '../../stores/permissionsStore';
+import {
+  revokeVoxelLocalAccess,
+  useVoxelLocalAccessGranted,
+} from '../../stores/synthStore';
+import { useSnapshotUpdateStore } from '../../stores/snapshotUpdateStore';
 
 /** Outcome badge colours — same palette as PermissionsTab, so
  *  the security events read the same way: green = it worked,
@@ -248,6 +293,11 @@ export function SecurityTab() {
   const snapshotStream = useEventLogStore((s) => s.snapshotStream);
   const permissionSnapshot = usePermissionsStore((s) => s.snapshot);
   const permissionDisplayState = usePermissionsStore((s) => s.displayState);
+  // Voxel Directory local-file access (Gary, 2026-11-12 ~10:46 PST):
+  // the same permission the synth plugin tracks, read through the
+  // one source of truth — so a revoke here hides the Local tab in
+  // the overlay, live, in every segment at once.
+  const voxelAccess = useVoxelLocalAccessGranted();
 
   const installedVersion = settings.installedSnapshotVersion ?? null;
   const installedHash = settings.installedSnapshotHash ?? null;
@@ -256,6 +306,35 @@ export function SecurityTab() {
   const lilyUnlocked = isSummonUnlocked(LILY_SUMMON);
   const securityEvents = events.filter((e) => SECURITY_EVENT_TYPES.has(e.type));
   const streamSummary = summarizeSnapshotStream(snapshotStream);
+  // Snapshot manifest check state (Gary, 2026-11-12 ~08:22
+  // PST): the launch check + the "Check now" button below
+  // share this store — the tab shows what the last check
+  // found, never a made-up version.
+  const snapshotCheckStatus = useSnapshotUpdateStore((s) => s.status);
+  const snapshotManifest = useSnapshotUpdateStore((s) => s.manifest);
+  const snapshotCheckResult = useSnapshotUpdateStore((s) => s.checkResult);
+  const snapshotLastCheckedAt = useSnapshotUpdateStore((s) => s.lastCheckedAt);
+  const snapshotLastError = useSnapshotUpdateStore((s) => s.lastError);
+  const snapshotDownloadProgress = useSnapshotUpdateStore(
+    (s) => s.downloadProgress,
+  );
+  const checkSnapshotNow = useSnapshotUpdateStore((s) => s.checkNow);
+  // Canonical (manifest) row — what the last check found, or
+  // the honest "not checked yet" when no check has run. The
+  // manifest IS published; "not checked yet" means this client
+  // has not compared, never that no manifest exists.
+  const canonicalLine =
+    snapshotManifest === null
+      ? 'Not checked yet — the manifest is checked on pull (GitHub IO). A manifest is published — check now to compare.'
+      : `${snapshotManifest.version} — hash ${shortHash(snapshotManifest.sha256)}` +
+        (snapshotLastCheckedAt !== null
+          ? `, checked ${new Date(snapshotLastCheckedAt).toLocaleTimeString()}`
+          : '') +
+        (snapshotCheckResult !== null
+          ? snapshotCheckResult.required
+            ? ' — update required.'
+            : ' — matches the installed snapshot.'
+          : '');
 
   // Server-side (admin) pull — the ping server's public root
   // (GET /). ONE call when the tab opens and one per Refresh
@@ -407,6 +486,104 @@ export function SecurityTab() {
                       : stripeState === 'not-connected'
                         ? 'Not connected. Tap Connect and paste the key to verify it.'
                         : `Connected as ${stripeDisplayName}.`;
+
+  // ---- Kaggle connect (Gary, 2026-11-12 ~07:47 PST:
+  // "Whatever make it safe for users as a product"). Same flow
+  // as the Stripe connect above, verbatim: a username + an API
+  // key from kaggle.com, verified with a real GET
+  // /api/v1/competitions/list call, stored encrypted,
+  // Disconnect removes the key and the account. The key value
+  // is never displayed, logged, or copied — the input is
+  // cleared after Connect, and nothing here renders the key.
+  // Bring your own account: the key belongs to whoever
+  // connects it, and a run spends that account's own GPU
+  // quota — never anyone else's, and never Gary's. ----
+  type KaggleConnectNote =
+    | 'needs-key'
+    | 'checking'
+    | 'connected'
+    | 'failed-key'
+    | 'failed-network'
+    | 'failed'
+    | 'disconnected'
+    | null;
+  const hasKaggleApiKey = useSettingsStore((s) => s.hasKaggleApiKey);
+  const kaggleUsername = useSettingsStore((s) => s.settings.kaggleUsername ?? '');
+  const setKaggleApiKey = useSettingsStore((s) => s.setKaggleApiKey);
+  const deleteKaggleApiKey = useSettingsStore((s) => s.deleteKaggleApiKey);
+  const [kaggleUsernameInput, setKaggleUsernameInput] = useState('');
+  const [kaggleKeyInput, setKaggleKeyInput] = useState('');
+  const [kaggleAccount, setKaggleAccount] = useState<KaggleAccount | null>(null);
+  const [kaggleNote, setKaggleNote] = useState<KaggleConnectNote>(null);
+  // The key was verified by a real Kaggle call when it was
+  // stored, and the username was captured then — a stored key
+  // + a stored username means validated. An account validated
+  // this session counts too.
+  const kaggleValidated =
+    kaggleAccount !== null || (hasKaggleApiKey && kaggleUsername.trim() !== '');
+  const kaggleState = kaggleConnectionState(hasKaggleApiKey, kaggleValidated);
+  const kaggleDisplayName = kaggleAccount?.username ?? kaggleUsername;
+  const handleKaggleConnect = async () => {
+    const username = kaggleUsernameInput.trim();
+    const key = kaggleKeyInput.trim();
+    if (!username || !key) {
+      setKaggleNote('needs-key');
+      return;
+    }
+    setKaggleNote('checking');
+    const result = await validateKaggleApiKey(username, key);
+    if (!result.ok) {
+      setKaggleNote(
+        result.error === 'network'
+          ? 'failed-network'
+          : result.error === 'unauthorized'
+            ? 'failed-key'
+            : 'failed',
+      );
+      return;
+    }
+    try {
+      await setKaggleApiKey(key);
+      await updateSetting('kaggleUsername', result.account.username);
+    } catch {
+      setKaggleNote('failed');
+      return;
+    }
+    setKaggleAccount(result.account);
+    setKaggleKeyInput('');
+    setKaggleNote('connected');
+  };
+  const handleKaggleDisconnect = async () => {
+    try {
+      await deleteKaggleApiKey();
+      await updateSetting('kaggleUsername', '');
+    } catch {
+      // Best effort — the in-memory state still clears below.
+    }
+    setKaggleAccount(null);
+    setKaggleKeyInput('');
+    setKaggleNote('disconnected');
+  };
+  const kaggleNoteText =
+    kaggleNote === 'needs-key'
+      ? 'Not connected. To connect, create an API token on kaggle.com (Settings → API → Create New Token) and paste your username and the key here.'
+      : kaggleNote === 'checking'
+        ? 'Checking the key with Kaggle…'
+        : kaggleNote === 'failed-key'
+          ? 'That username and key did not verify with Kaggle. Check them on kaggle.com and try again.'
+          : kaggleNote === 'failed-network'
+            ? 'Kaggle could not be reached. Check your connection and try again.'
+            : kaggleNote === 'failed'
+              ? 'The key could not be checked. Try again.'
+              : kaggleNote === 'connected'
+                ? `Connected as ${kaggleDisplayName}. The key is stored securely and verified with Kaggle.`
+                : kaggleNote === 'disconnected'
+                  ? 'Disconnected. The key was removed.'
+                  : kaggleState === 'needs-key'
+                    ? 'Not connected. Your Kaggle username and an API key from kaggle.com are needed before Connect can verify them.'
+                    : kaggleState === 'not-connected'
+                      ? 'Not connected. Tap Connect and paste the username and key to verify them.'
+                      : `Connected as ${kaggleDisplayName}.`;
 
   // ---- Google sign-in + Google Authenticator (Gary 2026-11-10
   // ~05:37 PST). Google sign-in is the identity — the Google
@@ -602,6 +779,48 @@ export function SecurityTab() {
     setTotpNote('Authenticator removed. The secret was deleted — enroll again to turn it back on.');
   };
 
+  // ---- Colab link (Gary, 2026-11-12 ~07:47 PST). Colab has
+  // no API key — it is a Google account + an interactive Drive
+  // mount — so there is no key to store and nothing to verify
+  // with a call. Linking records which Google account your
+  // Colab runs under: the sign-in above (googleAccountEmail),
+  // captured as colabAccountEmail. The Drive mount happens
+  // when a job runs and needs you there; it cannot be done for
+  // you from here, and this section does not pretend otherwise.
+  // Unlink clears the account. Jobs spend your own Colab quota
+  // — never anyone else's, and never Gary's. ----
+  const colabAccountEmail = useSettingsStore((s) => s.settings.colabAccountEmail ?? '');
+  const [colabNote, setColabNote] = useState<string | null>(null);
+  const handleColabLink = async () => {
+    const email = googleAccountEmail.trim();
+    if (googleSignInState !== 'signed-in' || email === '') {
+      setColabNote(
+        'Sign in with Google above first — Colab links to that account, and the account email has to be captured before it can link.',
+      );
+      return;
+    }
+    try {
+      await updateSetting('colabAccountEmail', email);
+    } catch {
+      setColabNote('Colab could not be linked. Try again.');
+      return;
+    }
+    setColabNote(`Linked — Colab runs under ${email}.`);
+  };
+  const handleColabUnlink = async () => {
+    try {
+      await updateSetting('colabAccountEmail', '');
+    } catch {
+      // Best effort — the in-memory state still clears below.
+    }
+    setColabNote('Unlinked. Colab no longer runs under any account here.');
+  };
+  const colabNoteText =
+    colabNote ??
+    (colabAccountEmail.trim() !== ''
+      ? `Linked — Colab runs under ${colabAccountEmail.trim()}.`
+      : 'Not linked — sign in with Google above, then link Colab to that account.');
+
   return (
     <div className="space-y-4" data-testid="security-tab">
       <div className="rounded-md border border-[var(--border)] p-3 space-y-2">
@@ -611,12 +830,13 @@ export function SecurityTab() {
             Security — the whole platform, in one place
           </h3>
         </div>
-        <p className="text-sm leading-relaxed">
+        <p className="text-sm leading-[1.5]">
           The client-side home of the lightweight tracking system:
           the snapshot, the last update stream&rsquo;s time and
           strain on the ring, the Living Golem, starship
-          detection, the ping key, the Stripe connect, Google
-          sign-in with Google Authenticator, SP, the allowances,
+          detection, the ping key, the Stripe connect, Kaggle
+          and Colab connects, Google sign-in with Google
+          Authenticator, SP, the allowances,
           and the permissions and denials — checked here, platform
           wide, with when and why for each event. The server side
           (admin pull) is below. Nothing here is assumed: a value
@@ -635,11 +855,11 @@ export function SecurityTab() {
       <Section title="Snapshot">
         {installedVersion === null ? (
           <>
-            <Row label="Installed">No snapshot installed — no model trained yet.</Row>
+            <Row label="Installed">No snapshot installed yet.</Row>
             <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
               The snapshot is the trained model (one GGUF + its
-              SHA-256 hash). Training has not finished yet, so
-              there is nothing installed to check.
+              SHA-256 hash). The live snapshot is published on
+              GitHub — check now to download it.
             </p>
           </>
         ) : (
@@ -651,10 +871,39 @@ export function SecurityTab() {
             <Row label="Verified">Hash verified before install.</Row>
           </>
         )}
-        <Row label="Canonical (manifest)">
-          Not checked yet — the manifest is checked on pull (GitHub
-          IO). There is no manifest published yet.
-        </Row>
+        <Row label="Canonical (manifest)">{canonicalLine}</Row>
+        {snapshotLastError !== null && (
+          <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+            Last check failed: {snapshotLastError}
+          </p>
+        )}
+        {snapshotCheckStatus === 'downloading' &&
+          snapshotDownloadProgress !== null && (
+            <Row label="Downloading">
+              {snapshotManifest?.version ?? 'Snapshot'} —{' '}
+              {snapshotDownloadProgress.receivedBytes.toLocaleString('en-US')}
+              {' / '}
+              {snapshotDownloadProgress.totalBytes !== null
+                ? `${snapshotDownloadProgress.totalBytes.toLocaleString('en-US')} bytes`
+                : 'unknown total'}
+            </Row>
+          )}
+        <button
+          type="button"
+          onClick={() => void checkSnapshotNow()}
+          disabled={
+            snapshotCheckStatus === 'checking' ||
+            snapshotCheckStatus === 'downloading'
+          }
+          data-testid="security-check-snapshot-now"
+          className="btn btn-secondary text-xs"
+        >
+          {snapshotCheckStatus === 'checking'
+            ? 'Checking…'
+            : snapshotCheckStatus === 'downloading'
+              ? 'Downloading…'
+              : 'Check now'}
+        </button>
         <Row label="Update alerts">
           {dismissedVersions.length === 0
             ? 'On — a new snapshot alerts once per version.'
@@ -774,7 +1023,9 @@ export function SecurityTab() {
       <GroupHeading>Sign-in and money</GroupHeading>
       <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
         Where Lucid connects to money and to you: the Stripe
-        connect (moved here from the Segments panel) and Google
+        connect (moved here from the Segments panel), the Kaggle
+        connect (your own account, your own GPU quota) and the
+        Colab link (your own Google account), and Google
         sign-in with Google Authenticator.
       </p>
 
@@ -841,6 +1092,62 @@ export function SecurityTab() {
             Stripe the way they connect to AI Chat.
           </p>
         </div>
+      </Section>
+
+      {/* Kaggle — the connect (Gary, 2026-11-12 ~07:47 PST:
+          "Whatever make it safe for users as a product"). Your
+          own Kaggle account, your own GPU quota: a username +
+          an API key from kaggle.com, verified with a real GET
+          /api/v1/competitions/list call, stored encrypted. The
+          key value is never displayed, logged, or copied. */}
+      <Section title="Kaggle">
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={kaggleUsernameInput}
+            onChange={(e) => setKaggleUsernameInput(e.target.value)}
+            placeholder="Your Kaggle username"
+            aria-label="Kaggle username"
+            autoComplete="off"
+            className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-white/5 px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)]"
+          />
+          <input
+            type="password"
+            value={kaggleKeyInput}
+            onChange={(e) => setKaggleKeyInput(e.target.value)}
+            placeholder="Paste the API key from kaggle.com"
+            aria-label="Kaggle API key"
+            autoComplete="off"
+            className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-white/5 px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)]"
+          />
+          <button
+            type="button"
+            onClick={() => void handleKaggleConnect()}
+            aria-label="Connect Kaggle"
+            title="Connect Kaggle — verifies the key with Kaggle"
+            className="rounded-md border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)] shrink-0"
+          >
+            Connect Kaggle
+          </button>
+          {kaggleState === 'connected' && (
+            <button
+              type="button"
+              onClick={() => void handleKaggleDisconnect()}
+              aria-label="Disconnect Kaggle"
+              title="Disconnect Kaggle — removes the stored key"
+              className="rounded-md border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)] shrink-0"
+            >
+              Disconnect
+            </button>
+          )}
+        </div>
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{kaggleNoteText}</p>
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+          Connects your own Kaggle account to Lucid so a pool job can run on your account, on
+          your GPU quota — never anyone else&rsquo;s, and never Gary&rsquo;s. We fund no GPU
+          hours for anyone, so nothing here runs on a shared account. Running pool jobs on a
+          connected account is the next step — the connection is what this section builds now.
+        </p>
       </Section>
 
       {/* Google sign-in + Google Authenticator — the second
@@ -1024,6 +1331,56 @@ export function SecurityTab() {
         </p>
       </Section>
 
+      {/* Colab — the link (Gary, 2026-11-12 ~07:47 PST).
+          Colab has no API key: it is a Google account + an
+          interactive Drive mount. Linking records which Google
+          account your Colab runs under — the sign-in above —
+          and nothing else. The Drive mount happens when a job
+          runs and needs you there; it cannot be done for you
+          from here. Jobs spend your own Colab quota. */}
+      <Section title="Colab">
+        <Row label="Colab account">
+          {colabAccountEmail.trim() !== ''
+            ? `Linked — Colab runs under ${colabAccountEmail.trim()}.`
+            : googleSignInState === 'signed-in'
+              ? 'Not linked yet — link it to the Google sign-in above.'
+              : 'Not linked — sign in with Google above first, then link Colab to that account.'}
+        </Row>
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">{colabNoteText}</p>
+        <div className="flex items-center gap-3">
+          {colabAccountEmail.trim() === '' && googleSignInState === 'signed-in' && (
+            <button
+              type="button"
+              onClick={() => void handleColabLink()}
+              aria-label="Link Colab"
+              title="Link Colab — records the Google sign-in above as the account Colab runs under"
+              className="rounded-md border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)] shrink-0"
+            >
+              Link Colab
+            </button>
+          )}
+          {colabAccountEmail.trim() !== '' && (
+            <button
+              type="button"
+              onClick={() => void handleColabUnlink()}
+              aria-label="Unlink Colab"
+              title="Unlink Colab — clears the linked account"
+              className="rounded-md border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border)] shrink-0"
+            >
+              Unlink
+            </button>
+          )}
+        </div>
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+          Colab has no API key — it is your Google account plus an interactive Drive mount, and
+          the mount needs you there when a job runs. Linking here only records which Google
+          account your Colab runs under; it does not mount Drive and it does not start a run.
+          Jobs spend your own Colab quota — never anyone else&rsquo;s, and never Gary&rsquo;s.
+          Running pool jobs on a linked account is the next step — the link is what this section
+          builds now.
+        </p>
+      </Section>
+
       {/* SP balance — live from the server, or the base-100
           known state when the server is unreachable. */}
       <Section title="SP balance">
@@ -1107,6 +1464,45 @@ export function SecurityTab() {
             );
           })}
         </div>
+        {/* Voxel Directory local-file access (Gary, 2026-11-12
+            ~10:46 PST): the in-app grant, tracked here alongside
+            the OS permissions. "Granted — remembered" is the "do
+            not show again" grant; "Granted — this session" is a
+            single Local-tab entry, and it lapses when the overlay
+            closes. Revoking hides the Local tab again, live. */}
+        <div className="flex items-center gap-2" data-permission="voxel-local-access">
+          <span className="text-xs font-semibold flex-1">
+            Voxel Directory — local files
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+              voxelAccess.granted
+                ? 'bg-green-500/10 text-green-500'
+                : 'bg-yellow-500/10 text-yellow-500'
+            }`}
+          >
+            {voxelAccess.granted
+              ? voxelAccess.remembered
+                ? 'Granted — remembered'
+                : 'Granted — this session'
+              : 'Not granted'}
+          </span>
+          {voxelAccess.granted && (
+            <button
+              type="button"
+              onClick={() => void revokeVoxelLocalAccess()}
+              data-testid="security-revoke-voxel-local-access"
+              className="btn btn-secondary text-xs"
+            >
+              Revoke
+            </button>
+          )}
+        </div>
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+          The Voxel Directory lists your local files only after you
+          grant access in its Local tab. Revoking hides the Local tab
+          again.
+        </p>
       </Section>
 
       {/* Security events — the snapshot + permission steps as
@@ -1119,7 +1515,7 @@ export function SecurityTab() {
           <RefreshCw size={14} className="text-[var(--text-muted)]" />
         </div>
         {refusedCount > 0 && (
-          <p className="text-xs text-yellow-500">
+          <p className="text-xs leading-[1.5] text-yellow-500">
             {refusedCount} event{refusedCount === 1 ? '' : 's'} refused — the
             event channel was full. Nothing was dropped silently;
             the producer was told to back off.
@@ -1263,6 +1659,70 @@ export function SecurityTab() {
           (when it is on, for which designated job, how long)
           waits on the pool.
         </Row>
+      </Section>
+
+      {/* What leaves the machine (Tabnine S4 — 2026-11-15):
+          the context-window contract, per brain/path, per
+          request — rendered from src/lib/contextContract.ts,
+          which derives the list from the real payload
+          builders (each item cites the code path that sends
+          or reads it). If a builder changes what it sends,
+          that module is the place to update. */}
+      <Section title="What leaves the machine">
+        <p className="text-xs leading-[1.5] text-[var(--text-muted)]">
+          Per brain and path, per request — derived from the
+          payload builders, not from memory. No path sends
+          file contents automatically: Copilot sends paths
+          only, and the AI chat sends only its own messages
+          (your words). If you paste file contents into the
+          chat, those contents go — the app never attaches
+          them for you. No path sends types, diagnostics, or
+          error reports, and tool results are never sent back
+          (the loop plans once per prompt and never re-plans).
+        </p>
+        {CONTEXT_CONTRACT.map((entry) => (
+          <div
+            key={entry.id}
+            data-testid={`context-contract-${entry.id}`}
+            className="space-y-1 pt-2"
+          >
+            <h4 className="text-xs font-semibold text-[var(--text-secondary)]">
+              {entry.surface}
+            </h4>
+            <Row label="Goes to">{entry.destination}</Row>
+            {entry.sends.length > 0 ? (
+              <div className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                <span className="font-semibold text-[var(--text-secondary)]">Sends: </span>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {entry.sends.map((item) => (
+                    <li key={item.item}>
+                      {item.item}{' '}
+                      <span className="text-[var(--text-muted)]">({item.source})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <Row label="Sends">
+                Nothing — nothing leaves the machine on this path.
+              </Row>
+            )}
+            {entry.staysLocal.length > 0 && (
+              <div className="text-xs leading-[1.5] text-[var(--text-muted)]">
+                <span className="font-semibold text-[var(--text-secondary)]">Stays local: </span>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {entry.staysLocal.map((item) => (
+                    <li key={item.item}>
+                      {item.item}{' '}
+                      <span className="text-[var(--text-muted)]">({item.source})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ))}
+        <Row label="In guest">{CONTEXT_CONTRACT_GUEST}</Row>
       </Section>
     </div>
   );

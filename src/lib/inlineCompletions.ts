@@ -67,6 +67,12 @@ export interface InlineCompletionContext {
   /** The parent overlay's ghost for this draft, if any — the
    *  provider stays silent while it is set. */
   parentGhost: string | null;
+  /** Ghost completions paused (Tabnine S7 — 2026-11-15):
+   *  the user paused ghost offers from the status bar. The
+   *  provider returns no completion while paused — no ghost
+   *  anywhere. Read from settings at request time by the
+   *  composer's getContext. */
+  paused?: boolean;
   /** Identifiers the live tree-sitter structure says are in
    *  scope in the file being edited (steal #2 — top-level
    *  definitions + imports for the composer). Optional: the
@@ -101,6 +107,10 @@ export function computeInlineCompletion(
   ctx: InlineCompletionContext,
 ): InlineCompletion | null {
   if (!draft || draft.includes('\n')) return null;
+  // Ghost completions paused (Tabnine S7): no offer while
+  // paused — the user asked for silence, not a different
+  // completion.
+  if (ctx.paused) return null;
   // Agent mode defers to the parent's overlay ghost (the tab's
   // own agent prompts) — see the module doc above.
   if (ctx.mode === 'agent') return null;

@@ -41,6 +41,13 @@ const mockState = vi.hoisted(() => ({
   contentHeight: 40,
   editorProps: null as null | Record<string, any>,
   mounted: false,
+  // Mounted keybinding callbacks, keyed by the fake KeyCode:
+  // the regression test fires them to prove they read the
+  // LATEST props, not the mount-time closures.
+  commands: new Map<number, () => void>(),
+  // What the fake editor's getValue() returns (the Enter
+  // command submits this).
+  editorValue: '',
   // False when the Monaco bundle never mounts (fallback test): the mock
   // Editor renders but never calls onMount, like the real thing.
   mountEditor: true,
@@ -48,11 +55,13 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock('@monaco-editor/react', () => {
   const fakeEditor = {
-    getValue: () => '',
+    getValue: () => mockState.editorValue,
     setValue: () => {},
     getModel: () => null,
     setPosition: () => {},
-    addCommand: () => {},
+    addCommand: (key: number, cb: () => void) => {
+      mockState.commands.set(key, cb);
+    },
     focus: () => {},
     getContentHeight: () => mockState.contentHeight,
     onDidContentSizeChange: (cb: (e: { contentHeight: number }) => void) => {
@@ -62,7 +71,7 @@ vi.mock('@monaco-editor/react', () => {
   };
   const fakeMonaco = {
     editor: { defineTheme: () => {}, setTheme: () => {} },
-    KeyCode: { Enter: 3, UpArrow: 16, DownArrow: 18 },
+    KeyCode: { Enter: 3, UpArrow: 16, DownArrow: 18, Escape: 9 },
   };
   return {
     loader: {
@@ -110,6 +119,8 @@ beforeEach(() => {
   mockState.editorProps = null;
   mockState.mounted = false;
   mockState.mountEditor = true;
+  mockState.commands.clear();
+  mockState.editorValue = '';
 });
 
 function editorHeight() {
@@ -202,6 +213,78 @@ describe('prompt input bubble', () => {
     // The grow effect ran and holds the one-line floor in jsdom
     // (scrollHeight is 0 there); in a real browser it grows to the cap.
     expect(textarea.style.height).toBe('40px');
+  });
+});
+
+describe('fallback textarea partial accept (Tabnine S1)', () => {
+  function GhostHarness({ initial = '', ghost = null as string | null }) {
+    const [input, setInput] = useState(initial);
+    return (
+      <InputArea
+        input={input}
+        setInput={setInput}
+        onSubmit={() => {}}
+        onHistoryUp={() => {}}
+        onHistoryDown={() => {}}
+        ghostSuggestion={ghost}
+        onAcceptSuggestion={() => {
+          if (ghost) setInput(ghost);
+        }}
+      />
+    );
+  }
+
+  function renderFallback(initial: string, ghost: string | null) {
+    mockState.initImpl = () => Promise.reject(new Error('monaco down'));
+    mockState.mountEditor = false;
+    render(<GhostHarness initial={initial} ghost={ghost} />);
+    return screen.findByPlaceholderText(/plain input/) as Promise<HTMLTextAreaElement>;
+  }
+
+  function setCursorAtEnd(el: HTMLTextAreaElement) {
+    el.selectionStart = el.value.length;
+    el.selectionEnd = el.value.length;
+  }
+
+  test('Ctrl+Right accepts the next word of the ghost, then the next', async () => {
+    const textarea = await renderFallback('echo ', 'echo hello world');
+    setCursorAtEnd(textarea);
+    fireEvent.keyDown(textarea, { key: 'ArrowRight', ctrlKey: true });
+    expect(textarea.value).toBe('echo hello');
+    setCursorAtEnd(textarea);
+    fireEvent.keyDown(textarea, { key: 'ArrowRight', ctrlKey: true });
+    expect(textarea.value).toBe('echo hello world');
+  });
+
+  test('Ctrl+Down accepts the next line of a multi-line ghost', async () => {
+    const textarea = await renderFallback('echo ', 'echo a\necho b');
+    setCursorAtEnd(textarea);
+    fireEvent.keyDown(textarea, { key: 'ArrowDown', ctrlKey: true });
+    expect(textarea.value).toBe('echo a\n');
+  });
+
+  test('Ctrl+Right with the cursor mid-input does nothing (normal word-jump)', async () => {
+    const textarea = await renderFallback('echo ', 'echo hello world');
+    textarea.selectionStart = 2;
+    textarea.selectionEnd = 2;
+    fireEvent.keyDown(textarea, { key: 'ArrowRight', ctrlKey: true });
+    expect(textarea.value).toBe('echo ');
+  });
+
+  test('Ctrl+Right with no ghost does nothing', async () => {
+    const textarea = await renderFallback('echo ', null);
+    setCursorAtEnd(textarea);
+    fireEvent.keyDown(textarea, { key: 'ArrowRight', ctrlKey: true });
+    expect(textarea.value).toBe('echo ');
+  });
+
+  test('Tab still takes the whole ghost after a partial accept', async () => {
+    const textarea = await renderFallback('echo ', 'echo hello world');
+    setCursorAtEnd(textarea);
+    fireEvent.keyDown(textarea, { key: 'ArrowRight', ctrlKey: true });
+    expect(textarea.value).toBe('echo hello');
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+    expect(textarea.value).toBe('echo hello world');
   });
 });
 
@@ -397,5 +480,127 @@ describe('prompt input has a drag handle (Gary, 2026-11-08 — recovered)', () =
     setContentHeight(2000);
     expect(editorHeight()).toBe('255');
     expect(mockState.editorProps?.options?.scrollbar?.vertical).toBe('auto');
+  });
+});
+
+describe('mounted Monaco commands read the latest props (Gary, 2026-11-14 — stale-closure fix)', () => {
+  // The mounted editor registers its keybindings ONCE, at mount.
+  // Before the fix the Enter/Up/Down commands closed over the
+  // FIRST render's props: Up recalled the history as it was at
+  // mount (empty), so it did nothing until a remount; Enter
+  // submitted through a stale onSubmit. The bindings must read
+  // the current handlers through latestRef — these tests fire
+  // the MOUNTED callbacks after a rerender with new props and
+  // assert the NEW behaviour, which fails on the old code.
+  const UP = 16;
+  const ENTER = 3;
+  const ESC = 9;
+
+  function fireMountedCommand(key: number) {
+    const cb = mockState.commands.get(key);
+    expect(cb, `no mounted command for key ${key}`).toBeDefined();
+    act(() => {
+      cb?.();
+    });
+  }
+
+  /** The current input, as the mock Editor last received it. */
+  function editorValue() {
+    return mockState.editorProps?.value as string | undefined;
+  }
+
+  /** Harness whose history grows after mount: the onHistoryUp
+   *  prop closes over the CURRENT history each render, like
+   *  Terminal's walk over commandHistoryStore. */
+  function GrowingHistoryHarness() {
+    const [input, setInput] = useState('');
+    const [history, setHistory] = useState<string[]>(['first command']);
+    return (
+      <>
+        <InputArea
+          input={input}
+          setInput={setInput}
+          onSubmit={() => {}}
+          onHistoryUp={() => setInput(history[history.length - 1])}
+          onHistoryDown={() => {}}
+          isProcessing={false}
+          flat={false}
+        />
+        <button
+          data-testid="grow-history"
+          onClick={() => setHistory(['first command', 'second command'])}
+        >
+          grow
+        </button>
+      </>
+    );
+  }
+
+  test('UpArrow after a rerender recalls the NEWEST history, not the mount-time one', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    render(<GrowingHistoryHarness />);
+    await screen.findByTestId('monaco-editor');
+    // At mount the history is ['first command']: Up recalls it.
+    fireMountedCommand(UP);
+    expect(editorValue()).toBe('first command');
+    // The history grows WITHOUT a remount (the editor stays
+    // mounted): Up must now recall the new newest entry.
+    fireEvent.click(screen.getByTestId('grow-history'));
+    fireMountedCommand(UP);
+    expect(editorValue()).toBe('second command');
+  });
+
+  /** Harness whose submit/escape handlers close over a tag that
+   *  changes after mount — the mounted command must call the
+   *  CURRENT handler, not the mount-time one. */
+  function TaggedHandlersHarness() {
+    const [input, setInput] = useState('');
+    const [tag, setTag] = useState('A');
+    const [submitted, setSubmitted] = useState<string[]>([]);
+    const [escaped, setEscaped] = useState('');
+    return (
+      <>
+        <InputArea
+          input={input}
+          setInput={setInput}
+          onSubmit={(value) => setSubmitted((prev) => [...prev, `${tag}:${value}`])}
+          onHistoryUp={() => {}}
+          onHistoryDown={() => {}}
+          onEscape={() => setEscaped(tag)}
+          isProcessing={false}
+          flat={false}
+        />
+        <button data-testid="retag" onClick={() => setTag('B')}>
+          retag
+        </button>
+        <div data-testid="submitted">{submitted.join(',')}</div>
+        <div data-testid="escaped">{escaped}</div>
+      </>
+    );
+  }
+
+  test('Enter after a rerender submits through the CURRENT onSubmit', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    render(<TaggedHandlersHarness />);
+    await screen.findByTestId('monaco-editor');
+    mockState.editorValue = 'ls -la';
+    fireMountedCommand(ENTER);
+    expect(screen.getByTestId('submitted').textContent).toBe('A:ls -la');
+    // Retag WITHOUT a remount: the mounted Enter command must
+    // call the new handler.
+    fireEvent.click(screen.getByTestId('retag'));
+    fireMountedCommand(ENTER);
+    expect(screen.getByTestId('submitted').textContent).toBe('A:ls -la,B:ls -la');
+  });
+
+  test('Escape after a rerender calls the CURRENT onEscape', async () => {
+    mockState.initImpl = () => Promise.resolve();
+    render(<TaggedHandlersHarness />);
+    await screen.findByTestId('monaco-editor');
+    fireMountedCommand(ESC);
+    expect(screen.getByTestId('escaped').textContent).toBe('A');
+    fireEvent.click(screen.getByTestId('retag'));
+    fireMountedCommand(ESC);
+    expect(screen.getByTestId('escaped').textContent).toBe('B');
   });
 });

@@ -40,6 +40,10 @@
  *   chunks append, quiet-timer close, OSC 133 exit codes) is
  *   the same machinery as Terminal.tsx, running here in this
  *   renderer against this window's historyStore.
+ *   Ctrl+R opens the command history palette at level 3+
+ *   (sweep item 5, detached half, 2026-11-15) — the same
+ *   palette as the main window; below 3 Ctrl+R stays the
+ *   shell's reverse-search.
  * - Slash: /defcon (+ /defcon merge) runs locally — the same
  *   branch as the main window, same output, same event-log
  *   entry. Every other slash line is a Lucid command, never a
@@ -60,16 +64,20 @@
  * main delivers them on 'closed', so the tab is never lost.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, ChevronRight, CornerUpLeft, History, Minus, X } from 'lucide-react';
+import { BookOpen, ChevronRight, CornerUpLeft, Folder, History, Minus, X } from 'lucide-react';
 import TerminalTabs from './TerminalTabs';
 import { XtermSurface, type XtermSurfaceHandle } from './XtermSurface';
 import { UnifiedFeed } from './UnifiedFeed';
 import { InputArea } from './InputArea';
+import { CommandHistoryPalette } from './CommandHistoryPalette';
 import { PillRow } from './PillRow';
 import { HintLine } from './HintLine';
 import { LuciferStatusIndicator } from './LuciferStatusIndicator';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
 import { DocsPanel } from '../Sidebar/DocsPanel';
+import { ExplorerPanel } from '../Sidebar/ExplorerPanel';
+import { useFileStore } from '../../stores/fileStore';
+import { toDetachedFile } from '../../types/detach';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -142,7 +150,8 @@ export default function MiniTerminal() {
   // its w-12 rail. In a guest session the History panel
   // shows the empty state (selectHistoryBlocksForTab veils
   // the owner's blocks), exactly as in the main window.
-  const [miniPanel, setMiniPanel] = useState<'history' | 'docs' | null>(null);
+  const [miniPanel, setMiniPanel] = useState<'explorer' | 'history' | 'docs' | null>(null);
+  const [miniExplorerCollapsed, setMiniExplorerCollapsed] = useState(false);
   const [miniHistoryCollapsed, setMiniHistoryCollapsed] = useState(false);
   const [miniDocsCollapsed, setMiniDocsCollapsed] = useState(false);
   const miniHistoryBlocks = useHistoryStore((s) => selectHistoryBlocksForTab(s, activeTabId));
@@ -154,6 +163,28 @@ export default function MiniTerminal() {
   };
   const handleClearHistory = () => {
     if (activeTabId) useHistoryStore.getState().clearBlocks(activeTabId);
+  };
+  // Explorer file-open in a detached window (2026-11-15):
+  // this window has no editor, so a file opened from the
+  // detached Explorer opens in a detached editor window
+  // (MiniFiles) — the detached equivalent of the main window
+  // switching to the editor. The file is already open in
+  // this window's fileStore (ExplorerPanel opened it); the
+  // detach hands its content to the new window at the click
+  // point, and this window drops its copy. A refused detach
+  // keeps the file exactly where it was (open here, invisible
+  // — but not lost).
+  const handleExplorerOpenFile = async (path: string, x: number, y: number) => {
+    const file = useFileStore.getState().openFiles.find((f) => f.path === path);
+    if (!file) return;
+    const api = window.lucidAPI?.filesDetach;
+    if (!api) return;
+    try {
+      const result = await api.detach(toDetachedFile(file), x, y);
+      if (result.ok) useFileStore.getState().detachFile(path);
+    } catch {
+      // Detach unavailable — the file stays open here.
+    }
   };
   const termRef = useRef<XtermSurfaceHandle>(null);
   const hadTabsRef = useRef(false);
@@ -199,6 +230,24 @@ export default function MiniTerminal() {
   const prompterActiveRef = useRef(prompterActive);
   useEffect(() => {
     prompterActiveRef.current = prompterActive;
+  }, [prompterActive]);
+  // Command history palette (sweep item 5, detached half —
+  // 2026-11-15): the same Ctrl+R palette as the main window.
+  // The binding fires ONLY while the composer owns typing
+  // (level 3+ terminal mode); below 3 Ctrl+R stays the
+  // shell's readline reverse-search. No agent-mode check: a
+  // detached window has no agent mode (terminal only), and
+  // no modal check: no Atom modal renders here.
+  const [historyPaletteOpen, setHistoryPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.key.toLowerCase() !== 'r') return;
+      if (!prompterActive) return;
+      e.preventDefault();
+      setHistoryPaletteOpen(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, [prompterActive]);
   /** Scrollback mirror (sweep item 16 — same shape as
    *  Terminal.tsx, but keyed by the ACTIVE tab: the detached
@@ -531,7 +580,10 @@ export default function MiniTerminal() {
   // prefix match) and from known slash-command names — see
   // src/lib/prompterSuggestions.ts. Computed only while the
   // prompter is active: below level 3 there is no composer.
-  const ghostSuggestion = prompterActive ? computeGhostSuggestion(devInput, commandHistory) : null;
+  const ghostSuggestion =
+    prompterActive && !settings.ghostCompletionsPaused
+      ? computeGhostSuggestion(devInput, commandHistory)
+      : null;
 
   // Hint line (Warp §5, same as Terminal.tsx): what the next
   // keystroke does, for this terminal session and draft. The
@@ -1056,6 +1108,21 @@ export default function MiniTerminal() {
         {/* Panels rail: History + Docs. Always present; an
             icon toggles its panel (a second click closes it). */}
         <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-[var(--border)] bg-[var(--bg-secondary)] py-3">
+          <Tooltip content="Explorer" placement="right">
+            <button
+              type="button"
+              data-testid="mini-panel-explorer"
+              aria-label="Explorer"
+              aria-pressed={miniPanel === 'explorer'}
+              onClick={() => {
+                setMiniPanel((p) => (p === 'explorer' ? null : 'explorer'));
+                setMiniExplorerCollapsed(false);
+              }}
+              className={`rounded-lg p-2 hover:bg-[var(--bg-tertiary)] ${miniPanel === 'explorer' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
+            >
+              <Folder size={20} />
+            </button>
+          </Tooltip>
           <Tooltip content="History" placement="right">
             <button
               type="button"
@@ -1087,6 +1154,26 @@ export default function MiniTerminal() {
             </button>
           </Tooltip>
         </div>
+        {miniPanel === 'explorer' && !miniExplorerCollapsed && (
+          <ExplorerPanel
+            width={320}
+            onMinimize={() => setMiniExplorerCollapsed(true)}
+            onOpenFile={handleExplorerOpenFile}
+          />
+        )}
+        {miniPanel === 'explorer' && miniExplorerCollapsed && (
+          <div className="flex h-full w-12 shrink-0 flex-col items-center border-r border-[var(--border)] bg-[var(--bg-secondary)] py-3">
+            <Tooltip content="Show explorer" placement="right">
+              <button
+                onClick={() => setMiniExplorerCollapsed(false)}
+                className="rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]"
+                aria-label="Show explorer"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
         {miniPanel === 'history' && (
           <ConversationHistory
             blocks={miniHistoryBlocks}
@@ -1176,8 +1263,32 @@ export default function MiniTerminal() {
               sweep settle, 2026-11-15, extends the unmount to
               devmode here too). */}
           {prompterActive && (
-            <UnifiedFeed tabId={activeTab.id} onReinput={(command) => setDevInput(command)} fill />
+            <UnifiedFeed
+              tabId={activeTab.id}
+              onReinput={(command) => setDevInput(command)}
+              // Multi-select re-run-all (2026-11-15): the
+              // selected shell commands, in feed order, one at
+              // a time through the normal submit path (the
+              // submit guard releases in a finally, so each
+              // command lands before the next starts). The
+              // detached window is terminal-only (no agent
+              // mode), so onRerun is always wired here.
+              onRerun={async (commands) => {
+                for (const cmd of commands) await handleComposerSubmit(cmd);
+              }}
+              fill
+            />
           )}
+          {/* Command history palette (sweep item 5, detached
+              half) — Ctrl+R over the command history. Rendered
+              here (a fixed overlay, so its position in the tree
+              is irrelevant); the binding is above. Selecting a
+              command re-inputs it into the composer. */}
+          <CommandHistoryPalette
+            open={historyPaletteOpen}
+            onReinput={(command) => setDevInput(command)}
+            onClose={() => setHistoryPaletteOpen(false)}
+          />
           {/* DEFCON 3 Phase 5 — the xterm surface is UNMOUNTED
               at level 3+ (see the duplication
               decision in BlockList.tsx): the BlockList above is

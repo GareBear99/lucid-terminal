@@ -8,8 +8,10 @@
  * free-tier allowances, the permissions and denials, and the
  * security events as they happened in the ring.
  *
- * Covers: no snapshot installed (no model trained yet — said
- * honestly, never invented); Living Golem locked; starship not
+ * Covers: no snapshot installed yet (the live snapshot is
+ * published — said honestly, never invented) + a "Check now"
+ * button that reports honestly when no bridge exists;
+ * Living Golem locked; starship not
  * detected (the mechanism is open — never faked); ping key not
  * set (value never shown); SP not checked yet; the allowances
  * show the free-tier caps with usage honestly "not tracked";
@@ -30,6 +32,8 @@ import { useSettingsStore } from '../src/stores/settingsStore';
 import { useAIStore } from '../src/stores/aiStore';
 import { useEventLogStore } from '../src/stores/eventLogStore';
 import { usePermissionsStore } from '../src/stores/permissionsStore';
+import { useSnapshotUpdateStore } from '../src/stores/snapshotUpdateStore';
+import { useSynthStore } from '../src/stores/synthStore';
 import { totpCode } from '../src/lib/totpAuth';
 
 /** The Google sign-in the tab reads (Drive segment's OAuth —
@@ -113,6 +117,15 @@ describe('SecurityTab', () => {
     useEventLogStore.getState().clear();
     useAIStore.setState({ pingQuota: null, pingQuotaSource: null });
     usePermissionsStore.setState({ snapshot: null, lastCheckedAt: null });
+    useSnapshotUpdateStore.setState({
+      status: 'idle',
+      manifest: null,
+      checkResult: null,
+      lastCheckedAt: null,
+      lastError: null,
+      downloadProgress: null,
+      lastAlertShownVersion: null,
+    });
   });
 
   afterEach(() => {
@@ -125,13 +138,33 @@ describe('SecurityTab', () => {
     useEventLogStore.getState().clear();
     useAIStore.setState({ pingQuota: null, pingQuotaSource: null });
     usePermissionsStore.setState({ snapshot: null, lastCheckedAt: null });
+    useSnapshotUpdateStore.setState({
+      status: 'idle',
+      manifest: null,
+      checkResult: null,
+      lastCheckedAt: null,
+      lastError: null,
+      downloadProgress: null,
+      lastAlertShownVersion: null,
+    });
     vi.restoreAllMocks();
   });
 
-  test('says no snapshot is installed — no model trained yet, never invented', () => {
+  test('says no snapshot is installed yet — the live snapshot is published, never invented', () => {
     render(<SecurityTab />);
-    expect(screen.getByText(/No snapshot installed — no model trained yet/)).toBeTruthy();
+    expect(screen.getByText(/No snapshot installed yet/)).toBeTruthy();
+    expect(screen.getByText(/The live snapshot is published on/)).toBeTruthy();
     expect(screen.getByText(/Not checked yet — the manifest is checked on pull/)).toBeTruthy();
+    expect(screen.getByText(/A manifest is published — check now to compare/)).toBeTruthy();
+    expect(screen.getByText('Check now')).toBeTruthy();
+  });
+
+  test('Check now with no snapshot bridge reports it honestly, never crashes', async () => {
+    render(<SecurityTab />);
+    fireEvent.click(screen.getByTestId('security-check-snapshot-now'));
+    expect(
+      await screen.findByText(/Last check failed: Snapshot check is not available in this view/),
+    ).toBeTruthy();
   });
 
   test('shows an installed snapshot version + hash when one exists', () => {
@@ -162,7 +195,12 @@ describe('SecurityTab', () => {
   test('ping key shows only present / not set — never the value', () => {
     render(<SecurityTab />);
     expect(screen.getByText('Not set')).toBeTruthy();
-    expect(screen.queryByText(/lucid-/)).toBeNull();
+    // The value (a "lucid-…" key) must never be shown —
+    // scoped to the Ping key section, since the "What leaves
+    // the machine" section below legitimately names the
+    // public header names (x-lucid-user, x-lucid-ping-key).
+    const section = screen.getByText('Ping key').closest('div');
+    expect(section!.textContent).not.toMatch(/lucid-/);
   });
 
   test('SP balance not checked yet when the quota is null', () => {
@@ -622,5 +660,90 @@ describe('SecurityTab', () => {
     expect(
       await screen.findByText(/On — a secret is stored securely for gary@example.com/),
     ).toBeTruthy();
+  });
+
+  test('Voxel Directory local access shows Not granted with no Revoke button', () => {
+    useSettingsStore.setState({
+      settings: { ...initialSettings, voxelLocalAccessDontAsk: false },
+    });
+    useSynthStore.setState({ localAccessSessionGranted: false });
+    render(<SecurityTab />);
+    const row = screen.getByText('Voxel Directory — local files').closest('div');
+    expect(row).not.toBeNull();
+    expect(row!.textContent).toContain('Not granted');
+    expect(
+      screen.queryByTestId('security-revoke-voxel-local-access'),
+    ).toBeNull();
+  });
+
+  test('a remembered Voxel grant shows Granted — remembered, and Revoke clears it', async () => {
+    useSettingsStore.setState({
+      settings: { ...initialSettings, voxelLocalAccessDontAsk: true },
+    });
+    render(<SecurityTab />);
+    const row = screen.getByText('Voxel Directory — local files').closest('div');
+    expect(row!.textContent).toContain('Granted — remembered');
+    fireEvent.click(screen.getByTestId('security-revoke-voxel-local-access'));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Voxel Directory — local files').closest('div')!
+          .textContent,
+      ).toContain('Not granted'),
+    );
+    expect(useSettingsStore.getState().settings.voxelLocalAccessDontAsk).toBe(
+      false,
+    );
+    const settingsSet = (
+      window as unknown as {
+        lucidAPI: { settings: { set: ReturnType<typeof vi.fn> } };
+      }
+    ).lucidAPI.settings.set;
+    expect(settingsSet).toHaveBeenCalledWith('voxelLocalAccessDontAsk', false);
+  });
+
+  test('a session Voxel grant shows Granted — this session, and Revoke clears it too', async () => {
+    useSettingsStore.setState({
+      settings: { ...initialSettings, voxelLocalAccessDontAsk: false },
+    });
+    useSynthStore.setState({ localAccessSessionGranted: true });
+    render(<SecurityTab />);
+    const row = screen.getByText('Voxel Directory — local files').closest('div');
+    expect(row!.textContent).toContain('Granted — this session');
+    fireEvent.click(screen.getByTestId('security-revoke-voxel-local-access'));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Voxel Directory — local files').closest('div')!
+          .textContent,
+      ).toContain('Not granted'),
+    );
+    expect(useSynthStore.getState().localAccessSessionGranted).toBe(false);
+  });
+
+  test('What leaves the machine: every path listed, with the guest rule (Tabnine S4)', () => {
+    render(<SecurityTab />);
+    expect(screen.getByText('What leaves the machine')).toBeTruthy();
+    // Every contract path renders, by its test id.
+    for (const id of [
+      'local-planner',
+      'driving-intelligence',
+      'copilot',
+      'ai-chat-local',
+      'ai-chat-ping',
+      'ai-chat-openai',
+      'ping-health',
+    ]) {
+      expect(screen.getByTestId(`context-contract-${id}`)).toBeTruthy();
+    }
+    // The local paths send nothing; Copilot's sends are named.
+    expect(screen.getByTestId('context-contract-local-planner').textContent).toContain(
+      'Nothing — nothing leaves the machine on this path.',
+    );
+    expect(screen.getByTestId('context-contract-copilot').textContent).toContain(
+      "Open files' paths (not contents)",
+    );
+    // The guest rule is stated: the refusal, the carve-out, no persistence.
+    expect(screen.getByText(/the Agent \(local planner\) is refused/)).toBeTruthy();
+    expect(screen.getByText(/Copilot is allowed \(carve-out\)/)).toBeTruthy();
+    expect(screen.getByText(/Nothing a guest does is persisted/)).toBeTruthy();
   });
 });

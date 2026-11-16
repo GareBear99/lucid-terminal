@@ -62,6 +62,24 @@ describe('computeInlineCompletion — history', () => {
   });
 });
 
+describe('computeInlineCompletion — paused (Tabnine S7)', () => {
+  it('returns null while paused, for every source', () => {
+    expect(
+      computeInlineCompletion('echo h', ctx({ history: ['echo hello'], paused: true })),
+    ).toBeNull();
+    expect(computeInlineCompletion('/def', ctx({ paused: true }))).toBeNull();
+    expect(
+      computeInlineCompletion('cd src/com', ctx({ openFiles: FILES, paused: true })),
+    ).toBeNull();
+  });
+
+  it('offers again when resumed', () => {
+    expect(
+      computeInlineCompletion('echo h', ctx({ history: ['echo hello'], paused: false })),
+    ).toEqual({ text: 'echo hello', source: 'history' });
+  });
+});
+
 describe('computeInlineCompletion — slash', () => {
   it('completes the slash command word only', () => {
     expect(computeInlineCompletion('/def', ctx())).toEqual({

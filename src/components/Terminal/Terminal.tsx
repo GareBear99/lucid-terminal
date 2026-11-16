@@ -1630,6 +1630,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // walks from the newest), never the shell's command history.
   const ghostSuggestion = useMemo(
     () => {
+      // Ghost completions paused (Tabnine S7): no overlay
+      // ghost while paused — the provider is gated the same
+      // way, so there is no ghost anywhere.
+      if (settings.ghostCompletionsPaused) return null;
       if (!prompterActive && !isAgentMode) return null;
       if (isAgentMode) {
         const prompts = selectAgentPromptHistory(
@@ -1640,7 +1644,7 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       }
       return computeGhostSuggestion(devInput, commandHistory);
     },
-    [prompterActive, isAgentMode, tabId, devInput, commandHistory],
+    [prompterActive, isAgentMode, tabId, devInput, commandHistory, settings.ghostCompletionsPaused],
   );
   const acceptGhostSuggestion = useCallback(() => {
     if (ghostSuggestion) setDevInput(ghostSuggestion);
@@ -2368,7 +2372,26 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
               In agent mode the list is the feed in both modes
               (no xterm below — the prompt goes to the agent). */}
           {(prompterActive || isAgentMode) && (
-            <UnifiedFeed tabId={tabId} onReinput={(command) => setDevInput(command)} fill />
+            <UnifiedFeed
+              tabId={tabId}
+              onReinput={(command) => setDevInput(command)}
+              // Multi-select re-run-all (2026-11-15): the
+              // selected shell commands, in feed order, one at
+              // a time through the normal submit path (the
+              // submit guard releases in a finally, so each
+              // command lands before the next starts). Terminal
+              // mode only — in agent mode a submit is an agent
+              // prompt, not a shell command, so onRerun is
+              // absent and the button does not render.
+              onRerun={
+                isAgentMode
+                  ? undefined
+                  : async (commands) => {
+                      for (const cmd of commands) await handleComposerSubmit(cmd);
+                    }
+              }
+              fill
+            />
           )}
 
           {/* Command history palette (sweep item 5) — Ctrl+R

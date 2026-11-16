@@ -16,6 +16,11 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { buildComposerFontOptions } from '../../lib/terminalFont';
 import { registerComposerInlineCompletions, type InlineOffer } from '../../lib/composerInlineProvider';
+import { acceptNextLine, acceptNextWord } from '../../lib/partialAccept';
+import {
+  useCompletionAcceptanceLog,
+  type CompletionAcceptanceSource,
+} from '../../stores/completionAcceptanceLog';
 import { getComposerStructureIdentifiers } from '../../lib/treeSitter';
 import { getEngineClient } from '../../lib/engineClient';
 
@@ -24,6 +29,21 @@ import { getEngineClient } from '../../lib/engineClient';
 // "Loading..." forever if Monaco fails to load, and the user cannot type
 // a command at all.
 const MONACO_LOAD_TIMEOUT_MS = 8000;
+
+/** Log a ghost acceptance (Tabnine S7): the accepted text,
+ *  when, in which tab, from which source. The session is
+ *  the active tab at accept time. The snippet is the input
+ *  value after the accept (the draft + the ghost part taken)
+ *  — for a whole accept that is the offer's full text. */
+function logGhostAcceptance(
+  snippet: string,
+  source: CompletionAcceptanceSource,
+): void {
+  const sessionId = useTerminalStore.getState().activeTabId ?? 'unknown';
+  useCompletionAcceptanceLog
+    .getState()
+    .logAcceptance({ snippet, sessionId, source });
+}
 
 // The default cap lives in src/lib/inputHeight.ts (INPUT_DEFAULT_HEIGHT_VH,
 // one-third of the page) and the drag max there (INPUT_DRAG_MAX_HEIGHT_VH,
@@ -387,10 +407,12 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     const current = editor.getValue();
                     const offer = inlineOfferRef.current;
                     if (offer && offer.text.length > current.length && offer.text.startsWith(current)) {
+                        logGhostAcceptance(offer.text, offer.source);
                         latestRef.current.setInput(offer.text);
                         return;
                     }
                     if (latestRef.current.ghostSuggestion) {
+                        logGhostAcceptance(latestRef.current.ghostSuggestion, 'ghost');
                         latestRef.current.onAcceptSuggestion?.();
                     }
                 }
@@ -463,7 +485,21 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         // is an enhancement, never a mount failure.
         if (typeof editor.onKeyDown === 'function') {
             const keyDownDisposable = editor.onKeyDown((e: any) => {
-                if (e.keyCode !== monaco.KeyCode.RightArrow) return;
+                // Partial accept (Tabnine S1 — 2026-11-15):
+                // Ctrl+Right takes the next word of the ghost,
+                // Ctrl+Down the next line; plain Right-arrow
+                // takes the whole ghost. All three fire only
+                // with the cursor at the end of the input —
+                // anywhere else the keys do their normal thing
+                // (word-jump / scroll / cursor movement), so a
+                // non-accept key falls through untouched.
+                const isWordAccept =
+                    e.keyCode === monaco.KeyCode.RightArrow && e.ctrlKey && !e.metaKey;
+                const isLineAccept =
+                    e.keyCode === monaco.KeyCode.DownArrow && e.ctrlKey && !e.metaKey;
+                const isWholeAccept =
+                    e.keyCode === monaco.KeyCode.RightArrow && !e.ctrlKey && !e.metaKey;
+                if (!isWordAccept && !isLineAccept && !isWholeAccept) return;
                 const model = editor.getModel();
                 const pos = editor.getPosition();
                 if (!model || !pos) return;
@@ -474,18 +510,50 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                 // The ghost to accept: the provider's live offer
                 // first (valid while it still completes the
                 // current input), then the parent's overlay ghost.
-                // Either way Right-arrow accepts only at the end
-                // of the input.
+                // Either way an accept fires only at the end of
+                // the input.
                 const current = editor.getValue();
                 const offer = inlineOfferRef.current;
+                const offerText =
+                    offer && offer.text.length > current.length && offer.text.startsWith(current)
+                        ? offer.text
+                        : latestRef.current.ghostSuggestion;
+                // The offer's source for the acceptance log:
+                // the provider's source when it offered,
+                // 'ghost' when the parent's overlay ghost did.
+                const offerSource: CompletionAcceptanceSource =
+                    offer && offer.text.length > current.length && offer.text.startsWith(current)
+                        ? offer.source
+                        : 'ghost';
+                if (!offerText) return;
+                if (isWordAccept) {
+                    const next = acceptNextWord(offerText, current);
+                    if (next === null) return;
+                    e.preventDefault();
+                    logGhostAcceptance(next, offerSource);
+                    latestRef.current.setInput(next);
+                    return;
+                }
+                if (isLineAccept) {
+                    const next = acceptNextLine(offerText, current);
+                    if (next === null) return;
+                    e.preventDefault();
+                    logGhostAcceptance(next, offerSource);
+                    latestRef.current.setInput(next);
+                    return;
+                }
+                // Whole accept (the original Right-arrow path):
+                // the provider's offer sets the input directly;
+                // the parent's overlay ghost goes through the
+                // parent's accept.
                 if (offer && offer.text.length > current.length && offer.text.startsWith(current)) {
                     e.preventDefault();
+                    logGhostAcceptance(offer.text, offer.source);
                     latestRef.current.setInput(offer.text);
                     return;
                 }
-                const suggestion = latestRef.current.ghostSuggestion;
-                if (!suggestion) return;
                 e.preventDefault();
+                logGhostAcceptance(offerText, 'ghost');
                 latestRef.current.onAcceptSuggestion?.();
             });
             editorDisposers.current.push(() => keyDownDisposable.dispose());
@@ -522,6 +590,11 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     openFiles: useFileStore.getState().openFiles.map((f) => ({ path: f.path, name: f.name })),
                     mode: latestRef.current.completionMode,
                     parentGhost: latestRef.current.ghostSuggestion ?? null,
+                    // Ghost completions paused (Tabnine S7):
+                    // read live at request time, so flipping the
+                    // status-bar toggle silences the next offer
+                    // with no remount.
+                    paused: useSettingsStore.getState().settings.ghostCompletionsPaused ?? false,
                     // Steal #2 - the live tree-sitter structure feeds
                     // the ghost (top-level definitions + imports of
                     // the file being edited), and the active tab's
@@ -629,15 +702,48 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
         // character in the command.
         if (e.key === 'Tab') {
             e.preventDefault();
-            if (ghostRemainder !== null) onAcceptSuggestion?.();
+            if (ghostRemainder !== null && ghostSuggestion) {
+                logGhostAcceptance(ghostSuggestion, 'ghost');
+                onAcceptSuggestion?.();
+            }
+            return;
+        }
+        // Ctrl+Right / Ctrl+Down: partial accept (Tabnine S1,
+        // 2026-11-15) — accept only the next word / next line
+        // of the ghost, instead of the whole thing. Only when
+        // a ghost is shown and the cursor is at the end;
+        // otherwise the keys do their normal thing (word-jump
+        // / nothing). The offer is the parent's overlay ghost
+        // here (the inline provider is Monaco-only).
+        if (e.key === 'ArrowRight' && e.ctrlKey && !e.metaKey) {
+            if (ghostRemainder !== null && !hasSelection && el.selectionStart === input.length) {
+                const next = acceptNextWord(ghostSuggestion, input);
+                if (next !== null) {
+                    e.preventDefault();
+                    logGhostAcceptance(next, 'ghost');
+                    setInput(next);
+                }
+            }
+            return;
+        }
+        if (e.key === 'ArrowDown' && e.ctrlKey && !e.metaKey) {
+            if (ghostRemainder !== null && !hasSelection && el.selectionStart === input.length) {
+                const next = acceptNextLine(ghostSuggestion, input);
+                if (next !== null) {
+                    e.preventDefault();
+                    logGhostAcceptance(next, 'ghost');
+                    setInput(next);
+                }
+            }
             return;
         }
         // Right-arrow: accepts the ghost only with the cursor
         // at the end of the input; anywhere else it is normal
         // cursor movement (no preventDefault).
         if (e.key === 'ArrowRight') {
-            if (ghostRemainder !== null && !hasSelection && el.selectionStart === input.length) {
+            if (ghostRemainder !== null && !hasSelection && el.selectionStart === input.length && ghostSuggestion) {
                 e.preventDefault();
+                logGhostAcceptance(ghostSuggestion, 'ghost');
                 onAcceptSuggestion?.();
             }
             return;

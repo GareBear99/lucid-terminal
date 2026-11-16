@@ -187,6 +187,35 @@ interface HistoryState {
    *  tab/profile like isCollapsed; the History panel filters
    *  on it. No-op when the tab or block is not found. */
   toggleBlockBookmarked: (tabId: string, blockId: string) => void;
+  /** The selected block ids per tab (multi-select,
+   *  2026-11-15): the blocks the user picked with click /
+   *  shift-click / Ctrl-click, for the bulk actions
+   *  (copy-all / re-run-all in BlockList). EPHEMERAL session
+   *  state — NEVER persisted (serializeHistory writes
+   *  blocksByTab only, and this map is not part of it). A
+   *  selection never survives a restart, and it is cleared
+   *  when the tab's blocks are cleared or the tab closes. */
+  selectedBlockIdsByTab: Record<string, string[]>;
+  /** The shift-click anchor per tab — the last block clicked
+   *  (plain or Ctrl-click). Shift-click selects the range
+   *  from the anchor to the clicked block. Ephemeral, like
+   *  the selection. Null when there is no anchor. */
+  selectionAnchorByTab: Record<string, string | null>;
+  /** Toggle one block in the selection (Ctrl/Cmd-click).
+   *  Sets the anchor to the block. No-op when the block is
+   *  not found. */
+  toggleBlockSelected: (tabId: string, blockId: string) => void;
+  /** Select exactly one block (plain click — the selection
+   *  becomes just this block). Sets the anchor. No-op when
+   *  the block is not found. */
+  selectBlockOnly: (tabId: string, blockId: string) => void;
+  /** Select the range from the anchor to the block
+   *  (shift-click), in feed order. When there is no anchor,
+   *  behaves like selectBlockOnly. No-op when the block is
+   *  not found. */
+  selectBlockRange: (tabId: string, blockId: string) => void;
+  /** Clear the selection for a tab. */
+  clearBlockSelection: (tabId: string) => void;
   /**
    * Drop the driving intelligence's working memory (Memory tab,
    * 2026-11-14): the agent-prompt and agent-response blocks in
@@ -235,6 +264,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   // Rehydrated from the previous session when there is one ({} on a
   // fresh install / corrupt storage) — see readPersistedHistory.
   blocksByTab: readPersistedHistory(),
+  // Multi-select (2026-11-15): ephemeral, never persisted —
+  // the maps start empty every session.
+  selectedBlockIdsByTab: {},
+  selectionAnchorByTab: {},
 
   setBlocks: (tabId, updater) =>
     set((state) => {
@@ -247,7 +280,18 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       // arriving after the last block completed) — avoids a pointless
       // re-render of every blocks subscriber.
       if (next === prev) return state;
-      return { blocksByTab: { ...state.blocksByTab, [tabId]: next } };
+      // Multi-select: prune the selection to the blocks that
+      // still exist, so a removed block never stays selected.
+      const selected = state.selectedBlockIdsByTab[tabId] ?? [];
+      const kept = selected.filter((id) => next.some((b) => b.id === id));
+      const selection =
+        kept.length === selected.length
+          ? state.selectedBlockIdsByTab
+          : { ...state.selectedBlockIdsByTab, [tabId]: kept };
+      return {
+        blocksByTab: { ...state.blocksByTab, [tabId]: next },
+        selectedBlockIdsByTab: selection,
+      };
     }),
 
   clearBlocks: (tabId) =>
@@ -255,7 +299,13 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       // The blocks are gone for good — their held partial
       // escapes (if any) die with them.
       for (const b of state.blocksByTab[tabId] ?? EMPTY_BLOCKS) dropPendingEscape(b.id);
-      return { blocksByTab: { ...state.blocksByTab, [tabId]: [] } };
+      // The selection goes with them (there is nothing left
+      // to select).
+      return {
+        blocksByTab: { ...state.blocksByTab, [tabId]: [] },
+        selectedBlockIdsByTab: { ...state.selectedBlockIdsByTab, [tabId]: [] },
+        selectionAnchorByTab: { ...state.selectionAnchorByTab, [tabId]: null },
+      };
     }),
 
   toggleBlockCollapsed: (tabId, blockId) =>
@@ -285,6 +335,67 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
         },
       };
     }),
+
+  // Multi-select (2026-11-15): the selection is ephemeral —
+  // it is never written to disk (serializeHistory writes
+  // blocksByTab only), and setBlocks prunes it to the blocks
+  // that still exist, so a removed block never stays selected.
+  toggleBlockSelected: (tabId, blockId) =>
+    set((state) => {
+      const prev = state.blocksByTab[tabId] ?? EMPTY_BLOCKS;
+      if (!prev.some((b) => b.id === blockId)) return state;
+      const selected = state.selectedBlockIdsByTab[tabId] ?? [];
+      const next = selected.includes(blockId)
+        ? selected.filter((id) => id !== blockId)
+        : [...selected, blockId];
+      return {
+        selectedBlockIdsByTab: { ...state.selectedBlockIdsByTab, [tabId]: next },
+        selectionAnchorByTab: { ...state.selectionAnchorByTab, [tabId]: blockId },
+      };
+    }),
+
+  selectBlockOnly: (tabId, blockId) =>
+    set((state) => {
+      const prev = state.blocksByTab[tabId] ?? EMPTY_BLOCKS;
+      if (!prev.some((b) => b.id === blockId)) return state;
+      return {
+        selectedBlockIdsByTab: { ...state.selectedBlockIdsByTab, [tabId]: [blockId] },
+        selectionAnchorByTab: { ...state.selectionAnchorByTab, [tabId]: blockId },
+      };
+    }),
+
+  selectBlockRange: (tabId, blockId) =>
+    set((state) => {
+      const prev = state.blocksByTab[tabId] ?? EMPTY_BLOCKS;
+      const toIndex = prev.findIndex((b) => b.id === blockId);
+      if (toIndex < 0) return state;
+      const anchorId = state.selectionAnchorByTab[tabId] ?? null;
+      const fromIndex = anchorId === null ? -1 : prev.findIndex((b) => b.id === anchorId);
+      // No anchor (or a stale one) — the range is just this block.
+      if (fromIndex < 0) {
+        return {
+          selectedBlockIdsByTab: { ...state.selectedBlockIdsByTab, [tabId]: [blockId] },
+          selectionAnchorByTab: { ...state.selectionAnchorByTab, [tabId]: blockId },
+        };
+      }
+      const [start, end] =
+        fromIndex <= toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];
+      return {
+        selectedBlockIdsByTab: {
+          ...state.selectedBlockIdsByTab,
+          [tabId]: prev.slice(start, end + 1).map((b) => b.id),
+        },
+        // The anchor does NOT move on a shift-click — a second
+        // shift-click extends from the same anchor.
+        selectionAnchorByTab: { ...state.selectionAnchorByTab, [tabId]: anchorId },
+      };
+    }),
+
+  clearBlockSelection: (tabId) =>
+    set((state) => ({
+      selectedBlockIdsByTab: { ...state.selectedBlockIdsByTab, [tabId]: [] },
+      selectionAnchorByTab: { ...state.selectionAnchorByTab, [tabId]: null },
+    })),
 
   clearAgentBlocks: () => {
     if (get().guestSessionActive) return;
@@ -316,7 +427,12 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       for (const b of state.blocksByTab[tabId]) dropPendingEscape(b.id);
       const blocksByTab = { ...state.blocksByTab };
       delete blocksByTab[tabId];
-      return { blocksByTab };
+      // The tab is gone — its selection and anchor go too.
+      const selectedBlockIdsByTab = { ...state.selectedBlockIdsByTab };
+      delete selectedBlockIdsByTab[tabId];
+      const selectionAnchorByTab = { ...state.selectionAnchorByTab };
+      delete selectionAnchorByTab[tabId];
+      return { blocksByTab, selectedBlockIdsByTab, selectionAnchorByTab };
     }),
 
   guestSessionActive: false,

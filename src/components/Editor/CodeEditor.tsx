@@ -19,7 +19,7 @@ import {
 } from '../../lib/treeSitter';
 import { registerEditorLspProviders } from '../../lib/editorLspProvider';
 import { getEngineClient } from '../../lib/engineClient';
-import { publishDocsCursor, republishDocsCursor } from '../../lib/docsCursor';
+import { publishDocsCursor, republishDocsCursor, scheduleDocsCursorRefresh } from '../../lib/docsCursor';
 import { requestDocsPanel } from '../../lib/docsPanelRequest';
 import {
   consumePendingEditorJump,
@@ -803,6 +803,11 @@ function CodeEditor() {
                   void updateFileTree(activeFile.path, e.target.value);
                   engineClient.changeDocument(activeFile.path, e.target.value);
                   scheduleDiagnostics();
+                  // Docs panel refresh on edit (Kite
+                  // follow-on #2): the edit may have changed
+                  // the symbol’s docs without moving the
+                  // cursor — re-ask, debounced.
+                  scheduleDocsCursorRefresh(activeFile.path);
                 }}
                 spellCheck={false}
                 readOnly={activeFile.isTruncated === true}
@@ -826,6 +831,11 @@ function CodeEditor() {
                 scheduleDiagnostics();
                 scheduleGutter();
                 scheduleModelStatus();
+                // Docs panel refresh on edit (Kite
+                // follow-on #2): the edit may have changed
+                // the symbol's docs without moving the
+                // cursor — re-ask, debounced.
+                scheduleDocsCursorRefresh(activeFile.path);
               }}
               options={{
                 fontFamily: settings.fontFamily,

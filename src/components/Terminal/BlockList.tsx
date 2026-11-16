@@ -345,6 +345,13 @@ interface BlockListProps {
   tabId: string;
   /** Put a block's command back into the composer. */
   onReinput: (command: string) => void;
+  /** Re-run commands (multi-select bulk action, 2026-11-15):
+   *  the caller submits each command in order through the
+   *  tab's normal submit path. Optional — when absent the
+   *  Re-run all button does not render (e.g. agent mode,
+   *  where a re-run would be an agent prompt, not a shell
+   *  command). */
+  onRerun?: (commands: string[]) => void;
   /** Phase 5: the list IS the feed — it fills the terminal
    *  column (at level 3+ in both modes), borderless and
    *  transparent per the DEFCON 2 merge. Default: the capped
@@ -362,7 +369,7 @@ interface BlockListProps {
   emptyState?: React.ReactNode;
 }
 
-export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, emptyState }: BlockListProps) {
+export function BlockList({ tabId, onReinput, onRerun, fill = false, blocks: blocksProp, emptyState }: BlockListProps) {
   // The feed is the LIVE session's transcript: restored blocks (last
   // session's record — see historyStore) never render here. Showing
   // them would present commands this shell never ran as if they ran
@@ -388,6 +395,17 @@ export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, 
   // actions hide while collapsed (ported from dead Block.tsx,
   // which already rendered this shape and nothing rendered).
   const toggleCollapsed = useHistoryStore((s) => s.toggleBlockCollapsed);
+
+  // Multi-select (2026-11-15): the selection lives in
+  // historyStore (ephemeral, never persisted). The selected
+  // blocks are the ones in the CURRENT feed (restored blocks
+  // never render here, so they can never be selected).
+  const selectedIds = useHistoryStore((s) => s.selectedBlockIdsByTab[tabId] ?? []);
+  const toggleBlockSelected = useHistoryStore((s) => s.toggleBlockSelected);
+  const selectBlockOnly = useHistoryStore((s) => s.selectBlockOnly);
+  const selectBlockRange = useHistoryStore((s) => s.selectBlockRange);
+  const clearBlockSelection = useHistoryStore((s) => s.clearBlockSelection);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   // Keyboard block navigation (sweep item 4): ⌘↑/⌘↓ (and Ctrl)
   // move a focused-block highlight; ⌘Home/⌘End jump to the
@@ -510,6 +528,17 @@ export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, 
     }
   };
 
+  // Multi-select bulk actions (2026-11-15): the selected
+  // blocks in feed order (oldest first). Copy-all copies
+  // every selected block's command, one per line. Re-run-all
+  // re-runs only the shell commands (kind 'command' — agent
+  // prompts/responses, notices, and scrollback are not
+  // re-runnable shell commands, so they are skipped).
+  const selectedBlocks = blocks.filter((b) => selectedSet.has(b.id));
+  const runnableBlocks = selectedBlocks.filter(
+    (b) => b.kind === undefined || b.kind === 'command',
+  );
+
   return (
     <div
       data-testid="terminal-blocks"
@@ -559,9 +588,20 @@ export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, 
             data-testid="terminal-block"
             data-block-kind={block.kind ?? 'command'}
             data-block-focused={focusedBlockId === block.id ? 'true' : 'false'}
+            data-block-selected={selectedSet.has(block.id) ? 'true' : 'false'}
             id={`block-${block.id}`}
-            onClick={() => setFocusedBlockId(block.id)}
-            className={`${feedDensity === 'compact' ? 'px-2 py-1' : 'px-3 py-2'} ${focusedBlockId === block.id ? 'rounded bg-[var(--bg-primary)]/60 ring-1 ring-[var(--accent)]/40' : ''}`}
+            onClick={(e) => {
+              setFocusedBlockId(block.id);
+              // Multi-select (2026-11-15): plain click selects
+              // just this block; Ctrl/Cmd-click toggles it;
+              // shift-click selects the range from the anchor.
+              // The header buttons and the output actions
+              // stopPropagation, so they never reach here.
+              if (e.shiftKey) selectBlockRange(tabId, block.id);
+              else if (e.ctrlKey || e.metaKey) toggleBlockSelected(tabId, block.id);
+              else selectBlockOnly(tabId, block.id);
+            }}
+            className={`${feedDensity === 'compact' ? 'px-2 py-1' : 'px-3 py-2'} ${selectedSet.has(block.id) ? 'rounded bg-[var(--accent)]/10 ring-1 ring-[var(--accent)]/60' : focusedBlockId === block.id ? 'rounded bg-[var(--bg-primary)]/60 ring-1 ring-[var(--accent)]/40' : ''}`}
           >
             {/* Header: command + cwd + duration + exit code + git
                 state. The cwd is the live cwd stamped at submit;
@@ -682,6 +722,60 @@ export function BlockList({ tabId, onReinput, fill = false, blocks: blocksProp, 
         </div>
       ))}
       </div>
+      {/* Multi-select bulk-action row (2026-11-15): shown
+          while the selection is non-empty, pinned to the
+          bottom of the feed (sticky, so it stays visible
+          above the prompt). Copy all copies the selected
+          commands, one per line. Re-run all re-runs the
+          selected shell commands in feed order, one at a
+          time (the caller submits each through the tab's
+          normal submit path); it only renders when the
+          caller provided onRerun and a shell command is
+          selected. Clear drops the selection. */}
+      {selectedBlocks.length > 0 && (
+        <div
+          data-testid="block-bulk-actions"
+          className="sticky bottom-0 z-20 flex items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[11px] text-[var(--text-secondary)]"
+        >
+          <span data-testid="block-bulk-count">
+            {selectedBlocks.length} selected
+          </span>
+          <button
+            type="button"
+            data-testid="block-bulk-copy-all"
+            onClick={() =>
+              void handleCopy(
+                'bulk-copy',
+                selectedBlocks.map((b) => b.command).filter(Boolean).join('\n'),
+              )
+            }
+            className="rounded px-2 py-0.5 hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+          >
+            {copied === 'bulk-copy' ? 'Copied' : 'Copy all'}
+          </button>
+          {onRerun && runnableBlocks.length > 0 && (
+            <button
+              type="button"
+              data-testid="block-bulk-rerun-all"
+              onClick={() => {
+                onRerun(runnableBlocks.map((b) => b.command));
+                clearBlockSelection(tabId);
+              }}
+              className="rounded px-2 py-0.5 hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+            >
+              Re-run all ({runnableBlocks.length})
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="block-bulk-clear"
+            onClick={() => clearBlockSelection(tabId)}
+            className="ml-auto rounded px-2 py-0.5 hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+          >
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   );
 }

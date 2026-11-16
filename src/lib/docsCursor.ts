@@ -80,6 +80,26 @@ export function republishDocsCursor(): void {
   publishDocsCursor(current, true);
 }
 
+/** Refresh the panel after an edit (Kite follow-on #2 —
+ *  2026-11-15). An edit that changes a symbol's docs
+ *  without moving the cursor leaves the panel stale: the
+ *  bus dedups an identical cursor, so a normal publish
+ *  does nothing. This force-republishes the current
+ *  cursor, debounced 150 ms (the diagnostics cadence), so
+ *  the panel re-asks the engine — which already has the
+ *  new content via `textDocument/didChange`. Only fires
+ *  when the panel is following `path`; a stale cursor for
+ *  another file, or no cursor at all, is left alone. */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+export function scheduleDocsCursorRefresh(path: string): void {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    if (!current || current.path !== path) return;
+    publishDocsCursor(current, true);
+  }, 150);
+}
+
 /** The last published cursor, or null before the first publish. */
 export function getDocsCursor(): DocsCursor | null {
   return current;
@@ -95,8 +115,13 @@ export function subscribeDocsCursor(
   };
 }
 
-/** Test seam: clear the cursor and the subscribers. */
+/** Test seam: clear the cursor, the subscribers, and any
+ *  pending edit-refresh timer. */
 export function resetDocsCursorForTests(): void {
   current = null;
   listeners.clear();
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
 }

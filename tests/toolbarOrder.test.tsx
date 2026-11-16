@@ -66,7 +66,7 @@ import { useSettingsStore } from '../src/stores/settingsStore';
 
 const AVAILABLE = [
   'terminal', 'editor', 'explorer', 'history',
-  'synth', 'help', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+  'synth', 'help', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
 ];
 
 describe('resolveToolbarOrder', () => {
@@ -80,10 +80,11 @@ describe('resolveToolbarOrder', () => {
     const stored = ['settings', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex'];
     // Every entry keeps its relative order, but 'help' (the blood
     // drop, locked to the top spot) moves from index 7 to index 0.
-    // 'mouse' is available but not stored, so it is inserted before
-    // Settings, landing right after the pinned blood drop.
+    // 'mouse' and 'worldmap' are available but not stored, so they
+    // are inserted before Settings, landing right after the pinned
+    // blood drop.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'mouse', 'settings', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex',
+      'help', 'mouse', 'worldmap', 'settings', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex',
     ]);
   });
 
@@ -91,12 +92,12 @@ describe('resolveToolbarOrder', () => {
     // Help buried in the middle of a stored order comes to the front.
     const stored = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'worldmap', 'settings',
     ]);
     // Help at the very end of a stored order also comes to the front.
     const storedEnd = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'settings', 'help'];
     expect(resolveToolbarOrder(storedEnd, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'worldmap', 'settings',
     ]);
   });
 
@@ -106,17 +107,17 @@ describe('resolveToolbarOrder', () => {
     // Settings where a newly-available icon would otherwise land.
     const stored = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
   });
 
   test('an available icon missing from the stored order is inserted before Settings', () => {
     const stored = ['terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'settings'];
-    // 'help', 'ai-chat', 'llmbuilder', 'mouse' and 'persona-plex' are available but not stored.
+    // 'help', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex' and 'worldmap' are available but not stored.
     // They are inserted before Settings — then the blood drop is
     // pinned to the top spot, so it ends up first.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
   });
 
@@ -133,7 +134,7 @@ describe('resolveToolbarOrder', () => {
     // before Settings.
     const stored = ['help', 'terminal', 'editor', 'explorer', 'chats', 'spacer', 'synth', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
   });
 
@@ -156,13 +157,13 @@ describe('moveToolbarIcon', () => {
 
   test('move before a target', () => {
     expect(moveToolbarIcon(order, 'synth', 'terminal', false)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
   });
 
   test('move after a target (drop on the spacer)', () => {
     expect(moveToolbarIcon(order, 'terminal', 'spacer', true)).toEqual([
-      'help', 'editor', 'explorer', 'history', 'spacer', 'terminal', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'editor', 'explorer', 'history', 'spacer', 'terminal', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
   });
 
@@ -174,19 +175,19 @@ describe('moveToolbarIcon', () => {
     // longer immediately before Settings — Mouse and Persona Plex sit
     // between — but the drop still lands after Settings.)
     expect(moveToolbarIcon(order, 'llmbuilder', 'settings', true)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'mouse', 'persona-plex', 'settings', 'llmbuilder',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'mouse', 'persona-plex', 'worldmap', 'settings', 'llmbuilder',
     ]);
   });
 
   test('move to the very end (end zone, null target)', () => {
     expect(moveToolbarIcon(order, 'terminal', null, true)).toEqual([
-      'help', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings', 'terminal',
+      'help', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings', 'terminal',
     ]);
   });
 
   test('move across the spacer', () => {
     expect(moveToolbarIcon(order, 'settings', 'editor', false)).toEqual([
-      'help', 'terminal', 'settings', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex',
+      'help', 'terminal', 'settings', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap',
     ]);
   });
 
@@ -195,7 +196,7 @@ describe('moveToolbarIcon', () => {
     expect(moveToolbarIcon(order, 'spacer', 'terminal', false)).toEqual(order);
     expect(moveToolbarIcon(order, 'nope', 'terminal', false)).toEqual(order);
     expect(moveToolbarIcon(order, 'terminal', 'nope', false)).toEqual([
-      'help', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings', 'terminal',
+      'help', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings', 'terminal',
     ]);
   });
 
@@ -212,15 +213,15 @@ describe('moveToolbarIcon', () => {
     // Dropping Synth onto Help (insert before) lands it right AFTER
     // Help instead — at index 1, never index 0.
     expect(moveToolbarIcon(order, 'synth', 'help', false)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
     // Dropping Terminal onto Help (insert before) also lands after it.
     expect(moveToolbarIcon(order, 'terminal', 'help', false)).toEqual([
-      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'synth', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
     // Dropping onto Help with insertAfter lands after it too.
     expect(moveToolbarIcon(order, 'synth', 'help', true)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap', 'settings',
     ]);
   });
 
@@ -235,7 +236,7 @@ describe('persistence round-trip', () => {
   test('a stored order reloads to the same order', () => {
     // Help is first (locked to the top spot), so the stored order
     // reloads unchanged.
-    const stored = ['help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings'];
+    const stored = ['help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'worldmap', 'mouse', 'settings'];
     // Resolving the stored order (as a reload would) returns it unchanged.
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual(stored);
     // And after a move, the moved order also reloads unchanged.
@@ -249,7 +250,7 @@ describe('persistence round-trip', () => {
     // stored position, wins.
     const stored = ['synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'help', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings'];
     expect(resolveToolbarOrder(stored, AVAILABLE)).toEqual([
-      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'settings',
+      'help', 'synth', 'terminal', 'editor', 'explorer', 'history', 'spacer', 'ai-chat', 'llmbuilder', 'persona-plex', 'mouse', 'worldmap', 'settings',
     ]);
   });
 });
@@ -506,6 +507,34 @@ describe('Sidebar toolbar drag (stored on drop)', () => {
     expect(document.querySelector('[data-toolbar-icon="help"]')).toBeNull();
     // And AI Chat stays too — it is its own plugin.
     expect(document.querySelector('[data-toolbar-icon="ai-chat"]')).not.toBeNull();
+  });
+
+  test('the Worldmap button appears only while the add-on is installed AND its toggle is on', () => {
+    // Not installed in the default test settings: no icon.
+    const first = renderSidebar();
+    expect(document.querySelector('[data-toolbar-icon="worldmap"]')).toBeNull();
+    first.unmount();
+    // Installed but the toggle is off: still no icon — the icon
+    // gates on installed AND enabled, the same gate as the view.
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: {
+        ...base,
+        installedAddons: ['offline-worldmap'],
+        customPlugins: { 'offline-worldmap': false },
+      },
+    });
+    const second = renderSidebar();
+    expect(document.querySelector('[data-toolbar-icon="worldmap"]')).toBeNull();
+    second.unmount();
+    // Installed and toggled on: the icon appears, with the Globe.
+    useSettingsStore.setState({
+      settings: { ...base, installedAddons: ['offline-worldmap'], customPlugins: {} },
+    });
+    renderSidebar();
+    const worldmap = document.querySelector('[data-toolbar-icon="worldmap"]') as HTMLElement;
+    expect(worldmap).not.toBeNull();
+    expect(worldmap.querySelector('svg.lucide-globe')).not.toBeNull();
   });
 
   test('the Synth button shows the Orbit icon while LuciferAI is enabled', () => {

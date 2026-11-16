@@ -32,8 +32,6 @@
  * way. Starship: whatever a detected starship
  * carries (nothing detected today). Forge: the Forge ↔ Persona
  * Plex bridge (only when Persona Plex is installed).
- * Offline Worldmap: the map (only when its add-on is installed
- * and its custom-plugin toggle is on).
  */
 
 /** One categorised section of the Segments panel. */
@@ -87,11 +85,6 @@ export const SEGMENT_CATEGORIES: readonly SegmentCategoryInfo[] = [
     id: 'forge-persona-plex',
     title: 'Forge-to-Persona Plex segment',
     info: 'This segment is the bridge between Forge and Persona Plex. It appears only when Persona Plex is installed. Installing Persona Plex carries it with it, and removing Persona Plex hides it again. For each Homunculus in the Forge roster, it shows the persona paired to it and the voice for that pairing. The voice a persona speaks in is the voice Forge uses for its paired Homunculus. A Homunculus with no persona paired speaks in the default voice, Lily.',
-  },
-  {
-    id: 'worldmap',
-    title: 'Offline Worldmap segment',
-    info: 'Offline Worldmap is a segment for maps with no server. It appears only when the Offline Worldmap add-on is installed and turned on. Installing the add-on carries it with it, and removing the add-on hides it again. It shows a world map that works with no network at all. It tracks devices, draws signal paths, and shows sensor and heat overlays. It takes real GPS from the device, or from a file you pick, or from a small built-in simulator for trying it out. It draws its own grid when there are no map tiles, and it can use map tiles from a folder on this machine when you point it at one. It never sends anything anywhere. The map lives in the add-on’s own fetched files, and its settings live here in Lucid.',
   },
 ];
 

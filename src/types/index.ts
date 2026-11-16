@@ -1207,7 +1207,7 @@ export interface PersonaConfig {
   rate: number;
 }
 
-export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge' | 'persona-plex';
+export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge' | 'persona-plex' | 'worldmap';
 
 /** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
  *  / GoogleDriveAuthRedirect in src/lib/googleDriveAuth.ts. Defined

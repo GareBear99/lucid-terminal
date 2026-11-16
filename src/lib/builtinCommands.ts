@@ -207,6 +207,7 @@ export function registerBuiltinCommands(
     { view: 'synth', title: 'Switch to Synth', description: 'Show the Synth' },
     { view: 'forge', title: 'Switch to Forge', description: 'Show the Forge' },
     { view: 'persona-plex', title: 'Switch to Persona Plex', description: 'Show the Persona Plex' },
+    { view: 'worldmap', title: 'Switch to Worldmap', description: 'Show the Offline Worldmap' },
   ];
   for (const { view, title, description } of views) {
     registry.register({

@@ -28,6 +28,8 @@ import { ForgeView } from './components/Forge/ForgeView';
 import { PersonaPlexView } from './components/PersonaPlex/PersonaPlexView';
 import { toggleForgeView } from './lib/forgeView';
 import { togglePersonaPlexView } from './lib/personaPlexView';
+import { toggleWorldmapView } from './lib/worldmapView';
+import { WorldmapView } from './components/Worldmap/WorldmapView';
 import { toggleSettingsView } from './lib/settingsView';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
@@ -200,6 +202,12 @@ function App() {
   // the Plex setup page, a second press exits back to the terminal.
   const togglePersonaPlex = () =>
     setCurrentView((view) => togglePersonaPlexView(view));
+  // The Worldmap button toggles the same way: first press opens
+  // the full-screen worldmap view, a second press exits back to
+  // the terminal. The worldmap is an add-on + plugin, not a
+  // LuciferAI surface, so the toggle never checks LuciferAI.
+  const toggleWorldmap = () =>
+    setCurrentView((view) => toggleWorldmapView(view));
   // The Settings button toggles the same way: first press opens
   // the Settings view, a second press exits back to the terminal.
   // Opening Settings from its own icon always lands on the default
@@ -215,6 +223,13 @@ function App() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined);
   const openMouse = () => {
     setSettingsInitialTab('modules');
+    setCurrentView('settings');
+  };
+  // The Worldmap view's "not installed / turned off" fallback
+  // opens Settings at the Plugins tab, where the add-on is
+  // installed and its toggle lives.
+  const openWorldmapPlugins = () => {
+    setSettingsInitialTab('plugins');
     setCurrentView('settings');
   };
   // The AI panel lives in the right dock (Atom steal #12): its
@@ -269,7 +284,9 @@ function App() {
   // (Gary, 2026-11-07 ~06:22 PST), not a LuciferAI surface, so it
   // stays open and working with the plugin off. Disabling the plugin
   // used to close it as if it belonged to it, which was the bug.
-  // Never close it here.
+  // Never close it here. The Worldmap view is NOT one of them
+  // either, for the same reason — an add-on + plugin (Gary,
+  // 2026-11-15), not a LuciferAI surface.
   // The daemon and the homunculi are NOT one of them either — they
   // continue with LuciferAI disabled (Gary, 2026-11-07 ~07:32 PST);
   // nothing here touches them.
@@ -703,6 +720,7 @@ function App() {
               onToggleForge={toggleForge}
               onToggleMouse={openMouse}
               onTogglePersonaPlex={togglePersonaPlex}
+              onToggleWorldmap={toggleWorldmap}
               onToggleSettings={toggleSettings}
             />
 
@@ -740,6 +758,9 @@ function App() {
               )}
               {currentView === 'persona-plex' && (
                 <PersonaPlexView />
+              )}
+              {currentView === 'worldmap' && (
+                <WorldmapView onOpenPlugins={openWorldmapPlugins} />
               )}
               {currentView === 'settings' && (
                 <SettingsPanel initialTab={settingsInitialTab} onClose={() => setCurrentView('terminal')} onOpenPersonaPlex={() => setCurrentView('persona-plex')} />

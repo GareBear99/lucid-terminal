@@ -17,6 +17,7 @@ import {
   Trash2,
   X,
   Users,
+  Globe,
 } from 'lucide-react';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useFileStore } from '../../stores/fileStore';
@@ -24,6 +25,8 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useHistoryStore, selectHistoryBlocksForTab, jumpToBlock } from '../../stores/historyStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { enabledToolbarPlugins } from '../../data/toolbarPlugins';
+import { PLUGIN_ADDONS, isAddonInstalled } from '../../data/pluginAddons';
+import { CUSTOM_PLUGINS, isCustomPluginEnabled } from '../../data/customPlugins';
 import { isLuciferAiEnabled } from '../../lib/luciferAi';
 import { resolveToolbarOrder, moveToolbarIcon } from '../../lib/toolbarOrder';
 import { ConversationHistory } from '../Sidebar/ConversationHistory';
@@ -61,11 +64,13 @@ interface SidebarProps {
   onToggleMouse?: () => void;
   /** Toggle the Persona Plex setup page (the Persona Plex toolbar button's action). */
   onTogglePersonaPlex?: () => void;
+  /** Toggle the full-screen worldmap view (the Worldmap toolbar button's action). */
+  onToggleWorldmap?: () => void;
   /** Toggle the Settings view (the Settings toolbar button's action). */
   onToggleSettings?: () => void;
 }
 
-function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenBloodDrop, bloodDropDisabled, onToggleSynth, onToggleForge, onToggleMouse, onTogglePersonaPlex, onToggleSettings }: SidebarProps) {
+function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onToggleAI, onOpenBloodDrop, bloodDropDisabled, onToggleSynth, onToggleForge, onToggleMouse, onTogglePersonaPlex, onToggleWorldmap, onToggleSettings }: SidebarProps) {
   const {
     currentDir,
     entries,
@@ -176,6 +181,18 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
   // is the same shape: its own plugin, icon stays with LuciferAI off.)
   const installedAddons = useSettingsStore((s) => s.settings.installedAddons ?? []);
   const personaPlexInstalled = installedAddons.includes('persona-plex');
+  // Offline Worldmap — an add-on + plugin, not a toolbar plugin:
+  // its icon shows only while the add-on is installed AND its
+  // custom-plugin toggle is on (the same gate as the view
+  // itself). It is an add-on, not a LuciferAI surface, so its
+  // icon stays while LuciferAI is disabled (Gary, 2026-11-15).
+  const worldmapAddon = PLUGIN_ADDONS.find((addon) => addon.id === 'offline-worldmap');
+  const worldmapPlugin = CUSTOM_PLUGINS.find((plugin) => plugin.id === 'offline-worldmap');
+  const worldmapVisible =
+    (worldmapAddon ? isAddonInstalled(worldmapAddon, installedAddons) : false) &&
+    (worldmapPlugin
+      ? isCustomPluginEnabled(worldmapPlugin, useSettingsStore((s) => s.settings.customPlugins))
+      : false);
   const storedToolbarOrder = useSettingsStore((s) => s.settings.toolbarOrder);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   // Kite's docs-panel toggle (Atom steal #15): when the docs
@@ -192,6 +209,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     ...(docsPanelEnabled ? ['docs'] : []),
     ...enabledPlugins.map((p) => p.id),
     ...(personaPlexInstalled ? ['persona-plex'] : []),
+    ...(worldmapVisible ? ['worldmap'] : []),
     'settings',
   ];
   const toolbarOrder = resolveToolbarOrder(storedToolbarOrder, availableToolbarIcons);
@@ -438,6 +456,15 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           button: (
             <button onClick={onTogglePersonaPlex ?? (() => onViewChange('persona-plex'))} className={btnClass(currentView === 'persona-plex')} aria-label="Persona Plex">
               <Users size={20} />
+            </button>
+          ),
+        };
+      case 'worldmap':
+        return {
+          tooltip: 'Offline Worldmap — maps with no server',
+          button: (
+            <button onClick={onToggleWorldmap ?? (() => onViewChange('worldmap'))} className={btnClass(currentView === 'worldmap')} aria-label="Offline Worldmap">
+              <Globe size={20} />
             </button>
           ),
         };
@@ -907,7 +934,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           const showDivider =
             entry === 'settings' &&
             entryIdx > 0 &&
-            toolbarOrder.slice(0, entryIdx).some((id) => id === 'synth' || id === 'help' || id === 'ai-chat' || id === 'llmbuilder' || id === 'mouse' || id === 'persona-plex');
+            toolbarOrder.slice(0, entryIdx).some((id) => id === 'synth' || id === 'help' || id === 'ai-chat' || id === 'llmbuilder' || id === 'mouse' || id === 'persona-plex' || id === 'worldmap');
           return (
             <Fragment key={entry}>
               {showDivider && <div className="lucid-color-shift my-1 h-px w-8" aria-hidden="true" />}

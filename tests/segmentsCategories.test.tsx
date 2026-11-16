@@ -34,7 +34,7 @@ const renderModules = () =>
   );
 
 describe('Segments categories', () => {
-  it('has nine categories, in panel order, each with a title and info text', () => {
+  it('has eight categories, in panel order, each with a title and info text', () => {
     expect(SEGMENT_CATEGORIES.map((c) => c.id)).toEqual([
       'about',
       'computer-control',
@@ -44,7 +44,6 @@ describe('Segments categories', () => {
       'telegram',
       'starship',
       'forge-persona-plex',
-      'worldmap',
     ]);
     for (const category of SEGMENT_CATEGORIES) {
       expect(category.title).toBeTruthy();
@@ -74,6 +73,12 @@ describe('Segments categories', () => {
     expect(html).toContain('Google Drive segment');
     expect(html).toContain('Telegram segment');
     expect(html).toContain('Starship segments');
+    // The worldmap is an add-on + plugin with its own full screen
+    // (Gary, 2026-11-15) — no part of it lives in Settings >
+    // Modules. The segment-in-Modules registration is deferred,
+    // not rejected (Gary, 2026-11-15 ~17:10 PST).
+    expect(html).not.toContain('Offline Worldmap');
+    expect(html).not.toContain('worldmap');
   });
 
   it('renders each visible category info page verbatim, with a voice button', () => {

@@ -18,7 +18,13 @@
  *   Plex setup page — it is available only while the add-on is
  *   installed. Install is the only condition: it is an add-on, not
  *   a LuciferAI surface, so it stays while LuciferAI is disabled
- *   (Gary, 2026-11-07 ~06:22 PST).)
+ *   (Gary, 2026-11-07 ~06:22 PST).) |
+ *   'worldmap' (the Offline Worldmap add-on's id; its button opens
+ *   the full-screen worldmap view — it is available only while the
+ *   add-on is installed AND its custom-plugin toggle is on, the
+ *   same gate as the view itself. It is an add-on + plugin, not a
+ *   LuciferAI surface, so it stays while LuciferAI is disabled
+ *   (Gary, 2026-11-15).)
  * - 'spacer': the flexible gap that pins the lower group to the
  *   bottom of the bar. It is a layout entry, not an icon — it is
  *   never draggable and never a drag target's icon, but it IS a drop
@@ -76,6 +82,7 @@ export type ToolbarIconId =
   | 'llmbuilder'
   | 'mouse'
   | 'persona-plex'
+  | 'worldmap'
   | 'settings'
   | 'spacer';
 
@@ -95,11 +102,12 @@ export const DEFAULT_TOOLBAR_ORDER: ToolbarIconId[] = [
   'llmbuilder',
   'mouse',
   'persona-plex',
+  'worldmap',
   'settings',
 ];
 
 /** Plugin icon ids (the ones that come and go with their toggle). */
-const PLUGIN_ICON_IDS: readonly string[] = ['synth', 'help', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex'];
+const PLUGIN_ICON_IDS: readonly string[] = ['synth', 'help', 'ai-chat', 'llmbuilder', 'mouse', 'persona-plex', 'worldmap'];
 
 /**
  * Resolve the order to render, from the stored order and the icons

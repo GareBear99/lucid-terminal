@@ -1483,6 +1483,14 @@ declare global {
         hide: () => Promise<void>;
         setBounds: (bounds: BrowserBounds) => Promise<void>;
         navigate: (tabId: string, url: string) => Promise<void>;
+        aiSearch: (
+          query: string,
+          timeoutMs?: number,
+        ) => Promise<import('../lib/browserActions').BrowserAiResult>;
+        aiReadPage: (
+          url: string,
+          timeoutMs?: number,
+        ) => Promise<import('../lib/browserActions').BrowserAiResult>;
         goBack: (tabId: string) => Promise<void>;
         goForward: (tabId: string) => Promise<void>;
         reload: (tabId: string) => Promise<void>;

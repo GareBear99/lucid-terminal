@@ -31,6 +31,20 @@ export const MAX_ACTION_TEXT_CHARS = 20000;
  * capped harder — the chat context is small. */
 export const MAX_PAGE_TEXT_FOR_AI = 8000;
 
+/** The result of an agent-driven browser search or page read,
+ * over IPC (`browser:ai-search` / `browser:ai-read-page`).
+ * Main owns the failure strings, so it maps them to this shape
+ * once — the renderer never parses failure text out of a plain
+ * string. `ok: true` carries the results / page text; `ok: false`
+ * carries the plain-text failure in `error`. */
+export interface BrowserAiResult {
+  ok: boolean;
+  /** Search results, or the page's visible text, when ok. */
+  text?: string;
+  /** The plain-text failure, when not ok. */
+  error?: string;
+}
+
 /** Longest selector the action API accepts. A CSS selector longer
  * than this is a paste error, not a real target. */
 export const MAX_SELECTOR_LENGTH = 500;

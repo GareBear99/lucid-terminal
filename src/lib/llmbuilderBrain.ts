@@ -36,11 +36,24 @@
  *   When it gains task records (the 3.0 work — flagged,
  *   NOT done here; LLMBuilder is a product), those
  *   records replace the Lucid-side task corpus.
+ * - The brain can also search the WEB (Gary, 2026-11-16:
+ *   "the first browser way can be made now on the browser
+ *   tab we have"): the task corpus has a web-search and a
+ *   web-read-page record, and a question the retrieval
+ *   cannot match falls back to a web search with the
+ *   user's own words as the query — a lookup, not a
+ *   guess, and only when the prompt carries no file
+ *   evidence (a named file means a file question, never
+ *   a web search). The tools run through the in-panel
+ *   browser tab (a temporary tab for search, the active
+ *   tab for a read); the brain never fetches itself.
  * - The brain ABSTAINS when it does not know: the top
  *   retrieved score below the threshold (or no match at
  *   all) returns an honest reply — "I don't know what to
  *   do with that" — never a guessed tool call. A guessed
- *   call is worse than no call.
+ *   call is worse than no call. (A question that is not a
+ *   file task is not an abstention any more — it is a web
+ *   search, via the fallback above.)
  *
  * What this brain is NOT: it is not a model. It does not
  * understand language. It does not write novel code, hold
@@ -85,7 +98,7 @@ import {
 } from './llmbuilderRetrieval';
 
 export const LLMBUILDER_BRAIN_CAPABILITIES =
-  'I read, list, search, and edit files, I can search the codebase, find a symbol, show the diff, and fix a file’s diagnostics.';
+  'I read, list, search, and edit files, I can search the codebase, find a symbol, show the diff, and fix a file’s diagnostics — and I can search the web and read web pages through the in-panel browser tab.';
 
 /** The abstention threshold. The top retrieved task
  *  record must score at or above this, or the brain says
@@ -182,7 +195,8 @@ export class LLMBuilderBrain implements AgentBrain {
     const intent = parsed.intent;
     if (intent === 'question-simple' || intent === 'question-complex') {
       return (
-        'I can’t answer that from your files — I work on the workspace, I don’t have general knowledge. ' +
+        'I can’t work out what to do with that question from your files. ' +
+        'If it’s about something outside the workspace, ask me to search the web for it. ' +
         LLMBUILDER_BRAIN_CAPABILITIES
       );
     }
@@ -252,6 +266,24 @@ export class LLMBuilderBrain implements AgentBrain {
     if (atSymbolNames.length > 0 && atFilePaths.length === 0) {
       return { toolCalls: [{ name: 'find_symbol', args: { name: atSymbolNames[0] } }] };
     }
+    // A URL with a read/open verb, or a question about a URL,
+    // IS a page read — the URL's tokens are unseen by the
+    // retrieval (no record holds them), so retrieval alone
+    // would miss it. A URL without a read verb or a question
+    // is not routed (it may be content, not a target — "create
+    // a file with https://… in it" is a file task).
+    const pageUrl = this.webUrl(scopedPart);
+    if (pageUrl) {
+      const parsed = parseAgentInput(scopedPart);
+      const isQuestion =
+        parsed.intent === 'question-simple' || parsed.intent === 'question-complex';
+      if (
+        isQuestion ||
+        /\b(read|open|visit|show|fetch|load|go to)\b/i.test(scopedPart)
+      ) {
+        return { toolCalls: [{ name: 'web_read_page', args: { url: pageUrl } }] };
+      }
+    }
 
     const candidates = extractFileCandidates(scopedPart);
     // A @file pin IS a file candidate (the mention source
@@ -305,6 +337,21 @@ export class LLMBuilderBrain implements AgentBrain {
     const matches = this.retriever.retrieve(scopedPart, { topK: 3 });
     const top = matches[0];
     if (!top || top.score < ABSTAIN_THRESHOLD) {
+      // A question with no file evidence is a web search, not
+      // an abstention: the user is asking about something
+      // outside the workspace, and the query is their own
+      // words — a lookup, not a guess. A named file (or
+      // quoted text) means a file question, which never falls
+      // back to the web.
+      const webFallback = this.webFallbackQuery(
+        scopedPart,
+        candidates,
+        atFilePaths,
+        atFolderDirs,
+      );
+      if (webFallback) {
+        return { toolCalls: [{ name: 'web_search', args: { query: webFallback } }] };
+      }
       return { toolCalls: [], reply: this.unplannableReply(scopedPart, top?.score) };
     }
     // A single shared verb is not a file task: "how do I
@@ -329,12 +376,19 @@ export class LLMBuilderBrain implements AgentBrain {
       'find-symbol',
       'go-to-definition',
       'find-references',
+      'web-search',
+      'web-read-page',
     ].includes(record.id);
     const searchEvidence =
       isSearchRecord &&
       (this.searchText(scopedPart, candidates) !== '' ||
         atSymbolNames.length > 0 ||
         this.symbolFrom(scopedPart) !== null);
+    // A URL in the prompt is the evidence for a page read
+    // (the read's target); a web query is the evidence for
+    // a web search (searchText above covers it).
+    const webEvidence =
+      record.id === 'web-read-page' && this.webUrl(scopedPart) !== null;
     const fileEvidence =
       candidates.some((c) => isPathLike(c.text)) ||
       quotedStrings(scopedPart).length > 0 ||
@@ -345,8 +399,28 @@ export class LLMBuilderBrain implements AgentBrain {
     // means the file the search named.
     const historyEvidence =
       ctx.activeFilePath !== null || fileDiscoveredInHistory(ctx) !== null;
-    if (top.sharedTerms < 2 && !fileEvidence && !searchEvidence && !historyEvidence) {
-      return { toolCalls: [], reply: this.unplannableReply(scopedPart, top.score, true) };
+    if (top.sharedTerms < 2 && !fileEvidence && !searchEvidence && !webEvidence) {
+      // A question with no file evidence is a web search even
+      // when a file is open — an open file does not make a
+      // pancake question a file question. (The deictic guard
+      // in webFallbackQuery keeps "what does this do?" off
+      // the web.)
+      const webFallback = this.webFallbackQuery(
+        scopedPart,
+        candidates,
+        atFilePaths,
+        atFolderDirs,
+      );
+      if (webFallback) {
+        return { toolCalls: [{ name: 'web_search', args: { query: webFallback } }] };
+      }
+      // Without a web fallback, the open file / a prior
+      // search is the only thing that keeps a weak match
+      // alive — "fix it" after a search means the file the
+      // search named. Without that either, it is not a task.
+      if (!historyEvidence) {
+        return { toolCalls: [], reply: this.unplannableReply(scopedPart, top.score, true) };
+      }
     }
     // Post-retrieval routing — the retrieval cannot tell
     // these apart from the text alone, but the prompt's
@@ -381,6 +455,26 @@ export class LLMBuilderBrain implements AgentBrain {
         // on a guess.
         record = this.taskCorpus.find((r) => r.id === 'replace-text') ?? record;
       }
+    }
+    // Post-retrieval routing — the retrieval cannot tell
+    // these apart from the text alone, but the prompt's
+    // evidence can:
+    // - A web marker means a web search, not a file search:
+    //   "search the web" and "search the codebase" both
+    //   share "search" — the web word does the telling.
+    if (
+      (record.id === 'search-file' || record.id === 'search-codebase') &&
+      /\b(web|internet|online|google)\b/i.test(scopedPart)
+    ) {
+      record = this.taskCorpus.find((r) => r.id === 'web-search') ?? record;
+    }
+    // - A URL means the page, not a file: "read the page"
+    //   and "read the file" both share "read" — the URL
+    //   does the telling. (The pre-route above catches the
+    //   same prompts before retrieval; this is the backstop
+    //   for prompts its verb list missed.)
+    if (record.id === 'read-file' && this.webUrl(scopedPart) !== null) {
+      record = this.taskCorpus.find((r) => r.id === 'web-read-page') ?? record;
     }
 
     // A replace across SEVERAL named files is ONE
@@ -550,6 +644,26 @@ export class LLMBuilderBrain implements AgentBrain {
           return { reply: 'What should I search for?' };
         }
         return { call: { name: 'codebase_search', args: { query } } };
+      }
+
+      case 'web_search': {
+        const query = this.webQueryText(scopedPart);
+        if (!query) {
+          return { reply: 'What should I search the web for?' };
+        }
+        return { call: { name: 'web_search', args: { query } } };
+      }
+
+      case 'web_read_page': {
+        // The URL may be bare in the prompt or in quotes.
+        const url =
+          this.webUrl(scopedPart) ??
+          quoted.find((q) => /^https?:\/\//i.test(q)) ??
+          null;
+        if (!url) {
+          return { reply: 'Which page should I read? Give me its URL.' };
+        }
+        return { call: { name: 'web_read_page', args: { url } } };
       }
 
       case 'file_glob_search': {
@@ -738,6 +852,93 @@ export class LLMBuilderBrain implements AgentBrain {
     }
     query = query.replace(/\s+in\s*$/i, '').trim();
     return query;
+  }
+
+  /** The web search query: the prompt minus the web verbs,
+   *  the question openers, and a trailing "on the web".
+   *  The file candidate is not part of the query (a web
+   *  search is not a file search). */
+  private webQueryText(scopedPart: string): string {
+    let query = stripPoliteness(scopedPart).trim();
+    // The web verb, then the web phrase, then "for".
+    query = query.replace(/^(search|look up|lookup|find|google)\b\s*/i, '');
+    query = query.replace(/^(the\s+)?(web|internet|online)\b\s*(for\s+)?/i, '');
+    query = query.replace(/^for\s+/i, '');
+    // A question opener ("what is", "how do I", "explain").
+    query = query.replace(
+      /^(what(?:'s| is| are| was| were)?|who|when|where|which|why|how (?:do|does|can|should|would|is|are) (?:i|you|we|they)|how|explain|describe)\b\s*/i,
+      '',
+    );
+    // A trailing "on the web / internet / online".
+    query = query.replace(/\s+on\s+(the\s+)?(web|internet|online)\s*$/i, '').trim();
+    return query.replace(/\s+/g, ' ').trim();
+  }
+
+  /** The first http(s) URL in the prompt, or null. A bare
+   *  domain counts only with a scheme (https://…), a www.
+   *  prefix, or a path (example.com/page) — a filename like
+   *  "notes.txt" must never become a web read. */
+  private webUrl(scopedPart: string): string | null {
+    const match =
+      /(https?:\/\/[^\s"'<>]+|www\.[^\s"'<>]+|[A-Za-z0-9-]+\.[A-Za-z]{2,}(?:\/[^\s"'<>]*)?)/i.exec(
+        scopedPart,
+      );
+    if (!match) return null;
+    const raw = match[0].replace(/[).,;:!?]+$/, '');
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (/^www\./i.test(raw)) return `https://${raw}`;
+    if (/^[A-Za-z0-9-]+\.[A-Za-z]{2,}\//.test(raw)) return `https://${raw}`;
+    return null;
+  }
+
+  /** The web-search fallback: the query for a question the
+   *  retrieval could not match, or null when no fallback
+   *  applies. The guards are the point — a fallback must
+   *  never turn a file question into a web search or produce
+   *  a garbage query:
+   *  - File evidence (a named file, quoted text, a @file /
+   *    @folder pin) means a file question, never the web.
+   *  - A workspace deictic ("this", "that", "here", "the
+   *    file") points at the open file, not the outside
+   *    world — "what does this do?" is not a web question.
+   *  - Only a question (or an explicit web marker) falls
+   *    back; a command ("play some music") abstains.
+   *  - The stripped query must keep a content word: "what
+   *    does it do" strips to auxiliaries and a pronoun, so
+   *    it abstains instead of searching for "does it do". */
+  private webFallbackQuery(
+    scopedPart: string,
+    candidates: ReturnType<typeof extractFileCandidates>,
+    atFilePaths: string[],
+    atFolderDirs: string[],
+  ): string | null {
+    const fileEvidence =
+      candidates.some((c) => isPathLike(c.text)) ||
+      quotedStrings(scopedPart).length > 0 ||
+      atFilePaths.length > 0 ||
+      atFolderDirs.length > 0;
+    if (fileEvidence) return null;
+    if (/\b(this|that|here|the file|the code|my file)\b/i.test(scopedPart)) return null;
+    const parsed = parseAgentInput(scopedPart);
+    const isQuestion =
+      parsed.intent === 'question-simple' || parsed.intent === 'question-complex';
+    const hasWebMarker = /\b(web|internet|online|google)\b/i.test(scopedPart);
+    if (!isQuestion && !hasWebMarker) return null;
+    const query = this.webQueryText(scopedPart);
+    if (!query) return null;
+    // A content word must survive the stripping — question
+    // words, auxiliaries, pronouns and articles do not count.
+    const NON_CONTENT = new Set([
+      'what', 'is', 'are', 'was', 'were', 'do', 'does', 'did', 'can',
+      'could', 'should', 'would', 'will', 'it', 'its', 'this', 'that',
+      'these', 'those', 'here', 'there', 'i', 'me', 'my', 'you', 'your',
+      'he', 'she', 'they', 'we', 'the', 'a', 'an', 'of', 'in', 'on',
+      'for', 'to', 'and', 'or', 'please', 'tell', 'know', 'about',
+    ]);
+    const hasContent = query
+      .split(/\s+/)
+      .some((w) => !NON_CONTENT.has(w.toLowerCase()));
+    return hasContent ? query : null;
   }
 
   /** The symbol: the word after "where is"/"definition

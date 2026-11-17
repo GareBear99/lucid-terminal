@@ -22,10 +22,21 @@
  * - create_rule_block / request_rule — writes rules to
  *   disk; the rules engine is later work, and guest must
  *   never use them.
- * - fetch_url_content / search_web — network. The loop is
- *   local only.
  * - delete / rename — destructive; they land with the
  *   review UI (Zed #6), not before.
+ *
+ * Web search and page reading ARE here (Gary, 2026-11-16:
+ * "the first browser way can be made now on the browser tab
+ * we have") — but only through the in-panel browser tab.
+ * `web_search` / `web_read_page` call the host's web methods,
+ * which go over IPC to main, where the browser tab loads the
+ * page (a temporary tab for search, the active tab for a
+ * read). There is NO raw HTTP fetch from the renderer — the
+ * loop never touches the network itself. A failed load or a
+ * missing browser tab is an honest error result, never a
+ * faked answer. Storing what the web returns into the corpus
+ * is NOT here (the corpus is static; instant-store is future
+ * work) — the tools return the text for the current turn.
  *
  * Landed in the Aider slice (#5, 2026-11-14): view_diff
  * (the `git diff` runner in main — electron/ipc/git.ts —
@@ -80,6 +91,10 @@ const MAX_READ_CHARS = 200_000;
 const MAX_GREP_FILES = 300;
 const MAX_GREP_BYTES = 5_000_000;
 const MAX_GREP_MATCHES = 50;
+/** A web search / page read returns at most this much text
+ *  to the loop (main already caps page text at 8k; this is
+ *  the safety net, same size as the diff cap). */
+const MAX_WEB_CHARS = 20_000;
 
 /** Words with no retrieval signal, dropped when a
  *  multi-word query is split into search terms (the
@@ -377,6 +392,95 @@ async function codebaseSearchImpl(
     return `${r.path}:${r.startLine}${symbols}\n  ${r.snippet.split('\n')[0]?.slice(0, 160) ?? ''}`;
   });
   return { ok: true, output: `${results.length} result(s) for "${query}":\n${lines.join('\n')}` };
+}
+
+/** Cap a web result for the loop — main already caps page
+ *  text, this is the safety net so a huge results page
+ *  cannot flood the run's context. */
+function capWebOutput(text: string): string {
+  return text.length > MAX_WEB_CHARS
+    ? `${text.slice(0, MAX_WEB_CHARS)}\n… (web result truncated)`
+    : text;
+}
+
+async function webSearchImpl(
+  args: Record<string, unknown>,
+  ctx: AgentToolContext,
+): Promise<AgentToolResult> {
+  const query = args.query;
+  if (typeof query !== 'string' || !query.trim()) {
+    return { ok: false, output: '', error: 'a search query is required' };
+  }
+  // No browser bridge (tests, or a build without the search
+  // channel): an honest unavailable, never a guessed result
+  // and never a raw fetch from the renderer.
+  if (typeof ctx.host.webSearch !== 'function') {
+    return {
+      ok: false,
+      output: '',
+      error: 'Web search is not available right now — the in-panel browser is not set up.',
+    };
+  }
+  let result;
+  try {
+    result = await ctx.host.webSearch(query.trim());
+  } catch (error) {
+    return {
+      ok: false,
+      output: '',
+      error: `Web search failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (!result.ok) {
+    return { ok: false, output: '', error: result.error ?? 'Web search failed.' };
+  }
+  return { ok: true, output: capWebOutput(result.text ?? 'No search results found.') };
+}
+
+async function webReadPageImpl(
+  args: Record<string, unknown>,
+  ctx: AgentToolContext,
+): Promise<AgentToolResult> {
+  const url = args.url;
+  if (typeof url !== 'string' || !url.trim()) {
+    return { ok: false, output: '', error: 'a page URL is required' };
+  }
+  // Only http(s) — the same rule main enforces; a
+  // javascript: or file: URL is refused here, not passed on.
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return { ok: false, output: '', error: `Could not open ${url.trim()}: not a valid URL.` };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      ok: false,
+      output: '',
+      error: `Could not open ${url.trim()}: only http(s) URLs can be opened.`,
+    };
+  }
+  if (typeof ctx.host.readWebPage !== 'function') {
+    return {
+      ok: false,
+      output: '',
+      error: 'Web page reading is not available right now — the in-panel browser is not set up.',
+    };
+  }
+  let result;
+  try {
+    result = await ctx.host.readWebPage(url.trim());
+  } catch (error) {
+    return {
+      ok: false,
+      output: '',
+      error: `Could not read the page: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (!result.ok) {
+    return { ok: false, output: '', error: result.error ?? 'Could not read the page.' };
+  }
+  return { ok: true, output: capWebOutput(result.text ?? '') };
 }
 
 async function findSymbolImpl(
@@ -1023,6 +1127,34 @@ export function getBuiltInToolDefinitions(): AgentToolDefinition[] {
       },
     ),
     tool(
+      'web_search',
+      'Search the web through the in-panel browser tab and return the top results (title, URL, snippet). Use this when the user asks about something current or outside the workspace — a version, a price, the news, what something is. The search runs in a temporary browser tab; the results come back as text for this turn.',
+      'Web Search',
+      'search the web for "{{{ query }}}"',
+      'searching the web for "{{{ query }}}"',
+      'searched the web for "{{{ query }}}"',
+      true,
+      'allowedWithoutPermission',
+      ['query'],
+      {
+        query: { type: 'string', description: 'What to search the web for — the question or topic in the user’s own words.' },
+      },
+    ),
+    tool(
+      'web_read_page',
+      'Read a web page through the in-panel browser tab: open the URL, wait for it to load, and return the page’s visible text. Use this when the user names a URL (or a search result) and wants what is on it.',
+      'Read Web Page',
+      'read the web page at {{{ url }}}',
+      'reading the web page at {{{ url }}}',
+      'read the web page at {{{ url }}}',
+      true,
+      'allowedWithoutPermission',
+      ['url'],
+      {
+        url: { type: 'string', description: 'The http(s) URL of the page to read.' },
+      },
+    ),
+    tool(
       'find_symbol',
       'Find a symbol (function, class, interface, type, variable) by name in the workspace.',
       'Find Symbol',
@@ -1151,6 +1283,8 @@ export function registerBuiltInTools(registry: ToolRegistry): void {
     file_glob_search: globSearchImpl,
     grep_search: grepSearchImpl,
     codebase_search: codebaseSearchImpl,
+    web_search: webSearchImpl,
+    web_read_page: webReadPageImpl,
     find_symbol: findSymbolImpl,
     go_to_definition: goToDefinitionImpl,
     find_references: findReferencesImpl,

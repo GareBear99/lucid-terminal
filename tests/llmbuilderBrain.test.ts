@@ -10,7 +10,9 @@
  * routing — a named file means the named file, not the
  * open one; named files and no codebase marker mean the
  * replace, not the codebase search; two named files mean
- * one multi_file_edit), and off-task prompts plan
+ * one multi_file_edit), web questions plan a web search
+ * (or a page read for a URL — never a file task, never a
+ * garbage query), and off-task prompts plan
  * nothing (the brain abstains with an honest reply,
  * never a guessed tool call).
  */
@@ -68,6 +70,15 @@ describe('LLMBuilderBrain — on-task prompts plan the right tool', () => {
     ['find files matching src/*.ts', 'file_glob_search'],
     ['go to the definition of greet in src/app.ts', 'go_to_definition'],
     ['find all references to greet in src/app.ts', 'find_references'],
+    ['search the web for the latest Electron version', 'web_search'],
+    ['what is the current price of gold', 'web_search'],
+    ['look up the weather in Williams Lake', 'web_search'],
+    ['read https://example.com/docs', 'web_read_page'],
+    ['what is the capital of France', 'web_search'],
+    ['who won the game last night', 'web_search'],
+    ['what time is it', 'web_search'],
+    ['how do I make pancakes', 'web_search'],
+    ['explain quantum entanglement', 'web_search'],
   ])('%s -> %s', async (prompt, want) => {
     const { index } = await builtIndex(FILES);
     const plan = await new LLMBuilderBrain().plan(prompt, ctxFor(index, OPEN_APP));
@@ -116,16 +127,66 @@ describe('LLMBuilderBrain — on-task prompts plan the right tool', () => {
   });
 });
 
+describe('LLMBuilderBrain — web questions plan a web search, not a file task', () => {
+  it('a web search fills the query from the user’s own words', async () => {
+    const { index } = await builtIndex(FILES);
+    const plan = await new LLMBuilderBrain().plan(
+      'search the web for the latest Electron version',
+      ctxFor(index, OPEN_APP),
+    );
+    expect(plan.toolCalls).toHaveLength(1);
+    expect(plan.toolCalls[0].name).toBe('web_search');
+    expect(plan.toolCalls[0].args.query).toBe('the latest Electron version');
+  });
+
+  it('a page read fills the URL from the prompt', async () => {
+    const { index } = await builtIndex(FILES);
+    const plan = await new LLMBuilderBrain().plan(
+      'read https://example.com/docs',
+      ctxFor(index, OPEN_APP),
+    );
+    expect(plan.toolCalls).toHaveLength(1);
+    expect(plan.toolCalls[0].name).toBe('web_read_page');
+    expect(plan.toolCalls[0].args.url).toBe('https://example.com/docs');
+  });
+
+  it('a question about a file never falls back to the web', async () => {
+    const { index } = await builtIndex(FILES);
+    const plan = await new LLMBuilderBrain().plan(
+      'what is useState in src/App.tsx',
+      ctxFor(index, OPEN_APP),
+    );
+    // A named file means a file question — the brain abstains
+    // instead of web-searching it.
+    expect(plan.toolCalls).toHaveLength(0);
+    expect(plan.reply).toBeTruthy();
+  });
+
+  it('a question about the workspace itself ("what does this do?") never falls back to the web', async () => {
+    const { index } = await builtIndex(FILES);
+    const plan = await new LLMBuilderBrain().plan(
+      'what does this do?',
+      ctxFor(index, OPEN_APP),
+    );
+    expect(plan.toolCalls).toHaveLength(0);
+    expect(plan.reply).toBeTruthy();
+  });
+
+  it('a question with no topic ("what does it do") abstains instead of searching for garbage', async () => {
+    const { index } = await builtIndex(FILES);
+    const plan = await new LLMBuilderBrain().plan(
+      'what does it do',
+      ctxFor(index, []),
+    );
+    expect(plan.toolCalls).toHaveLength(0);
+    expect(plan.reply).toBeTruthy();
+  });
+});
+
 describe('LLMBuilderBrain — off-task prompts plan nothing', () => {
   it.each([
-    'what is the weather today',
     'tell me a joke',
-    'how do I make pancakes',
-    'what is the capital of France',
     'write a poem about the moon',
-    'explain quantum entanglement',
-    'what time is it',
-    'who won the game last night',
     'play some music',
     'set a timer for 10 minutes',
   ])('%s -> no tool calls', async (prompt) => {

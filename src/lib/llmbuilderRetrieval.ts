@@ -377,6 +377,22 @@ export const LLMBUILDER_TASK_CORPUS: TaskRecord[] = [
     tools: ['view_diff'],
     params: { view_diff: 'filepath from the file candidate when one is named, else the whole workspace' },
   },
+  {
+    id: 'web-search',
+    prompt: 'search web internet online look up current latest news price version weather',
+    capability: 'web-search',
+    target: 'Search the web and return the top results.',
+    tools: ['web_search'],
+    params: { web_search: 'query from the web question text' },
+  },
+  {
+    id: 'web-read-page',
+    prompt: 'read web page open url link site visit',
+    capability: 'web-read',
+    target: 'Open the named URL in the browser tab and return the page text.',
+    tools: ['web_read_page'],
+    params: { web_read_page: 'url from the URL in the prompt' },
+  },
 ];
 
 /** The task retriever — built once, shared by the brain. */

@@ -65,6 +65,19 @@ export interface AgentHost {
   updateOpenFileContent(path: string, content: string): void;
   /** Save an open file to disk (clears its dirty flag). */
   saveOpenFile(path: string): Promise<void>;
+  /** Search the web through the in-panel browser tab (a
+   *  temporary tab loads the search engine; the results come
+   *  back as formatted text). Returns the structured IPC
+   *  result ({ ok, text, error }) — never throws for a
+   *  failed search; the failure rides in `error`. Optional:
+   *  hosts without the browser bridge (tests) omit it, and
+   *  the web tools report that honestly instead of calling it. */
+  webSearch?(query: string): Promise<import('./browserActions').BrowserAiResult>;
+  /** Read a web page through the in-panel browser tab: open
+   *  the URL in the active tab (or a new tab), wait for it to
+   *  load, return the page's visible text. Same optional /
+   *  structured-result shape as webSearch. */
+  readWebPage?(url: string): Promise<import('./browserActions').BrowserAiResult>;
 }
 
 /** Normalize a POSIX path in pure strings: collapse `.`,
@@ -173,5 +186,25 @@ export const electronAgentHost: AgentHost = {
   },
   async getDiff(cwd: string, filepath?: string): Promise<string | null> {
     return window.lucidAPI.git.getDiff(cwd, filepath);
+  },
+  async webSearch(
+    query: string,
+  ): Promise<import('./browserActions').BrowserAiResult> {
+    if (typeof window.lucidAPI.browser.aiSearch !== 'function') {
+      throw new Error(
+        'Web search is not available in this build — the browser bridge has no search channel.',
+      );
+    }
+    return window.lucidAPI.browser.aiSearch(query);
+  },
+  async readWebPage(
+    url: string,
+  ): Promise<import('./browserActions').BrowserAiResult> {
+    if (typeof window.lucidAPI.browser.aiReadPage !== 'function') {
+      throw new Error(
+        'Web page reading is not available in this build — the browser bridge has no page-read channel.',
+      );
+    }
+    return window.lucidAPI.browser.aiReadPage(url);
   },
 };

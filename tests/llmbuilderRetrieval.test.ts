@@ -165,6 +165,9 @@ describe('llmbuilderRetrieval — the task corpus separates tasks from non-tasks
       'find files matching src/*.ts',
       'go to the definition of greet in src/app.ts',
       'find all references to greet',
+      'search the web for the latest Electron version',
+      'what is the current price of gold',
+      'look up the weather in Williams Lake',
     ];
     for (const q of onTask) {
       const top = retriever.retrieve(q)[0];

@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { BrowserAiResult } from '../src/lib/browserActions';
 
 type Handlers = Record<string, (...args: unknown[]) => unknown>;
 
@@ -25,6 +26,8 @@ interface SearchState {
   loadedUrls: string[];
   /** When false, loadURL never fires did-finish-load (timeout test). */
   fireLoad: boolean;
+  /** When true, loadURL fires did-fail-load instead (load-failure test). */
+  fireFail: boolean;
 }
 
 (globalThis as unknown as { __searchState: unknown }).__searchState ??= {
@@ -34,6 +37,7 @@ interface SearchState {
   views: [],
   loadedUrls: [],
   fireLoad: true,
+  fireFail: false,
 };
 
 const searchState = () =>
@@ -70,6 +74,10 @@ vi.mock('electron', () => {
           state.loadedUrls.push(url);
           if (state.fireLoad) {
             setTimeout(() => {
+              if (state.fireFail) {
+                onceHandlers['did-fail-load']?.();
+                return;
+              }
               handlers['did-finish-load']?.();
               onceHandlers['did-finish-load']?.();
             }, 0);
@@ -247,6 +255,7 @@ beforeEach(() => {
   state.views = [];
   state.loadedUrls = [];
   state.fireLoad = true;
+  state.fireFail = false;
 });
 
 afterEach(async () => {
@@ -367,5 +376,134 @@ describe('search', () => {
     expect(result).toBe('Search timed out after 1s.');
     const tempView = searchState().views[searchState().views.length - 1].wc;
     expect(tempView.destroyed).toBe(true);
+  });
+});
+
+describe('agent IPC — browser:ai-search / browser:ai-read-page', () => {
+  it('ai-search returns the structured results from the temporary tab', async () => {
+    const { handlers } = await setup();
+    createAndActivateTab(handlers);
+    const result = (await call(
+      handlers,
+      'browser:ai-search',
+      'lucid terminal',
+    )) as BrowserAiResult;
+    expect(result.ok).toBe(true);
+    expect(result.text).toContain('1. First Result');
+    expect(result.text).toContain('https://first.example/');
+    expect(result.text).toContain('The first snippet.');
+  });
+
+  it('ai-search rejects an empty query', async () => {
+    const { handlers } = await setup();
+    const result = (await call(handlers, 'browser:ai-search', '   ')) as BrowserAiResult;
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/query is required/i);
+  });
+
+  it('ai-search maps a timed-out search to ok:false', async () => {
+    const { handlers } = await setup();
+    createAndActivateTab(handlers);
+    searchState().fireLoad = false;
+    const result = (await call(
+      handlers,
+      'browser:ai-search',
+      'slow query',
+      200,
+    )) as BrowserAiResult;
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/timed out/i);
+  });
+
+  it('ai-read-page reads the active tab after navigating to the URL', async () => {
+    const { handlers } = await setup();
+    createAndActivateTab(handlers);
+    const result = (await call(
+      handlers,
+      'browser:ai-read-page',
+      'https://other.example/page',
+    )) as BrowserAiResult;
+    expect(result.ok).toBe(true);
+    expect(result.text).toContain('Page: Test Page (https://example.com/)');
+    expect(result.text).toContain('Hello world, this is the page text.');
+    expect(searchState().loadedUrls).toContain('https://other.example/page');
+  });
+
+  it('ai-read-page reads in a temporary tab when no tab is open, then destroys it', async () => {
+    const { handlers } = await setup();
+    // No tab created: the Browser panel was never opened, so
+    // there is no active tab and no `browser:open-url` listener.
+    // The read must still work, in a temporary tab.
+    const result = (await call(
+      handlers,
+      'browser:ai-read-page',
+      'https://temp.example/page',
+    )) as BrowserAiResult;
+    expect(result.ok).toBe(true);
+    // The mock reports the page URL from its own currentUrl,
+    // which no tab set here, so assert the title and text only
+    // — the loaded URL is asserted below.
+    expect(result.text).toContain('Page: Test Page (');
+    expect(result.text).toContain('Hello world, this is the page text.');
+    expect(searchState().loadedUrls).toContain('https://temp.example/page');
+    // The temporary tab is destroyed after the read, never
+    // attached to a window and never left behind.
+    expect(searchState().views).toHaveLength(1);
+    expect(searchState().views[0].wc.destroyed).toBe(true);
+  });
+
+  it('ai-read-page rejects a non-http URL and an empty URL', async () => {
+    const { handlers } = await setup();
+    const bad = (await call(
+      handlers,
+      'browser:ai-read-page',
+      'javascript:alert(1)',
+    )) as BrowserAiResult;
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/only http\(s\)/);
+    const empty = (await call(handlers, 'browser:ai-read-page', '   ')) as BrowserAiResult;
+    expect(empty.ok).toBe(false);
+    expect(empty.error).toMatch(/URL is required/i);
+  });
+
+  it('ai-read-page maps a failed load to ok:false (not a timeout)', async () => {
+    const { handlers } = await setup();
+    createAndActivateTab(handlers);
+    // Force the tab to look loading, and make its load fail
+    // (bad cert, DNS, refused) instead of finishing.
+    const wc = searchState().views[0].wc as Record<string, unknown>;
+    wc.isLoading = () => true;
+    searchState().fireFail = true;
+    const result = (await call(
+      handlers,
+      'browser:ai-read-page',
+      'https://fail.example/',
+      200,
+    )) as BrowserAiResult;
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/failed to load/i);
+    expect(result.error).not.toMatch(/timed out/i);
+  });
+
+  it('ai-read-page maps a load that never finishes to ok:false', async () => {
+    const { handlers } = await setup();
+    // Turn load firing off BEFORE creating the tab: the mock
+    // fires the create's load event through a setTimeout(0) on
+    // a per-view handler map, so a pending create event would
+    // otherwise resolve the read as loaded.
+    searchState().fireLoad = false;
+    createAndActivateTab(handlers);
+    // The mock's webContents reports not-loading, so force it
+    // to look loading and never fire the load event.
+    const wc = searchState().views[0].wc as Record<string, unknown>;
+    wc.isLoading = () => true;
+    const result = (await call(
+      handlers,
+      'browser:ai-read-page',
+      'https://slow.example/',
+      200,
+    )) as BrowserAiResult;
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/timed out/i);
   });
 });

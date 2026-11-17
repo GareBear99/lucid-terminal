@@ -482,6 +482,14 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       ipcRenderer.invoke('browser:setBounds', bounds),
     navigate: (tabId: string, url: string) =>
       ipcRenderer.invoke('browser:navigate', tabId, url),
+    /** Agent-driven web search / page read (the LLMBuilder
+     *  brain's tools): the in-panel browser tab searches (a
+     *  temporary tab) or reads a page (the active tab), and
+     *  the result comes back structured ({ ok, text, error }). */
+    aiSearch: (query: string, timeoutMs?: number) =>
+      ipcRenderer.invoke('browser:ai-search', query, timeoutMs),
+    aiReadPage: (url: string, timeoutMs?: number) =>
+      ipcRenderer.invoke('browser:ai-read-page', url, timeoutMs),
     goBack: (tabId: string) => ipcRenderer.invoke('browser:goBack', tabId),
     goForward: (tabId: string) =>
       ipcRenderer.invoke('browser:goForward', tabId),
@@ -1074,6 +1082,14 @@ export interface LucidAPI {
     hide: () => Promise<void>;
     setBounds: (bounds: BrowserBounds) => Promise<void>;
     navigate: (tabId: string, url: string) => Promise<void>;
+    aiSearch: (
+      query: string,
+      timeoutMs?: number,
+    ) => Promise<import('../src/lib/browserActions').BrowserAiResult>;
+    aiReadPage: (
+      url: string,
+      timeoutMs?: number,
+    ) => Promise<import('../src/lib/browserActions').BrowserAiResult>;
     goBack: (tabId: string) => Promise<void>;
     goForward: (tabId: string) => Promise<void>;
     reload: (tabId: string) => Promise<void>;

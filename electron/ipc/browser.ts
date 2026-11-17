@@ -41,7 +41,10 @@ import {
   formatSearchResults,
 } from '../../src/lib/browserActions';
 import { isFocusAddressBarKeyInput } from '../../src/lib/browserAddressBar';
-import type { SearchResultItem } from '../../src/lib/browserActions';
+import type {
+  BrowserAiResult,
+  SearchResultItem,
+} from '../../src/lib/browserActions';
 import {
   registerBrowserToolTarget,
 } from '../services/browserToolBridge';
@@ -1154,6 +1157,95 @@ export function setupBrowserHandlers(
     }
   };
 
+  // Agent page read: open the URL in the ACTIVE browser tab
+  // when one is open — Gary sees the page it opens — and in a
+  // temporary tab (the search's route, never attached, destroyed
+  // after the read) when none is. The temporary route matters:
+  // the visible-tab route needs the Browser panel mounted (it is
+  // the panel that answers `browser:open-url`), so a read with
+  // no tab open would fail until Gary opened the Browser tab
+  // once — the agent must be able to read a page on its own.
+  // A load that never finishes (or fails) reports honestly
+  // instead of hanging the agent.
+  const readWebPage = async (
+    url: string,
+    timeoutMs = 15000,
+  ): Promise<string> => {
+    const timeout = Math.min(
+      60000,
+      Math.max(1000, Math.floor(timeoutMs) || 15000),
+    );
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return `Could not open ${url}: not a valid URL.`;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return `Could not open ${url}: only http(s) URLs can be opened.`;
+    }
+    const wc = activeWebContents();
+    if (wc) {
+      void wc.loadURL(url);
+      return readLoadedPage(wc, url, timeout);
+    }
+    // No tab open: a temporary tab, like search. It is created
+    // already pointed at the URL, so it may finish loading
+    // before the load listener is registered — check isLoading
+    // first and read at once in that case.
+    searchCounter += 1;
+    const tempId = `browser-read-${Date.now().toString(36)}-${searchCounter}`;
+    createView(tempId, url);
+    const view = views.get(tempId);
+    if (!view) return `Could not open ${url}: could not open a tab to read it.`;
+    try {
+      return await readLoadedPage(view.webContents, url, timeout);
+    } finally {
+      closeView(tempId);
+    }
+  };
+
+  // Wait for a webContents to finish loading the page it is
+  // already pointed at, then return its visible text, capped
+  // for the AI. A load that fails (bad cert, DNS, refused) and
+  // a load that never finishes are reported as what they are,
+  // never as each other, and never as a hang.
+  const readLoadedPage = async (
+    wc: Electron.WebContents,
+    url: string,
+    timeout: number,
+  ): Promise<string> => {
+    const outcome = await new Promise<'loaded' | 'failed' | 'timeout'>(
+      (resolve) => {
+        // Already loaded (a new tab whose page finished while
+        // the view was appearing): read it now, do not wait out
+        // the timeout for a load event that already fired.
+        if (!wc.isLoading()) return resolve('loaded');
+        const timer = setTimeout(() => resolve('timeout'), timeout);
+        wc.once('did-finish-load', () => {
+          clearTimeout(timer);
+          resolve('loaded');
+        });
+        wc.once('did-fail-load', () => {
+          clearTimeout(timer);
+          resolve('failed');
+        });
+      },
+    );
+    if (outcome === 'timeout') {
+      return `Page load timed out after ${Math.round(timeout / 1000)}s: ${url}.`;
+    }
+    if (outcome === 'failed') {
+      return `Page failed to load: ${url}.`;
+    }
+    const result = await actions.readText(wc);
+    if (!result.ok || !result.text) {
+      return `Could not read the page: ${result.error ?? 'unknown error'}.`;
+    }
+    const text = capTextForAi(result.text.text);
+    return `Page: ${result.text.title} (${result.text.url})\n\n${text}`;
+  };
+
   const saveScreenshot = (dataUrl: string): string | null => {
     const base64 = dataUrl.split(',')[1];
     if (!base64) return null;
@@ -1372,6 +1464,11 @@ export function setupBrowserHandlers(
       : undefined,
   };
   registerBrowserToolTarget(wrappedToolTarget);
+  /** The page read, inside the agent session like the rest of
+   *  the browser tools (finger queue, glass splash, Gary's stop
+   *  / take-control) — kept out of the bridge interface because
+   *  it is the renderer-side agent path, not a LuciferAI tool. */
+  const readWebPageWrapped = withAgentSession(readWebPage);
 
   // Flows (Area 7): start / stop / approve / reject. Start
   // validates the definition in main and reports `no-such-tab`
@@ -1392,6 +1489,55 @@ export function setupBrowserHandlers(
     agentFlowIds.delete(flowId);
     return flows.stopFlow(flowId);
   });
+
+  // Agent-driven web search / page read (the LLMBuilder brain's
+  // tools): the same browser-tab machinery the browser_* tools
+  // use, over IPC. The result is structured — main owns the
+  // failure strings, so it maps them to { ok, error } once, and
+  // the renderer never parses failure text out of a plain
+  // string. A search runs in a temporary tab (never attached);
+  // a page read navigates the active tab (or opens one) and
+  // reads its visible text. Both run inside the agent session
+  // (finger queue, glass splash, Gary's stop / take-control).
+  const AI_FAILURE_PREFIXES = [
+    'Search failed:',
+    'Search timed out',
+    'Could not open',
+    'Could not read the page:',
+    'Page load timed out',
+    'Page failed to load',
+    'No browser tab is open',
+    'Gary has taken control of the browser',
+    'The browser finger is locked',
+    'Another agent is using the browser',
+    'The browser is not available right now.',
+  ];
+  const toAiResult = (text: string): BrowserAiResult => {
+    for (const prefix of AI_FAILURE_PREFIXES) {
+      if (text.startsWith(prefix)) return { ok: false, error: text };
+    }
+    return { ok: true, text };
+  };
+
+  ipcMain.handle(
+    'browser:ai-search',
+    async (_event, query: string, timeoutMs?: number): Promise<BrowserAiResult> => {
+      if (typeof query !== 'string' || !query.trim()) {
+        return { ok: false, error: 'a search query is required' };
+      }
+      return toAiResult(await wrappedToolTarget.search(query.trim(), timeoutMs));
+    },
+  );
+
+  ipcMain.handle(
+    'browser:ai-read-page',
+    async (_event, url: string, timeoutMs?: number): Promise<BrowserAiResult> => {
+      if (typeof url !== 'string' || !url.trim()) {
+        return { ok: false, error: 'a page URL is required' };
+      }
+      return toAiResult(await readWebPageWrapped(url.trim(), timeoutMs));
+    },
+  );
 
   ipcMain.handle('browser:flow-approve', (_event, flowId: string) =>
     flows.approveStep(flowId),

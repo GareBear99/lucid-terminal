@@ -35,7 +35,7 @@
 
 import type { AgentBrain } from './agentBrain';
 import type { AgentHost } from './agentHost';
-import { electronAgentHost } from './agentHost';
+import { electronAgentHost, resolveHomeDir } from './agentHost';
 import type { AgentFileIndex } from './agentIndex';
 import { dropAgentIndex, runAgentTurn, type AgentTurnResult } from './agentLoop';
 import { cancelAgentReviewsForRun, requestAgentReview } from './agentReview';
@@ -191,6 +191,12 @@ export async function runAgentTurnForTab(
       workspaceRoot,
       cwd: tabCwd ?? workspaceRoot,
       isGuest: false,
+      // The home dir for the loop's home-dir guard (the
+      // renderer-crash fix): a workspace rooted at home
+      // never gets the full index build. Best-effort —
+      // undefined when the bridge is absent, and the guard
+      // is inert then.
+      homeDir: await resolveHomeDir(),
       host: sessionHost,
       brain: overrides.brain,
       drivingAgent,
@@ -236,11 +242,21 @@ export async function runAgentTurnForTab(
             break;
           }
           case 'index-done': {
+            const capped = event.capped ? ' (partial)' : '';
             if (progress.length > 0 && progress[progress.length - 1].startsWith('… indexing workspace')) {
-              progress[progress.length - 1] = `✓ index ready — ${event.files.toLocaleString()} files`;
+              progress[progress.length - 1] = `✓ index ready — ${event.files.toLocaleString()} files${capped}`;
             } else {
-              progress.push(`✓ index ready — ${event.files.toLocaleString()} files`);
+              progress.push(`✓ index ready — ${event.files.toLocaleString()} files${capped}`);
             }
+            renderProgress();
+            break;
+          }
+          case 'index-skipped': {
+            // The home-dir guard refused the full build —
+            // one honest line, not a silent gap. The run
+            // still works on named files; only the
+            // index-backed tools are unavailable.
+            progress.push(`⊘ index skipped — ${event.reason}`);
             renderProgress();
             break;
           }

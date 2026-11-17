@@ -36,7 +36,7 @@
  * here, the same as the terminal path — the review card is
  * what answers, whether logged-in or guest.
  */
-import { electronAgentHost, type AgentHost } from './agentHost';
+import { electronAgentHost, resolveHomeDir, type AgentHost } from './agentHost';
 import type { AgentBrain } from './agentBrain';
 import { LLMBuilderBrain } from './llmbuilderBrain';
 import { CopilotBrain } from './copilotBrain';
@@ -195,6 +195,10 @@ export async function runCopilotTurn(input: CopilotRunInput): Promise<AgentTurnR
       workspaceRoot: input.workspaceRoot,
       cwd: input.cwd,
       isGuest: input.isGuest,
+      // The home dir for the loop's home-dir guard (the
+      // renderer-crash fix) — see agentSession.ts. Best-
+      // effort; undefined when the bridge is absent.
+      homeDir: await resolveHomeDir(),
       brain,
       host,
       drivingAgent,

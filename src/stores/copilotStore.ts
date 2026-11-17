@@ -112,6 +112,8 @@ function eventLine(event: AgentLoopEvent): string | null {
       return event.remaining > 0
         ? `✓ verified ${event.path} — ${event.fixed} fixed, ${event.remaining} remaining`
         : `✓ verified ${event.path}`;
+    case 'index-skipped':
+      return `⊘ index skipped — ${event.reason}`;
     case 'reply':
       return null;
     default:

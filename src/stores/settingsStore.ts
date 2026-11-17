@@ -383,6 +383,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ...allSettings,
       };
 
+      // Gary added no copilots — LLMBuilder is the base
+      // copilot. A persisted copilot named "Test" (left over
+      // from an earlier session) is dropped on load and the
+      // cleaned list is persisted, so it does not linger in
+      // the picker.
+      if (Array.isArray(settings.copilots) && settings.copilots.some((c) => c.name === 'Test')) {
+        settings.copilots = settings.copilots.filter((c) => c.name !== 'Test');
+        try {
+          await window.lucidAPI.settings.set('copilots', settings.copilots);
+        } catch {
+          // Persist is best-effort; the in-memory state is already clean.
+        }
+      }
+
       // Light was removed from the theme options (Gary, 2026-11-07) —
       // a persisted 'light' becomes Sunset instead of lingering.
       if (settings.theme === 'light') {

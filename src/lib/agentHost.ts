@@ -131,6 +131,30 @@ export function isWithinWorkspace(workspaceRoot: string, path: string): boolean 
   return target.startsWith(`${root}/`);
 }
 
+/** The user's home directory, resolved once per process
+ *  from the main process (window.lucidAPI.fs.getHomeDir)
+ *  and cached — the home dir never changes during a
+ *  session, and one IPC round trip per turn would be
+ *  waste. Undefined when unavailable (tests run without
+ *  Electron, or a preload without the call) — callers
+ *  treat that as "unknown", never as a guessed path. The
+ *  loop's home-dir guard is inert without it. */
+let cachedHomeDir: string | undefined | null = null;
+export async function resolveHomeDir(): Promise<string | undefined> {
+  if (cachedHomeDir !== null) return cachedHomeDir;
+  try {
+    const getHomeDir =
+      typeof window !== 'undefined'
+        ? window.lucidAPI?.fs?.getHomeDir
+        : undefined;
+    const home = await getHomeDir?.();
+    cachedHomeDir = typeof home === 'string' && home ? home : undefined;
+  } catch {
+    cachedHomeDir = undefined;
+  }
+  return cachedHomeDir;
+}
+
 /** The renderer host: `window.lucidAPI.fs` for disk, the
  *  file store for open files. Every method degrades to a
  *  thrown error when the IPC bridge is absent (tests run

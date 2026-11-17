@@ -85,7 +85,7 @@ import type { AgentTodo } from './agentTodos';
 import { AgentTodoList } from './agentTodos';
 import { LLMBuilderBrain } from './llmbuilderBrain';
 import { extractFileCandidates } from './inputParse';
-import { electronAgentHost, type AgentHost } from './agentHost';
+import { electronAgentHost, normalizePosixPath, type AgentHost } from './agentHost';
 import { AgentFileIndex } from './agentIndex';
 import { decideToolPolicy } from './agentPolicy';
 import { drivingAgentNotReadyReply, type ResolvedDrivingAgent } from './drivingAgents';
@@ -133,7 +133,8 @@ export interface AgentTurnResult {
 
 export type AgentLoopEvent =
   | { type: 'index-progress'; phase: 'walk' | 'index'; done: number; total: number | null }
-  | { type: 'index-done'; files: number }
+  | { type: 'index-done'; files: number; capped?: boolean }
+  | { type: 'index-skipped'; reason: string }
   | { type: 'tool-start'; name: string; status: string }
   | { type: 'tool-done'; name: string; status: string; ok: boolean }
   | { type: 'tool-blocked'; name: string; reason: string }
@@ -161,6 +162,12 @@ export interface AgentLoopOptions {
   workspaceRoot: string;
   cwd?: string;
   isGuest?: boolean;
+  /** The user's home directory, when the caller knows it
+   *  (resolved from the OS) — the loop refuses the full
+   *  index build when the workspace root IS the home dir
+   *  (the renderer-crash fix, 2026-11-16). Absent in
+   *  tests, where the guard is inert. */
+  homeDir?: string;
   /** The brain (default: the LLMBuilder brain). */
   brain?: AgentBrain;
   /** The driving agent the run is under (the LLMBuilder
@@ -234,6 +241,12 @@ export function dropAgentIndex(root?: string): void {
 }
 
 const DEFAULT_MAX_ROUNDS = 10;
+
+/** Why the full index build is refused for a home-dir
+ *  workspace root — shown in the feed and returned by
+ *  the index-backed tools when they need the index. */
+export const HOME_ROOT_INDEX_REFUSAL =
+  'The workspace index is not built over the home directory — open a project folder in Files first, so the agent can index it.';
 
 /** The default turn cap (Claude Code's `maxTurns`). */
 const DEFAULT_MAX_TURNS = 10;
@@ -325,22 +338,43 @@ export async function runAgentTurn(options: AgentLoopOptions): Promise<AgentTurn
       .map((t) => (t.startsWith('/') ? t : `${cwd.replace(/\/$/, '')}/${t}`));
     const openFilePaths = host.getOpenFiles().map((f) => f.path);
     await index.prepareForTask(workspaceRoot, { cwd, taskPaths, openFiles: openFilePaths });
-    // The full build runs in the background (not awaited)
-    // — the run plans immediately, and the tools that need
-    // the index wait for it (agentToolsImpl.ts). A build
-    // failure is not fatal (the index-backed tools will
-    // say so); the run continues with what it has.
-    const buildPromise = index.isBuilt
-      ? index.refresh((progress) => onEvent({ type: 'index-progress', ...progress }))
-      : index.build(workspaceRoot, (progress) => onEvent({ type: 'index-progress', ...progress }));
-    void buildPromise
-      .then(() => {
-        onEvent({ type: 'index-done', files: index.getKnownPaths().length });
-      })
-      .catch(() => {
-        // A build failure is not fatal — the index-backed
-        // tools will say so, and the run continues.
-      });
+    // The home-dir guard (renderer-crash fix, 2026-11-16):
+    // a full index build over the user's home directory
+    // needs far more V8 heap than the renderer has
+    // (measured 2,712 MiB retained at 20,000 files vs a
+    // 2,096 MiB heap limit — V8 aborts the whole renderer,
+    // exit code 6, and the app goes blank). Never build the
+    // full index over the home dir. The task fast path
+    // above still ran (named files + open files + cwd
+    // listing), so the brain can plan and the file tools
+    // keep working on named files; the index-backed tools
+    // report the refusal honestly instead of waiting on a
+    // build that will never come. Open a project folder in
+    // Files first to get the full index.
+    const isHomeRoot =
+      options.homeDir !== undefined &&
+      normalizePosixPath(workspaceRoot) === normalizePosixPath(options.homeDir);
+    if (isHomeRoot) {
+      index.refuseFullBuild(HOME_ROOT_INDEX_REFUSAL);
+      onEvent({ type: 'index-skipped', reason: HOME_ROOT_INDEX_REFUSAL });
+    } else {
+      // The full build runs in the background (not awaited)
+      // — the run plans immediately, and the tools that need
+      // the index wait for it (agentToolsImpl.ts). A build
+      // failure is not fatal (the index-backed tools will
+      // say so); the run continues with what it has.
+      const buildPromise = index.isBuilt
+        ? index.refresh((progress) => onEvent({ type: 'index-progress', ...progress }))
+        : index.build(workspaceRoot, (progress) => onEvent({ type: 'index-progress', ...progress }));
+      void buildPromise
+        .then(() => {
+          onEvent({ type: 'index-done', files: index.getKnownPaths().length, capped: index.capped });
+        })
+        .catch(() => {
+          // A build failure is not fatal — the index-backed
+          // tools will say so, and the run continues.
+        });
+    }
 
     // 2. The turn loop (Claude Code's `while (true)` —
     //    query.ts:307): plan a round, run it, feed the

@@ -218,6 +218,60 @@ const MAX_INDEX_BYTES = 500_000;
 const MAX_INDEX_FILES = 50_000;
 /** How deep the walk goes. */
 const MAX_WALK_DEPTH = 10;
+/** Total retained index content cap (renderer-crash fix,
+ *  2026-11-16): the renderer V8 heap limit is 2,096 MiB,
+ *  and a home-dir index needed 2,712 MiB retained at
+ *  20,000 files — ~5x the raw bytes in heap (UTF-16
+ *  strings + chunk objects + trigram posting Sets). The
+ *  per-file 500 KB cap alone still allows 551 MB raw, so
+ *  the bulk build stops indexing new files once retained
+ *  content passes ~200 MB and reports the index partial.
+ *  Task files and files just created/edited bypass the cap
+ *  (they are the files the run is about — one file cannot
+ *  blow the heap, and the per-file cap still holds). */
+const MAX_INDEX_TOTAL_BYTES = 200_000_000;
+/** Heap-guard trip point (fraction of the V8 heap limit):
+ *  abort the bulk build here, with the index partial,
+ *  instead of letting V8 abort the whole renderer
+ *  (exit code 6 — the 2026-11-16 renderer crashes). */
+const HEAP_GUARD_FRACTION = 0.8;
+
+/** The renderer's V8 heap usage, or null when it cannot
+ *  be read (Node test runs have no performance.memory —
+ *  the guard is inert there; the byte cap is the defense).
+ *  Chromium exposes it as performance.memory. */
+export function readHeapUsage(): { used: number; limit: number } | null {
+  try {
+    const memory = (
+      globalThis as {
+        performance?: { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } };
+      }
+    ).performance?.memory;
+    if (memory && memory.jsHeapSizeLimit > 0) {
+      return { used: memory.usedJSHeapSize, limit: memory.jsHeapSizeLimit };
+    }
+  } catch {
+    // No heap stats available — no guard.
+  }
+  return null;
+}
+
+/** Pure trip check (unit-testable): true when the heap is
+ *  past the guard fraction of its limit. */
+export function isHeapOverGuard(used: number, limit: number): boolean {
+  return limit > 0 && used > limit * HEAP_GUARD_FRACTION;
+}
+
+/** Options for AgentFileIndex (tests override the caps /
+ *  the heap reader; production uses the defaults above). */
+export interface AgentFileIndexOptions {
+  /** Override the retained-content cap (tests) — default
+   *  MAX_INDEX_TOTAL_BYTES. */
+  maxTotalBytes?: number;
+  /** Override the heap reader (tests) — default
+   *  readHeapUsage. */
+  heapUsage?: () => { used: number; limit: number } | null;
+}
 
 /** Symbol scan for code files (the index's symbol table).
  *  Regex-based and engine-free on purpose: the index
@@ -270,6 +324,8 @@ interface IndexedFile {
  *  root (the loop owns the cache in agentLoop.ts). */
 export class AgentFileIndex {
   private readonly host: AgentHost;
+  private readonly maxTotalBytes: number;
+  private readonly readHeap: () => { used: number; limit: number } | null;
   private root: string | null = null;
   private built = false;
   private building: Promise<void> | null = null;
@@ -283,6 +339,19 @@ export class AgentFileIndex {
   private trigramIndex = new Map<string, Set<number>>();
   private pathTrigrams = new Map<number, Set<string>>();
   private nextChunkId = 1;
+  /** Retained content bytes (sum of the sizes of the
+   *  files whose content is held in memory) — the byte
+   *  cap's ledger. */
+  private indexedBytes = 0;
+  /** True when the bulk build stopped early on the
+   *  retained-content cap or the heap guard — the index is
+   *  partial (files past the stop are listed, not read). */
+  private contentCapped = false;
+  /** Why the full build was refused for this root (the
+   *  home-dir guard, set by the loop) — null when builds
+   *  are allowed. Index-backed tools report this instead
+   *  of a bare "not built yet". */
+  private refused: string | null = null;
   /** Files the walk saw but did not read (too big /
    *  binary) — still known to glob. */
   private knownPaths = new Set<string>();
@@ -297,8 +366,10 @@ export class AgentFileIndex {
    *  Null until the first build. */
   private ignoreSet: IgnoreSet | null = null;
 
-  constructor(host: AgentHost) {
+  constructor(host: AgentHost, options: AgentFileIndexOptions = {}) {
     this.host = host;
+    this.maxTotalBytes = options.maxTotalBytes ?? MAX_INDEX_TOTAL_BYTES;
+    this.readHeap = options.heapUsage ?? readHeapUsage;
   }
 
   get workspaceRoot(): string | null {
@@ -307,6 +378,45 @@ export class AgentFileIndex {
 
   get isBuilt(): boolean {
     return this.built;
+  }
+
+  /** Retained content bytes held in memory. */
+  get indexedContentBytes(): number {
+    return this.indexedBytes;
+  }
+
+  /** True when the bulk build stopped early on the
+   *  retained-content cap or the heap guard. */
+  get isContentCapped(): boolean {
+    return this.contentCapped;
+  }
+
+  /** Why the full build was refused for this root, or null. */
+  get refusedReason(): string | null {
+    return this.refused;
+  }
+
+  /** Refuse the full build for this root (the home-dir
+   *  guard — the loop calls this when the workspace root
+   *  is the user's home directory). A refused index never
+   *  builds; the task fast path (named files + open files)
+   *  still runs, and the index-backed tools report the
+   *  reason instead of a bare "not built yet". */
+  refuseFullBuild(reason: string): void {
+    this.refused = reason;
+  }
+
+  /** True when the heap guard trips (heap past the guard
+   *  fraction of its limit) — the bulk build stops, with
+   *  the index partial, instead of letting V8 abort the
+   *  renderer. False when heap stats are unavailable. */
+  private heapTripped(): boolean {
+    try {
+      const usage = this.readHeap();
+      return !!usage && isHeapOverGuard(usage.used, usage.limit);
+    } catch {
+      return false;
+    }
   }
 
   /** True when the task fast-path prepared this index — the
@@ -397,9 +507,12 @@ export class AgentFileIndex {
       // This runs even when the index is already built: a
       // file created since the last build is indexed now,
       // so the brain can resolve it before the background
-      // refresh finishes.
+      // refresh finishes. Task files bypass the retained-
+      // content cap (force) — they are the files the run is
+      // about, one file cannot blow the heap, and the
+      // per-file 500 KB cap still holds.
       for (const path of [...opts.taskPaths, ...opts.openFiles]) {
-        await this.indexOne(path);
+        await this.indexOne(path, true);
       }
       // The cwd listing: note the paths (no content read),
       // so cwd-relative resolution works before the build.
@@ -466,6 +579,10 @@ export class AgentFileIndex {
    *  during the walk and the content pass, so the loop can
    *  show real progress instead of a bare "Working…". */
   async build(root: string, onProgress?: (p: IndexBuildProgress) => void): Promise<void> {
+    // A refused root never builds (the home-dir guard —
+    // the loop refused it; a direct build call is a no-op,
+    // not a way around the refusal).
+    if (this.refused) return;
     if (this.built && this.root === root) return;
     if (this.building) {
       await this.building;
@@ -494,6 +611,8 @@ export class AgentFileIndex {
       this.pathTrigrams.clear();
       this.knownPaths.clear();
       this.capped = false;
+      this.indexedBytes = 0;
+      this.contentCapped = false;
     }
     await this.loadIgnoreFiles();
     const walked = await this.walk(this.root, 0, onProgress);
@@ -509,14 +628,32 @@ export class AgentFileIndex {
     for (const path of [...this.knownPaths]) {
       if (!seen.has(path)) this.knownPaths.delete(path);
     }
+    // The heap guard, before the content pass starts: a
+    // heap already hot from the fast path means the bulk
+    // pass would only push it further — skip it, with the
+    // index partial (the fast-path files are still in).
+    if (this.heapTripped()) {
+      this.contentCapped = true;
+      this.capped = true;
+    }
     let done = 0;
     for (const file of walked) {
+      // The byte cap (or the heap guard) stopped the pass
+      // — the remaining files stay listed, not read, and
+      // the index finishes partial instead of growing the
+      // heap until V8 aborts the renderer.
+      if (this.contentCapped) break;
       await this.indexFile(file.path, file.size, file.modified);
       done += 1;
       if (done % 50 === 0) {
         onProgress?.({ phase: 'index', done, total: walked.length });
         // Yield — the build never blocks the composer.
         await new Promise((resolve) => setTimeout(resolve, 0));
+        if (this.heapTripped()) {
+          this.contentCapped = true;
+          this.capped = true;
+          break;
+        }
       }
     }
     onProgress?.({ phase: 'index', done, total: walked.length });
@@ -577,8 +714,11 @@ export class AgentFileIndex {
   /** Index one file: read it (unless too big / binary),
    *  hash it, chunk it, add its trigrams. A file whose
    *  size+mtime match the stored entry is skipped — the
-   *  refresh path, not the build path. */
-  private async indexFile(path: string, size: number, modified: number): Promise<void> {
+   *  refresh path, not the build path. `force` bypasses
+   *  the retained-content cap (task files + files just
+   *  created/edited — the run's own files), never the
+   *  per-file 500 KB cap. */
+  private async indexFile(path: string, size: number, modified: number, force = false): Promise<void> {
     const existing = this.files.get(path);
     if (existing && existing.size === size && existing.modified === modified) return;
     if (size > MAX_INDEX_BYTES || isIgnoredPath(path)) {
@@ -586,6 +726,19 @@ export class AgentFileIndex {
       // searchable, the content is not.
       this.removeFileChunks(path);
       if (existing) this.files.delete(path);
+      return;
+    }
+    // The retained-content cap: the ledger value if this
+    // file's old entry were dropped, plus the new file.
+    // A trip leaves the old entry in place (a re-index
+    // refused is not a drop) and marks the index partial
+    // instead of growing the heap until V8 aborts the
+    // renderer. `force` (task files / just-created or
+    // just-edited files) bypasses the cap — never the
+    // per-file 500 KB cap above.
+    if (!force && this.indexedBytes - (existing?.size ?? 0) + size > this.maxTotalBytes) {
+      this.contentCapped = true;
+      this.capped = true;
       return;
     }
     let content: string;
@@ -599,6 +752,7 @@ export class AgentFileIndex {
       // Same content, new mtime — keep the old chunks
       // (they are still valid; only the metadata moves).
       this.files.set(path, { ...existing, size, modified });
+      this.indexedBytes += size - existing.size;
       return;
     }
     // Content changed (or new): drop the old chunks, then
@@ -646,11 +800,17 @@ export class AgentFileIndex {
       }
     }
     this.files.set(path, { path, size, modified, cacheKey, symbols, chunkIds });
+    this.indexedBytes += size;
   }
 
   private removeFileChunks(path: string): void {
     const existing = this.files.get(path);
     if (!existing) return;
+    // The ledger moves with the entry: dropping a file's
+    // chunks frees its retained bytes. (Guarded by the
+    // `!existing` return above — a file already dropped
+    // never subtracts twice.)
+    this.indexedBytes = Math.max(0, this.indexedBytes - existing.size);
     for (const id of existing.chunkIds) {
       const chunk = this.chunks.get(id);
       if (!chunk) continue;
@@ -669,9 +829,11 @@ export class AgentFileIndex {
    * Index (or re-index) one file by path — the cheap
    * update after a create or an edit, instead of a full
    * refresh (the walk is the expensive part; one file is
-   * one stat + one read).
+   * one stat + one read). `force` bypasses the
+   * retained-content cap (the file is the run's own) —
+   * the task fast path and the create/edit tools pass it.
    */
-  async indexOne(path: string): Promise<void> {
+  async indexOne(path: string, force = false): Promise<void> {
     if (!this.root) return;
     // A file the ignore files cover is listed nowhere —
     // an edit to it drops it from the index instead of
@@ -690,7 +852,7 @@ export class AgentFileIndex {
     }
     if (stats.isDirectory) return;
     this.knownPaths.add(path);
-    await this.indexFile(path, stats.size, 0);
+    await this.indexFile(path, stats.size, 0, force);
   }
 
   /**
@@ -700,7 +862,7 @@ export class AgentFileIndex {
    * Unchanged files are never re-read. Returns the counts.
    */
   async refresh(onProgress?: (p: IndexBuildProgress) => void): Promise<IndexRefreshResult> {
-    if (!this.root) return { added: 0, updated: 0, removed: 0, files: 0 };
+    if (!this.root || this.refused) return { added: 0, updated: 0, removed: 0, files: 0 };
     // A newly added ignore file takes effect here — the
     // walk below drops what it now covers.
     await this.loadIgnoreFiles();
@@ -710,12 +872,29 @@ export class AgentFileIndex {
     const knownBefore = new Set(this.knownPaths);
     const indexedBefore = new Set(this.files.keys());
     const walked = await this.walk(this.root, 0, onProgress);
-    const seen = new Set<string>();
+    // `seen` is the FULL walk, built up front — the content
+    // pass below may stop early on the byte cap / heap
+    // guard, and the prune step must not drop files the
+    // pass never reached (they still exist; they are just
+    // listed, not re-read).
+    const seen = new Set(walked.map((f) => f.path));
     let added = 0;
     let updated = 0;
     let done = 0;
+    // Re-evaluate the cap from scratch: files deleted since
+    // the last build free retained bytes, so a refresh may
+    // fit where the last build stopped. The pass below
+    // re-trips the flags if it still does not fit (and the
+    // heap pre-check re-trips them if the heap is hot).
+    this.contentCapped = false;
+    this.capped = false;
+    // The heap guard, before the content pass (as in build).
+    if (this.heapTripped()) {
+      this.contentCapped = true;
+      this.capped = true;
+    }
     for (const file of walked) {
-      seen.add(file.path);
+      if (this.contentCapped) break;
       const wasIndexed = indexedBefore.has(file.path);
       const sizeChanged =
         wasIndexed &&
@@ -732,6 +911,11 @@ export class AgentFileIndex {
       if (done % 50 === 0) {
         onProgress?.({ phase: 'index', done, total: walked.length });
         await new Promise((resolve) => setTimeout(resolve, 0));
+        if (this.heapTripped()) {
+          this.contentCapped = true;
+          this.capped = true;
+          break;
+        }
       }
     }
     onProgress?.({ phase: 'index', done, total: walked.length });
@@ -923,5 +1107,8 @@ export class AgentFileIndex {
     this.pathTrigrams.clear();
     this.knownPaths.clear();
     this.capped = false;
+    this.indexedBytes = 0;
+    this.contentCapped = false;
+    this.refused = null;
   }
 }

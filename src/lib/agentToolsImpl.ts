@@ -208,6 +208,10 @@ function formatDiagnostics(diagnostics: LspDiagnosticInfo[]): string {  if (diag
  */
 async function requireIndex(ctx: AgentToolContext): Promise<{ error: string } | null> {
   if (ctx.index.isBuilt) return null;
+  // A refused build (the home-dir guard) is not a build
+  // still running — say why, instead of a bare "not built
+  // yet" that the run would retry against forever.
+  if (ctx.index.refusedReason) return { error: ctx.index.refusedReason };
   const built = await ctx.index.whenBuilt();
   return built ? null : { error: 'The workspace index is not built yet.' };
 }
@@ -560,6 +564,10 @@ async function findSymbolImpl(
   }
   const hits = [...found.values()];
   if (hits.length === 0) {
+    // A refused build (the home-dir guard) is not "no
+    // symbol in the workspace" — the index was never
+    // built, so say why instead of a false negative.
+    if (ctx.index.refusedReason) return { ok: false, output: '', error: ctx.index.refusedReason };
     return { ok: true, output: `No symbol named "${name}" in the workspace.` };
   }
   return {
@@ -640,6 +648,10 @@ async function goToDefinitionImpl(
   await ctx.index.whenBuilt();
   const hits = ctx.index.findSymbol(symbol);
   if (hits.length === 0) {
+    // A refused build (the home-dir guard) is not "no
+    // definition" — the index was never built, so say why
+    // instead of a false negative.
+    if (ctx.index.refusedReason) return { ok: false, output: '', error: ctx.index.refusedReason };
     return { ok: true, output: `No definition found for "${symbol}".` };
   }
   return {
@@ -710,7 +722,10 @@ async function createNewFileImpl(
   }
   // The new file enters the index (it exists now) and, for
   // code files, the diagnostics check runs on its content.
-  await ctx.index.indexOne(path);
+  // The file the run just created enters the index —
+  // forced past the retained-content cap (it is the
+  // run's own file; the per-file cap still holds).
+  await ctx.index.indexOne(path, true);
   const lsp = await lspFor(path, content);
   const diagnosticsPart = lsp && lsp.diagnostics.length > 0 ? `\n${formatDiagnostics(lsp.diagnostics)}` : '';
   return {
@@ -869,7 +884,7 @@ async function multiFileEditImpl(
         await ctx.host.createDir(parent);
       }
       await ctx.host.createFile(path, next);
-      await ctx.index.indexOne(path);
+      await ctx.index.indexOne(path, true);
     } else {
       await persistEdit(ctx, path, next);
     }
@@ -914,7 +929,9 @@ async function persistEdit(
   } else {
     await ctx.host.writeFile(path, next);
   }
-  await ctx.index.indexOne(path);
+  // The file the run just wrote enters the index —
+  // forced past the retained-content cap (see above).
+  await ctx.index.indexOne(path, true);
 }
 
 /**

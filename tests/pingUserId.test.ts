@@ -4,6 +4,8 @@ import {
   resolvePingUserId,
   pingUserLabel,
   PING_USER_ID_PATTERN,
+  DEFAULT_PROFILE_PING_ID,
+  namespacedDefaultPingUserId,
 } from '../src/lib/pingUserId';
 
 // Fix 1 (2026-11-17): the client must send the ACTIVE profile's id
@@ -77,12 +79,53 @@ describe('resolvePingUserId', () => {
     );
     expect(guest).toBe('profile-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
   });
+
+  it('namespaces the Default profile id per install — never the bare "default"', () => {
+    const installA = '550e8400-e29b-41d4-a716-446655440000';
+    const installB = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+    const a = resolvePingUserId(DEFAULT_PROFILE_PING_ID, installA);
+    const b = resolvePingUserId(DEFAULT_PROFILE_PING_ID, installB);
+    expect(a).toBe(`default-${installA}`);
+    expect(b).toBe(`default-${installB}`);
+    // Two installs, two buckets.
+    expect(a).not.toBe(b);
+    // Same install, same bucket — deterministic, no new setting.
+    expect(resolvePingUserId(DEFAULT_PROFILE_PING_ID, installA)).toBe(a);
+  });
+
+  it('the namespaced Default id is a valid server user id, still Default, never profile-', () => {
+    const namespaced = resolvePingUserId(
+      DEFAULT_PROFILE_PING_ID,
+      '550e8400-e29b-41d4-a716-446655440000',
+    );
+    expect(isValidPingUserId(namespaced)).toBe(true);
+    expect(namespaced.startsWith('default-')).toBe(true);
+    expect(namespaced.startsWith('profile-')).toBe(false);
+  });
+
+  it('falls back to the bare Default id only when the install id is unusable', () => {
+    expect(resolvePingUserId(DEFAULT_PROFILE_PING_ID, '')).toBe('default');
+    expect(resolvePingUserId(DEFAULT_PROFILE_PING_ID, 'bad id')).toBe(
+      'default',
+    );
+  });
+
+  it('namespacedDefaultPingUserId returns null for an unusable install id', () => {
+    expect(
+      namespacedDefaultPingUserId('550e8400-e29b-41d4-a716-446655440000'),
+    ).toBe('default-550e8400-e29b-41d4-a716-446655440000');
+    expect(namespacedDefaultPingUserId('')).toBe(null);
+    expect(namespacedDefaultPingUserId('bad id')).toBe(null);
+  });
 });
 
 describe('pingUserLabel', () => {
   it('returns the profile name trimmed', () => {
     expect(pingUserLabel('Genesis')).toBe('Genesis');
     expect(pingUserLabel('  Guest  ')).toBe('Guest');
+    // The Default SP display still reads "Default" — the label
+    // comes from the profile NAME, not the namespaced wire id.
+    expect(pingUserLabel('Default')).toBe('Default');
   });
 
   it('falls back to Install when no name is known — the count is still labeled', () => {

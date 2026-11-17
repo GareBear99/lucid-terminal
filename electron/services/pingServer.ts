@@ -23,7 +23,11 @@ import type { PingQuota, PingServerStatus } from '../../src/types';
 // verified balance (2026-11-17: Guest was showing Genesis's
 // 1196 SP because the client sent one per-install id for every
 // profile). The per-install id survives only as the fallback
-// when no profile id is in context. The client surfaces the SP
+// when no profile id is in context — and as the namespace for
+// Default, whose store id is the bare constant 'default' on
+// every install (resolvePingUserId sends
+// `default-<install id>`, so each install's Default gets its
+// own bucket; the label still reads "Default"). The client surfaces the SP
 // balance from the response headers so the UI can show it,
 // and turns a 429 into a PingRateLimitError with a human-readable
 // message instead of a bare failure.

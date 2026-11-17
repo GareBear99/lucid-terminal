@@ -5,13 +5,17 @@
  * The helper started as a local const in Terminal.tsx (sweep fix,
  * 2026-11-16): one source of truth for the message, shared by
  * /unsplit and the split pill's Unsplit — the pill used to call
- * unsplitOneTab bare, so a button unsplit left no "Closed
- * terminal-2 — 1 panes left" line in the feed (live check
- * 2026-11-16 on build 2ff0ba0). It lives here now because two
- * more paths need it and cannot reach Terminal's component
+ * unsplitOneTab bare, so a button unsplit left no "Unsplit
+ * terminal-2 — back to separate terminals" line in the feed (live
+ * check 2026-11-16 on build 2ff0ba0). It lives here now because
+ * two more paths need it and cannot reach Terminal's component
  * scope: ⌘U in TerminalTabs and the palette `terminal:unsplit`
  * entry in builtinCommands (which must stay DOM-free — it cannot
  * import the Terminal component). Same text, same callers.
+ *
+ * UNSPLIT NEVER CLOSES A TAB (Gary, 2026-11-16): the line says
+ * "Unsplit", never "Closed" — the separated pane keeps its PTY,
+ * feed and cwd as a normal individual tab.
  */
 
 import { create } from 'zustand';
@@ -22,11 +26,17 @@ import {
 } from '../stores/splitPaneStore';
 import { useTerminalStore } from '../stores/terminalStore';
 
-/** The feed line for an unsplit that removed `removed`. */
-export function unsplitFeedLine(removed: string, remaining: number): string {
+/**
+ * The feed line for an unsplit that separated `separated`.
+ * `remaining` is the panes still in the split afterwards —
+ * the group the acting tab is still in, if any. Nothing is
+ * closed (Gary, 2026-11-16), so the line says "Unsplit",
+ * never "Closed".
+ */
+export function unsplitFeedLine(separated: string, remaining: number): string {
   return remaining > 1
-    ? `Closed ${removed} — ${remaining} panes left.`
-    : `Closed ${removed} — back to one terminal.`;
+    ? `Unsplit ${separated} — ${remaining} panes left in the split.`
+    : `Unsplit ${separated} — back to separate terminals.`;
 }
 
 /**
@@ -152,52 +162,70 @@ useTerminalStore.subscribe((state) => {
 });
 
 /**
- * Unsplit one tab AND queue the feed line for the SURVIVING pane:
+ * Unsplit one tab AND queue the feed line for the acting pane:
  * the shared unsplit-with-line action for the pill, /unsplit, ⌘U
  * and the palette `terminal:unsplit` entry. Same message and same
  * guards as before — one call undoes exactly one split; a tab
  * with no split group is a silent no-op (⌘U on a plain tab never
  * printed anything); a group whose tree is inconsistent names the
  * failure instead of lying, like /unsplit does. Returns the
- * removed pane's id, or null when nothing was unsplit.
+ * separated pane's id and the feed line, or null when nothing was
+ * unsplit.
  *
  * The line is queued, not written (see the queue note above): the
- * action's own instance is about to be unmounted by the tree
- * surgery — either its tab closes (the removed pane, the usual
- * live case: focus follows the newest pane, so the Unsplit press
- * lands in the pane being removed) or its pane remounts. The
- * target is the pane that stays visible: the acting tab when it
- * survives, else the first remaining leaf of the group as it stood
- * before the unsplit (snapshot BEFORE the call — after it, the
- * removed tab reads as a plain tab and the group may be gone).
- * The inconsistent-tree message is the exception: no tree change
+ * action's own instance is about to be remounted by the tree
+ * surgery — dissolving the group moves the pane tree-leaf →
+ * flat host, collapsing a nested node replaces the node's
+ * container with the survivor's leaf div — so a direct write
+ * resolves after the unmount into a disposed surface and the
+ * line never appears (live 179d944). The target is the acting
+ * tab: it always survives an unsplit now (nothing is closed),
+ * so the line always has a live pane to land on. The
+ * inconsistent-tree message is the exception: no tree change
  * happens, so no remount — it still goes straight through the
  * registered writer to the live instance.
  */
-export function unsplitOneTabWithQueuedLine(tabId: string): string | null {
+export function unsplitOneTabWithQueuedLine(tabId: string): { separated: string; line: string } | null {
   const before = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId);
-  const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
-  if (removed === null) {
+  const separated = useSplitPaneStore.getState().unsplitOneTab(tabId);
+  if (separated === null) {
     if (findGroupForTab(useSplitPaneStore.getState().groups, tabId)) {
       writeTerminalFeedLine(tabId, "Couldn't unsplit — the split tree is inconsistent.");
     }
     return null;
   }
-  const survivors = before.filter((id) => id !== removed);
-  const target = survivors.includes(tabId) ? tabId : survivors[0] ?? null;
-  if (target !== null) {
-    queueTerminalFeedLine(target, unsplitFeedLine(removed, survivors.length));
-  }
-  return removed;
+  const survivors = before.filter((id) => id !== separated);
+  const line = unsplitFeedLine(separated, survivors.length);
+  queueTerminalFeedLine(tabId, line);
+  return { separated, line };
 }
 
 /**
  * Unsplit one tab AND write the feed line — the ⌘U / palette entry
  * point. Delegates to unsplitOneTabWithQueuedLine: the line is
- * queued for the surviving pane (see above), not written to the
- * dying instance. Returns the removed pane's id, or null when
- * nothing was unsplit.
+ * queued for the acting pane (see above), not written to a dying
+ * instance. Returns the separated pane's id and the feed line,
+ * or null when nothing was unsplit.
  */
-export function unsplitTabWithFeedLine(tabId: string): string | null {
+export function unsplitTabWithFeedLine(tabId: string): { separated: string; line: string } | null {
   return unsplitOneTabWithQueuedLine(tabId);
+}
+
+/**
+ * Unsplit ALL of a tab's group AND queue the feed line (audit
+ * item iii, 2026-11-16): confirming "Unsplit All Panes" used to
+ * write no feed line at all — the confirm path called
+ * unsplitAllTabs directly, which closed panes with no record.
+ * The group dissolves (every pane becomes an individual tab,
+ * nothing closes — Gary, 2026-11-16) and the line lands on the
+ * acting tab, which always survives. Returns the number of panes
+ * that were separated, or 0 when there was nothing to unsplit
+ * (no group, or a single pane).
+ */
+export function unsplitAllTabsWithFeedLine(tabId: string): number {
+  const before = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId);
+  if (before.length <= 1) return 0;
+  useSplitPaneStore.getState().unsplitAllTabs(tabId);
+  queueTerminalFeedLine(tabId, `Unsplit all — ${before.length} separate terminals.`);
+  return before.length;
 }

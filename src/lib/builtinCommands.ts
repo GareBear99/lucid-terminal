@@ -31,7 +31,7 @@ import { getActiveMonacoEditor } from './editorHandle';
 import { popJumpPosition } from './jumpStack';
 import { requestEditorJump } from './editorJump';
 import { useDockStore } from '../stores/dockStore';
-import { unsplitTabWithFeedLine } from './terminalFeedLine';
+import { unsplitTabWithFeedLine, unsplitAllTabsWithFeedLine } from './terminalFeedLine';
 import type { View } from '../types';
 
 export interface BuiltinCommandHandlers {
@@ -336,7 +336,7 @@ export function registerBuiltinCommands(
   registry.register({
     id: 'terminal:unsplit',
     title: 'Unsplit Terminal',
-    description: 'Undo the last split (the /unsplit command, ⌘U)',
+    description: 'Undo the last split (the /unsplit command, ⌘U) — the pane becomes a separate terminal, nothing closes',
     tags: ['unsplit', 'pane', 'terminal'],
     keybinding: '⌘U',
     when: inTerminal,
@@ -345,19 +345,25 @@ export function registerBuiltinCommands(
       // The unsplit writes the same feed line as /unsplit and
       // the pill (sweep fold-in, 2026-11-16): the palette entry
       // used to call unsplitOneTab bare, so a palette unsplit
-      // left no "Closed …" line in the feed.
+      // left no "Unsplit …" line in the feed.
       if (tabId) unsplitTabWithFeedLine(tabId);
     },
   });
   registry.register({
     id: 'terminal:unsplit-all',
     title: 'Unsplit All Panes',
-    description: 'Close all the panes (the /unsplit all command — asks first)',
+    description: 'Separate all the panes into individual terminals (the /unsplit all command) — nothing closes',
     tags: ['unsplit', 'pane', 'terminal', 'all'],
     when: inTerminal,
     run: () => {
       const tabId = useTerminalStore.getState().activeTabId;
-      if (tabId) useSplitPaneStore.getState().requestUnsplitAll(tabId);
+      // Dissolve the whole group (unsplitAllTabsWithFeedLine,
+      // 2026-11-16): every pane becomes an individual tab and
+      // the feed line records it. The old entry staged a close
+      // ask — gone with the deletion bug it guarded (Gary,
+      // 2026-11-16: unsplit separates, it does not destroy, so
+      // there is nothing left to confirm).
+      if (tabId) unsplitAllTabsWithFeedLine(tabId);
     },
   });
 }

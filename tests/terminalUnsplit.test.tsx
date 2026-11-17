@@ -4,8 +4,8 @@
  * press wiped ALL split progress, verified live): the plain
  * `/unsplit` command and the split toggle pill each undo
  * exactly ONE split — the most recent one — and never the
- * rest. `/unsplit all` stages the close ask and destroys
- * nothing until it is confirmed.
+ * rest. `/unsplit all` dissolves the group directly —
+ * every pane becomes an individual tab, nothing closes.
  *
  * Harness: the terminalPlainTerminal.test.tsx pattern (jsdom
  * has no canvas 2d context, so XtermSurface renders its
@@ -136,7 +136,7 @@ async function makeFourPaneSplit(): Promise<string> {
 }
 
 describe('Terminal: chained unsplit (Gary, 2026-11-15)', () => {
-  test('/unsplit undoes one split and names the removed pane — the rest survive', async () => {
+  test('/unsplit undoes one split and names the separated pane — NOTHING closes, all four tabs survive', async () => {
     const a = await makeFourPaneSplit();
     render(<Terminal tabId={a} />);
     await screen.findByTestId('xterm-surface');
@@ -144,16 +144,17 @@ describe('Terminal: chained unsplit (Gary, 2026-11-15)', () => {
     expect(screen.getByTestId('split-toggle-pill').textContent).toBe('Unsplit');
 
     submitCommand('/unsplit');
-    await waitForOutput('Closed terminal-4 — 3 panes left.');
+    await waitForOutput('Unsplit terminal-4 — 3 panes left in the split.');
 
-    // Exactly the newest pane is gone — its PTY destroyed, the
-    // other three panes (and the group) untouched.
-    expect(destroyMock).toHaveBeenCalledWith('terminal-4');
-    expect(destroyMock).toHaveBeenCalledTimes(1);
+    // UNSPLIT NEVER CLOSES A TAB (Gary, 2026-11-16): the
+    // newest pane is separated, not destroyed — no PTY is
+    // destroyed, all four tabs survive, the group has three.
+    expect(destroyMock).not.toHaveBeenCalled();
     expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([
       'terminal-1',
       'terminal-2',
       'terminal-3',
+      'terminal-4',
     ]);
     const group = findGroupForTab(useSplitPaneStore.getState().groups, a)!;
     expect(groupTabIds(group)).toEqual(['terminal-1', 'terminal-3', 'terminal-2']);
@@ -168,57 +169,62 @@ describe('Terminal: chained unsplit (Gary, 2026-11-15)', () => {
 
     // The pill writes the same feed line as /unsplit
     // (sweep fix, 2026-11-16 — the live check found no
-    // "Closed …" line after a button unsplit).
-    await waitForOutput('Closed terminal-4 — 3 panes left.');
+    // "Unsplit …" line after a button unsplit).
+    await waitForOutput('Unsplit terminal-4 — 3 panes left in the split.');
 
-    // One click = one pane gone, not three. The pill is a
-    // toggle that used to wipe the whole split with one press.
-    expect(destroyMock).toHaveBeenCalledWith('terminal-4');
-    expect(destroyMock).toHaveBeenCalledTimes(1);
+    // One click = one pane separated, not three, and nothing
+    // closed. The pill is a toggle that used to wipe the
+    // whole split with one press.
+    expect(destroyMock).not.toHaveBeenCalled();
     expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([
       'terminal-1',
       'terminal-2',
       'terminal-3',
+      'terminal-4',
     ]);
     expect(Object.keys(useSplitPaneStore.getState().groups).length).toBe(1);
     // The pill still shows "Unsplit" — a split remains.
     expect(screen.getByTestId('split-toggle-pill').textContent).toBe('Unsplit');
   });
 
-  test('/unsplit all stages the close ask and destroys nothing until it is confirmed', async () => {
+  test('/unsplit all dissolves the group directly — every pane becomes an individual tab, nothing closes', async () => {
     const a = await makeFourPaneSplit();
     render(<Terminal tabId={a} />);
     await screen.findByTestId('xterm-surface');
 
     submitCommand('/unsplit all');
-    await waitForOutput('Unsplit all — close the other 3 panes? Confirm in the tab bar.');
+    await waitForOutput('Unsplit all — 4 separate terminals.');
 
-    // The ask is pending — tab id only (P4: the pane count is
-    // derived live by the strip) — and nothing has been
-    // destroyed.
-    expect(useSplitPaneStore.getState().unsplitAllAsk).toEqual({ tabId: a });
+    // No ask any more (Gary, 2026-11-16): unsplitting
+    // never closes a tab, so there is nothing to confirm.
+    // The group dissolves; all four tabs survive.
     expect(destroyMock).not.toHaveBeenCalled();
-    expect(Object.keys(useSplitPaneStore.getState().groups).length).toBe(1);
+    expect(Object.keys(useSplitPaneStore.getState().groups).length).toBe(0);
     expect(useTerminalStore.getState().tabs).toHaveLength(4);
   });
 
-  test('N presses return to one terminal; the next press is a no-op', async () => {
+  test('N presses return to N individual terminals; the next press is a no-op', async () => {
     const a = await makeFourPaneSplit();
     render(<Terminal tabId={a} />);
     await screen.findByTestId('xterm-surface');
 
     submitCommand('/unsplit');
-    await waitForOutput('Closed terminal-4 — 3 panes left.');
+    await waitForOutput('Unsplit terminal-4 — 3 panes left in the split.');
     submitCommand('/unsplit');
-    await waitForOutput('Closed terminal-3 — 2 panes left.');
+    await waitForOutput('Unsplit terminal-3 — 2 panes left in the split.');
     submitCommand('/unsplit');
-    await waitForOutput('Closed terminal-2 — back to one terminal.');
-    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual(['terminal-1']);
+    await waitForOutput('Unsplit terminal-2 — back to separate terminals.');
+    expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([
+      'terminal-1',
+      'terminal-2',
+      'terminal-3',
+      'terminal-4',
+    ]);
     expect(useSplitPaneStore.getState().groups).toEqual({});
 
     submitCommand('/unsplit');
     await waitForOutput('Already one terminal — nothing to unsplit.');
-    expect(destroyMock).toHaveBeenCalledTimes(3);
+    expect(destroyMock).not.toHaveBeenCalled();
   });
 });
 

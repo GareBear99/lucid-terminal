@@ -10,7 +10,7 @@ import { useCommandHistoryStore } from '../../stores/commandHistoryStore';
 import { useLucidSessionStore } from '../../stores/lucidSessionStore';
 import { useModalStore } from '../../stores/modalStore';
 import { usePlanStore } from '../../stores/planStore';
-import { useSplitPaneStore, getVisibleTabIds, findGroupForTab, groupTabIds } from '../../stores/splitPaneStore';
+import { useSplitPaneStore, getVisibleTabIds, findGroupForTab, findFirstOtherGroup, groupTabIds } from '../../stores/splitPaneStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useProfileStore } from '../../stores/profileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
@@ -24,8 +24,8 @@ import { PillRow } from './PillRow';
 import { appendBlockOutput, BLOCK_QUIET_CLOSE_MS, closeBlock, createScrollbackMirror, dropPendingEscape, newBlock, parseOsc133ExitCodes, type ScrollbackMirror } from '../../lib/terminalBlocks';
 import {
   registerTerminalLineWriter,
-  unsplitFeedLine,
   unsplitOneTabWithQueuedLine,
+  unsplitAllTabsWithFeedLine,
   queueTerminalFeedLine,
   useFeedLineQueueStore,
 } from '../../lib/terminalFeedLine';
@@ -824,8 +824,27 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     // cannot see it. The `$ <line>` echo is excluded by its
     // caller (captureToBlock: false) — the command is already
     // the block header.
-    if (opts?.captureToBlock !== false && prompterAtCall && blockIdAtCall !== null) {
-      appendToBlock(blockIdAtCall, text.replace(/\r\n/g, '\n'), 'write');
+    if (opts?.captureToBlock !== false && prompterAtCall) {
+      // DEFCON 3+ drain edge (audit item vi, 2026-11-16): at
+      // level 3+ the xterm surface is unmounted, so a write
+      // lands ONLY in the current block — and when there is
+      // no current block yet (no command submitted in this
+      // pane, e.g. a split/unsplit confirmation queued for a
+      // fresh pane), the line was silently dropped. Open a
+      // block for it instead: the block header is the line's
+      // first line, so the feed shows the message as its own
+      // entry rather than losing it. (openBlock is a plain
+      // function closing over refs + getState, like
+      // appendToBlock below — the same pattern this callback
+      // already uses, so the stale-closure risk is nil.)
+      let blockId = blockIdAtCall;
+      if (blockId === null) {
+        openBlock(text.split('\n')[0] ?? 'Lucid');
+        blockId = currentBlockIdRef.current;
+      }
+      if (blockId !== null) {
+        appendToBlock(blockId, text.replace(/\r\n/g, '\n'), 'write');
+      }
     }
   }, [waitForPromptEcho, mirrorSurfaceWrite]);
 
@@ -842,17 +861,16 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   }, [tabId, termWriteLines]);
 
   // The queued feed lines (terminalFeedLine.ts, 2026-11-16): a
-  // split/unsplit queues its line for the surviving pane instead
-  // of writing it to the acting instance — the tree surgery
-  // remounts that instance (dissolve moves the pane tree-leaf →
-  // flat host; collapsing a nested node replaces the node's
-  // container with the survivor's leaf div), so a direct write
-  // resolves after the unmount into a disposed surface and the
-  // line never appears (live 179d944). The drain runs on mount
-  // AND whenever this tab's queue changes: a remounting pane
-  // drains on its new mount — its surface is ready, child
-  // effects (the surface creating its term) run before the
-  // parent's — and a pane that never remounts drains in place.
+  // split/unsplit queues its line for the acting pane instead
+  // of writing it directly — the drain runs on mount AND
+  // whenever this tab's queue changes, so the line lands in
+  // the pane's feed whether or not anything remounted. (The
+  // queue exists because a direct write used to resolve after
+  // the unsplit's tree surgery unmounted the acting instance
+  // and the line never appeared, live 179d944. Stable pane
+  // homes, 2026-11-16, retired the remount — the queue is now
+  // just the delivery path, and a pane that never remounts
+  // drains in place.)
   const queuedFeedLines = useFeedLineQueueStore((s) => s.queued[tabId] ?? EMPTY_FEED_LINES);
   useEffect(() => {
     if (queuedFeedLines.length === 0) return;
@@ -1096,23 +1114,26 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
     }
 
     // /split / /unsplit (sweep fix 2 follow-on, 2026-11-14;
-    // CHAINED 2026-11-15, Gary) — the slash commands for the
-    // split panes. Lucid-local, like /devmode and /defcon:
-    // they touch layout only, so they run with LuciferAI on
-    // or off, silenced or not, and in guest (plain terminal
-    // panes, session-only, dropped on exit — the split
-    // store's guest veil handles that). /split splits the
-    // active tab (the same action as the toggle pill, the
-    // strip split button and ⌘D); already split, it splits
-    // the focused pane again. /unsplit undoes exactly the
-    // most recent split — one press closes only the newest
-    // pane, never the rest (N splits need N presses to get
-    // back to one terminal); not split, it is a no-op, never
-    // an error. /unsplit all is the explicit collapse-all:
-    // it asks first in the tab bar, and nothing is destroyed
-    // until it is confirmed. In a detached window none of
-    // them run — MiniTerminal answers every other slash with
-    // the not-here note.
+    // CHAINED 2026-11-15, Gary; PRESERVATION 2026-11-16,
+    // Gary) — the slash commands for the split panes.
+    // Lucid-local, like /devmode and /defcon: they touch
+    // layout only, so they run with LuciferAI on or off,
+    // silenced or not, and in guest (plain terminal panes,
+    // session-only, dropped on exit — the split store's
+    // guest veil handles that). /split splits the active tab
+    // (the same action as the toggle pill, the strip split
+    // button and ⌘D); already split, it splits the focused
+    // pane again. /unsplit undoes exactly the most recent
+    // split — one press separates only the newest pane, never
+    // the rest, and NEVER closes a tab (Gary, 2026-11-16:
+    // unsplit separates, it does not destroy — N splits need
+    // N presses to get back to single terminals); not split,
+    // it is a no-op, never an error. /unsplit all dissolves
+    // the whole group the same way — every pane becomes an
+    // individual tab, nothing closes, no ask (there is
+    // nothing destructive left to confirm). In a detached
+    // window none of them run — MiniTerminal answers every
+    // other slash with the not-here note.
     if (parsed.type === 'split') {
       // /split takes an optional direction: `horizontal` (or `h`)
       // stacks the new pane below the active tab; anything else splits side by side.
@@ -1127,36 +1148,36 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       // this pane flat-host → tree leaf, so its Terminal remounts
       // and a direct write resolves after the unmount into a
       // disposed surface — the live /split line never appeared
-      // either. The dev bar keeps its own sink (its output is
-      // the dev console, not the terminal feed).
+      // either. The dev bar keeps its own sink too (its output is
+      // the dev console, not the terminal feed) — so the line goes
+      // to BOTH: queued for the terminal feed, written to the dev
+      // console when one is present (audit item v, 2026-11-16 —
+      // the dev-bar path used to write only to its own sink, so a
+      // dev-bar /split left no line in the terminal feed at all).
       const splitMsg =
         direction === 'horizontal'
           ? 'Split — a new terminal stacked below. /unsplit undoes the last split.'
           : 'Split — two terminals side by side. /unsplit undoes the last split.';
+      queueTerminalFeedLine(tabId, splitMsg);
       if (opts?.write) {
         await write(splitMsg);
-      } else {
-        queueTerminalFeedLine(tabId, splitMsg);
       }
       return;
     }
     if (parsed.type === 'unsplit') {
-      // /unsplit all — the collapse-all, behind the close
-      // ask: the strip asks first ("close N panes? their
-      // sessions and history will be destroyed"), and nothing
-      // is destroyed until it is confirmed. Not split: a
-      // no-op, never an error.
+      // /unsplit all — dissolve the whole group: every pane
+      // becomes an individual tab, nothing closes, no ask.
+      // Not split: a no-op, never an error.
       if (parsed.args?.[0] === 'all') {
         const visible = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId);
         if (visible.length <= 1) {
           await write('Already one terminal — nothing to unsplit.');
           return;
         }
-        useSplitPaneStore.getState().requestUnsplitAll(tabId);
-        const others = visible.length - 1;
-        await write(
-          `Unsplit all — close the other ${others} ${others === 1 ? 'pane' : 'panes'}? Confirm in the tab bar.`,
-        );
+        const count = unsplitAllTabsWithFeedLine(tabId);
+        if (opts?.write) {
+          await write(`Unsplit all — ${count} separate terminals.`);
+        }
         return;
       }
       // The group on THIS tab decides the message (P7, P10,
@@ -1170,7 +1191,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
       const groups = useSplitPaneStore.getState().groups;
       const group = findGroupForTab(groups, tabId);
       if (!group) {
-        const otherGroup = Object.values(groups)[0];
+        const stripIndex = new Map(
+          useTerminalStore.getState().tabs.map((t, i) => [t.id, i]),
+        );
+        const otherGroup = findFirstOtherGroup(groups, tabId, stripIndex);
         const otherTabId = otherGroup ? groupTabIds(otherGroup)[0] : null;
         const otherTitle = otherTabId
           ? (useTerminalStore.getState().tabs.find((t) => t.id === otherTabId)?.title ?? otherTabId)
@@ -1182,25 +1206,28 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
         );
         return;
       }
-      // The success line is QUEUED for the surviving pane
+      // The success line is QUEUED for the acting pane
       // (unsplitOneTabWithQueuedLine, terminalFeedLine 2026-11-16),
-      // not written direct: the unsplit's tree surgery remounts
-      // the acting instance, so a direct write resolves after the
-      // unmount into a disposed surface and the line never appears
-      // (live 179d944). The dev bar keeps its own sink (its output
-      // is the dev console, not the terminal feed) — the queued
-      // path is the terminal feed only.
-      if (opts?.write) {
-        const removed = useSplitPaneStore.getState().unsplitOneTab(tabId);
-        if (removed === null) {
-          await write("Couldn't unsplit — the split tree is inconsistent.");
-          return;
-        }
-        const remaining = getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length;
-        await write(unsplitFeedLine(removed, remaining));
+      // not written direct: the queue is the delivery path — the
+      // acting pane's Terminal drains it in place. (It used to
+      // be a remount guard: the unsplit's tree surgery remounted
+      // the acting instance, so a direct write resolved after
+      // the unmount into a disposed surface and the line never
+      // appeared, live 179d944. Stable pane homes, 2026-11-16,
+      // retired the remount — the queue stays as the delivery
+      // path.) The dev bar keeps its own sink too (its output
+      // is the dev console, not the terminal feed) — so the
+      // line goes to BOTH: queued for the terminal feed, and
+      // written to the dev console when one is present (audit
+      // item v, 2026-11-16).
+      const result = unsplitOneTabWithQueuedLine(tabId);
+      if (result === null) {
+        await write("Couldn't unsplit — the split tree is inconsistent.");
         return;
       }
-      unsplitOneTabWithQueuedLine(tabId);
+      if (opts?.write) {
+        await write(result.line);
+      }
       return;
     }
 
@@ -2280,13 +2307,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   const splitGroups = useSplitPaneStore((s) => s.groups);
   const splitVisible = getVisibleTabIds(splitGroups, tabId).length > 1;
   // The pill is honest about groups on OTHER tabs (P7,
-  // 2026-11-15): when this tab is single-pane but a split
-  // group is open elsewhere, the pill's title says so —
-  // pressing it still starts a second group (multiple groups
-  // are legitimate, one per tab), but never silently.
+  // 2026-11-15; audit item iv, 2026-11-16): when this tab
+  // is single-pane but a split group is open elsewhere, the
+  // pill's title says so — pressing it still starts a second
+  // group (multiple groups are legitimate, one per tab), but
+  // never silently. The named group is the first other group
+  // in strip order (findFirstOtherGroup), not the record's
+  // arbitrary first entry — with several groups open, the
+  // title names the leftmost one the user can see.
   const otherSplitGroupTabTitle = (() => {
     if (splitVisible) return null;
-    const otherGroup = Object.values(splitGroups)[0];
+    const stripIndex = new Map(
+      useTerminalStore.getState().tabs.map((t, i) => [t.id, i]),
+    );
+    const otherGroup = findFirstOtherGroup(splitGroups, tabId, stripIndex);
     if (!otherGroup) return null;
     const otherTabId = groupTabIds(otherGroup)[0];
     if (!otherTabId) return null;
@@ -2294,15 +2328,14 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   })();
   const handleToggleSplit = () => {
     if (getVisibleTabIds(useSplitPaneStore.getState().groups, tabId).length > 1) {
-      // Unsplit queues the feed line for the surviving pane
+      // Unsplit queues the feed line for the acting pane
       // (unsplitOneTabWithQueuedLine, terminalFeedLine 2026-11-16):
       // the pill used to call unsplitOneTab + termWriteLines on
       // THIS instance, but the unsplit's tree surgery remounts it
-      // (and the usual live press lands in the removed pane, whose
-      // instance unmounts outright) — the async write resolved
-      // after the unmount into a disposed surface, so no "Closed …"
-      // line ever reached the feed (live 179d944). One press still
-      // undoes exactly one split.
+      // — the async write resolved after the unmount into a
+      // disposed surface, so no "Unsplit …" line ever reached
+      // the feed (live 179d944). One press still undoes exactly
+      // one split, and closes nothing (Gary, 2026-11-16).
       unsplitOneTabWithQueuedLine(tabId);
       // Focus follows the surviving pane (focus-on-activate,
       // 2026-11-16): the click lands on this pill button, and a

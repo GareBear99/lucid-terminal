@@ -92,14 +92,19 @@
  * is recoverable with no new state; its second child is
  * provably the leaf that split created — see the dissection,
  * ~/workspace/split-unsplit-dissection-2026-11-15.md) —
- * replacing that node with its first child and closing just
- * that pane. N splits need N presses to return to one
- * terminal; the next press is a no-op. The old wipe survives
- * only as the explicit collapse-all (unsplitAllTabs),
- * reachable solely from `/unsplit all` / "Unsplit All Panes"
- * behind the close ask — never from the pill, plain
- * `/unsplit`, or the plain palette entry.
- */
+ * separating that pane from the group. N splits need N
+ * presses to return to single terminals; the next press is a
+ * no-op. UNSPLIT NEVER CLOSES A TAB (Gary, 2026-11-16 —
+ * "unsplitting still deletes the pair instead of making it
+ * an individual"): the separated pane keeps its PTY, feed
+ * and cwd as a normal individual tab. The old chained design
+ * closed the newest pane per press ("one press loses at most
+ * one pane"); that was the bug — unsplitting separates, it
+ * does not destroy. Collapse-all (unsplitAllTabs) dissolves
+ * the whole group the same way: every pane becomes an
+ * individual tab, nothing closes. There is no close ask for
+ * unsplitting any more — nothing is destroyed, so nothing
+ * needs confirming. */
 
 import { create } from 'zustand';
 import { useTerminalStore } from './terminalStore';
@@ -182,74 +187,34 @@ export interface SplitPaneState {
   closePane: (tabId: string) => void;
   /**
    * Undo ONE split in a tab's group (chained unsplit, Gary
-   * 2026-11-15): remove exactly the pane the most recent
-   * split created — the newest split node's second leaf —
-   * and collapse that node to its first child, so the
-   * previous layout is restored exactly (every surviving
-   * pane keeps its size, position, PTY, feed and cwd).
-   * Returns the removed tab id, or null when there is
-   * nothing to undo (no group, or no split node). The
-   * removed pane is still destroyed (PTY + feed, via
-   * closeTab) — chaining buys granularity, not
-   * preservation: one press loses at most one pane. When
-   * the removed pane was active, focus moves to the first
-   * leaf of the surviving subtree; otherwise focus does
-   * not move. N splits need N presses to return to one
-   * terminal; the next press is a no-op, never an error.
+   * 2026-11-15; preservation, Gary 2026-11-16): separate
+   * exactly the pane the most recent split created — the
+   * newest split node's second leaf — from the group, and
+   * collapse that node to its first child, so the previous
+   * layout is restored exactly (every surviving pane keeps
+   * its size, position, PTY, feed and cwd). The separated
+   * pane is NOT closed — it keeps its PTY, feed and cwd as
+   * a normal individual tab (unsplit separates, it does not
+   * destroy). Returns the separated tab id, or null when
+   * there is nothing to undo (no group, or no split node).
+   * Focus never moves: the separated pane, if active, stays
+   * the active tab (it is still there, just individual);
+   * otherwise the active tab is untouched. N splits need N
+   * presses to return to single terminals; the next press
+   * is a no-op, never an error.
    */
   unsplitOneTab: (tabId: string) => string | null;
   /**
-   * Unsplit ALL of a tab's group (the explicit collapse-all,
-   * Gary 2026-11-15): close every pane in the group except
-   * this one (each closed pane's PTY is destroyed, the same
-   * as closePane). The survivor becomes a normal tab again.
-   * Reachable ONLY from `/unsplit all` / "Unsplit All
-   * Panes" behind the close ask — never from the pill,
-   * plain `/unsplit`, or the plain palette entry (those
-   * undo one split via unsplitOneTab). A tab in no group
-   * is a no-op, never an error. Focus stays on this tab:
-   * no closed pane was active, so closePane never moves
-   * it. (Renamed from unsplitTab, 2026-11-15: the old
-   * name hid the wipe — this action closes everything
-   * but one pane, and its name should say so.)
+   * Unsplit ALL of a tab's group (Gary 2026-11-16): dissolve
+   * the group — every pane becomes a normal individual tab.
+   * Nothing is closed: every pane keeps its PTY, feed and
+   * cwd. The old collapse-all closed every pane but one
+   * (behind a close ask); that was the same deletion bug as
+   * unsplitOneTab, so the ask is gone with it — there is
+   * nothing destructive left to confirm. A tab in no group
+   * is a no-op, never an error. Focus stays on this tab.
    */
   unsplitAllTabs: (tabId: string) => void;
-  /**
-   * The pending collapse-all ask (`/unsplit all` /
-   * "Unsplit All Panes" asked first, Gary 2026-11-15).
-   * Null when no ask is showing. The tab strip renders
-   * it (TerminalTabs) from this store state, so the slash
-   * command and the palette can request it without prop
-   * drilling — the same store pattern as the Atom modal
-   * state. Per window (each window owns its own store
-   * instance); a detached window can never hold one,
-   * because nothing there can create a split.
-   *
-   * The ask stores ONLY the tab id (P4, 2026-11-15): the
-   * pane count is derived live by the strip at render
-   * time, so the ask can never go stale — a group that
-   * shrank, dissolved, or was replaced while the dialog
-   * sat open shows its live count, and an ask whose group
-   * is gone does not show at all.
-   */
-  unsplitAllAsk: { tabId: string } | null;
-  /**
-   * Ask before collapsing all of a tab's group: stage the
-   * close ask (the strip shows it; nothing is destroyed
-   * until it is confirmed). A tab in no group, or a group
-   * with fewer than two panes, is a no-op.
-   */
-  requestUnsplitAll: (tabId: string) => void;
-  /** Dismiss the pending collapse-all ask — keep every pane. */
-  dismissUnsplitAllAsk: () => void;
-  /**
-   * Confirm the pending collapse-all ask — run
-   * unsplitAllTabs on the asked tab and clear the ask.
-   * Re-validates first: an ask whose group dissolved or
-   * shrank below two panes while it sat open is a no-op
-   * (the strip hides it; this is the belt to its braces).
-   */
-  confirmUnsplitAll: () => void;
   /**
    * Record where a pane sat before it is detached
    * (P3): the detach push listeners call this before the
@@ -373,6 +338,37 @@ export function findGroupForTab(
     if (groupTabIds(group).includes(tabId)) return group;
   }
   return null;
+}
+
+/**
+ * The first split group NOT containing `tabId`, in strip order
+ * of each group's first leaf (audit item iv, 2026-11-16): the
+ * old code named `Object.values(splitGroups)[0]` — the record's
+ * insertion order, which is arbitrary when several groups exist
+ * and can name a group the user is not asking about. Strip
+ * order is the order the user sees in the tab bar, so the
+ * named group is the leftmost split group that is not this
+ * tab's own. Null when no other group exists. `stripIndex`
+ * maps tab id → strip position; tabs missing from it sort
+ * last (they cannot be first leaves of a visible group).
+ */
+export function findFirstOtherGroup(
+  groups: Record<string, SplitGroup>,
+  tabId: string,
+  stripIndex: Map<string, number>,
+): SplitGroup | null {
+  const others = Object.values(groups).filter(
+    (group) => !groupTabIds(group).includes(tabId),
+  );
+  if (others.length === 0) return null;
+  others.sort((a, b) => {
+    const aFirst = splitNodeTabIds(a.root)[0];
+    const bFirst = splitNodeTabIds(b.root)[0];
+    const aIdx = aFirst === undefined ? Number.MAX_SAFE_INTEGER : (stripIndex.get(aFirst) ?? Number.MAX_SAFE_INTEGER);
+    const bIdx = bFirst === undefined ? Number.MAX_SAFE_INTEGER : (stripIndex.get(bFirst) ?? Number.MAX_SAFE_INTEGER);
+    return aIdx - bIdx;
+  });
+  return others[0] ?? null;
 }
 
 /**
@@ -582,6 +578,92 @@ export function countSplitLeaves(node: SplitNode): number {
 }
 
 /**
+ * A rectangle in the terminal container, as fractions of the
+ * container (0..1). The stable-homes layout (2026-11-16) positions
+ * every pane's home div absolutely from these fractions.
+ */
+export interface SplitLayoutRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** One split divider's geometry: its node, direction, and the
+ *  node's own rect (fractions) — the drag measures against the
+ *  node's pixel size, which is the node rect × the container. */
+export interface SplitLayoutDivider {
+  nodeId: string;
+  direction: SplitDirection;
+  /** The split node's own rect (fractions of the container). */
+  nodeRect: SplitLayoutRect;
+  /** The boundary position within the node rect (0..1) — the
+   *  first child's share (sizes[0] / 100). */
+  boundary: number;
+}
+
+/** The flat layout of a split group: every leaf's rect and every
+ *  divider's geometry, all as fractions of the container. */
+export interface SplitLayout {
+  leaves: Map<string, SplitLayoutRect>;
+  dividers: SplitLayoutDivider[];
+}
+
+/**
+ * The flat layout of a PaneAxis tree (pure, exported for tests).
+ * Walks the tree once, dividing each split node's rect by its
+ * direction and sizes: a vertical node splits its width (side by
+ * side), a horizontal node its height (stacked). Each leaf gets
+ * its rect; each split node contributes one divider at its
+ * boundary. Fractions sum exactly: the second child's share is
+ * the complement of the first, so no rounding drift.
+ *
+ * STABLE PANE HOMES (2026-11-16, audit item i): App renders
+ * every tab's <Terminal> in ONE home div that is always a direct
+ * child of the terminal container, positioned absolutely from
+ * this layout. A tab never changes React parents — joining or
+ * leaving a group only changes its home's rect / visibility —
+ * so its Terminal never remounts and its xterm scrollback,
+ * composer draft and current-block ref survive tree surgery.
+ * The nested-flex SplitPaneTree is gone: it moved panes between
+ * the tree's leaf divs and the flat host divs, remounting every
+ * pane on every join/leave.
+ */
+export function computeSplitLayout(root: SplitNode): SplitLayout {
+  const leaves = new Map<string, SplitLayoutRect>();
+  const dividers: SplitLayoutDivider[] = [];
+  const walk = (node: SplitNode, rect: SplitLayoutRect): void => {
+    if (node.type === 'leaf') {
+      leaves.set(node.tabId, rect);
+      return;
+    }
+    const firstShare = node.sizes[0] / 100;
+    if (node.direction === 'vertical') {
+      const w1 = rect.width * firstShare;
+      walk(node.first, { left: rect.left, top: rect.top, width: w1, height: rect.height });
+      walk(node.second, {
+        left: rect.left + w1,
+        top: rect.top,
+        width: rect.width - w1,
+        height: rect.height,
+      });
+    } else {
+      const h1 = rect.height * firstShare;
+      walk(node.first, { left: rect.left, top: rect.top, width: rect.width, height: h1 });
+      walk(node.second, {
+        left: rect.left,
+        top: rect.top + h1,
+        width: rect.width,
+        height: rect.height - h1,
+      });
+    }
+    dividers.push({ nodeId: node.id, direction: node.direction, nodeRect: rect, boundary: firstShare });
+  };
+  walk(root, { left: 0, top: 0, width: 1, height: 1 });
+  return { leaves, dividers };
+}
+
+/**
  * Equalize a PaneAxis tree (pure, exported for tests): every
  * split node divides its space between its two children in
  * proportion to their pane counts. In a single-direction tree
@@ -762,15 +844,9 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     // split of that leaf would have created a newer node.
     // The guards are defensive — the invariant test locks
     // them, and a violation must be a no-op, never a
-    // wrong-pane close.
+    // wrong-pane separation.
     if (!newest || newest.type !== 'split' || newest.second.type !== 'leaf') return null;
-    const removedTabId = newest.second.tabId;
-    // The first leaf of the surviving subtree — the pane that
-    // was there before this split (its leftmost/topmost leaf
-    // when the survivor is a nested subtree). Focus lands
-    // there when the removed pane was active.
-    const survivorFirstLeaf = splitNodeTabIds(newest.first)[0] ?? null;
-    const wasActive = useTerminalStore.getState().activeTabId === removedTabId;
+    const separatedTabId = newest.second.tabId;
     set((state) => {
       const groups = { ...state.groups };
       const current = groups[group.id];
@@ -787,57 +863,26 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
       }
       return { groups };
     });
-    // Destroy the PTY (closeTab also reassigns the active
-    // tab to the strip neighbour — overridden below when the
-    // removed pane was active, so focus lands on the pane
-    // that was there before the split, not the neighbour).
-    useTerminalStore.getState().closeTab(removedTabId);
-    if (wasActive && survivorFirstLeaf) {
-      useTerminalStore.getState().setActiveTab(survivorFirstLeaf);
-    }
-    return removedTabId;
+    // The separated pane is NOT closed (Gary, 2026-11-16):
+    // it keeps its PTY, feed and cwd as a normal individual
+    // tab — unsplit separates, it does not destroy. Focus
+    // never moves: the separated pane, if active, stays the
+    // active tab; otherwise the active tab is untouched.
+    return separatedTabId;
   },
 
   unsplitAllTabs: (tabId) => {
     const group = findGroupForTab(get().groups, tabId);
     if (!group) return;
-    // Snapshot the membership: each closePane mutates the group
-    // (removing its tab, dissolving it at one pane left), so the
-    // loop reads the original list, not the shrinking one.
-    for (const id of groupTabIds(group)) {
-      if (id !== tabId) get().closePane(id);
-    }
-  },
-
-  unsplitAllAsk: null,
-
-  requestUnsplitAll: (tabId) => {
-    const group = findGroupForTab(get().groups, tabId);
-    if (!group) return;
-    const paneCount = groupTabIds(group).length;
-    if (paneCount < 2) return;
-    // The ask stores only the tab id — the pane count is
-    // derived live by the strip (P4), so it can never go
-    // stale while the dialog sits open.
-    set({ unsplitAllAsk: { tabId } });
-  },
-
-  dismissUnsplitAllAsk: () => {
-    if (get().unsplitAllAsk) set({ unsplitAllAsk: null });
-  },
-
-  confirmUnsplitAll: () => {
-    const ask = get().unsplitAllAsk;
-    if (!ask) return;
-    set({ unsplitAllAsk: null });
-    // Re-validate: the group may have dissolved or shrunk
-    // below two panes while the ask sat open (P4) — then
-    // there is nothing to collapse, and the ask is simply
-    // gone. The strip hides the ask in the same case, so
-    // this is the belt to its braces.
-    const group = findGroupForTab(get().groups, ask.tabId);
-    if (!group || groupTabIds(group).length < 2) return;
-    get().unsplitAllTabs(ask.tabId);
+    // Dissolve the group: every pane becomes a normal
+    // individual tab. Nothing is closed — every pane keeps
+    // its PTY, feed and cwd (Gary, 2026-11-16). Focus stays
+    // on this tab.
+    set((state) => {
+      const groups = { ...state.groups };
+      delete groups[group.id];
+      return { groups };
+    });
   },
 
   noteDetachedPane: (tabId) => {
@@ -989,7 +1034,7 @@ export const useSplitPaneStore = create<SplitPaneState>((set, get) => ({
     detachedPanes = {};
     stashedGroups = null;
     guestWasActive = useHistoryStore.getState().guestSessionActive;
-    set({ groups: {}, unsplitAllAsk: null });
+    set({ groups: {} });
   },
 }));
 
@@ -1044,13 +1089,9 @@ useHistoryStore.subscribe((state) => {
   guestWasActive = guestActive;
   if (guestActive) {
     stashedGroups = useSplitPaneStore.getState().groups;
-    // A pending collapse-all ask does not survive a guest
-    // enter (P4): the guest starts with a single pane, and
-    // the ask's group is stashed with the rest.
-    const patch: { groups?: Record<string, SplitGroup>; unsplitAllAsk?: null } = {};
-    if (Object.keys(stashedGroups).length > 0) patch.groups = {};
-    if (useSplitPaneStore.getState().unsplitAllAsk) patch.unsplitAllAsk = null;
-    if (Object.keys(patch).length > 0) useSplitPaneStore.setState(patch);
+    if (Object.keys(stashedGroups).length > 0) {
+      useSplitPaneStore.setState({ groups: {} });
+    }
   } else if (stashedGroups !== null) {
     const liveIds = new Set(useTerminalStore.getState().tabs.map((t) => t.id));
     const restored: Record<string, SplitGroup> = {};
@@ -1061,6 +1102,6 @@ useHistoryStore.subscribe((state) => {
       }
     }
     stashedGroups = null;
-    useSplitPaneStore.setState({ groups: restored, unsplitAllAsk: null });
+    useSplitPaneStore.setState({ groups: restored });
   }
 });

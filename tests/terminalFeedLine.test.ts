@@ -4,12 +4,14 @@
  * ⌘U and the palette `terminal:unsplit` entry share one
  * unsplit-with-line action with /unsplit and the split pill —
  * one press undoes exactly one split and queues the same
- * "Closed …" line for the surviving pane's Terminal to drain
- * (a direct write is lost live: the unsplit's tree surgery
- * remounts the acting instance). Store-level: no React, no
- * xterm — the writer here is a mock standing in for
- * termWriteLines, used only by the inconsistent-tree message
- * (no tree change there, so no remount).
+ * "Unsplit …" line for the acting pane's Terminal to drain
+ * UNSPLIT NEVER CLOSES A TAB (Gary, 2026-11-16): the line
+ * says "Unsplit", never "Closed". The line is queued for
+ * the acting tab (which always survives now — nothing is
+ * closed), and its Terminal drains it on its next write.
+ * Store-level: no React, no xterm — the writer here is a
+ * mock standing in for termWriteLines, used only by the
+ * inconsistent-tree message (no tree change there).
  *
  * Run with: npm test
  */
@@ -77,12 +79,12 @@ async function makeFourPaneSplit(): Promise<string> {
 }
 
 describe('unsplitFeedLine', () => {
-  test('names the removed pane and the panes left', () => {
-    expect(unsplitFeedLine('terminal-4', 3)).toBe('Closed terminal-4 — 3 panes left.');
+  test('names the separated pane and the panes left', () => {
+    expect(unsplitFeedLine('terminal-4', 3)).toBe('Unsplit terminal-4 — 3 panes left in the split.');
   });
 
-  test('back to one terminal at one pane left', () => {
-    expect(unsplitFeedLine('terminal-2', 1)).toBe('Closed terminal-2 — back to one terminal.');
+  test('back to separate terminals at one pane left', () => {
+    expect(unsplitFeedLine('terminal-2', 1)).toBe('Unsplit terminal-2 — back to separate terminals.');
   });
 });
 
@@ -92,42 +94,46 @@ describe('unsplitTabWithFeedLine', () => {
     const write = vi.fn();
     cleanups.push(registerTerminalLineWriter(a, write));
 
-    const removed = unsplitTabWithFeedLine(a);
+    const result = unsplitTabWithFeedLine(a);
 
-    expect(removed).toBe('terminal-4');
-    // The line is QUEUED for the surviving pane (2026-11-16):
-    // a direct write would land in the instance the unsplit
-    // remounts (live 179d944: no line ever appeared). The
-    // registered writer is not called for a successful unsplit.
+    expect(result).toEqual({ separated: 'terminal-4', line: 'Unsplit terminal-4 — 3 panes left in the split.' });
+    // The line is QUEUED for the acting tab (2026-11-16):
+    // the registered writer is not called for a successful
+    // unsplit — the acting tab's Terminal drains the queue
+    // on its next write.
     expect(write).not.toHaveBeenCalled();
     expect(useFeedLineQueueStore.getState().queued[a]).toEqual([
-      'Closed terminal-4 — 3 panes left.',
+      'Unsplit terminal-4 — 3 panes left in the split.',
     ]);
+    // UNSPLIT NEVER CLOSES A TAB: all four tabs survive.
     expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([
       'terminal-1',
       'terminal-2',
       'terminal-3',
+      'terminal-4',
     ]);
     const group = findGroupForTab(useSplitPaneStore.getState().groups, a)!;
     expect(groupTabIds(group)).toEqual(['terminal-1', 'terminal-3', 'terminal-2']);
   });
 
-  test('acting tab is the removed pane: the line is queued for the surviving pane', async () => {
+  test('acting tab is the separated pane: the line is queued for the acting tab itself', async () => {
     const a = await makeFourPaneSplit();
     // Live: focus follows the newest pane, so the Unsplit press
-    // lands in the pane being removed — its own instance unmounts
-    // outright, so the line must go to the survivor, not the actor.
-    const removed = unsplitTabWithFeedLine('terminal-4');
+    // lands in the pane being separated. It survives as an
+    // individual tab now (nothing closes), so the line goes to
+    // the acting tab itself — not to a survivor.
+    const result = unsplitTabWithFeedLine('terminal-4');
 
-    expect(removed).toBe('terminal-4');
-    expect(useFeedLineQueueStore.getState().queued[a]).toEqual([
-      'Closed terminal-4 — 3 panes left.',
+    expect(result).toEqual({ separated: 'terminal-4', line: 'Unsplit terminal-4 — 3 panes left in the split.' });
+    expect(useFeedLineQueueStore.getState().queued['terminal-4']).toEqual([
+      'Unsplit terminal-4 — 3 panes left in the split.',
     ]);
-    expect(useFeedLineQueueStore.getState().queued['terminal-4']).toBeUndefined();
+    expect(useFeedLineQueueStore.getState().queued[a]).toBeUndefined();
     expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([
       'terminal-1',
       'terminal-2',
       'terminal-3',
+      'terminal-4',
     ]);
   });
 
@@ -179,14 +185,15 @@ describe('unsplitTabWithFeedLine', () => {
   test('no writer registered: still unsplits, queues the line, never throws', async () => {
     const a = await makeFourPaneSplit();
 
-    expect(unsplitTabWithFeedLine(a)).toBe('terminal-4');
+    expect(unsplitTabWithFeedLine(a)).toEqual({ separated: 'terminal-4', line: 'Unsplit terminal-4 — 3 panes left in the split.' });
     expect(useFeedLineQueueStore.getState().queued[a]).toEqual([
-      'Closed terminal-4 — 3 panes left.',
+      'Unsplit terminal-4 — 3 panes left in the split.',
     ]);
     expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([
       'terminal-1',
       'terminal-2',
       'terminal-3',
+      'terminal-4',
     ]);
   });
 
@@ -196,16 +203,16 @@ describe('unsplitTabWithFeedLine', () => {
     const unregister = registerTerminalLineWriter(a, write);
     unregister();
 
-    expect(unsplitTabWithFeedLine(a)).toBe('terminal-4');
+    expect(unsplitTabWithFeedLine(a)).toEqual({ separated: 'terminal-4', line: 'Unsplit terminal-4 — 3 panes left in the split.' });
     expect(write).not.toHaveBeenCalled();
     expect(useFeedLineQueueStore.getState().queued[a]).toEqual([
-      'Closed terminal-4 — 3 panes left.',
+      'Unsplit terminal-4 — 3 panes left in the split.',
     ]);
   });
 
   test('closing a tab drops its queued lines — a reused number never inherits them', async () => {
     const a = await makeFourPaneSplit();
-    queueTerminalFeedLine(a, 'Closed terminal-4 — 3 panes left.');
+    queueTerminalFeedLine(a, 'Unsplit terminal-4 — 3 panes left in the split.');
     expect(useFeedLineQueueStore.getState().queued[a]).toHaveLength(1);
 
     useTerminalStore.getState().closeTab(a);

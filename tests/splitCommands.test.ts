@@ -104,10 +104,12 @@ describe('help listing', () => {
     const unsplit = category!.commands.find((c) => c.name === 'unsplit');
     expect(unsplit).toBeDefined();
     expect(unsplit!.syntax).toBe('/unsplit');
-    expect(unsplit!.description).toContain('one terminal');
+    // UNSPLIT NEVER CLOSES A TAB (Gary, 2026-11-16): the help
+    // text says "separate", never "close" or "back to one terminal".
+    expect(unsplit!.description).toContain('separate');
     const unsplitAll = category!.commands.find((c) => c.name === 'unsplit all');
     expect(unsplitAll).toBeDefined();
     expect(unsplitAll!.syntax).toBe('/unsplit all');
-    expect(unsplitAll!.description).toContain('asks first');
+    expect(unsplitAll!.description).toContain('nothing closes');
   });
 });

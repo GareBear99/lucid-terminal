@@ -3,19 +3,19 @@
  * The unsplit feed line, LIVE (Gary, 2026-11-16 — the line never
  * appeared on build 179d944, although tests/terminalUnsplit.test.tsx
  * passed 8/8): the pill / ⌘U / palette / /unsplit all write their
- * "Closed …" line through a Terminal instance that the very unsplit
- * unmounts — on the final unsplit App moves the surviving pane
- * from the split-tree leaf to its flat host, so its Terminal
- * remounts and its xterm scrollback resets (App.tsx P1 known
- * limit), and the async termWriteLines resolves after the unmount
- * into a disposed surface. The old test rendered ONE <Terminal>
- * directly, so no tree/flat-host swap ever happened and the write
- * always landed — the test exercised the wrong topology.
+ * "Unsplit …" line through the queued feed-line bridge — the line
+ * is queued for the acting pane and drained in place by its
+ * Terminal. UNSPLIT NEVER CLOSES A TAB (Gary, 2026-11-16):
+ * every pane survives as an individual tab. STABLE PANE HOMES
+ * (2026-11-16, audit item i): no pane remounts on tree surgery
+ * any more — every tab's Terminal lives in one home div that
+ * never changes parents — so both surfaces stay mounted after
+ * an unsplit (one visible, one hidden), and the line must
+ * appear in the acting pane's feed exactly once.
  *
  * These tests render the real <App /> (the splitConjoin P1
  * harness), click the real pill, and read the real fallback
- * output — the line must survive the remount and appear in the
- * surviving pane's feed.
+ * output — the line must appear in the acting pane's feed.
  *
  * Also: the strip's pair marking (the "links") is per-pair, not
  * active-tab-only — adding a new tab must not unmark the existing
@@ -111,7 +111,7 @@ describe('unsplit feed line, live (App level)', () => {
     });
   }
 
-  test('pill unsplit in the NEWEST pane (Gary’s live repro): the line survives the remount', async () => {
+  test('pill unsplit in the NEWEST pane (Gary’s live repro): the line lands in the acting pane’s feed, both tabs survive', async () => {
     const a = await useTerminalStore.getState().createTab();
     const b = await useSplitPaneStore.getState().splitTab(a);
     expect(b).toBe('terminal-2');
@@ -131,13 +131,18 @@ describe('unsplit feed line, live (App level)', () => {
 
       fireEvent.click(pills[1]);
 
-      // The pane rejoins AND the line lands in the surviving
+      // The pane separates AND the line lands in the acting
       // pane's feed — it used to vanish with the remount.
-      await waitForFeed('Closed terminal-2 — back to one terminal.');
-      expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual(['terminal-1']);
+      await waitForFeed('Unsplit terminal-2 — back to separate terminals.');
+      // UNSPLIT NEVER CLOSES A TAB: both tabs survive.
+      expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual(['terminal-1', 'terminal-2']);
       expect(useSplitPaneStore.getState().groups).toEqual({});
-      await waitFor(() => expect(screen.getAllByTestId('xterm-surface')).toHaveLength(1));
+      // STABLE PANE HOMES: both surfaces stay mounted (one
+      // visible, one hidden) — neither Terminal remounted.
+      expect(screen.getAllByTestId('xterm-surface')).toHaveLength(2);
+      expect(screen.getAllByTestId('split-toggle-pill')).toHaveLength(2);
       expect(screen.getAllByTestId('split-toggle-pill')[0].textContent).toBe('Split');
+      expect(screen.getAllByTestId('split-toggle-pill')[1].textContent).toBe('Split');
     } finally {
       unmount();
     }
@@ -154,17 +159,18 @@ describe('unsplit feed line, live (App level)', () => {
       await waitFor(() => expect(screen.getAllByTestId('xterm-surface')).toHaveLength(3));
 
       // Click Unsplit in terminal-1's pill (first in DOM order):
-      // terminal-3 (the newest) closes, terminal-1 survives
-      // with no remount — the line must still appear exactly once.
+      // terminal-3 (the newest) separates, terminal-1 stays —
+      // nothing closes, the line must still appear exactly once.
       const pills = screen.getAllByTestId('split-toggle-pill');
       expect(pills).toHaveLength(3);
       fireEvent.click(pills[0]);
 
-      await waitForFeed('Closed terminal-3 — 2 panes left.');
-      expect(feedText().match(/Closed terminal-3 — 2 panes left\./g)?.length).toBe(1);
+      await waitForFeed('Unsplit terminal-3 — 2 panes left in the split.');
+      expect(feedText().match(/Unsplit terminal-3 — 2 panes left in the split\./g)?.length).toBe(1);
       expect(useTerminalStore.getState().tabs.map((t) => t.id)).toEqual([
         'terminal-1',
         'terminal-2',
+        'terminal-3',
       ]);
       expect(Object.keys(useSplitPaneStore.getState().groups)).toHaveLength(1);
     } finally {
@@ -172,7 +178,7 @@ describe('unsplit feed line, live (App level)', () => {
     }
   });
 
-  test('/split writes its confirmation line into the source pane after the join remount', async () => {
+  test('/split writes its confirmation line into the source pane (no remount — stable homes)', async () => {
     const a = await useTerminalStore.getState().createTab();
     const { unmount } = render(<App />);
     try {

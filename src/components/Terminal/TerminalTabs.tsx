@@ -51,19 +51,20 @@ import { useTerminalTabDrag } from '../../lib/tabDrag';
  * (Gary, 2026-11-14): the detached tab x asks resnap-vs-close
  * every time, and the main-window x asks before closing a
  * USED tab. `kind` picks the question and the buttons.
- * `unsplit-all` (Gary, 2026-11-15) is the collapse-all ask:
- * `/unsplit all` / "Unsplit All Panes" asks first, and the
- * dialog names the pane count — the cost is explicit.
+ * There is NO unsplit-all ask any more (Gary, 2026-11-16):
+ * unsplitting never closes a tab — it separates panes into
+ * individual tabs — so there is nothing destructive left to
+ * confirm. `/unsplit all` / "Unsplit All Panes" dissolve
+ * the group directly.
  * `close-multiple` (2026-11-15) is the context-menu bulk
  * close ask: "Close Other Tabs" / "Close to the Right"
  * stage it when any target is used or in a split group,
  * naming the count and how many are panes.
  */
 export type TabCloseAskKind =
-  'detached' | 'used' | 'unsplit-all' | 'close-multiple';
+  'detached' | 'used' | 'close-multiple';
 export type TabCloseAsk =
   | { tabId: string; title: string; kind: 'detached' | 'used' }
-  | { tabId: string; title: string; kind: 'unsplit-all'; paneCount: number }
   | {
       tabIds: string[];
       title: string;
@@ -95,8 +96,6 @@ export interface TerminalTabsViewProps {
   onCloseAskCloseTab?: () => void;
   /** Used-tab ask: keep the tab open. */
   onCloseAskKeepTab?: () => void;
-  /** Unsplit-all ask: confirm — close every pane in the asked group. */
-  onCloseAskCloseAllPanes?: () => void;
   /** Close-multiple ask: confirm — close every listed tab (pane-aware). */
   onCloseAskCloseTabs?: () => void;
   /** Close-multiple ask: keep the tabs. */
@@ -194,7 +193,6 @@ export function TerminalTabsView({
   onCloseAskCloseSession,
   onCloseAskCloseTab,
   onCloseAskKeepTab,
-  onCloseAskCloseAllPanes,
   onCloseAskCloseTabs,
   onCloseAskKeepTabs,
   onDismissCloseAsk,
@@ -724,11 +722,9 @@ export function TerminalTabsView({
             role="dialog"
             aria-modal="true"
             aria-label={
-              closeAsk.kind === 'unsplit-all'
-                ? `Unsplit all ${closeAsk.paneCount} panes in "${closeAsk.title}"?`
-                : closeAsk.kind === 'close-multiple'
-                  ? closeAsk.title
-                  : `Close "${closeAsk.title}"?`
+              closeAsk.kind === 'close-multiple'
+                ? closeAsk.title
+                : `Close "${closeAsk.title}"?`
             }
             data-testid="tab-close-ask"
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
@@ -739,17 +735,13 @@ export function TerminalTabsView({
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                {closeAsk.kind === 'unsplit-all'
-                  ? `Unsplit all ${closeAsk.paneCount} panes in "${closeAsk.title}"?`
-                  : closeAsk.kind === 'close-multiple'
-                    ? closeAsk.title
-                    : `Close "${closeAsk.title}"?`}
+                {closeAsk.kind === 'close-multiple'
+                  ? closeAsk.title
+                  : `Close "${closeAsk.title}"?`}
               </h3>
               <p className="mt-2 text-xs leading-[1.5] text-[var(--text-muted)]">
                 {closeAsk.kind === 'detached'
                   ? `Resnap "${closeAsk.title}" back to the main window, or close its session? Resnapping keeps the session and its history. Closing the session destroys it — it cannot be brought back.`
-                  : closeAsk.kind === 'unsplit-all'
-                    ? `This closes the other ${closeAsk.paneCount - 1} ${closeAsk.paneCount - 1 === 1 ? 'pane' : 'panes'}. Their sessions and history will be destroyed — they cannot be brought back. "${closeAsk.title}" stays open.`
                     : closeAsk.kind === 'close-multiple'
                       ? `This closes ${closeAsk.tabIds.length} ${closeAsk.tabIds.length === 1 ? 'tab' : 'tabs'}${closeAsk.paneCount > 0 ? `, including ${closeAsk.paneCount} pane${closeAsk.paneCount === 1 ? '' : 's'} of a split group` : ''}. Any session or history in them will be destroyed — it cannot be brought back.`
                       : `"${closeAsk.title}" has run commands — closing it destroys its session and its history. Close the tab, or keep it?`}
@@ -772,25 +764,6 @@ export function TerminalTabsView({
                       className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
                     >
                       Resnap
-                    </button>
-                  </>
-                ) : closeAsk.kind === 'unsplit-all' ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onDismissCloseAsk?.()}
-                      data-testid="tab-close-ask-keep-panes"
-                      className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-white/10"
-                    >
-                      Keep panes
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onCloseAskCloseAllPanes?.()}
-                      data-testid="tab-close-ask-close-all-panes"
-                      className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
-                    >
-                      Close all panes
                     </button>
                   </>
                 ) : closeAsk.kind === 'close-multiple' ? (
@@ -896,48 +869,11 @@ function TerminalTabs({
   // pending ask; the view only renders it.
   const [closeAsk, setCloseAsk] = useState<TabCloseAsk | null>(null);
 
-  // The pending collapse-all ask (Gary, 2026-11-15): `/unsplit
-  // all` / "Unsplit All Panes" asked first — the strip renders
-  // it from the split store (the slash command and the palette
-  // request it without prop drilling). A tab x ask showing
-  // wins — the two dialogs never stack; the store ask stays
-  // pending underneath until the tab ask is dismissed.
-  // The pane count is derived LIVE from the group at render
-  // time (P4) — the store ask holds only the tab id, so the
-  // dialog can never show a stale count — and the dialog
-  // names the tab (P8), like the tab x ask does. A group
-  // that dissolved or shrank below two panes while the ask
-  // sat open hides the ask, and the effect below clears it.
-  const unsplitAllAsk = useSplitPaneStore((s) => s.unsplitAllAsk);
-  const unsplitAllGroup = unsplitAllAsk
-    ? findGroupForTab(splitGroups, unsplitAllAsk.tabId)
-    : null;
-  const unsplitAllPaneCount = unsplitAllGroup
-    ? groupTabIds(unsplitAllGroup).length
-    : 0;
-  const unsplitAllTabTitle = unsplitAllAsk
-    ? (tabs.find((t) => t.id === unsplitAllAsk.tabId)?.title ??
-      unsplitAllAsk.tabId)
-    : '';
-  const closeAskToShow: TabCloseAsk | null =
-    closeAsk ??
-    (unsplitAllAsk && unsplitAllGroup && unsplitAllPaneCount >= 2
-      ? {
-          tabId: unsplitAllAsk.tabId,
-          title: unsplitAllTabTitle,
-          kind: 'unsplit-all',
-          paneCount: unsplitAllPaneCount,
-        }
-      : null);
-
-  // Dismiss a stale collapse-all ask (P4): the group
-  // dissolved, or shrank below two panes, while the dialog
-  // sat open — the ask is gone, not shown with a dead count.
-  useEffect(() => {
-    if (unsplitAllAsk && (!unsplitAllGroup || unsplitAllPaneCount < 2)) {
-      useSplitPaneStore.getState().dismissUnsplitAllAsk();
-    }
-  }, [unsplitAllAsk, unsplitAllGroup, unsplitAllPaneCount]);
+  // The close ask showing is the container-owned one, full
+  // stop (Gary, 2026-11-16): there is no unsplit-all ask any
+  // more — unsplitting never closes a tab, so nothing about
+  // it needs confirming.
+  const closeAskToShow: TabCloseAsk | null = closeAsk;
 
   // A tab is USED when it has run at least one command: it has
   // blocks in its feed (historyStore.blocksByTab — a block is
@@ -1058,16 +994,10 @@ function TerminalTabs({
   const handleCloseAskKeepTabs = () => {
     setCloseAsk(null);
   };
-  // Dismiss (backdrop / Escape) keeps everything in both
-  // cases — never a destructive default. A tab x ask showing
-  // dismisses itself; otherwise the pending collapse-all ask
-  // is dismissed and every pane stays.
+  // Dismiss (backdrop / Escape) keeps everything — never a
+  // destructive default. The ask showing dismisses itself.
   const handleDismissCloseAsk = () => {
-    if (closeAsk) {
-      setCloseAsk(null);
-      return;
-    }
-    useSplitPaneStore.getState().dismissUnsplitAllAsk();
+    setCloseAsk(null);
   };
 
   // ⌘1–⌘9 switch tabs (Warp §7): the strip is tabs only, so
@@ -1239,9 +1169,6 @@ function TerminalTabs({
       onCloseAskCloseSession={handleCloseAskCloseSession}
       onCloseAskCloseTab={handleCloseAskCloseTab}
       onCloseAskKeepTab={handleCloseAskKeepTab}
-      onCloseAskCloseAllPanes={() =>
-        useSplitPaneStore.getState().confirmUnsplitAll()
-      }
       onCloseAskCloseTabs={handleCloseAskCloseTabs}
       onCloseAskKeepTabs={handleCloseAskKeepTabs}
       onDismissCloseAsk={handleDismissCloseAsk}

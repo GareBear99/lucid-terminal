@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { startFixNetSync } from './lib/fixnetSync';
 import { useForgeStore } from './stores/forgeStore';
@@ -49,8 +49,9 @@ import { ProfilesScreen } from './components/Profiles/ProfilesScreen';
 import { applyPersistedGuestVeil, isGuestProfile, useProfileStore } from './stores/profileStore';
 import { showSplashMistForView } from './lib/mist';
 import { FixNetStatus } from './components/FixNet/FixNetStatus';
-import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, groupTabIds, orderTabsForRender } from './stores/splitPaneStore';
-import { SplitPaneTree } from './components/Terminal/SplitPaneTree';
+import { useSplitPaneStore, findGroupForTab, getVisibleTabIds, orderTabsForRender } from './stores/splitPaneStore';
+import { SplitDivider } from './components/Terminal/SplitDivider';
+import { computeSplitLayout } from './stores/splitPaneStore';
 // WelcomeScreen removed - always start with terminal
 // import WelcomeScreen from './components/Layout/WelcomeScreen';
 // import LucidTest from './components/LucidTest'; // Temporarily disabled during audit
@@ -96,45 +97,43 @@ function App() {
   // the terminal view renders (PaneAxis). Null
   // when the active tab is not in a group.
   const activeGroup = activeTabId ? findGroupForTab(splitGroups, activeTabId) : null;
-  const tabById = new Map(renderTabs.map((t) => [t.id, t]));
-  // One terminal pane: the element the flat render and the split
-  // tree both render for a tab. The tree wraps it in its own
-  // sized boxes; the flat render wraps it in the h-full div below.
+  // The active group's flat layout (stable homes, 2026-11-16):
+  // every leaf's rect + every divider's geometry, as fractions of
+  // the terminal container. Memoised on the group root — a drag
+  // that resizes a pane produces a new root, so the layout
+  // recomputes; nothing else re-lays-out.
+  const activeGroupLayout = useMemo(
+    () => (activeGroup ? computeSplitLayout(activeGroup.root) : null),
+    [activeGroup],
+  );
+  // One terminal pane: the element every home div renders for a
+  // tab. The home div (below) sizes and positions it; the pane
+  // itself is always the same element in the same home.
   const terminalForTab = (tab: TerminalTab) => (
     <Terminal tabId={tab.id} onOpenHelp={openHelp} onOpenSynth={toggleSynth} onOpenForge={toggleForge} onOpenFiles={() => setCurrentView('editor')} luciferToggleActive={!luciferAiSilenced} onToggleLuciferAi={() => void updateSetting('luciferAiSilenced', !isLuciferAiSilenced(useSettingsStore.getState().settings))} />
   );
-  // P1 (2026-11-15) — one stable home per tab: a tab's
-  // <Terminal> is a NORMAL child of exactly one wrapper,
-  // and that wrapper never changes parents. A tab in a split
-  // group renders inside its group's tree (the leaf div,
-  // keyed by tab id); a tab in no group renders in its flat
-  // host div. Every group's tree stays mounted while the
-  // group exists — the active one lays out, the rest are
-  // hidden with CSS — so clicking off a split tab and back
-  // never unmounts a pane. The old code swapped two render
-  // branches on isSplitVisible (tree vs flat divs, different
-  // parents), so React unmounted and remounted every pane on
-  // every click off: xterm disposed, scrollback gone, a
-  // running command's output dropped, the draft lost.
-  // Portals were tried first and REJECTED (same day): React
-  // 18 unmounts and remounts a portal's children when its
-  // container changes, so moving a Terminal between a leaf
-  // slot and a host div remounted it exactly like the branch
-  // swap did (proven by a minimal repro: state lost on the
-  // first container change). A portal container must never
-  // change — so there are no portals here at all.
-  // Known limits, both pre-existing (the old branch swap
-  // did the same): joining a group (split) and leaving one
-  // (the final unsplit, when the group dissolves) move the
-  // pane between the tree and its flat host, so that pane's
-  // Terminal remounts — its tab and session survive, but its
-  // xterm scrollback resets. Clicking off a split, closing
-  // a pane, shrinking a group, or switching groups never
-  // remounts anything: the trees and their leaf divs persist
-  // by key.
-  const groupedTabIdSet = new Set(
-    Object.values(splitGroups).flatMap((group) => groupTabIds(group)),
-  );
+  // STABLE PANE HOMES (2026-11-16, audit item i — the P1 stable
+  // tree's remaining gap, closed): a tab's <Terminal> lives in
+  // exactly ONE home div, always a direct child of the terminal
+  // container, positioned absolutely from the group's flat layout
+  // (computeSplitLayout). A tab NEVER changes React parents —
+  // joining a group (split) and leaving one (the final unsplit,
+  // when the group dissolves) only change its home's rect and
+  // visibility — so its Terminal never remounts, and its xterm
+  // scrollback, composer draft and current-block ref survive
+  // tree surgery. Clicking off a split, closing a pane,
+  // shrinking a group, or switching groups never remounts
+  // anything either: the homes persist by key. Portals were
+  // tried first and REJECTED (2026-11-15): React 18 unmounts
+  // and remounts a portal's children when its container
+  // changes, so moving a Terminal between a leaf slot and a
+  // host div remounted it exactly like the branch swap did
+  // (proven by a minimal repro). The old nested-flex
+  // SplitPaneTree is gone: it moved panes between the tree's
+  // leaf divs and the flat host divs, remounting every pane on
+  // every join/leave. The blood drop panel is a SIBLING, not a
+  // branch: the terminal container is hidden, never unmounted,
+  // while the panel is up.
   // Tab detach + remount pushes (Gary, 2026-11-09): tabs/files
   // returning to the main window land here.
   useDetachPushListeners();
@@ -921,60 +920,64 @@ function App() {
 
                   {/* Terminal Container */}
                   <div className="flex-1 flex overflow-hidden">
-                    {/* Terminal — split panes (2026-11-14) + P1
-                        stable tree (2026-11-15): the inner
-                        container is a flex row only while a split
-                        is visible; otherwise it renders exactly as
-                        before (one visible tab, the rest hidden).
-                        Every group's tree stays mounted while the
-                        group exists — the active one lays out, the
-                        rest are hidden with CSS — and every pane
-                        is a NORMAL child of its tree's leaf div
-                        (keyed by tab id), so clicking off a split
-                        tab never unmounts a pane. Tabs in no group
-                        render in their flat host divs below. The
-                        blood drop panel is a SIBLING, not a branch:
-                        the terminal div is hidden, never unmounted,
-                        while the panel is up — the old ternary
-                        unmounted the whole terminal subtree despite
-                        the comment claiming the terminals stayed
-                        mounted (P1c). */}
-                    <div className={`flex-1 overflow-hidden${isSplitVisible ? ' flex' : ''}${bloodDropActive && luciferAiEnabled ? ' hidden' : ''}`}>
-                      {Object.values(splitGroups).map((group) => {
-                        const isActiveGroup = activeGroup?.id === group.id;
+                    {/* Terminal — STABLE PANE HOMES (2026-11-16,
+                        audit item i): one relative container; every
+                        tab's home div is always a direct child of
+                        it, keyed by tab id, positioned absolutely.
+                        A pane in the active split group lays out
+                        from the group's flat layout (its leaf rect,
+                        fractions of the container); a pane in any
+                        other group is hidden (display none — its
+                        Terminal stays mounted, so switching groups
+                        never remounts it); an ungrouped tab fills
+                        the container when visible, hidden otherwise.
+                        The dividers are siblings of the homes,
+                        absolutely positioned at each split node's
+                        boundary. The container is `relative` so the
+                        absolute homes and dividers anchor to it.
+                        The blood drop panel is a SIBLING, not a
+                        branch: the terminal container is hidden,
+                        never unmounted, while the panel is up. */}
+                    <div className={`flex-1 overflow-hidden relative${bloodDropActive && luciferAiEnabled ? ' hidden' : ''}`}>
+                      {renderTabs.map((tab) => {
+                        const group = activeTabId ? findGroupForTab(splitGroups, tab.id) : null;
+                        const isInActiveGroup = group !== null && activeGroup?.id === group.id;
+                        // The home's style: a pane in the active
+                        // group gets its layout rect; an ungrouped
+                        // tab fills the container when visible;
+                        // everything else is hidden (mounted, not
+                        // unmounted) — its Terminal survives.
+                        let homeStyle: React.CSSProperties = { display: 'none' };
+                        if (isInActiveGroup && isSplitVisible && activeGroupLayout) {
+                          const rect = activeGroupLayout.leaves.get(tab.id);
+                          if (rect) {
+                            homeStyle = {
+                              position: 'absolute',
+                              left: `${rect.left * 100}%`,
+                              top: `${rect.top * 100}%`,
+                              width: `${rect.width * 100}%`,
+                              height: `${rect.height * 100}%`,
+                            };
+                          }
+                        } else if (!group && visibleTabIdSet.has(tab.id)) {
+                          homeStyle = { position: 'absolute', inset: 0 };
+                        }
                         return (
-                          <div
-                            key={group.id}
-                            className={isActiveGroup && isSplitVisible ? 'flex-1 flex min-h-0 min-w-0' : 'hidden'}
-                          >
-                            <SplitPaneTree
-                              group={group}
-                              renderPane={(tabId) => {
-                                const tab = tabById.get(tabId);
-                                if (!tab) return null;
-                                return (
-                                  <div key={tab.id} className="h-full w-full block min-w-0">
-                                    {terminalForTab(tab)}
-                                  </div>
-                                );
-                              }}
-                            />
+                          <div key={tab.id} className="min-h-0 min-w-0" style={homeStyle}>
+                            {terminalForTab(tab)}
                           </div>
                         );
                       })}
-                      {renderTabs
-                        .filter((tab) => !groupedTabIdSet.has(tab.id))
-                        .map((tab) => {
-                          const visible = visibleTabIdSet.has(tab.id);
-                          return (
-                            <div
-                              key={tab.id}
-                              className={`h-full ${visible ? 'block' : 'hidden'}`}
-                            >
-                              {terminalForTab(tab)}
-                            </div>
-                          );
-                        })}
+                      {isSplitVisible && activeGroup && activeGroupLayout && activeGroupLayout.dividers.map((divider) => (
+                        <SplitDivider
+                          key={divider.nodeId}
+                          groupId={activeGroup.id}
+                          nodeId={divider.nodeId}
+                          direction={divider.direction}
+                          nodeRect={divider.nodeRect}
+                          boundary={divider.boundary}
+                        />
+                      ))}
                       {tabs.length === 0 && (
                         <EmptyTerminalState
                           onCreateTerminal={() => createTab()}

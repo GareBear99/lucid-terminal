@@ -138,14 +138,14 @@ export const helpCategories: HelpCategory[] = [
       {
         name: 'unsplit',
         syntax: '/unsplit',
-        description: 'Undo the last split — repeat to get back to one terminal',
+        description: 'Undo the last split — repeat to separate every pane into its own terminal',
         examples: ['/unsplit'],
         tags: ['terminal', 'split', 'panes']
       },
       {
         name: 'unsplit all',
         syntax: '/unsplit all',
-        description: 'Close all the extra panes at once — asks first',
+        description: 'Separate all the panes into individual terminals at once — nothing closes',
         examples: ['/unsplit all'],
         tags: ['terminal', 'split', 'panes']
       }

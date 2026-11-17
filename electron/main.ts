@@ -143,6 +143,26 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
+  // Right-click edit menu on text / password inputs (Gary,
+  // 2026-11-16): Electron shows no context menu on its own,
+  // so the Settings > AI ping-secret field (and every other
+  // input) had no right-click Paste. Show the native edit
+  // menu — Cut / Copy / Paste / Select All — when the click
+  // lands in an editable field, enabled per the field's edit
+  // flags. Anywhere else, leave the click alone (the app's
+  // own custom menus own those areas).
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable) return;
+    const menu = Menu.buildFromTemplate([
+      { role: 'cut', enabled: params.editFlags.canCut },
+      { role: 'copy', enabled: params.editFlags.canCopy },
+      { role: 'paste', enabled: params.editFlags.canPaste },
+      { type: 'separator' },
+      { role: 'selectAll', enabled: params.editFlags.canSelectAll },
+    ]);
+    menu.popup({ window: mainWindow ?? undefined });
+  });
+
   // Load the app
   if (VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(VITE_DEV_SERVER_URL);

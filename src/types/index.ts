@@ -1422,7 +1422,7 @@ declare global {
         ) => Promise<{ filesChanged: number; replacedCount: number }>;
       };
       ai: {
-        chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) => Promise<string>;
+        chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string; profileId?: string }) => Promise<string>;
         onStream: (callback: (chunk: string) => void) => () => void;
         onStreamEnd: (callback: (quota?: PingQuota) => void) => () => void;
         onStreamError: (callback: (error: string) => void) => () => void;
@@ -1431,7 +1431,7 @@ declare global {
         cancelStream: () => void;
         hasApiKey: () => Promise<boolean>;
         checkLocalBackend: () => Promise<boolean>;
-        pingServerHealth: () => Promise<{ ok: boolean; service?: string; model?: string; mode?: string; quota: PingQuota | null }>;
+        pingServerHealth: (profileId?: string | null) => Promise<{ ok: boolean; service?: string; model?: string; mode?: string; quota: PingQuota | null }>;
         pingServerStatus: () => Promise<PingServerStatus>;
         activateTemp: (profileId: string, referralId?: string | null) => Promise<{ activationTick: number; verificationState: string; windowEnd: string; resumed: boolean }>;
         getSessions: () => Promise<ChatSession[]>;

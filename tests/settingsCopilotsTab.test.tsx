@@ -84,7 +84,11 @@ describe('Copilots section (Settings > AI)', () => {
       expect(screen.getByTestId('copilot-settings-row')).toBeTruthy();
     });
     expect(screen.getByTestId('copilot-settings-row').textContent).toContain('Local');
-    expect(screen.getByTestId('copilot-settings-row').textContent).toContain('Local planner');
+    // The label changed with the agent-loop join (6703a22): the
+    // local planner was deleted and the brain is LLMBuilderBrain,
+    // labeled "LLMBuilder brain" — the old "Local planner"
+    // expectation was stale since that deploy.
+    expect(screen.getByTestId('copilot-settings-row').textContent).toContain('LLMBuilder brain');
     // The setting was persisted, not just shown.
     expect(mockSet).toHaveBeenCalledWith(
       'copilots',

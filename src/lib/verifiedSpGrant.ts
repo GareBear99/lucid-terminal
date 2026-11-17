@@ -81,11 +81,12 @@ export async function applyVerifiedSpGrant(
   const recorded = useProfileStore.getState().recordVerifiedSpGrant(profileId, day);
   if (!recorded) return { granted: false, reason: 'record_failed' };
   // Refresh the SP balance from the server so the +1,000 shows.
-  // Best-effort: never un-grant on a refresh failure. The
-  // profile just verified, so the restock timer takes the
-  // verified (daily) period.
+  // The profile's own id rides along so the balance is THAT
+  // profile's bucket (Fix 1). Best-effort: never un-grant on a
+  // refresh failure. The profile just verified, so the restock
+  // timer takes the verified (daily) period.
   try {
-    const health = await window.lucidAPI?.ai?.pingServerHealth?.();
+    const health = await window.lucidAPI?.ai?.pingServerHealth?.(profileId);
     if (health?.quota) {
       useAIStore.getState().setPingQuota(health.quota, true);
     }

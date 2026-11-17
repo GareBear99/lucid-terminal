@@ -505,6 +505,14 @@ export const useProfileStore = create<ProfileState>((set, get) => {
           p.id === id ? { ...p, lastActiveAt: now } : p,
         ),
       });
+      // SP segregation (Fix 1, 2026-11-17): the displayed SP
+      // balance belongs to the profile that was active when it
+      // was fetched — clear it on every switch so the new
+      // profile never shows the old profile's balance (Guest
+      // showing Genesis's 1196 was exactly this). The next
+      // chat / Test connection fetches the new profile's own
+      // bucket. The base-100 fallback re-applies from there.
+      useAIStore.getState().setPingQuota(null);
       // Guest veil (Gary, 2026-11-12 ~17:59 PST): a guest session
       // shows NO saved data — no LLMBuilder memory, no
       // driving-intelligence memory, no chat memory, no history.

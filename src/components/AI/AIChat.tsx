@@ -6,6 +6,7 @@ import { useAIStore } from '../../stores/aiStore';
 import { useEventLogStore } from '../../stores/eventLogStore';
 import { useFileStore } from '../../stores/fileStore';
 import { usePromptPaceStore } from '../../stores/promptPaceStore';
+import { useProfileStore } from '../../stores/profileStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useLoadingStore } from '../../stores/loadingStore';
 import { ChatMessage, PingQuota } from '../../types';
@@ -412,6 +413,9 @@ function AIChat({ onClose }: AIChatProps) {
           ? { model: currentSession.model, modelSource: currentSession.modelSource }
           : {}),
         chatId: currentSessionId ?? undefined,
+        // The active profile's id, so the ping call spends
+        // THAT profile's SP bucket (Fix 1).
+        profileId: useProfileStore.getState().activeProfileId ?? undefined,
       });
     } catch (error) {
       console.error('Chat error:', error);

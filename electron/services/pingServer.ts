@@ -1,4 +1,5 @@
 import { settings, pingKeyStorage } from './secureStorage';
+import { resolvePingUserId } from '../../src/lib/pingUserId';
 import type { PingQuota, PingServerStatus } from '../../src/types';
 
 // Lucid ping server client — the remote-model test path.
@@ -12,16 +13,34 @@ import type { PingQuota, PingServerStatus } from '../../src/types';
 // shape is the same — `data: {choices:[{delta:{content}}]}` chunks
 // ending in `data: [DONE]`.
 //
-// Identity + quota: every request sends `x-lucid-user`, a per-install
-// id generated once and stored in settings. The Worker gives each id
-// 100 SP to start — 1 SP per chat request, refilling +25 SP per 4h
-// under 200 (cap 250) — and answers 429 with the next refill time
-// when the bucket is empty. The client surfaces the SP balance
-// from the response headers so the UI can show it,
+// Identity + quota: every request sends `x-lucid-user`, the ACTIVE
+// profile's id (src/lib/pingUserId.ts). The Worker gives each id
+// its own SP bucket — 100 SP to start, 1 SP per chat request,
+// refilling +25 SP per 4h under 200 (cap 250), verified profiles
+// +1,000 SP/day — and answers 429 with the next refill time when
+// the bucket is empty. Guest sends its own profile id, so Guest
+// gets its own 100-SP bucket and never sees another profile's
+// verified balance (2026-11-17: Guest was showing Genesis's
+// 1196 SP because the client sent one per-install id for every
+// profile). The per-install id survives only as the fallback
+// when no profile id is in context. The client surfaces the SP
+// balance from the response headers so the UI can show it,
 // and turns a 429 into a PingRateLimitError with a human-readable
 // message instead of a bare failure.
 
 export const PING_SERVER_DEFAULT_ENDPOINT = 'http://127.0.0.1:8787';
+/**
+ * The cloud ping server — the default Gary actually uses. The
+ * shipped endpoint constant above is the local-dev worker; the
+ * cloud URL is the one the Settings default should point at, and
+ * the one auto-provisioning (ensureDefaultPingKey, below) applies
+ * to. Kept as its own constant so the two are never confused.
+ */
+export const PING_SERVER_CLOUD_ENDPOINT =
+  'https://lucid-ping-server.admension.workers.dev';
+/** POST /register on the cloud server — the per-install key
+ *  provisioning endpoint (see ensureDefaultPingKey). */
+export const PING_SERVER_REGISTER_PATH = '/register';
 /**
  * The default ping model — Llama 3.2 1B, the worker's default.
  * The client sends the chat's chosen model as body.model (see
@@ -76,9 +95,12 @@ export function isPingServerEnabled(): boolean {
   );
 }
 
-/** The per-install id the quota keys off. Generated once (a random
- *  UUID) and stored in settings; rotating it resets the quota — that
- *  is dummy-grade identity, documented in the Worker's README. */
+/** The per-install id the quota keys off when no profile id is
+ *  in context. Generated once (a random UUID) and stored in
+ *  settings; rotating it resets the quota — that is dummy-grade
+ *  identity, documented in the Worker's README. It is the
+ *  FALLBACK, not the identity: pingHeaders() prefers the active
+ *  profile's id (resolvePingUserId). */
 export function getOrCreateUserId(): string {
   let id = settings.get<string>('pingServerUserId');
   if (!id) {
@@ -89,6 +111,93 @@ export function getOrCreateUserId(): string {
     settings.set('pingServerUserId', id);
   }
   return id;
+}
+
+/**
+ * Auto-provision a ping key for the DEFAULT (cloud) ping server
+ * (Fix 2, 2026-11-17 — Gary: "if its default i shouldnt have
+ * to input it").
+ *
+ * Why this shape: the server authenticates every ping/chat/temp
+ * call with `x-lucid-ping-key === PING_SHARED_SECRET`, and there
+ * is no provisioning endpoint on the server yet — so a client
+ * cannot mint a key by itself, and hardcoding the shared secret
+ * in the shipped app would publish it (anyone could extract it
+ * from the asar and spam the server / claim SP). The safe design
+ * is server-side provisioning: the client asks the server for a
+ * per-install key on first contact, the server mints one and
+ * accepts it alongside the shared secret, and the client stores
+ * it in secure storage exactly like a manually entered key.
+ *
+ * What this does, on the first ping-server call of the process
+ * when the endpoint is the cloud default and no key is stored:
+ * POST {endpoint}/register with { userId: <install id> } and
+ * expect { ok: true, key: <per-install key> }. On success the
+ * key is stored via pingKeyStorage (the same encrypted store
+ * Gary's pasted key lives in) and the call proceeds with it.
+ * On ANY failure — no endpoint yet (404 today), a network
+ * error, a bad body, a missing key — it returns false, stores
+ * nothing, and the call proceeds without a key (manual entry
+ * remains the path, exactly as today). It never throws, never
+ * logs the key, and never retries within the process: one
+ * attempt per process, so a missing endpoint costs one 404
+ * per launch and nothing more.
+ *
+ * SERVER SIDE STILL OWED (see the deploy handoff): POST
+ * /register must exist on the worker — mint a per-install key,
+ * store it, accept it in authorized() alongside the shared
+ * secret, and rate-limit registration. Until that endpoint
+ * ships, this is a no-op that degrades to manual entry; the
+ * client half is done and the behaviour is honest about it.
+ *
+ * `fetchFn` is injectable so tests can answer the register
+ * call without touching the network and without a real key.
+ */
+let registerAttemptedThisProcess = false;
+
+export function isCloudDefaultEndpoint(endpoint?: string): boolean {
+  const current = (endpoint ?? getPingServerEndpoint()).replace(/\/$/, '');
+  return current === PING_SERVER_CLOUD_ENDPOINT;
+}
+
+export async function ensureDefaultPingKey(
+  fetchFn: typeof fetch = globalThis.fetch,
+): Promise<boolean> {
+  if (registerAttemptedThisProcess) return pingKeyStorage.hasPingKey();
+  registerAttemptedThisProcess = true;
+  if (!isCloudDefaultEndpoint()) return false;
+  if (pingKeyStorage.hasPingKey()) return true;
+  let response: Response;
+  try {
+    response = await fetchFn(
+      `${PING_SERVER_CLOUD_ENDPOINT}${PING_SERVER_REGISTER_PATH}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: getOrCreateUserId() }),
+      },
+    );
+  } catch {
+    return false;
+  }
+  if (!response.ok) return false;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return false;
+  }
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    (body as Record<string, unknown>).ok !== true ||
+    typeof (body as Record<string, unknown>).key !== 'string' ||
+    ((body as Record<string, unknown>).key as string).trim() === ''
+  ) {
+    return false;
+  }
+  pingKeyStorage.setPingKey((body as Record<string, unknown>).key as string);
+  return true;
 }
 
 /** "Resets 09:31 UTC (in 3h 12m)" — the next SP refill time, the human half of a 429. */
@@ -147,10 +256,18 @@ function streamDelta(line: string): { content?: string } | null {
   return delta ?? null;
 }
 
-function pingHeaders(): Record<string, string> {
+/**
+ * Headers for a ping-server call. `x-lucid-user` is the ACTIVE
+ * profile's id when one is passed (per-profile SP buckets —
+ * Fix 1), falling back to the per-install id when no profile
+ * is in context. The key header is sent only when a key is
+ * stored (manually entered, or auto-provisioned for the cloud
+ * default by ensureDefaultPingKey).
+ */
+function pingHeaders(profileId?: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-lucid-user': getOrCreateUserId(),
+    'x-lucid-user': resolvePingUserId(profileId, getOrCreateUserId()),
   };
   const key = pingKeyStorage.getPingKey();
   if (key) headers['x-lucid-ping-key'] = key;
@@ -163,6 +280,7 @@ export async function chatPing(
   onEnd?: (quota: PingQuota | null) => void,
   onError?: (error: string) => void,
   model?: string,
+  profileId?: string | null,
 ): Promise<string> {
   // The model the dropdown chose (a Workers AI id) — sent as
   // body.model so the worker serves it. Absent (Auto) = the
@@ -175,18 +293,35 @@ export async function chatPing(
   if (currentAbortController) {
     currentAbortController.abort();
   }
-  currentAbortController = new AbortController();
+  const controller = new AbortController();
+  currentAbortController = controller;
+
+  // Default cloud server, no key stored yet: try the
+  // per-install provisioning once (Fix 2). A failure is
+  // silent — the call proceeds without a key, as today.
+  // The controller is created FIRST (and held in a local so
+  // cancelPingStream nulling the module variable cannot
+  // break the check below): a cancel issued while
+  // provisioning is in flight still aborts this stream, and
+  // the aborted check returns '' without calling fetch.
+  // (Creating it after the await lost the cancel — the
+  // controller did not exist yet when cancelPingStream ran.)
+  await ensureDefaultPingKey();
+  if (controller.signal.aborted) {
+    if (currentAbortController === controller) currentAbortController = null;
+    return '';
+  }
 
   try {
     const response = await fetch(`${endpoint}/v1/chat/completions`, {
       method: 'POST',
-      headers: pingHeaders(),
+      headers: pingHeaders(profileId),
       body: JSON.stringify({
         model: resolvedModel,
         messages: initialMessages,
         stream: true,
       }),
-      signal: currentAbortController.signal,
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -312,10 +447,15 @@ export async function activateTemp(
   referralId?: string | null,
 ): Promise<TempActivation> {
   const endpoint = getPingServerEndpoint().replace(/\/$/, '');
+  // The temp's own profile id is the x-lucid-user identity for
+  // this call (Fix 1) — the server binds the temp record's
+  // owner to it, and the grab marks that owner's bucket
+  // verified. A per-install id here would orphan the grant.
+  await ensureDefaultPingKey();
   const post = () =>
     fetch(`${endpoint}/temp/activate`, {
       method: 'POST',
-      headers: pingHeaders(),
+      headers: pingHeaders(profileId),
       body: JSON.stringify({ id: profileId, referralId: referralId ?? null }),
     });
   let response = await post();
@@ -334,11 +474,14 @@ export async function activateTemp(
 /** Health + echo + free quota lookup. /ping is not metered, so this
  *  never spends quota — the Settings "Test connection" button uses it
  *  to show remaining requests. */
-export async function pingServerHealth(): Promise<PingHealth> {
+export async function pingServerHealth(
+  profileId?: string | null,
+): Promise<PingHealth> {
   const endpoint = getPingServerEndpoint().replace(/\/$/, '');
+  await ensureDefaultPingKey();
   const response = await fetch(`${endpoint}/ping`, {
     method: 'POST',
-    headers: pingHeaders(),
+    headers: pingHeaders(profileId),
     body: JSON.stringify({ message: 'ping' }),
   });
   if (!response.ok) {

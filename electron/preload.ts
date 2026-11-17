@@ -321,7 +321,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
 
   // AI operations
   ai: {
-    chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }) =>
+    chat: (messages: { role: string; content: string }[], contextDirectory?: string, stream?: boolean, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string; profileId?: string }) =>
       ipcRenderer.invoke('ai:chat', messages, contextDirectory, stream, options),
     onStream: (callback: (chunk: string) => void) => {
       const listener = (_: any, chunk: string) => callback(chunk);
@@ -349,7 +349,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     cancelStream: () => ipcRenderer.send('ai:cancelStream'),
     hasApiKey: () => ipcRenderer.invoke('ai:hasApiKey'),
     checkLocalBackend: () => ipcRenderer.invoke('ai:checkLocalBackend'),
-    pingServerHealth: () => ipcRenderer.invoke('ai:pingServerHealth'),
+    pingServerHealth: (profileId?: string | null) => ipcRenderer.invoke('ai:pingServerHealth', profileId ?? null),
     pingServerStatus: () => ipcRenderer.invoke('ai:pingServerStatus'),
     // Temp activation for the daily grab — one call per temp
     // creation, fire-and-forget from the Profiles screen.

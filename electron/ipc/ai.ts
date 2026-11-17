@@ -106,7 +106,7 @@ export function createStreamCoalescer(sender: WebContents): StreamCoalescer {
 
 export function setupAIHandlers(ipcMain: IpcMain): void {
   // Get main window reference for sending stream events
-  ipcMain.handle('ai:chat', async (event, messages: ChatMessage[], contextDirectory?: string, stream = true, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string }): Promise<string> => {
+  ipcMain.handle('ai:chat', async (event, messages: ChatMessage[], contextDirectory?: string, stream = true, options?: { model?: string; modelSource?: 'local' | 'openai' | 'ping'; chatId?: string; profileId?: string }): Promise<string> => {
     const sender = event.sender;
     // One coalescer per reply (see createStreamCoalescer): every
     // stream callback below pushes into it instead of sending one
@@ -224,12 +224,15 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
                 pingErrorText = error;
               },
               // The model the dropdown chose (a Workers AI id);
-              // absent (Auto) = the worker's default.
+              // absent (Auto) = the worker's default. The profile
+              // id rides along so the ping call spends the ACTIVE
+              // profile's SP bucket, not the install's (Fix 1).
               route.model,
+              options?.profileId,
             );
             return response;
           }
-          return await chatPing(messages, undefined, undefined, undefined, route.model);
+          return await chatPing(messages, undefined, undefined, undefined, route.model, options?.profileId);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
           const pingError = pingErrorText ?? errorMessage;
@@ -347,8 +350,10 @@ export function setupAIHandlers(ipcMain: IpcMain): void {
 
   // Ping server health — POST /ping through the client. /ping is
   // unmetered, and the reply carries the remaining SP balance.
-  ipcMain.handle('ai:pingServerHealth', async () => {
-    return pingServerHealth();
+  // The renderer passes the active profile's id so the balance
+  // it reads back is that profile's bucket (Fix 1).
+  ipcMain.handle('ai:pingServerHealth', async (_event, profileId?: string | null) => {
+    return pingServerHealth(profileId ?? null);
   });
 
   // Ping server status — GET / through the client. The public

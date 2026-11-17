@@ -38,5 +38,9 @@
     // (values, not just types) by electron/services/tmuxSessionRegistry.ts
     // and electron/preload.ts — same explicit listing as the worldmap
     // lib files above.
-    "src/lib/tmuxSession.ts"]
+    "src/lib/tmuxSession.ts",
+    // the per-profile ping-user resolver is imported (values, not
+    // just types) by electron/services/pingServer.ts (Fix 1,
+    // 2026-11-17) — same explicit listing as above.
+    "src/lib/pingUserId.ts"]
 }

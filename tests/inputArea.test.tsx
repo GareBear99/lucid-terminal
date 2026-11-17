@@ -168,6 +168,21 @@ describe('prompt input bubble', () => {
     expect(mockState.editorProps?.options?.scrollbar?.vertical).toBe('auto');
   });
 
+  test('Monaco exposes a real AX text field (Fix 3, 2026-11-17 — Gary: the DEFCON prompter must be typeable)', async () => {
+    // The default ('auto') exposes no AX text field without a
+    // screen reader attached, so computer control reports
+    // keyboard_focus_unavailable and cannot type into the
+    // prompter at all — in any state (LuciferAI on/off,
+    // terminal/agent mode). 'on' is Monaco's supported
+    // screen-reader mode. The VM can only assert the option
+    // is set — the live proof is a Mac coordinator typing
+    // into the composer after deploy (see the handoff doc).
+    mockState.initImpl = () => Promise.resolve();
+    render(<Harness />);
+    await screen.findByTestId('monaco-editor');
+    expect(mockState.editorProps?.options?.accessibilitySupport).toBe('on');
+  });
+
   test('Monaco editor grows with content up to one-third of the page, then caps', async () => {
     mockState.initImpl = () => Promise.resolve();
     render(<Harness />);

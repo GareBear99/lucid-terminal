@@ -294,7 +294,14 @@ describe('activateTemp — register a temp for the daily grab', () => {
     expect(init.method).toBe('POST');
     const headers = init.headers as Record<string, string>;
     expect(headers['Content-Type']).toBe('application/json');
-    expect(headers['x-lucid-user']).toBe('test-user-1');
+    // Fix 1 (2026-11-17): activateTemp sends the TEMP'S OWN
+    // profile id as x-lucid-user — the server binds the temp
+    // record's owner to it, and the grab marks that owner's
+    // bucket verified. The old per-install id orphaned the
+    // grant on a bucket no profile owned.
+    expect(headers['x-lucid-user']).toBe(
+      'profile-11111111-1111-4111-8111-111111111111',
+    );
     expect(headers['x-lucid-ping-key']).toBe('test-secret');
     expect(JSON.parse(String(init.body))).toEqual({
       id: 'profile-11111111-1111-4111-8111-111111111111',
@@ -323,7 +330,10 @@ describe('activateTemp — register a temp for the daily grab', () => {
     await activateTemp('profile-11111111-1111-4111-8111-111111111111');
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
-    expect(headers['x-lucid-user']).toBe('test-user-1');
+    // Fix 1: the profile id, not the install id.
+    expect(headers['x-lucid-user']).toBe(
+      'profile-11111111-1111-4111-8111-111111111111',
+    );
     expect(headers).not.toHaveProperty('x-lucid-ping-key');
   });
 
@@ -392,5 +402,187 @@ describe('activateTemp — register a temp for the daily grab', () => {
       activateTemp('profile-11111111-1111-4111-8111-111111111111'),
     ).rejects.toThrow('Temp activation failed (500)');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('per-profile x-lucid-user (Fix 1, 2026-11-17)', () => {
+  const GENESIS_ID = 'profile-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const GUEST_ID = 'profile-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  it('chatPing sends the active profile id when one is passed', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(sseResponse(SSE_PINGBACK, 200, QUOTA_HEADERS));
+    await chatPing(
+      [{ role: 'user', content: 'Hi.' }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      GENESIS_ID,
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['x-lucid-user']).toBe(GENESIS_ID);
+  });
+
+  it('chatPing sends a guest profile id too — Guest gets its own bucket, not Genesis’s', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(sseResponse(SSE_PINGBACK, 200, QUOTA_HEADERS));
+    await chatPing(
+      [{ role: 'user', content: 'Hi.' }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      GUEST_ID,
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['x-lucid-user']).toBe(GUEST_ID);
+    expect((init.headers as Record<string, string>)['x-lucid-user']).not.toBe(GENESIS_ID);
+  });
+
+  it('chatPing without a profile id falls back to the install id (old callers keep working)', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(sseResponse(SSE_PINGBACK, 200, QUOTA_HEADERS));
+    await chatPing([{ role: 'user', content: 'Hi.' }]);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['x-lucid-user']).toBe('test-user-1');
+  });
+
+  it('chatPing with an invalid profile id falls back to the install id instead of sending junk', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(sseResponse(SSE_PINGBACK, 200, QUOTA_HEADERS));
+    await chatPing(
+      [{ role: 'user', content: 'Hi.' }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'bad id with spaces',
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['x-lucid-user']).toBe('test-user-1');
+  });
+
+  it('pingServerHealth sends the active profile id when one is passed', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const reset = Math.floor(Date.UTC(2026, 10, 7) / 1000);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          quota: { limit: 200, remaining: 88, reset, reset_in_seconds: 3600 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    await pingServerHealth(GENESIS_ID);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['x-lucid-user']).toBe(GENESIS_ID);
+  });
+});
+
+describe('ensureDefaultPingKey (Fix 2, 2026-11-17)', () => {
+  // Fresh module instances per test: the register-attempt flag is
+  // module-level (one attempt per process), so each test gets its
+  // own pingServer + secureStorage via resetModules + dynamic import.
+  const CLOUD_ENDPOINT = 'https://lucid-ping-server.admension.workers.dev';
+
+  async function freshModules() {
+    vi.resetModules();
+    const pingServer = await import('../electron/services/pingServer');
+    const secure = await import('../electron/services/secureStorage');
+    return { pingServer, secure };
+  }
+
+  it('does nothing for a non-cloud endpoint (local dev keeps manual entry)', async () => {
+    const { pingServer, secure } = await freshModules();
+    secure.settings.set('pingServerEndpoint', 'http://127.0.0.1:8787');
+    secure.settings.set('pingServerUserId', 'test-install-id');
+    const fetchMock = vi.fn();
+    const ok = await pingServer.ensureDefaultPingKey(fetchMock);
+    expect(ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(secure.pingKeyStorage.hasPingKey()).toBe(false);
+  });
+
+  it('does nothing when a key is already stored', async () => {
+    const { pingServer, secure } = await freshModules();
+    secure.settings.set('pingServerEndpoint', CLOUD_ENDPOINT);
+    secure.settings.set('pingServerUserId', 'test-install-id');
+    secure.pingKeyStorage.setPingKey('dummy-already-stored-key');
+    const fetchMock = vi.fn();
+    const ok = await pingServer.ensureDefaultPingKey(fetchMock);
+    expect(ok).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(secure.pingKeyStorage.getPingKey()).toBe('dummy-already-stored-key');
+  });
+
+  it('provisions a per-install key from the cloud /register endpoint and stores it', async () => {
+    const { pingServer, secure } = await freshModules();
+    secure.settings.set('pingServerEndpoint', CLOUD_ENDPOINT);
+    secure.settings.set('pingServerUserId', 'test-install-id');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, key: 'dummy-provisioned-key' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const ok = await pingServer.ensureDefaultPingKey(fetchMock);
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${CLOUD_ENDPOINT}/register`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ userId: 'test-install-id' });
+    expect(secure.pingKeyStorage.getPingKey()).toBe('dummy-provisioned-key');
+  });
+
+  it('returns false and stores nothing when the endpoint does not exist yet (404 today)', async () => {
+    const { pingServer, secure } = await freshModules();
+    secure.settings.set('pingServerEndpoint', CLOUD_ENDPOINT);
+    secure.settings.set('pingServerUserId', 'test-install-id');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('Not Found', { status: 404 }),
+    );
+    const ok = await pingServer.ensureDefaultPingKey(fetchMock);
+    expect(ok).toBe(false);
+    expect(secure.pingKeyStorage.hasPingKey()).toBe(false);
+  });
+
+  it('returns false and stores nothing on a bad body (ok:false, missing key)', async () => {
+    const { pingServer, secure } = await freshModules();
+    secure.settings.set('pingServerEndpoint', CLOUD_ENDPOINT);
+    secure.settings.set('pingServerUserId', 'test-install-id');
+
+    const badBody = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    expect(await pingServer.ensureDefaultPingKey(badBody)).toBe(false);
+    expect(secure.pingKeyStorage.hasPingKey()).toBe(false);
+  });
+
+  it('returns false and stores nothing when the register call throws (network failure)', async () => {
+    const { pingServer, secure } = await freshModules();
+    secure.settings.set('pingServerEndpoint', CLOUD_ENDPOINT);
+    secure.settings.set('pingServerUserId', 'test-install-id');
+
+    const failingFetch = vi.fn().mockRejectedValue(new Error('network down'));
+    expect(await pingServer.ensureDefaultPingKey(failingFetch)).toBe(false);
+    expect(secure.pingKeyStorage.hasPingKey()).toBe(false);
+  });
+
+  it('tries the register call at most once per process', async () => {
+    const { pingServer, secure } = await freshModules();
+    secure.settings.set('pingServerEndpoint', CLOUD_ENDPOINT);
+    secure.settings.set('pingServerUserId', 'test-install-id');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('Not Found', { status: 404 }),
+    );
+    expect(await pingServer.ensureDefaultPingKey(fetchMock)).toBe(false);
+    expect(await pingServer.ensureDefaultPingKey(fetchMock)).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

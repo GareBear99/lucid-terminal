@@ -861,6 +861,23 @@ export function InputArea({ onSubmit, onHistoryUp, onHistoryDown, input, setInpu
                     wordWrap: 'off',
                     wrappingIndent: 'none',
                     automaticLayout: true,
+                    // AX-reachable (Fix 3, 2026-11-17 — Gary: the
+                    // DEFCON prompter must be typeable). Monaco's
+                    // default ('auto') exposes no AX text field
+                    // without a screen reader attached, so
+                    // computer control reports
+                    // keyboard_focus_unavailable and cannot type
+                    // into the prompter at all. 'on' is Monaco's
+                    // supported screen-reader mode: it exposes a
+                    // real AX text field, in every state (LuciferAI
+                    // on/off, terminal/agent mode) — the prompter
+                    // itself is untouched: same component, same
+                    // DEFCON logic, same behaviour for a real
+                    // keyboard. The VM cannot prove macOS AX
+                    // behaviour — the live proof is a Mac
+                    // coordinator typing into the composer after
+                    // deploy (see the handoff doc).
+                    accessibilitySupport: 'on',
                     quickSuggestions: false,
                     suggestOnTriggerCharacters: false,
                     acceptSuggestionOnEnter: 'off',

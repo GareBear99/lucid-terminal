@@ -33,6 +33,7 @@
  */
 import { applyDailyVerificationIssuance } from './dailyVerification';
 import { verifiedGrantDay, applyVerifiedSpGrant } from './verifiedSpGrant';
+import { rebindPingUserForVerifiedProfile } from './pingUserBinding';
 import { useProfileStore } from '../stores/profileStore';
 import { useToastStore } from '../stores/toastStore';
 
@@ -116,7 +117,14 @@ export async function runFixNetSyncNow(): Promise<FixNetSyncReport> {
       if (!entry || entry.outcome !== 'verified') continue;
       if (profile.status === 'verified' || profile.status === 'user') continue;
       const flipped = applyDailyVerificationIssuance(profile.id);
-      if (flipped) verified.push(profile.id);
+      if (flipped) {
+        verified.push(profile.id);
+        // The verified grant lived on the install-id bucket
+        // (Fix 1 migration): re-activate under the profile id
+        // so the grant moves to this profile's own bucket.
+        // Fire-and-forget, never for guests (skipped above).
+        rebindPingUserForVerifiedProfile(profile.id, false);
+      }
     }
 
     // Deposit + grant: a verified local profile with a deposit
@@ -132,6 +140,12 @@ export async function runFixNetSyncNow(): Promise<FixNetSyncReport> {
       if (profile.status === 'guest') continue;
       if (!depositIds.has(profile.id)) continue;
       if (profile.status !== 'verified' && profile.status !== 'user') continue;
+      // Already verified before this sync (the migration case:
+      // Genesis's grant still sits on the install-id bucket) —
+      // rebind first so the grant and the quota refresh below
+      // land on this profile's own bucket. Fire-and-forget;
+      // the next quota refresh converges if it races ahead.
+      rebindPingUserForVerifiedProfile(profile.id, false);
       const result = await applyVerifiedSpGrant(profile.id, day);
       if (result.granted) granted.push(profile.id);
     }

@@ -153,7 +153,11 @@ describe('AI Chat — per-chat model dropdown', () => {
       [{ role: 'user', content: 'hello' }],
       undefined,
       true,
-      { model: chosen, modelSource: 'ping', chatId: sessionId },
+      // Fix 1 (2026-11-17): the active profile's id rides along
+      // too, so the ping call spends THAT profile's SP bucket.
+      // The test env's active profile is the Default profile
+      // (id 'default' — DEFAULT_PROFILE_ID).
+      { model: chosen, modelSource: 'ping', chatId: sessionId, profileId: 'default' },
     );
   });
 
@@ -171,7 +175,9 @@ describe('AI Chat — per-chat model dropdown', () => {
       [{ role: 'user', content: 'hello' }],
       undefined,
       true,
-      { chatId: sessionId },
+      // Fix 1 (2026-11-17): the active profile's id rides along
+      // too (see the test above — 'default' here).
+      { chatId: sessionId, profileId: 'default' },
     );
   });
 });

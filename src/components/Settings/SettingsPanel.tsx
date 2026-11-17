@@ -36,6 +36,7 @@ import { useAIStore } from '../../stores/aiStore';
 import { themes, fullGlassTheme, allBlackTheme, isThemeUnlocked, createDefaultCustomTheme } from '../../themes/themes';
 import { Theme, type CopilotModelId, type DrivingAgentId } from '../../types';
 import { COPILOT_MODELS, copilotModelLabel, newCopilotId } from '../../lib/copilotModels';
+import { pingUserLabel } from '../../lib/pingUserId';
 import {
   DRIVING_AGENTS,
   detectDrivingAgent,
@@ -367,6 +368,10 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   // tab's dropdown — a name + a model per copilot, as many as
   // desired. The key input below is Gary's own Copilot key.
   const [copilotNameInput, setCopilotNameInput] = useState('');
+  // The copilot name input is uncontrolled (Fix 3, 2026-11-17)
+  // — the DOM is the source of truth, read through this ref.
+  // See the input below.
+  const copilotNameInputRef = useRef<HTMLInputElement>(null);
   const [copilotModelInput, setCopilotModelInput] = useState<CopilotModelId>('local-planner');
   const [copilotKeyInput, setCopilotKeyInput] = useState('');
   // Driving-agent tabs (Gary, 2026-11-13 ~12:27 PST): the add
@@ -421,12 +426,17 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
   }, [activeTab]);
 
   // Ping server health check — POST /ping is unmetered and reports the
-  // remaining SP balance, so this shows the balance for free.
+  // remaining SP balance, so this shows the balance for free. The
+  // active profile's id rides along so the balance is THAT
+  // profile's bucket (Fix 1), and the line labels which profile
+  // it belongs to (Fix 1) — never a bare count again.
   const testPingServer = async () => {
     setPingTesting(true);
     setPingTestResult(null);
     try {
-      const health = await window.lucidAPI.ai.pingServerHealth();
+      const health = await window.lucidAPI.ai.pingServerHealth(
+        activeProfile?.id ?? null,
+      );
       if (health.quota) {
         const reset = new Date(health.quota.reset * 1000);
         const hh = String(reset.getUTCHours()).padStart(2, '0');
@@ -435,7 +445,7 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
         // server reports here resets the restock timer. A
         // verified profile's restock is daily, not the stage period.
         useAIStore.getState().setPingQuota(health.quota, isActiveProfileVerified());
-        setPingTestResult(`Connected — ${health.quota.remaining}/${health.quota.limit} left, next SP refill ${hh}:${mm} UTC.`);
+        setPingTestResult(`Connected — ${pingUserLabel(activeProfile?.name)}: ${health.quota.remaining}/${health.quota.limit} left, next SP refill ${hh}:${mm} UTC.`);
       } else {
         setPingTestResult('Connected — SP balance unknown (no user id sent).');
       }
@@ -1371,7 +1381,17 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                     type="text"
                     className="input flex-1"
                     placeholder="Copilot name"
-                    value={copilotNameInput}
+                    // Uncontrolled (Fix 3, 2026-11-17): a controlled
+                    // value + onChange never sees text computer
+                    // control types in — it sets the AX/DOM value
+                    // without firing a DOM input event, so React
+                    // state stays empty and Add stays disabled
+                    // (the 2026-11-17 Copilot test blocker).
+                    // defaultValue leaves the DOM as the source
+                    // of truth; onChange still mirrors real typing
+                    // into state, and Add reads the ref first.
+                    defaultValue=""
+                    ref={copilotNameInputRef}
                     onChange={(e) => setCopilotNameInput(e.target.value)}
                   />
                   <select
@@ -1389,15 +1409,21 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   <Tooltip content="Add this copilot">
                     <button
                       data-testid="copilot-add"
-                      disabled={!copilotNameInput.trim()}
+                      // No state-based disabled gate (Fix 3): with
+                      // an uncontrolled input, `copilotNameInput`
+                      // state is empty for computer-control typed
+                      // text, so the old disabled={!...trim()}
+                      // kept Add greyed out exactly when there was
+                      // a name to add. The handler no-ops on empty.
                       onClick={() => {
-                        const name = copilotNameInput.trim();
+                        const name = (copilotNameInputRef.current?.value ?? copilotNameInput).trim();
                         if (!name) return;
                         void updateSetting('copilots', [
                           ...settings.copilots,
                           { id: newCopilotId(), name, model: copilotModelInput },
                         ]);
                         setCopilotNameInput('');
+                        if (copilotNameInputRef.current) copilotNameInputRef.current.value = '';
                       }}
                       className="btn btn-primary"
                     >

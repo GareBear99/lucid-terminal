@@ -124,7 +124,11 @@ export interface ClassificationResult {
  *  since the last mode set. A prefix one-off ("h" → hello)
  *  never flips TO agent — it only KEEPS agent mode (Warp's
  *  prefix rule exists to avoid flipping while typing, not to
- *  start a flip). */
+ *  start a flip). The flip BACK needs a firm shell signal
+ *  too: 'too-short-or-plain' / 'empty' ("not enough input
+ *  yet") never flip back, or the first keystroke of any
+ *  prompt ("F", "Fix") yanks a manually-entered agent mode
+ *  away and the lock then blocks its return. */
 export function shouldAutoFlip(
   verdict: AgentPromptDetection['verdict'],
   source: AgentPromptDetection['source'],
@@ -146,7 +150,20 @@ export function shouldAutoFlip(
   }
   // Agent mode: a firm shell verdict flips back to terminal
   // — and the flip locks terminal (the store does that).
+  // 'too-short-or-plain' and 'empty' are NOT firm: they mean
+  // "not enough input yet" — a lone first word being typed
+  // ("F", "Fix") scores shell on the ladders' minimum, and an
+  // empty draft scores shell too. Flipping on them yanks a
+  // manually-entered agent mode back to terminal on the very
+  // first keystroke, and the lock then blocks any return, so
+  // the prompt goes to the shell and the agent never runs
+  // (Gary, 2026-11-17: "as soon as you input in agent it
+  // goes back to terminal"). Only a firm shell signal flips
+  // back: a known command, a path, shell syntax, a slash
+  // line, a denylist hit, a history-matched command, or the
+  // shell ladder.
   if (verdict !== 'shell') return { flip: false, to: null };
+  if (source === 'too-short-or-plain' || source === 'empty') return { flip: false, to: null };
   return { flip: true, to: 'terminal' };
 }
 

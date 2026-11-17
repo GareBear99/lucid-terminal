@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, screen, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { setupApplicationMenu, MENU_OPEN_MODAL_CHANNEL } from './menu';
@@ -48,6 +48,13 @@ import { startBackend, stopBackend } from './services/local_ai';
 import { setupDevicesHandlers } from './ipc/devices';
 import { setupGoogleDriveHandlers } from './ipc/googleDrive';
 import { setupCopilotHandlers } from './ipc/copilot';
+import {
+  MAIN_WINDOW_DEFAULT_HEIGHT,
+  MAIN_WINDOW_DEFAULT_WIDTH,
+  MAIN_WINDOW_MIN_HEIGHT,
+  MAIN_WINDOW_MIN_WIDTH,
+  resolveMainWindowBounds,
+} from './services/mainWindowPlacement';
 
 // Browser paint fix (Gary, 2026-11-09 — LIVE evidence, not a guess):
 // the in-app BrowserView presents only frames from the renderer
@@ -102,11 +109,33 @@ let tmuxSessionRegistry: TmuxSessionRegistry | null = null;
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 
 async function createWindow() {
+  // Primary-display placement (Gary, 2026-11-17): Lucid kept
+  // opening on the agent/virtual display, where Gary cannot see
+  // it, because no x/y was passed at all and Electron/macOS
+  // placed the window wherever it chose. The window now opens
+  // centered on the primary display, every launch. Lucid does
+  // not persist main-window bounds, so there are no saved bounds
+  // to restore — the resolver centers the default size.
+  // Electron's Display carries no `primary` flag — the primary
+  // display is identified by id against getPrimaryDisplay().
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const bounds = resolveMainWindowBounds({
+    width: MAIN_WINDOW_DEFAULT_WIDTH,
+    height: MAIN_WINDOW_DEFAULT_HEIGHT,
+    displays: screen
+      .getAllDisplays()
+      .map((d) => ({
+        workArea: d.workArea,
+        primary: d.id === primaryDisplay.id,
+      })),
+  });
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    minWidth: MAIN_WINDOW_MIN_WIDTH,
+    minHeight: MAIN_WINDOW_MIN_HEIGHT,
     frame: false, // Custom titlebar
     titleBarStyle: 'hidden',
     backgroundColor: '#0d1117',

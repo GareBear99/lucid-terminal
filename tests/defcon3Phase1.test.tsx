@@ -366,7 +366,14 @@ describe('DEFCON 3 one composer across LuciferAI on/off', () => {
     // Squared wrapper while on (the settled ON visual).
     const composerOn = screen.getByTestId('prompter-composer');
     expect(composerOn.className).toContain('rounded-none');
-    expect(within(bar).queryByTestId('dev-send-arrow')).toBeNull();
+    // The send arrow IS present while on — as the hidden agent
+    // submit button (Gary, 2026-11-17): visually hidden
+    // (opacity-0) but a real AX button with the same handler
+    // as the OFF gold arrow. No VISIBLE gold arrow.
+    const hiddenArrow = within(bar).getByTestId('dev-send-arrow');
+    expect(hiddenArrow.className).toContain('opacity-0');
+    expect(hiddenArrow.className).not.toContain('text-[var(--warning)]');
+    expect(hiddenArrow.getAttribute('aria-label')).toBe('Send command');
     expect(screen.queryByTestId('dev-console')).toBeNull();
     const composerInput = within(bar).getByPlaceholderText(/Monaco unavailable/);
     // The drag handle is on the one composer.
@@ -397,6 +404,33 @@ describe('DEFCON 3 one composer across LuciferAI on/off', () => {
     const bubble = inputOuter.parentElement as HTMLElement;
     expect(bubble.className).toContain('flex-1');
     expect(bubble.className).toContain('rounded-lg');
+  });
+
+  test('LuciferAI ON: the hidden send arrow submits the composer — the agent submit path', async () => {
+    setDevMode(true);
+    setDefconLevel(3);
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    const bar = screen.getByTestId('dev-command-bar');
+    // The hidden button is there, visually hidden, disabled
+    // while the composer is empty.
+    const hiddenArrow = within(bar).getByTestId('dev-send-arrow') as HTMLButtonElement;
+    expect(hiddenArrow.className).toContain('opacity-0');
+    expect(hiddenArrow.disabled).toBe(true);
+
+    // Type a bare line — the button enables — and click it
+    // (the agent's AXPress). The line reaches the PTY exactly
+    // as Enter would send it.
+    const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
+    fireEvent.change(input, { target: { value: 'echo hi' } });
+    expect(hiddenArrow.disabled).toBe(false);
+    fireEvent.click(hiddenArrow);
+    await waitFor(() => {
+      expect(writeMock).toHaveBeenCalledWith('tab-1', 'echo hi\r');
+    });
+    expect(executeCommandMock).not.toHaveBeenCalled();
   });
 
   test('header says linked at DEFCON 3 — not delinked', async () => {

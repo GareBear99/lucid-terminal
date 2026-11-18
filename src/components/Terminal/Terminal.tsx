@@ -2170,6 +2170,29 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
           <span className="text-[var(--text-secondary)] font-mono text-sm leading-none select-none opacity-70">~</span>
         </>
       )}
+      {/* Hidden submit button (Gary, 2026-11-17 — agent submit
+          path): when LuciferAI is ON there is no visible send
+          arrow, and the agent cannot press Enter into Monaco
+          (Accessibility exposes the textarea value but no
+          keyboard recipient, and Monaco's submit is an Enter
+          keybinding that only fires on a real DOM keydown).
+          This button is the agent's submit target: visually
+          hidden (opacity-0, out of flow) but a real focusable
+          <button> in the AX tree, with the identical handler /
+          disabled / label / testid as the OFF-branch gold
+          arrow. Zero visual change to the ON prompt. */}
+      {luciferAiEnabled && (
+        <button
+          type="button"
+          data-testid="dev-send-arrow"
+          onClick={() => void handleComposerSubmit(devInput)}
+          disabled={!devInput.trim()}
+          aria-label="Send command"
+          className="absolute opacity-0"
+        >
+          ➜
+        </button>
+      )}
       <div className={luciferAiEnabled ? 'min-w-0 flex-1' : 'flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
         <InputArea
           input={devInput}

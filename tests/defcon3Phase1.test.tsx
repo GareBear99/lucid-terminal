@@ -63,12 +63,19 @@ let writeMock: ReturnType<typeof vi.fn>;
 let commandMock: ReturnType<typeof vi.fn>;
 let executeCommandMock: ReturnType<typeof vi.fn>;
 let settingsSetMock: ReturnType<typeof vi.fn>;
+let fsHomeMock: ReturnType<typeof vi.fn>;
+let fsExistsMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   writeMock = vi.fn();
   commandMock = vi.fn().mockResolvedValue({ terminalOutput: 'fixnet stats output' });
   executeCommandMock = vi.fn().mockResolvedValue({ success: true, output: 'hello-dev' });
   settingsSetMock = vi.fn(async (_key: string, _value: unknown) => undefined);
+  fsHomeMock = vi.fn().mockResolvedValue('/home/test');
+  // Default: the dev-submit-test marker file is ABSENT (normal
+  // use) — the send arrow stays hidden. Tests that need test
+  // mode override fsExistsMock to resolve true.
+  fsExistsMock = vi.fn().mockResolvedValue(false);
   prevLucidAPI = win.lucidAPI;
   win.lucidAPI = {
     terminal: {
@@ -88,6 +95,7 @@ beforeEach(() => {
       getTokenStats: vi.fn().mockResolvedValue({}),
     },
     settings: { set: settingsSetMock },
+    fs: { getHomeDir: fsHomeMock, exists: fsExistsMock },
   };
   useHistoryStore.setState({ blocksByTab: {} });
   const base = useSettingsStore.getState().settings;
@@ -431,6 +439,59 @@ describe('DEFCON 3 one composer across LuciferAI on/off', () => {
       expect(writeMock).toHaveBeenCalledWith('tab-1', 'echo hi\r');
     });
     expect(executeCommandMock).not.toHaveBeenCalled();
+  });
+
+  test('LuciferAI ON + dev-submit-test flag file present: the send arrow renders VISIBLE (gold arrow) and submits', async () => {
+    // The marker file exists — test mode on.
+    fsExistsMock.mockResolvedValue(true);
+    setDevMode(true);
+    setDefconLevel(3);
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+
+    const bar = screen.getByTestId('dev-command-bar');
+    // The flag check is async (IPC) — wait for the button to
+    // become the visible gold arrow (same styling as the
+    // OFF-branch, no opacity-0).
+    await waitFor(() => {
+      const arrow = within(bar).getByTestId('dev-send-arrow');
+      expect(arrow.className).toContain('text-[var(--warning)]');
+      expect(arrow.className).not.toContain('opacity-0');
+    });
+    // The flag path was checked.
+    expect(fsExistsMock).toHaveBeenCalledWith('/home/test/.lucid-dev-submit-test');
+    const visibleArrow = within(bar).getByTestId('dev-send-arrow') as HTMLButtonElement;
+    expect(visibleArrow.getAttribute('aria-label')).toBe('Send command');
+    expect(visibleArrow.textContent).toBe('➜');
+    // Disabled while the composer is empty.
+    expect(visibleArrow.disabled).toBe(true);
+
+    // Type a bare line — the button enables — and click it
+    // (the agent's element click on the visible arrow). The
+    // line reaches the PTY exactly as Enter would send it.
+    const input = within(bar).getByPlaceholderText(/Monaco unavailable/);
+    fireEvent.change(input, { target: { value: 'echo hi' } });
+    expect(visibleArrow.disabled).toBe(false);
+    fireEvent.click(visibleArrow);
+    await waitFor(() => {
+      expect(writeMock).toHaveBeenCalledWith('tab-1', 'echo hi\r');
+    });
+    expect(executeCommandMock).not.toHaveBeenCalled();
+  });
+
+  test('LuciferAI ON + no fs bridge: the send arrow stays hidden (safe default, no crash)', async () => {
+    // Simulate an environment without the fs bridge (web build).
+    const api = win.lucidAPI as Record<string, unknown>;
+    delete api.fs;
+    setDevMode(true);
+    setDefconLevel(3);
+    setLuciferAiEnabled(true);
+    render(<Terminal tabId="tab-1" />);
+    await screen.findByTestId('dev-command-bar');
+    const bar = screen.getByTestId('dev-command-bar');
+    const hiddenArrow = within(bar).getByTestId('dev-send-arrow');
+    expect(hiddenArrow.className).toContain('opacity-0');
   });
 
   test('header says linked at DEFCON 3 — not delinked', async () => {

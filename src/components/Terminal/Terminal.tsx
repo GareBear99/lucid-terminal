@@ -181,6 +181,40 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
   // devmode — ProcessingGlow only renders while isProcessing is true.
   // (Gary, 2026-11-08: rainbow back in devmode.)
   const [devRunning, setDevRunning] = useState(false);
+  // Developer-testing submit route (Gary, 2026-11-17 — "make a way
+  // for developer testing it because you need to be able to"):
+  // when the marker file ~/.lucid-dev-submit-test exists, the
+  // LuciferAI-ON submit button renders VISIBLE (the gold arrow,
+  // same as the OFF-branch) so the agent can discover and click
+  // it via computer control in background mode (OCR sees it; an
+  // element click is precise — no blind coordinates, no offset
+  // compensation). When the file is absent (the default — normal
+  // use), the button stays exactly as A1 left it: absolute,
+  // opacity-0, out of flow, zero visual change. The agent creates
+  // the file + relaunches to enable test mode, deletes it +
+  // relaunches to restore normal use. The check is async (IPC)
+  // and guarded by mountedRef; a missing lucidAPI (tests, web
+  // build) or a failed check leaves the button hidden (safe
+  // default).
+  const [devSubmitTest, setDevSubmitTest] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const fs = window.lucidAPI?.fs;
+        if (!fs?.getHomeDir || !fs.exists) return;
+        const home = await fs.getHomeDir();
+        if (!home) return;
+        const present = await fs.exists(`${home}/.lucid-dev-submit-test`);
+        if (!cancelled && mountedRef.current && present) setDevSubmitTest(true);
+      } catch {
+        // Flag check failed — leave the button hidden (safe default).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Dev mode (Gary, 2026-11-07): OFF = the prompt section and the
   // xterm surface share one input topology (clicking the section
   // focuses the terminal, typing always lands in the shell);
@@ -2180,18 +2214,42 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
           hidden (opacity-0, out of flow) but a real focusable
           <button> in the AX tree, with the identical handler /
           disabled / label / testid as the OFF-branch gold
-          arrow. Zero visual change to the ON prompt. */}
+          arrow. Zero visual change to the ON prompt.
+          Developer-testing route (Gary, 2026-11-17): when the
+          marker file ~/.lucid-dev-submit-test exists
+          (devSubmitTest), the SAME button renders VISIBLE with
+          the OFF-branch gold-arrow styling, so the agent can
+          discover it via computer control in background mode
+          (OCR sees it) and click it by element — precise, no
+          blind coordinates. The flag defaults off; normal use
+          is byte-for-byte the hidden button. */}
       {luciferAiEnabled && (
-        <button
-          type="button"
-          data-testid="dev-send-arrow"
-          onClick={() => void handleComposerSubmit(devInput)}
-          disabled={!devInput.trim()}
-          aria-label="Send command"
-          className="absolute opacity-0"
-        >
-          ➜
-        </button>
+        devSubmitTest ? (
+          <Tooltip content="Send" shortcut="Enter">
+            <button
+              type="button"
+              data-testid="dev-send-arrow"
+              onClick={() => void handleComposerSubmit(devInput)}
+              disabled={!devInput.trim()}
+              aria-label="Send command"
+              className="shrink-0 rounded px-1 text-[var(--warning)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+              style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.5)' }}
+            >
+              ➜
+            </button>
+          </Tooltip>
+        ) : (
+          <button
+            type="button"
+            data-testid="dev-send-arrow"
+            onClick={() => void handleComposerSubmit(devInput)}
+            disabled={!devInput.trim()}
+            aria-label="Send command"
+            className="absolute opacity-0"
+          >
+            ➜
+          </button>
+        )
       )}
       <div className={luciferAiEnabled ? 'min-w-0 flex-1' : 'flex-1 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]/50'}>
         <InputArea

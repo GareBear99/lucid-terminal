@@ -21,7 +21,10 @@ import {
   type Profile,
 } from '../src/stores/profileStore';
 import { useToastStore } from '../src/stores/toastStore';
-import type { FixNetSyncResult } from '../electron/services/fixnetSync';
+import type {
+  FixNetDaily,
+  FixNetSyncResult,
+} from '../electron/services/fixnetSync';
 
 function resetProfiles() {
   try {
@@ -36,7 +39,12 @@ function resetProfiles() {
   useToastStore.setState({ notifications: [] });
 }
 
-function makeProfile(id: string, name: string, status: Profile['status']): Profile {
+function makeProfile(
+  id: string,
+  name: string,
+  status: Profile['status'],
+  overrides: Partial<Profile> = {},
+): Profile {
   return {
     id,
     name,
@@ -44,6 +52,7 @@ function makeProfile(id: string, name: string, status: Profile['status']): Profi
     verifiedGates: status === 'verified' || status === 'user' ? ['daily-check'] : [],
     createdAt: new Date().toISOString(),
     lastActiveAt: null,
+    ...overrides,
   };
 }
 
@@ -54,6 +63,26 @@ function syncResult(overrides: Partial<FixNetSyncResult> = {}): FixNetSyncResult
     daily: null,
     pulledAt: new Date().toISOString(),
     ...overrides,
+  };
+}
+
+function dailyDoc(
+  day: string,
+  depositEntries: { id: string; tick: number }[] = [],
+): FixNetDaily {
+  return {
+    date: day,
+    counts: { verified: 1, pending: 0, not_verified: 0, expired: 0, checked: 1 },
+    yield: { verified_today: 1, verified_total: 1, corpus_entries_today: 0, corpus_total_entries: 0 },
+    deposit: {
+      sp_per_verified: 1000,
+      overflow_queued: false,
+      entries: depositEntries.map((e) => ({
+        ...e,
+        sp: 1000,
+        snapshot_access: true,
+      })),
+    },
   };
 }
 
@@ -281,5 +310,256 @@ describe('runFixNetSyncNow', () => {
     // The only other bridge call is the quota refresh (a read —
     // POST /ping is unmetered and returns the balance).
     expect(pingServerHealth).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // FixNet temp rotation (Gary, 2026-11-17)
+  // -------------------------------------------------------------------------
+
+  test('matches the published status by tempId, not by profile id', async () => {
+    const mine = makeProfile('profile-mine', 'Mine', 'temp', {
+      tempId: 'profile-old-temp',
+      tempState: 'temp',
+    });
+    const other = makeProfile('profile-other', 'Other', 'temp', {
+      tempId: 'profile-other-temp',
+      tempState: 'temp',
+    });
+    useProfileStore.setState({
+      profiles: [mine, other],
+      activeProfileId: 'profile-mine',
+    });
+    sync.mockResolvedValue(
+      syncResult({
+        status: [
+          { tick: 1, id: 'profile-old-temp', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: null },
+          // Keyed by the PROFILE id, not its temp — must not match.
+          { tick: 2, id: 'profile-other', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: null },
+        ],
+      }),
+    );
+    const report = await runFixNetSyncNow();
+    expect(report.verified).toEqual(['profile-mine']);
+    const mineAfter = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    expect(mineAfter?.status).toBe('verified');
+    expect(mineAfter?.tempState).toBe('verified');
+    expect(mineAfter?.tempId).toBe('profile-old-temp');
+    // The profile whose entry was keyed by its id (not its temp)
+    // does not flip — its temp never verified.
+    const otherAfter = useProfileStore.getState().profiles.find((p) => p.id === 'profile-other');
+    expect(otherAfter?.status).toBe('temp');
+    expect(otherAfter?.tempState).toBe('temp');
+  });
+
+  test('an already-verified profile still records its temp as verified — no flip, no toast', async () => {
+    const mine = makeProfile('profile-mine', 'Mine', 'verified', {
+      tempId: 'profile-temp-1',
+      tempState: 'pending',
+    });
+    mine.verifiedSpGrantDay = '2026-11-16';
+    useProfileStore.setState({ profiles: [mine], activeProfileId: 'profile-mine' });
+    sync.mockResolvedValue(
+      syncResult({
+        status: [
+          { tick: 1, id: 'profile-temp-1', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: null },
+        ],
+        daily: dailyDoc('2026-11-16', [{ id: 'profile-temp-1', tick: 1 }]),
+      }),
+    );
+    const report = await runFixNetSyncNow();
+    expect(report.verified).toEqual([]);
+    expect(report.granted).toEqual([]);
+    expect(report.rotated).toEqual([]);
+    const after = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    // The temp just verified, the profile was already verified —
+    // the temp state still records it.
+    expect(after?.status).toBe('verified');
+    expect(after?.tempState).toBe('verified');
+    expect(after?.tempId).toBe('profile-temp-1');
+    expect(pingServerHealth).not.toHaveBeenCalled();
+    expect(useToastStore.getState().notifications).toHaveLength(0);
+  });
+
+  test('rotation: a verified temp rotates to next_temp after the deposit lands for the old temp', async () => {
+    const mine = makeProfile('profile-mine', 'Mine', 'temp', {
+      tempId: 'profile-t1',
+      tempState: 'temp',
+    });
+    useProfileStore.setState({ profiles: [mine], activeProfileId: 'profile-mine' });
+    sync.mockResolvedValue(
+      syncResult({
+        status: [
+          { tick: 1, id: 'profile-t1', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-t2', tick: 2 } },
+        ],
+        daily: dailyDoc('2026-11-16', [{ id: 'profile-t1', tick: 1 }]),
+      }),
+    );
+    const report = await runFixNetSyncNow();
+    expect(report.verified).toEqual(['profile-mine']);
+    expect(report.granted).toEqual(['profile-mine']);
+    expect(report.rotated).toEqual(['profile-mine']);
+    const after = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    // The profile id, its verified status, and its grant never
+    // move — only the temp does.
+    expect(after?.id).toBe('profile-mine');
+    expect(after?.status).toBe('verified');
+    expect(after?.verifiedSpGrantDay).toBe('2026-11-16');
+    expect(after?.tempId).toBe('profile-t2');
+    expect(after?.tempState).toBe('pending');
+    // Two toasts: the verified flip (+ grant), then the rotation.
+    const toasts = useToastStore.getState().notifications;
+    expect(toasts).toHaveLength(2);
+    expect(toasts[0].message).toBe('Mine is verified — 1,000 SP a day, from today.');
+    expect(toasts[1].message).toBe(
+      'Mine rotated to a new temp — awaiting verification at the next grab.',
+    );
+  });
+
+  test('rotation is idempotent — a second sync with the same next_temp is a no-op', async () => {
+    const mine = makeProfile('profile-mine', 'Mine', 'temp', {
+      tempId: 'profile-t1',
+      tempState: 'temp',
+    });
+    useProfileStore.setState({ profiles: [mine], activeProfileId: 'profile-mine' });
+    sync.mockResolvedValue(
+      syncResult({
+        status: [
+          { tick: 1, id: 'profile-t1', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-t2', tick: 2 } },
+        ],
+        daily: dailyDoc('2026-11-16', [{ id: 'profile-t1', tick: 1 }]),
+      }),
+    );
+    const first = await runFixNetSyncNow();
+    expect(first.rotated).toEqual(['profile-mine']);
+    expect(useToastStore.getState().notifications).toHaveLength(2);
+    // Same payload again: the profile already sits on T2, so
+    // nothing matches anymore — no re-flip, no re-grant (the
+    // deposit was for T1), no re-rotation, no new toast.
+    const second = await runFixNetSyncNow();
+    expect(second.verified).toEqual([]);
+    expect(second.granted).toEqual([]);
+    expect(second.rotated).toEqual([]);
+    const after = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    expect(after?.tempId).toBe('profile-t2');
+    expect(after?.tempState).toBe('pending');
+    expect(after?.status).toBe('verified');
+    expect(useToastStore.getState().notifications).toHaveLength(2);
+    expect(pingServerHealth).toHaveBeenCalledTimes(1);
+  });
+
+  test('the full cycle: the rotated temp verifies at the next grab and rotates again', async () => {
+    const mine = makeProfile('profile-mine', 'Mine', 'temp', {
+      tempId: 'profile-t1',
+      tempState: 'temp',
+    });
+    useProfileStore.setState({ profiles: [mine], activeProfileId: 'profile-mine' });
+    // Sync 1: T1 verifies, deposit for T1 lands, rotate to T2.
+    sync.mockResolvedValue(
+      syncResult({
+        status: [
+          { tick: 1, id: 'profile-t1', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-t2', tick: 2 } },
+        ],
+        daily: dailyDoc('2026-11-16', [{ id: 'profile-t1', tick: 1 }]),
+      }),
+    );
+    const first = await runFixNetSyncNow();
+    expect(first.verified).toEqual(['profile-mine']);
+    expect(first.granted).toEqual(['profile-mine']);
+    expect(first.rotated).toEqual(['profile-mine']);
+    let after = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    // temp → verified → pending, in one sync.
+    expect(after?.tempId).toBe('profile-t2');
+    expect(after?.tempState).toBe('pending');
+    expect(after?.status).toBe('verified');
+    // Sync 2: T2 verifies, no rotation yet — the temp state
+    // records the verification and the temp stays put.
+    sync.mockResolvedValue(
+      syncResult({
+        day: '2026-11-17',
+        status: [
+          { tick: 2, id: 'profile-t2', outcome: 'verified', day: '2026-11-17', reason: 'chain_holds', next_temp: null },
+        ],
+        daily: dailyDoc('2026-11-17', []),
+      }),
+    );
+    const second = await runFixNetSyncNow();
+    expect(second.verified).toEqual([]);
+    expect(second.rotated).toEqual([]);
+    after = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    expect(after?.tempId).toBe('profile-t2');
+    expect(after?.tempState).toBe('verified');
+    expect(after?.status).toBe('verified');
+    // Sync 3: T2 verified with a next_temp, deposit for T2 on
+    // the new day — grant lands again, rotate to T3. The
+    // profile stays verified throughout; only the temp moves.
+    sync.mockResolvedValue(
+      syncResult({
+        day: '2026-11-17',
+        status: [
+          { tick: 2, id: 'profile-t2', outcome: 'verified', day: '2026-11-17', reason: 'chain_holds', next_temp: { id: 'profile-t3', tick: 3 } },
+        ],
+        daily: dailyDoc('2026-11-17', [{ id: 'profile-t2', tick: 2 }]),
+      }),
+    );
+    const third = await runFixNetSyncNow();
+    expect(third.verified).toEqual([]);
+    expect(third.granted).toEqual(['profile-mine']);
+    expect(third.rotated).toEqual(['profile-mine']);
+    after = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    expect(after?.tempId).toBe('profile-t3');
+    expect(after?.tempState).toBe('pending');
+    expect(after?.status).toBe('verified');
+    expect(after?.verifiedSpGrantDay).toBe('2026-11-17');
+    // Toasts: sync 1 verified + rotation, sync 3 rotation only.
+    const toasts = useToastStore.getState().notifications;
+    expect(toasts).toHaveLength(3);
+    expect(toasts[2].message).toBe(
+      'Mine rotated to a new temp — awaiting verification at the next grab.',
+    );
+  });
+
+  test('a next_temp equal to the current temp is a no-op', async () => {
+    const mine = makeProfile('profile-mine', 'Mine', 'temp', {
+      tempId: 'profile-t1',
+      tempState: 'temp',
+    });
+    useProfileStore.setState({ profiles: [mine], activeProfileId: 'profile-mine' });
+    sync.mockResolvedValue(
+      syncResult({
+        status: [
+          { tick: 1, id: 'profile-t1', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-t1', tick: 1 } },
+        ],
+      }),
+    );
+    const report = await runFixNetSyncNow();
+    expect(report.verified).toEqual(['profile-mine']);
+    expect(report.rotated).toEqual([]);
+    const after = useProfileStore.getState().profiles.find((p) => p.id === 'profile-mine');
+    expect(after?.tempId).toBe('profile-t1');
+    expect(after?.tempState).toBe('verified');
+    // Only the verified toast — no rotation toast.
+    expect(useToastStore.getState().notifications).toHaveLength(1);
+  });
+
+  test('a guest is skipped in all three loops — no flip, no grant, no rotation', async () => {
+    const guest = useProfileStore.getState().createGuestProfile();
+    sync.mockResolvedValue(
+      syncResult({
+        status: [
+          { tick: 1, id: guest.id, outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-next', tick: 2 } },
+        ],
+        daily: dailyDoc('2026-11-16', [{ id: guest.id, tick: 1 }]),
+      }),
+    );
+    const report = await runFixNetSyncNow();
+    expect(report.verified).toEqual([]);
+    expect(report.granted).toEqual([]);
+    expect(report.rotated).toEqual([]);
+    const after = useProfileStore.getState().profiles.find((p) => p.id === guest.id);
+    expect(after?.status).toBe('guest');
+    expect(after?.tempId).toBe(guest.id);
+    expect(after?.tempState).toBe('temp');
+    expect(after?.verifiedSpGrantDay).toBeUndefined();
+    expect(useToastStore.getState().notifications).toHaveLength(0);
   });
 });

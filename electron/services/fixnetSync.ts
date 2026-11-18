@@ -38,6 +38,13 @@ export interface FixNetTempStatus {
   outcome: 'verified' | 'pending' | 'not_verified' | 'expired';
   day: string | null;
   reason: string | null;
+  /**
+   * The rotation temp the grab created for this temp (FixNet
+   * temp rotation, Gary 2026-11-17): the temp the client
+   * rotates onto after this one verifies. Null when the grab
+   * created no rotation for it (yet).
+   */
+  next_temp?: { id: string; tick: number } | null;
 }
 
 /** One deposit entry: a temp verified today, and what it is owed. */
@@ -104,12 +111,31 @@ function isTempStatus(value: unknown): value is FixNetTempStatus {
 function normalizeTempStatus(value: unknown): FixNetTempStatus | null {
   if (!isTempStatus(value)) return null;
   const v = value as Record<string, unknown>;
+  // The rotation temp (FixNet temp rotation, Gary 2026-11-17):
+  // passed through only when it is a well-formed {id, tick} —
+  // a non-empty id and a non-negative integer tick — otherwise
+  // null, never trusted. A bad next_temp never invalidates the
+  // entry itself.
+  let nextTemp: { id: string; tick: number } | null = null;
+  const rawNext = v.next_temp as Record<string, unknown> | null | undefined;
+  if (rawNext && typeof rawNext === 'object') {
+    if (
+      typeof rawNext.id === 'string' &&
+      rawNext.id.length > 0 &&
+      typeof rawNext.tick === 'number' &&
+      Number.isInteger(rawNext.tick) &&
+      rawNext.tick >= 0
+    ) {
+      nextTemp = { id: rawNext.id, tick: rawNext.tick };
+    }
+  }
   return {
     tick: v.tick as number,
     id: v.id as string,
     outcome: v.outcome as FixNetTempStatus['outcome'],
     day: typeof v.day === 'string' ? v.day : null,
     reason: typeof v.reason === 'string' ? v.reason : null,
+    next_temp: nextTemp,
   };
 }
 

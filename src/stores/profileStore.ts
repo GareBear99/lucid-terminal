@@ -149,6 +149,9 @@ export type ProfileStatus =
   | 'user'
   | 'guest';
 
+/** The state of a profile's current FixNet temp (Gary, 2026-11-17). */
+export type TempState = 'temp' | 'pending' | 'verified';
+
 export interface Profile {
   id: string;
   name: string;
@@ -196,6 +199,26 @@ export interface Profile {
    * strips it from a guest record.
    */
   verifiedSpGrantDay?: string | null;
+  /**
+   * The FixNet temp this profile currently verifies under
+   * (FixNet temp rotation, Gary 2026-11-17): the profile id
+   * stays stable — it is the key for history, AI, copilot,
+   * workspace, sessions, palette, and the SP bucket — while
+   * the temp rotates underneath it. Absent on older records:
+   * load defaults it to the profile id (the temp it verified
+   * under before rotation existed).
+   */
+  tempId?: string;
+  /**
+   * The state of the current temp: 'temp' (never verified),
+   * 'pending' (rotated in, awaiting verification at the next
+   * grab), 'verified' (the current temp verified). Absent on
+   * older records: load defaults it from the profile status
+   * (verified/user → 'verified', otherwise 'temp'). Separate
+   * from the profile status: rotation never revokes a verified
+   * profile or its SP grant.
+   */
+  tempState?: TempState;
 }
 
 /** The implicit profile every creation carries until profiles land. */
@@ -233,6 +256,8 @@ export function createDefaultProfile(): Profile {
     verifiedGates: [],
     createdAt: now,
     lastActiveAt: null,
+    tempId: DEFAULT_PROFILE_ID,
+    tempState: 'temp',
   };
 }
 
@@ -282,6 +307,25 @@ export function parsePersistedProfiles(value: unknown): PersistedProfiles | null
   // skipUpdateAlert: a guest always sees the new-version
   // message.
   for (const p of profiles) {
+    // FixNet temp rotation (Gary, 2026-11-17): records written
+    // before rotation existed carry no temp — default tempId to
+    // the profile id (the temp it verified under) and tempState
+    // from the profile status (verified/user → 'verified',
+    // otherwise 'temp'). An explicit temp on the record is kept;
+    // a malformed one falls back to the same defaults.
+    if (typeof p.tempId !== 'string' || p.tempId.trim() === '') {
+      p.tempId = p.id;
+    }
+    if (
+      p.tempState !== 'temp' &&
+      p.tempState !== 'pending' &&
+      p.tempState !== 'verified'
+    ) {
+      p.tempState =
+        p.status === 'verified' || p.status === 'user'
+          ? 'verified'
+          : 'temp';
+    }
     if (isGuestProfile(p)) {
       delete p.skipLogoutConfirm;
       delete p.skipUpdateAlert;
@@ -422,6 +466,26 @@ interface ProfileState {
    * profile. Persisted with the profile record.
    */
   recordVerifiedSpGrant: (profileId: string, day: string) => boolean;
+  /**
+   * Rotate a profile onto a new FixNet temp (Gary, 2026-11-17):
+   * sets tempId to the new temp and tempState to 'pending'
+   * (awaiting verification at the next grab). The profile id
+   * itself never changes — it stays the key for history, AI,
+   * copilot, workspace, sessions, palette, and the SP bucket —
+   * and the profile status is untouched: rotation never
+   * revokes a verified profile or its SP grant. False on an
+   * unknown profile, a guest, or an empty new temp id.
+   * Persisted with the profile record.
+   */
+  rotateTemp: (profileId: string, newTempId: string) => boolean;
+  /**
+   * Mark a profile's current temp verified (FixNet temp
+   * rotation, Gary 2026-11-17): the published status table
+   * says the profile's current tempId verified. False on an
+   * unknown profile or a guest. The profile status is
+   * untouched — the sync flips it separately.
+   */
+  markTempVerified: (profileId: string) => boolean;
 }
 
 export const useProfileStore = create<ProfileState>((set, get) => {
@@ -435,13 +499,18 @@ export const useProfileStore = create<ProfileState>((set, get) => {
       const clean = name.trim();
       if (clean === '') return null;
       const now = new Date().toISOString();
+      const id = newProfileId();
       const profile: Profile = {
-        id: newProfileId(),
+        id,
         name: clean,
         status: 'temp',
         verifiedGates: [],
         createdAt: now,
         lastActiveAt: null,
+        // A new profile verifies under its own id until the
+        // first rotation (FixNet temp rotation, Gary 2026-11-17).
+        tempId: id,
+        tempState: 'temp',
       };
       set((state) => ({ profiles: [...state.profiles, profile] }));
       return profile;
@@ -458,13 +527,16 @@ export const useProfileStore = create<ProfileState>((set, get) => {
       // being replaced was the active profile, the fresh guest
       // becomes active (the caller selects it right after anyway).
       const now = new Date().toISOString();
+      const id = newProfileId();
       const profile: Profile = {
-        id: newProfileId(),
+        id,
         name: 'Guest',
         status: 'guest',
         verifiedGates: [],
         createdAt: now,
         lastActiveAt: null,
+        tempId: id,
+        tempState: 'temp',
       };
       const activeWasGuest = get().profiles.some(
         (p) => p.id === get().activeProfileId && p.status === 'guest',
@@ -723,6 +795,42 @@ export const useProfileStore = create<ProfileState>((set, get) => {
       set({
         profiles: state.profiles.map((p) =>
           p.id === profileId ? { ...p, verifiedSpGrantDay: day } : p,
+        ),
+      });
+      return true;
+    },
+
+    rotateTemp: (profileId, newTempId) => {
+      const state = get();
+      const target = state.profiles.find((p) => p.id === profileId);
+      if (!target) return false;
+      // Guests never rotate: they never verify, never activate
+      // a temp (FixNet temp rotation, Gary 2026-11-17).
+      if (isGuestProfile(target)) return false;
+      if (typeof newTempId !== 'string' || newTempId.trim() === '') {
+        return false;
+      }
+      set({
+        profiles: state.profiles.map((p) =>
+          p.id === profileId
+            ? { ...p, tempId: newTempId, tempState: 'pending' as TempState }
+            : p,
+        ),
+      });
+      return true;
+    },
+
+    markTempVerified: (profileId) => {
+      const state = get();
+      const target = state.profiles.find((p) => p.id === profileId);
+      if (!target) return false;
+      // Guests never verify, so their temp never verifies.
+      if (isGuestProfile(target)) return false;
+      set({
+        profiles: state.profiles.map((p) =>
+          p.id === profileId
+            ? { ...p, tempState: 'verified' as TempState }
+            : p,
         ),
       });
       return true;

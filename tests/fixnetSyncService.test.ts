@@ -82,6 +82,7 @@ describe('pullFixNetDaily', () => {
     expect(result.status).toHaveLength(3);
     expect(result.status[0]).toEqual({
       tick: 1, id: 'profile-root', outcome: 'verified', day: '2026-11-15', reason: 'genesis_root',
+      next_temp: null,
     });
     expect(result.daily?.yield.verified_total).toBe(1);
     expect(result.daily?.yield.corpus_entries_today).toBe(42);
@@ -114,6 +115,32 @@ describe('pullFixNetDaily', () => {
     const fetchStub = makeFetch({ '/daily/status.json': bad }, calls);
     const result = await pullFixNetDaily(FIXNET_PAGES_BASE_URL, fetchStub as unknown as typeof fetch);
     expect(result.status.map((s) => s.id)).toEqual(['profile-ok', 'profile-ok-2']);
+  });
+
+  test('next_temp passes through when valid, null otherwise (FixNet temp rotation, Gary 2026-11-17)', async () => {
+    const calls: { url: string; method: string }[] = [];
+    const doc = {
+      ...STATUS_DOC,
+      status: [
+        { tick: 1, id: 'profile-a', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-b', tick: 2 } },
+        { tick: 2, id: 'profile-c', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds' },
+        { tick: 3, id: 'profile-d', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: null },
+        // Malformed rotations never pass through — the entry
+        // itself stays, its next_temp is null.
+        { tick: 4, id: 'profile-e', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: '', tick: 5 } },
+        { tick: 5, id: 'profile-f', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-g', tick: -1 } },
+        { tick: 6, id: 'profile-h', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { id: 'profile-i', tick: 2.5 } },
+        { tick: 7, id: 'profile-j', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: { tick: 8 } },
+        { tick: 8, id: 'profile-k', outcome: 'verified', day: '2026-11-16', reason: 'chain_holds', next_temp: 'profile-l' },
+      ],
+    };
+    const fetchStub = makeFetch({ '/daily/status.json': doc }, calls);
+    const result = await pullFixNetDaily(FIXNET_PAGES_BASE_URL, fetchStub as unknown as typeof fetch);
+    expect(result.status).toHaveLength(8);
+    expect(result.status[0].next_temp).toEqual({ id: 'profile-b', tick: 2 });
+    for (const entry of result.status.slice(1)) {
+      expect(entry.next_temp).toBeNull();
+    }
   });
 
   test('a malformed status document throws — never a made-up status', async () => {

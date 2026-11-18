@@ -10,17 +10,29 @@
  * server carries the batch), never through this sync.
  *
  * What a sync does with what it pulls:
- * - Status: for every local profile whose temp is `verified` in
- *   the published status table, call applyDailyVerificationIssuance
- *   (the profile flips temp -> verified). Guests are skipped
- *   outright (they never verify) and a profile that already
- *   verified is left alone.
+ * - Status: for every local profile whose CURRENT temp
+ *   (profile.tempId, falling back to the profile id) is
+ *   `verified` in the published status table, call
+ *   applyDailyVerificationIssuance (the profile flips temp ->
+ *   verified) and always record the temp as verified
+ *   (tempState='verified') — even when the profile was already
+ *   verified. Guests are skipped outright (they never verify)
+ *   and a profile that already verified is left alone.
  * - Deposit: when the day's file carries a deposit entry for a
- *   local verified profile, apply the verified SP grant
- *   (1,000 SP/day, once per day) and toast the flip so the user
- *   sees it. A profile that flips without a deposit entry (its
- *   verification day is not today) still flips — the deposit is
- *   a daily grant, the status is the truth.
+ *   local verified profile's PRE-rotation temp, apply the
+ *   verified SP grant (1,000 SP/day, once per day) and toast
+ *   the flip so the user sees it. A profile that flips without
+ *   a deposit entry (its verification day is not today) still
+ *   flips — the deposit is a daily grant, the status is the
+ *   truth. The deposit runs BEFORE the rotation, so it still
+ *   matches the temp that just verified.
+ * - Rotation (FixNet temp rotation, Gary 2026-11-17): when the
+ *   current temp's status entry carries a next_temp, rotate the
+ *   profile onto it (tempId=new temp, tempState='pending') and
+ *   toast. The profile id, its verified status, and its SP
+ *   grant never move — they belong to the PROFILE, not the
+ *   temp. Idempotent: a second sync carrying the same next_temp
+ *   is a no-op.
  * - Yield: the day's yield (verified_today / corpus numbers) is
  *   returned in the report for the caller to log or show; the
  *   sync does not act on it.
@@ -46,6 +58,8 @@ export interface FixNetSyncReport {
   verified: string[];
   /** Profiles whose SP grant was recorded in this sync. */
   granted: string[];
+  /** Profiles that rotated onto a new temp in this sync. */
+  rotated: string[];
   /** The published day, or null when nothing is published yet. */
   day: string | null;
   /** The day's yield, when a daily file was published. */
@@ -78,6 +92,7 @@ export async function runFixNetSyncNow(): Promise<FixNetSyncReport> {
         ok: false,
         verified: [],
         granted: [],
+        rotated: [],
         day: null,
         yield: null,
         error: 'fixnet bridge unavailable',
@@ -94,6 +109,7 @@ export async function runFixNetSyncNow(): Promise<FixNetSyncReport> {
         ok: false,
         verified: [],
         granted: [],
+        rotated: [],
         day: null,
         yield: null,
         error: message,
@@ -103,42 +119,56 @@ export async function runFixNetSyncNow(): Promise<FixNetSyncReport> {
 
     const verified: string[] = [];
     const granted: string[] = [];
+    const rotated: string[] = [];
     const day = pulled.day ?? verifiedGrantDay();
     const localProfiles = useProfileStore.getState().profiles;
 
-    // Status: flip every local temp the published table says is verified.
+    // Loop 1 — status: flip every local profile whose CURRENT
+    // temp the published table says is verified. Matched by
+    // tempId (FixNet temp rotation, Gary 2026-11-17), falling
+    // back to the profile id for records written before
+    // rotation existed — never by profile id alone, or a
+    // rotated profile would match its own (stale) entry.
     const byId = new Map(pulled.status.map((entry) => [entry.id, entry]));
     for (const profile of localProfiles) {
       // Guests never verify — skip them outright, before the
       // gate (markGateVerified refuses them too, this is the
       // belt on top of those braces).
       if (profile.status === 'guest') continue;
-      const entry = byId.get(profile.id);
+      const entry = byId.get(profile.tempId ?? profile.id);
       if (!entry || entry.outcome !== 'verified') continue;
-      if (profile.status === 'verified' || profile.status === 'user') continue;
-      const flipped = applyDailyVerificationIssuance(profile.id);
-      if (flipped) {
-        verified.push(profile.id);
-        // The verified grant lived on the install-id bucket
-        // (Fix 1 migration): re-activate under the profile id
-        // so the grant moves to this profile's own bucket.
-        // Fire-and-forget, never for guests (skipped above).
-        rebindPingUserForVerifiedProfile(profile.id, false);
+      if (profile.status !== 'verified' && profile.status !== 'user') {
+        const flipped = applyDailyVerificationIssuance(profile.id);
+        if (flipped) {
+          verified.push(profile.id);
+          // The verified grant lived on the install-id bucket
+          // (Fix 1 migration): re-activate under the profile id
+          // so the grant moves to this profile's own bucket.
+          // Fire-and-forget, never for guests (skipped above).
+          rebindPingUserForVerifiedProfile(profile.id, false);
+        }
       }
+      // ALWAYS: the current temp verified — even when the
+      // profile status was already verified (the temp just
+      // verified, the profile was already verified).
+      useProfileStore.getState().markTempVerified(profile.id);
     }
 
-    // Deposit + grant: a verified local profile with a deposit
-    // entry for today gets its 1,000 SP/day grant recorded
-    // (once per day — the grant module dedups by day). The
-    // profiles are re-read fresh here: the status loop above
-    // may have just flipped one, and the snapshot it used is
-    // stale for that profile.
+    // Loop 2 — deposit + grant: a verified local profile with
+    // a deposit entry for today gets its 1,000 SP/day grant
+    // recorded (once per day — the grant module dedups by day).
+    // Matched by the PRE-rotation tempId: the rotation loop
+    // below has not run yet, so the current tempId is still the
+    // one that just verified — and the deposit for it belongs
+    // to this profile. The profiles are re-read fresh here: the
+    // status loop above may have just flipped one, and the
+    // snapshot it used is stale for that profile.
     const depositIds = new Set(
       (pulled.daily?.deposit.entries ?? []).map((entry) => entry.id),
     );
     for (const profile of useProfileStore.getState().profiles) {
       if (profile.status === 'guest') continue;
-      if (!depositIds.has(profile.id)) continue;
+      if (!depositIds.has(profile.tempId ?? profile.id)) continue;
       if (profile.status !== 'verified' && profile.status !== 'user') continue;
       // Already verified before this sync (the migration case:
       // Genesis's grant still sits on the install-id bucket) —
@@ -148,6 +178,26 @@ export async function runFixNetSyncNow(): Promise<FixNetSyncReport> {
       rebindPingUserForVerifiedProfile(profile.id, false);
       const result = await applyVerifiedSpGrant(profile.id, day);
       if (result.granted) granted.push(profile.id);
+    }
+
+    // Loop 3 — rotation (FixNet temp rotation, Gary 2026-11-17):
+    // adopt the next temp the grab created for the current temp.
+    // The verified status + SP grant belong to the PROFILE, not
+    // the temp — rotation never revokes them (the profile status
+    // stays 'verified', the grant is keyed by profile id + day).
+    // The ping-user rebind above stays as-is: it activates
+    // profile.id, the old temp, on the server's resumed path —
+    // harmless. Idempotent: a second sync carrying the same
+    // next_temp is a no-op — tempId already equals it. Guests
+    // are skipped in this loop too (rotateTemp refuses them).
+    for (const profile of useProfileStore.getState().profiles) {
+      if (profile.status === 'guest') continue;
+      const currentTempId = profile.tempId ?? profile.id;
+      const next = byId.get(currentTempId)?.next_temp;
+      if (!next || next.id === currentTempId) continue;
+      if (useProfileStore.getState().rotateTemp(profile.id, next.id)) {
+        rotated.push(profile.id);
+      }
     }
 
     // Tell the user about the flips (only the flips — a sync
@@ -167,10 +217,26 @@ export async function runFixNetSyncNow(): Promise<FixNetSyncReport> {
         );
     }
 
+    // And about the rotations — the temp is visibly in
+    // transition ("noticed in transition", Gary 2026-11-17):
+    // the new temp awaits verification at the next grab.
+    for (const profileId of rotated) {
+      const profile = useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === profileId);
+      const name = profile?.name ?? profileId;
+      useToastStore
+        .getState()
+        .success(
+          `${name} rotated to a new temp — awaiting verification at the next grab.`,
+        );
+    }
+
     return {
       ok: true,
       verified,
       granted,
+      rotated,
       day: pulled.day,
       yield: pulled.daily
         ? {

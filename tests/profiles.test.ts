@@ -858,3 +858,192 @@ describe('logout — Settings > General (Gary, 2026-11-16)', () => {
     ).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// FixNet temp rotation (Gary, 2026-11-17)
+// ---------------------------------------------------------------------------
+
+describe('FixNet temp rotation — tempId / tempState (Gary, 2026-11-17)', () => {
+  test('a legacy record without a temp defaults tempId to the profile id and tempState from the status', () => {
+    const parsed = parsePersistedProfiles({
+      profiles: [
+        {
+          id: 'profile-temp',
+          name: 'Temp',
+          status: 'temp',
+          verifiedGates: [],
+          createdAt: '2026-11-16T00:00:00.000Z',
+          lastActiveAt: null,
+        },
+        {
+          id: 'profile-verified',
+          name: 'Verified',
+          status: 'verified',
+          verifiedGates: ['daily-check'],
+          createdAt: '2026-11-16T00:00:00.000Z',
+          lastActiveAt: null,
+        },
+        {
+          id: 'profile-user',
+          name: 'User',
+          status: 'user',
+          verifiedGates: ['telegram'],
+          createdAt: '2026-11-16T00:00:00.000Z',
+          lastActiveAt: null,
+        },
+      ],
+      activeProfileId: 'profile-temp',
+    });
+    expect(parsed).not.toBeNull();
+    const byId = new Map(parsed?.profiles.map((p) => [p.id, p]));
+    // The temp a profile verified under before rotation existed
+    // is its own id; a temp that never verified is 'temp'.
+    expect(byId.get('profile-temp')?.tempId).toBe('profile-temp');
+    expect(byId.get('profile-temp')?.tempState).toBe('temp');
+    // A verified profile's temp already verified.
+    expect(byId.get('profile-verified')?.tempId).toBe('profile-verified');
+    expect(byId.get('profile-verified')?.tempState).toBe('verified');
+    expect(byId.get('profile-user')?.tempId).toBe('profile-user');
+    expect(byId.get('profile-user')?.tempState).toBe('verified');
+  });
+
+  test('an explicit temp on the record is kept; a malformed one falls back to the defaults', () => {
+    const parsed = parsePersistedProfiles({
+      profiles: [
+        {
+          id: 'profile-a',
+          name: 'A',
+          status: 'verified',
+          verifiedGates: ['daily-check'],
+          createdAt: '2026-11-16T00:00:00.000Z',
+          lastActiveAt: null,
+          tempId: 'profile-b',
+          tempState: 'pending',
+        },
+        {
+          id: 'profile-c',
+          name: 'C',
+          status: 'temp',
+          verifiedGates: [],
+          createdAt: '2026-11-16T00:00:00.000Z',
+          lastActiveAt: null,
+          tempId: '',
+          tempState: 'bogus',
+        },
+      ],
+      activeProfileId: 'profile-a',
+    });
+    expect(parsed).not.toBeNull();
+    const byId = new Map(parsed?.profiles.map((p) => [p.id, p]));
+    // Mid-rotation state survives a relaunch exactly.
+    expect(byId.get('profile-a')?.tempId).toBe('profile-b');
+    expect(byId.get('profile-a')?.tempState).toBe('pending');
+    // Malformed temp fields fall back, never trusted.
+    expect(byId.get('profile-c')?.tempId).toBe('profile-c');
+    expect(byId.get('profile-c')?.tempState).toBe('temp');
+  });
+
+  test('new profiles start on their own id as the temp', () => {
+    const created = useProfileStore.getState().createProfile('Gary');
+    expect(created).not.toBeNull();
+    expect(created?.tempId).toBe(created?.id);
+    expect(created?.tempState).toBe('temp');
+    // The implicit default profile too.
+    const def = createDefaultProfile();
+    expect(def.tempId).toBe('default');
+    expect(def.tempState).toBe('temp');
+    // And a guest (its temp never activates, but the fields
+    // are still defaulted, never undefined).
+    const guest = useProfileStore.getState().createGuestProfile();
+    expect(guest.tempId).toBe(guest.id);
+    expect(guest.tempState).toBe('temp');
+  });
+
+  test('rotateTemp moves the temp and marks it pending — the profile id and status never move', () => {
+    const created = useProfileStore.getState().createProfile('Gary');
+    expect(created).not.toBeNull();
+    const id = created!.id;
+    // Verify it first, so the test proves rotation never
+    // revokes a verified profile.
+    expect(
+      useProfileStore.getState().markGateVerified(id, 'daily-check'),
+    ).toBe(true);
+    expect(
+      useProfileStore.getState().rotateTemp(id, 'profile-next-temp'),
+    ).toBe(true);
+    const after = useProfileStore
+      .getState()
+      .profiles.find((p) => p.id === id);
+    expect(after?.id).toBe(id);
+    expect(after?.tempId).toBe('profile-next-temp');
+    expect(after?.tempState).toBe('pending');
+    // The profile stays verified; the grant day (keyed by
+    // profile id) is untouched.
+    expect(after?.status).toBe('verified');
+    expect(after?.verifiedGates).toEqual(['daily-check']);
+  });
+
+  test('rotateTemp returns false for an unknown profile, a guest, or an empty temp id', () => {
+    expect(
+      useProfileStore.getState().rotateTemp('profile-gone', 'profile-x'),
+    ).toBe(false);
+    const guest = useProfileStore.getState().createGuestProfile();
+    expect(
+      useProfileStore.getState().rotateTemp(guest.id, 'profile-x'),
+    ).toBe(false);
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === guest.id)?.tempId,
+    ).toBe(guest.id);
+    expect(
+      useProfileStore.getState().rotateTemp(DEFAULT_PROFILE_ID, '   '),
+    ).toBe(false);
+    expect(
+      useProfileStore.getState().profiles[0].tempId,
+    ).toBe(DEFAULT_PROFILE_ID);
+  });
+
+  test('markTempVerified records the current temp as verified — and refuses guests and unknown profiles', () => {
+    const created = useProfileStore.getState().createProfile('Gary');
+    expect(created).not.toBeNull();
+    const id = created!.id;
+    expect(useProfileStore.getState().markTempVerified(id)).toBe(true);
+    const after = useProfileStore
+      .getState()
+      .profiles.find((p) => p.id === id);
+    expect(after?.tempState).toBe('verified');
+    // The profile status is untouched — the sync flips it
+    // separately.
+    expect(after?.status).toBe('temp');
+    expect(useProfileStore.getState().markTempVerified('profile-gone')).toBe(
+      false,
+    );
+    const guest = useProfileStore.getState().createGuestProfile();
+    expect(useProfileStore.getState().markTempVerified(guest.id)).toBe(false);
+    expect(
+      useProfileStore
+        .getState()
+        .profiles.find((p) => p.id === guest.id)?.tempState,
+    ).toBe('temp');
+  });
+
+  test('a rotated temp round-trips through persistence parsing', () => {
+    const created = useProfileStore.getState().createProfile('Gary');
+    expect(created).not.toBeNull();
+    const id = created!.id;
+    expect(useProfileStore.getState().rotateTemp(id, 'profile-next')).toBe(
+      true,
+    );
+    const record = {
+      profiles: useProfileStore.getState().profiles,
+      activeProfileId: useProfileStore.getState().activeProfileId,
+    };
+    const parsed = parsePersistedProfiles(
+      JSON.parse(JSON.stringify(record)),
+    );
+    const after = parsed?.profiles.find((p) => p.id === id);
+    expect(after?.tempId).toBe('profile-next');
+    expect(after?.tempState).toBe('pending');
+  });
+});

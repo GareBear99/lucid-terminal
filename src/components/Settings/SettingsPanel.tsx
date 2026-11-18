@@ -2800,6 +2800,15 @@ function SettingsPanel({ onClose, initialTab, onOpenPersonaPlex }: SettingsPanel
                   {activeProfile ? ` (${activeProfile.status})` : ''}. Logging out
                   returns to the Profiles screen — your profile and its data stay saved.
                 </p>
+                {/* FixNet temp rotation (Gary, 2026-11-17): the temp
+                    this profile currently verifies under + its
+                    state. Guests never activate a temp, so they
+                    get no line. The pill is untouched (on hold). */}
+                {!isGuestProfile(activeProfile) && activeProfile && (
+                  <p className="text-xs leading-[1.5] text-[var(--text-muted)] mb-2">
+                    {`Temp: ${activeProfile.tempId ?? activeProfile.id} (${activeProfile.tempState === 'verified' ? 'verified' : activeProfile.tempState === 'pending' ? 'awaiting verification' : 'not verified'})`}
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <Tooltip content="Log out of the current profile">
                     <button

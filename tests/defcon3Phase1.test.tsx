@@ -463,7 +463,12 @@ describe('DEFCON 3 one composer across LuciferAI on/off', () => {
     expect(fsExistsMock).toHaveBeenCalledWith('/home/test/.lucid-dev-submit-test');
     const visibleArrow = within(bar).getByTestId('dev-send-arrow') as HTMLButtonElement;
     expect(visibleArrow.getAttribute('aria-label')).toBe('Send command');
-    expect(visibleArrow.textContent).toBe('➜');
+    // v2: the button carries the word "Send" (OCR-readable, so
+    // the agent can click_element on it in background mode) with
+    // larger padding + a border — a wide target, not a bare glyph.
+    expect(visibleArrow.textContent).toBe('➜ Send');
+    expect(visibleArrow.textContent).toContain('Send');
+    expect(visibleArrow.className).toContain('px-3');
     // Disabled while the composer is empty.
     expect(visibleArrow.disabled).toBe(true);
 

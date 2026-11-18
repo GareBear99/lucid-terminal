@@ -2220,9 +2220,20 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
           (devSubmitTest), the SAME button renders VISIBLE with
           the OFF-branch gold-arrow styling, so the agent can
           discover it via computer control in background mode
-          (OCR sees it) and click it by element — precise, no
-          blind coordinates. The flag defaults off; normal use
-          is byte-for-byte the hidden button. */}
+          and click it by element — precise, no blind
+          coordinates. The flag defaults off; normal use
+          is byte-for-byte the hidden button.
+          v2 (Gary, 2026-11-17 — live test): the bare ➜ glyph
+          is NOT read by background OCR (no element to click)
+          and a coordinate click cannot land on it reliably
+          (the ~21+ unit rightward offset is wider than the
+          gap to the blood drop, and four aimed clicks missed).
+          So in test mode the button ALSO carries the word
+          "Send" (OCR-readable, so the agent can click_element
+          on the "Send" text) with larger padding + a border,
+          making it a wide target far enough from the blood
+          drop to click safely. Test mode only; normal use
+          unchanged. */}
       {luciferAiEnabled && (
         devSubmitTest ? (
           <Tooltip content="Send" shortcut="Enter">
@@ -2232,10 +2243,10 @@ function Terminal({ tabId, onOpenHelp, onOpenSynth, onOpenForge, onOpenFiles, lu
               onClick={() => void handleComposerSubmit(devInput)}
               disabled={!devInput.trim()}
               aria-label="Send command"
-              className="shrink-0 rounded px-1 text-[var(--warning)] font-bold text-lg leading-none select-none hover:bg-white/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+              className="shrink-0 rounded border border-[var(--warning)]/60 bg-white/10 px-3 py-1 text-[var(--warning)] font-bold text-lg leading-none select-none hover:bg-white/20 transition-colors disabled:opacity-40 disabled:hover:bg-white/10"
               style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.5)' }}
             >
-              ➜
+              ➜ Send
             </button>
           </Tooltip>
         ) : (

@@ -1236,7 +1236,7 @@ export interface PersonaConfig {
   rate: number;
 }
 
-export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge' | 'persona-plex' | 'worldmap';
+export type View = 'terminal' | 'editor' | 'settings' | 'synth' | 'forge' | 'persona-plex' | 'worldmap' | 'nco';
 
 /** Google Drive IPC result + redirect — mirrors GoogleDriveIpcResult
  *  / GoogleDriveAuthRedirect in src/lib/googleDriveAuth.ts. Defined
@@ -1442,7 +1442,7 @@ declare global {
       fixnet: {
         /** Pull the daily data from the FixNet repo's GitHub Pages site (pull-only). */
         sync: () => Promise<{
-          status: { tick: number; id: string; outcome: 'verified' | 'pending' | 'not_verified' | 'expired'; day: string | null; reason: string | null }[];
+          status: { tick: number; id: string; outcome: 'verified' | 'pending' | 'not_verified' | 'expired'; day: string | null; reason: string | null; next_temp?: { id: string } | null }[];
           day: string | null;
           daily: {
             date: string;

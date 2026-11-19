@@ -558,7 +558,7 @@ export class LLMBuilderBrain implements AgentBrain {
     resolveFirst: () => Promise<{ path: string | null; missing?: string; matches?: string[] }>,
     atFolderDirs: string[],
     atSymbolNames: string[],
-  ): { call?: PlannedToolCall; reply?: string } {
+  ): Promise<{ call?: PlannedToolCall; reply?: string }> {
     const missingReply = (missing: string, matches: string[]): { reply: string } => ({
       reply:
         `I couldn’t find "${missing}" in this workspace.` +

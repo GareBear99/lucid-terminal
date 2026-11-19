@@ -31,6 +31,7 @@ import { toggleForgeView } from './lib/forgeView';
 import { togglePersonaPlexView } from './lib/personaPlexView';
 import { toggleWorldmapView } from './lib/worldmapView';
 import { WorldmapView } from './components/Worldmap/WorldmapView';
+import { NCOView } from './components/NCO/NCOView';
 import { toggleSettingsView } from './lib/settingsView';
 import { HelpModal, useHelpModalShortcut } from './components/Help/HelpModal';
 import { LuciferAITabPanel } from './components/Help/LuciferAITabPanel';
@@ -895,6 +896,9 @@ function App() {
                 // file was open, so the editor was unreachable from
                 // a fresh start.)
                 <CodeEditor />
+              )}
+              {currentView === 'nco' && (
+                <NCOView />
               )}
               {/* Terminal — always mounted, hidden unless it is the
                   current view (see the Main Panel comment above). */}

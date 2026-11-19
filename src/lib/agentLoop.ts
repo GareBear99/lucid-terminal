@@ -132,7 +132,7 @@ export interface AgentTurnResult {
 }
 
 export type AgentLoopEvent =
-  | { type: 'index-progress'; phase: 'walk' | 'index'; done: number; total: number | null }
+  | { type: 'index-progress'; phase: 'walk' | 'index' | 'done'; done: number; total: number | null }
   | { type: 'index-done'; files: number; capped?: boolean }
   | { type: 'index-skipped'; reason: string }
   | { type: 'tool-start'; name: string; status: string }

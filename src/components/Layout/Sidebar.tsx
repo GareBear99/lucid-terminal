@@ -10,6 +10,8 @@ import {
   Minus,
   Users,
   Globe,
+  Cpu,
+  Rocket,
 } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useHistoryStore, selectHistoryBlocksForTab, jumpToBlock } from '../../stores/historyStore';
@@ -609,6 +611,57 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
     }
   };
 
+  // NCO section (Gary, 2026-11-19): a fixed section directly under
+  // the blood drop, segregated by a line, always visible — including
+  // in guest access (no plugin, LuciferAI or profile gate). For now
+  // only NCO appears live (Gary, 2026-11-19 ~14:18 MST: "just nco
+  // will appear for now"); ROOT 001 and ROOT 002 show as awaiting
+  // connection. The section is NOT part of the drag-reorderable
+  // toolbar order: it is pinned under the blood drop and never
+  // moves, and it is never a drop target. The starship buttons are
+  // not `disabled` — a disabled trigger never shows its tip (see
+  // Tooltip), and the tip is what says "awaiting connection" — so
+  // they are dimmed buttons with aria-disabled and no action yet.
+  // The NCO button toggles the NCO view like the Editor button
+  // toggles the editor (second click lands back on Terminal).
+  const ncoBtnClass = (isActive: boolean) =>
+    `p-2 rounded-md transition-colors ${isActive
+      ? 'bg-[var(--bg-tertiary)] text-[var(--accent)]'
+      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+    }`;
+  const ncoSection = (
+    <>
+      <div className="lucid-color-shift my-1 h-px w-8" aria-hidden="true" />
+      <Tooltip content="NCO — math, metrics and containments" placement="right">
+        <button
+          onClick={() => onViewChange(currentView === 'nco' ? 'terminal' : 'nco')}
+          className={ncoBtnClass(currentView === 'nco')}
+          aria-label="NCO"
+        >
+          <Cpu size={20} />
+        </button>
+      </Tooltip>
+      <Tooltip content="ROOT 001 — awaiting connection" placement="right">
+        <button
+          className="p-2 rounded-md text-[var(--text-muted)] opacity-40 hover:text-[var(--text-primary)]"
+          aria-disabled="true"
+          aria-label="ROOT 001 — awaiting connection"
+        >
+          <Rocket size={20} />
+        </button>
+      </Tooltip>
+      <Tooltip content="ROOT 002 — awaiting connection" placement="right">
+        <button
+          className="p-2 rounded-md text-[var(--text-muted)] opacity-40 hover:text-[var(--text-primary)]"
+          aria-disabled="true"
+          aria-label="ROOT 002 — awaiting connection"
+        >
+          <Rocket size={20} />
+        </button>
+      </Tooltip>
+    </>
+  );
+
 
   return (
     <div className="flex h-full">
@@ -629,6 +682,10 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
           clearToolbarDragState();
         }}
       >
+        {/* The NCO section sits under the blood drop; when the blood
+            drop itself is absent (silenced) the section sits at the
+            top of the bar instead, so it always shows. */}
+        {!toolbarOrder.includes('help') && ncoSection}
         {toolbarOrder.map((entry, entryIdx) => {
           if (entry === 'spacer') {
             // The flexible gap — a drop target (dropping on it puts the
@@ -662,6 +719,7 @@ function Sidebar({ width, onWidthChange, currentView, onViewChange, showAI, onTo
             <Fragment key={entry}>
               {showDivider && <div className="lucid-color-shift my-1 h-px w-8" aria-hidden="true" />}
               {slot}
+              {entry === 'help' && ncoSection}
             </Fragment>
           );
         })}
